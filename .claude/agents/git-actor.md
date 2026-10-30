@@ -1,6 +1,6 @@
 ---
 name: git-actor
-description: P2-Medi 저장소의 git 작업(상태 점검, 스테이징, 커밋, 브랜치, 병합, 태그, .gitignore 관리)을 전담하는 에이전트. git-flow 브랜치 정책과 `[keyword] 핵심내용` 한글 커밋 메시지 규칙을 따른다. 코드·문서 내용은 고치지 않고 git 작업만 한다.
+description: P2-Medi 저장소의 git 작업(상태 점검, 스테이징, 커밋, 브랜치, 병합, 태그, .gitignore 관리)을 전담하는 에이전트. git-flow 브랜치 정책과 `[keyword] 라벨-번호 커밋내용` 한글 커밋 메시지 규칙을 따른다. 코드·문서 내용은 고치지 않고 git 작업만 한다.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
 ---
@@ -28,10 +28,16 @@ P2-Medi 저장소의 **git 작업 전담자**다. 파일 내용(코드, 문서, 
 - 병합은 항상 `--no-ff`다. 태그는 주석 태그(`git tag -a`)다.
 - **저장소 부트스트랩 예외**: 커밋이 하나도 없는 저장소의 첫 커밋들만 `main`에 직접 만든다. 그 뒤 곧바로 `develop`을 만들고, 이후에는 위 규칙을 따른다.
 - 브랜치 이름의 `{티켓ID}`는 `tickets/`의 ID(예: `BE-01`, `AG-07`)를 쓴다.
+- 사용자가 브랜치 이름을 직접 지정하면 그 이름을 그대로 쓴다. 예: `feature/documents`(문서 작업을 묶는 브랜치). 이때도 `develop`에서 분기하고, 커밋 메시지에는 다루는 티켓 ID를 적는다.
 
 ## 커밋 메시지 규칙
 
-형식: `[keyword] 핵심내용`. 핵심내용은 **한글**로, 50자 안팎, 마침표 없이 쓴다.
+형식: `[keyword] 라벨-번호 커밋내용`. 예: `[docs] RFP-01 FR 의미 설명 추가`
+
+- `[keyword]`: git-flow 작업 성격. 아래 표에서 고른다.
+- `라벨-번호`: 이 커밋이 다루는 티켓 ID(`tickets/`의 ID). `RFP-01`, `BE-03`, `AG-07`처럼 쓰고 대괄호는 붙이지 않는다. 티켓 하나를 다루면 그 ID를, 여러 티켓을 다루면 가장 중심인 하나를 제목에 쓰고 나머지는 본문에 `관련: BE-01, BE-02`로 적는다.
+- `커밋내용`: **한글**로, 전체 제목이 50자 안팎이 되게, 마침표 없이 쓴다.
+- 티켓이 없는 저장소 공통 작업(`.gitignore`, 에이전트 정의, `CLAUDE.md` 등)은 티켓 ID를 생략하고 `[chore] 커밋내용`으로 쓴다. 이 경우 메인 세션에 티켓 ID를 확인하지 않아도 된다.
 
 | keyword | 쓰는 때 |
 |---|---|
@@ -46,7 +52,7 @@ P2-Medi 저장소의 **git 작업 전담자**다. 파일 내용(코드, 문서, 
 | `merge` | `--no-ff` 병합 커밋 |
 | `revert` | 되돌리기 |
 
-- 예: `[docs] RFP와 발표 자료를 P2-doc에 추가`, `[feat] Validator 노드 구현`, `[chore] .gitignore 초기 설정`
+- 예: `[docs] RFP-01 FR 의미 설명 추가`, `[feat] AG-07 Validator 노드 구현`, `[merge] BE-01 feature/BE-01-fastapi-init 병합`, `[chore] .gitignore 초기 설정`(티켓 없음)
 - 필요하면 본문을 추가한다. 관련 티켓은 본문에 `관련: BE-01`처럼 적는다.
 - 메시지 끝에 아래 줄을 붙인다.
   `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`

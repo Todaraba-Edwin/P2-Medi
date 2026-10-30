@@ -15,9 +15,13 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | 에이전트 | 정의 파일 | 맡는 일 |
 |---|---|---|
 | `schedule-writer` | [`.claude/agents/schedule-writer.md`](.claude/agents/schedule-writer.md) | `schedule.md`와 `tickets/` 작성·갱신, 진행 현황과 Top 5 관리. 이 두 곳 밖의 파일은 읽기만 한다 |
+| `tickets-writer` | [`.claude/agents/tickets-writer.md`](.claude/agents/tickets-writer.md) | 티켓 문서의 본문(설명·해설) 작성. `#` 제목과 `##` 소제목을 분리하고 상단에 Index(목차 링크)를 둔다. 상태·일정은 다루지 않는다 |
+| `documents-writer` | [`.claude/agents/documents-writer.md`](.claude/agents/documents-writer.md) | PDF·DOCX 등 문서 파일을 읽고 마크다운으로 정리해 `P2-doc/`에 기록. `#` 제목, `## Index`, `## 1.` 번호 소제목, `### (1)` 세부 항목 규칙. `.env`는 열지 않는다 |
 | `git-actor` | [`.claude/agents/git-actor.md`](.claude/agents/git-actor.md) | git 작업 전담: 커밋, 브랜치, 병합, 태그, `.gitignore` 관리. 파일 내용은 고치지 않는다 |
 
-일정, 티켓, 진행률 문서 작업은 `schedule-writer`가, git과 관련된 모든 작업은 `git-actor`가 전담한다. 키워드(SCH, RFP, PRD, AG, BE, FE), 문서 형식, 브랜치 정책(git-flow), 커밋 메시지 형식(`[keyword] 핵심내용`, 한글), 보고 형식은 각 정의 파일에서 확인한다. push는 사용자가 요청할 때만 한다.
+역할은 이렇게 나눈다. 일정 표, 티켓 파일 생성, 상태·완료일은 `schedule-writer`가, 티켓 본문의 설명 작성은 `tickets-writer`가, git과 관련된 모든 작업은 `git-actor`가 전담한다. 키워드(SCH, RFP, PRD, AG, BE, FE), 문서 형식, 브랜치 정책(git-flow), 보고 형식은 각 정의 파일에서 확인한다.
+
+커밋 메시지는 `[keyword] 라벨-번호 커밋내용` 형식이며 내용은 한글로 쓴다. 예: `[docs] RFP-01 FR 의미 설명 추가`. 티켓이 없는 저장소 공통 작업은 `[chore] 커밋내용`으로 쓴다. push는 사용자가 요청할 때만 한다.
 
 ### herdr 환경(`HERDR_ENV=1`)에서의 실행 규칙
 
