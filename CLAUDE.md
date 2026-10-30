@@ -37,5 +37,18 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 
 - API 주소와 인증키는 저장소 루트의 `.env`에 보관한다. `.env`와 `.env.*`는 `.gitignore` 대상이며 커밋하지 않는다.
 - **서브에이전트는 `.env`를 열지 않는다.** 시작 옵션 `--disallowedTools 'Read(./.env)' 'Read(./.env.*)'`로 읽기를 막는다. 문서와 티켓, 커밋 메시지에는 **변수 이름만** 쓰고 값은 쓰지 않는다.
-- 현재 사용자가 알려준 변수는 e약은요 서비스용 `DRDEASYDRUG_END_POINT`(서비스 호출 주소)와 `DRDEASYDRUG_API_KEY`(인증키)다. 이 목록은 `.env`를 직접 읽지 않고 사용자가 알려준 내용에 근거한다. 변수가 늘면 사용자가 알려 주는 대로 이 목록에 이름만 추가한다.
+- 현재 사용자가 알려준 변수는 아래와 같다. 이 목록은 `.env`를 직접 읽지 않고 사용자가 알려준 내용에 근거한다. 변수가 늘면 사용자가 알려 주는 대로 이름만 추가한다.
+
+| 대상 | 변수 이름 | 용도 |
+|---|---|---|
+| e약은요 서비스 | `DRDEASYDRUG_END_POINT`, `DRDEASYDRUG_API_KEY` | 서비스 호출 주소, 인증키 |
+| 식약처 [DUR 품목정보 OpenAPI](https://www.data.go.kr/data/15059486/openapi.do) | `DURPrdlstInfoService03_END_POINT`, `DURPrdlstInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
+| 식약처 [DUR 성분정보 OpenAPI](https://www.data.go.kr/data/15056780/openapi.do) (성분 단위 버전) | `DURIrdntInfoService03_END_POINT`, `DURIrdntInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
+
+## 4. 데이터 파일
+
+- 내려받은 원본 데이터는 `data/`에 둔다. `data/`는 `.gitignore` 대상이며 커밋하지 않는다. 용량이 크고(병용금기 JSON 약 540MB), 라이선스가 "공공저작물 제2유형(출처표시, 상업적 이용금지)"이라 저장소로 재배포하지 않는다.
+- 현재 파일은 한국의약품안전관리원의 [임부금기약물](https://www.data.go.kr/data/15089735/fileData.do) CSV, [병용금기약물(AI 학습용)](https://www.data.go.kr/data/15161282/fileData.do) JSON, 임부금기 항목정의서 xlsx다. 두 데이터의 최신 고시일이 2026-07-21이라 이날을 기준일로 본다.
+- 읽을 때 주의한다. 임부금기 CSV는 **CP949** 인코딩이고, 병용금기 JSON은 크므로 한 번에 읽지 말고 스트리밍으로 처리한다. 임부금기의 `금기등급`(1, 2, M) 뜻은 자료에 없어 확인되기 전까지 해석하지 않는다.
+- 이 데이터를 쓴 답변과 문서에는 출처(한국의약품안전관리원)와 기준일을 표시한다.

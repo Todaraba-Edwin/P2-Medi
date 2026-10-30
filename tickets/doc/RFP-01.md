@@ -174,18 +174,24 @@ FR은 Functional Requirement, 즉 **기능 요구사항**이다. [`P2-doc/PJ2-RF
 | [IROS_239_e약은요_서비스_v1.0.md](../../P2-doc/IROS_239_e약은요_서비스_v1.0.md) | `P2-doc/IROS_239_e약은요_서비스_v1.0.md` | 원본을 마크다운으로 정리한 문서 |
 
 ### 환경변수
-`.env`에 환경변수 `DRDEASYDRUG_END_POINT`와 `DRDEASYDRUG_API_KEY`가 있다. 이름만 기록하고 값은 쓰지 않는다. `.env`는 직접 읽지 않았고, 변수의 존재는 사용자가 알려준 내용에 근거한다. `.env`는 `.gitignore` 대상이다.
+`.env`에 환경변수 `DRDEASYDRUG_END_POINT`, `DRDEASYDRUG_API_KEY`(e약은요)와 `DURPrdlstInfoService03_END_POINT`, `DURPrdlstInfoService03_API_KEY`(식약처 DUR 품목정보 OpenAPI), `DURIrdntInfoService03_END_POINT`, `DURIrdntInfoService03_API_KEY`(식약처 DUR 성분정보 OpenAPI)가 있다. 이름만 기록하고 값은 쓰지 않는다. `.env`는 직접 읽지 않았고, 변수의 존재는 사용자가 알려준 내용에 근거한다. `.env`는 `.gitignore` 대상이다.
 
 | 변수 이름 | 용도 |
 |---|---|
 | `DRDEASYDRUG_END_POINT` | e약은요 서비스 호출 주소 |
-| `DRDEASYDRUG_API_KEY` | 인증키 |
+| `DRDEASYDRUG_API_KEY` | e약은요 인증키 |
+| `DURPrdlstInfoService03_END_POINT` | 식약처 DUR 품목정보 OpenAPI 호출 주소 |
+| `DURPrdlstInfoService03_API_KEY` | 식약처 DUR 품목정보 OpenAPI 인증키 |
+| `DURIrdntInfoService03_END_POINT` | 식약처 DUR 성분정보 OpenAPI 호출 주소 |
+| `DURIrdntInfoService03_API_KEY` | 식약처 DUR 성분정보 OpenAPI 인증키 |
 
 가정: 용도는 변수 이름에서 읽은 것이다.
 
-같은 내용이 정리본 [4. 환경변수](../../P2-doc/IROS_239_e약은요_서비스_v1.0.md) 장에도 있다.
+e약은요 변수(`DRDEASYDRUG_*`)에 관한 같은 내용이 정리본 [4. 환경변수](../../P2-doc/IROS_239_e약은요_서비스_v1.0.md) 장에도 있다. DUR 변수(`DURPrdlstInfoService03_*`, `DURIrdntInfoService03_*`)는 정리본에 없다.
 
 관련 티켓: 추적 [RFP-03](RFP-03.md) / 구현 [AG-02](../agent/AG-02.md), [BE-02](../backend/BE-02.md)
+
+DUR 변수의 자세한 내용은 [RFP-17 환경변수](RFP-17.md#환경변수)에 있다.
 
 ## DUR 데이터 확보 점검
 DUR = Drug Utilization Review, 의약품 처방·조제 점검이다. 병용금기 등 금기 규정 데이터를 실제로 얻을 수 있는지 점검한다. 아래에서 확인된 것과 확인하지 못한 것을 구분해 적는다.
