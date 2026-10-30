@@ -140,7 +140,7 @@ done: -               # 완료한 날에만 날짜를 적는다
 2. **pane 열기**: `herdr pane split --current --direction right --cwd "$PWD" --no-focus`. 응답의 `.result.pane.pane_id`를 `<pane>`으로 쓴다.
    - 이어서 **이름을 붙인다**: `herdr pane rename <pane> schedule-writer`. 메인 pane은 `P2-Medi-Main`이다.
    - pane ID는 `herdr pane list`로 workspace와 `cwd`를 확인한 뒤 명시한다. `$HERDR_PANE_ID`를 이름 변경·종료 명령에 그대로 쓰지 않는다.
-3. **시작**: `herdr agent start schedule-writer --kind claude --pane <pane> -- --agent schedule-writer --permission-mode acceptEdits`
+3. **시작**: `herdr agent start schedule-writer --kind claude --pane <pane> -- --agent schedule-writer --permission-mode acceptEdits --disallowedTools 'Read(./.env)' 'Read(./.env.*)'`
 4. **작업 요청**: `herdr agent prompt schedule-writer "<모드와 요청>" --wait --timeout 600000`
 5. **보고 읽기**: `herdr agent read schedule-writer --source recent-unwrapped --lines 120`. 아래 "마지막 응답 형식"의 보고를 찾아 사용자에게 요약해 전달한다.
 6. **결과 확인**: 보고만 믿지 않고 변경 파일, 링크, 체크박스와 티켓 `status` 일치를 직접 확인한다.

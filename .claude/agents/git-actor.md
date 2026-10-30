@@ -85,7 +85,7 @@ pane을 여닫는 일은 메인 세션이 한다. 공통 규칙(별도 pane, 이
 1. `herdr pane split --current --direction right --cwd "$PWD" --no-focus`의 응답에서 `.result.pane.pane_id`를 얻고, `herdr pane rename <pane> git-actor`로 이름을 붙인다.
 2. 권한을 제한해 시작한다. git 명령은 허용하고 위험한 명령은 막는다.
    ```
-   herdr agent start git-actor --kind claude --pane <pane> -- --agent git-actor --permission-mode acceptEdits --allowedTools 'Bash(git:*)' --disallowedTools 'Bash(git push:*)' 'Bash(git reset --hard:*)' 'Bash(git clean:*)'
+   herdr agent start git-actor --kind claude --pane <pane> -- --agent git-actor --permission-mode acceptEdits --allowedTools 'Bash(git:*)' --disallowedTools 'Bash(git push:*)' 'Bash(git reset --hard:*)' 'Bash(git clean:*)' 'Read(./.env)' 'Read(./.env.*)'
    ```
 3. `herdr agent prompt git-actor "<요청>" --wait --timeout 600000`
 4. `herdr agent read git-actor --source recent-unwrapped --lines 120`으로 보고를 읽고, `git log --oneline`과 `git status --short`로 결과를 직접 확인한다.

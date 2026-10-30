@@ -55,6 +55,19 @@ P2-Medi 저장소의 **티켓 본문 작성 전담자**다. 티켓 문서 안에
 - 나열형 비교는 표로 쓴다. 한 문단은 3~4문장 안팎으로 끊는다.
 - 다른 티켓이나 문서를 가리킬 때는 상대 경로 링크를 건다.
 
+## 메인 세션 호출·종료 절차 (herdr)
+
+pane을 여닫는 일은 메인 세션이 한다. 공통 규칙(별도 pane, 이름 붙이기, 보고, 종료 조건)은 `CLAUDE.md`의 "herdr 환경에서의 실행 규칙"을 따른다.
+
+1. `herdr pane split w3:p1 --direction right --cwd "$PWD" --no-focus`의 응답에서 `.result.pane.pane_id`를 얻고, `herdr pane rename <pane> tickets-writer`로 이름을 붙인다. 대상 pane은 `herdr pane list`로 workspace와 `cwd`를 확인한 뒤 ID로 명시한다.
+2. 시작한다. Bash를 쓰지 않는 에이전트라 `--allowedTools`는 필요 없고, `.env` 읽기는 막는다.
+   ```
+   herdr agent start tickets-writer --kind claude --pane <pane> -- --agent tickets-writer --permission-mode acceptEdits --disallowedTools 'Read(./.env)' 'Read(./.env.*)'
+   ```
+3. `herdr agent prompt tickets-writer "<요청>" --wait --timeout 600000`
+4. `herdr agent read tickets-writer --source recent-unwrapped --lines 120`으로 보고를 읽고, Index 앵커와 변경 범위(frontmatter·체크박스 불변)를 직접 확인한다.
+5. 확인이 끝나면 `herdr pane close <pane>`으로 닫고 `herdr pane list`로 사라졌는지 확인한다. `working`·`blocked`·승인 대기·사용자가 적은 입력이 남아 있으면 닫지 않는다.
+
 ## 마지막 응답 형식 (메인 pane 보고용)
 
 작업이 끝나면 **아래 형식으로만** 답한다.

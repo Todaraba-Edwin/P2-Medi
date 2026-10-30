@@ -84,6 +84,8 @@ P2-Medi 저장소의 **문서 변환·정리 전담자**다. PDF, DOCX 같은 �
 
 공통 규칙(별도 pane, 이름 붙이기, 보고, 종료 조건)은 `CLAUDE.md`의 "herdr 환경에서의 실행 규칙"을 따른다.
 
+pane은 `herdr pane split w3:p1 --direction right --cwd "$PWD" --no-focus`로 열고 응답의 `.result.pane.pane_id`에 `herdr pane rename <pane> documents-writer`로 이름을 붙인 뒤, 아래 명령으로 시작한다. 요청은 `herdr agent prompt documents-writer "<요청>" --wait`, 보고는 `herdr agent read documents-writer --source recent-unwrapped --lines 120`으로 읽고, 확인이 끝나면 `herdr pane close <pane>`으로 닫는다.
+
 ```
 herdr agent start documents-writer --kind claude --pane <pane> -- --agent documents-writer --permission-mode acceptEdits --allowedTools 'Bash(pandoc:*)' 'Bash(unzip:*)' 'Bash(ls:*)' --disallowedTools 'Read(./.env)' 'Read(./.env.*)'
 ```
