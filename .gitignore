@@ -42,3 +42,4 @@ chroma/
 .chroma/
 qdrant_storage/
 *.sqlite3
+data/
