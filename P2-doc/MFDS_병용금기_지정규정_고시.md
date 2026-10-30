@@ -1,0 +1,626 @@
+# 의약품 병용금기 성분 등의 지정에 관한 규정
+
+> 원본: `「의약품 병용금기 성분 등의 지정에 관한 규정」 개정고시 전문.pdf` (식품의약품안전처 고시, 76쪽) · 정리일: 2026-10-30 · 정리 방식: macOS PDFKit 추출 텍스트(`data/고시_추출_p01-04.txt`, `data/고시_추출_p45-50.txt`)에서 정리, 띄어쓰기 복원 · 최신 개정: 제2026-52호(2026. 7. 21) · 변환 범위: 1~4쪽, 45~50쪽 (나머지는 [4. 변환 범위와 한계](#4-변환-범위와-한계) 참고) · 변환하며 바꾼 것: 띄어쓰기 복원, 쪽 번호 표기(`- 46 -` 등)와 추출 쪽 구분선 생략
+
+## Index
+- [1. 개정 이력](#1-개정-이력)
+- [2. 총칙](#2-총칙)
+  - [(1) 제1조(목적)](#1-제1조목적)
+  - [(2) 제2조(적용범위)](#2-제2조적용범위)
+  - [(3) 제3조(정의)](#3-제3조정의)
+  - [(4) 제4조(병용금기성분)](#4-제4조병용금기성분)
+  - [(5) 제5조(특정연령대금기성분)](#5-제5조특정연령대금기성분)
+  - [(6) 제6조(임부금기성분)](#6-제6조임부금기성분)
+  - [(7) 제7조(자문)](#7-제7조자문)
+  - [(8) 제8조(주의정보의 공고)](#8-제8조주의정보의-공고)
+  - [(9) 제9조(재검토기한)](#9-제9조재검토기한)
+- [3. 별표 2 특정연령대금기 성분](#3-별표-2-특정연령대금기-성분)
+  - [(1) 연번 표](#1-연번-표)
+  - [(2) 열 구분이 모호한 행](#2-열-구분이-모호한-행)
+- [4. 변환 범위와 한계](#4-변환-범위와-한계)
+  - [(1) 변환하지 않은 부분](#1-변환하지-않은-부분)
+  - [(2) 띄어쓰기 복원과 확인 필요](#2-띄어쓰기-복원과-확인-필요)
+
+## 1. 개정 이력
+
+원문 1~2쪽의 고시 목록이다(제정 포함 24건).
+
+| 순번 | 원문 |
+|---|---|
+| 1 | 식품의약품안전처 고시 제2014- 2호(2014. 1. 9, 제정) |
+| 2 | 식품의약품안전처 고시 제2014-179호(2014. 11. 4, 개정) |
+| 3 | 식품의약품안전처 고시 제2015- 21호(2015. 4. 23, 개정) |
+| 4 | 식품의약품안전처 고시 제2015- 90호(2015. 11. 30, 개정) |
+| 5 | 식품의약품안전처 고시 제2016-155호(2016. 12. 30, 개정) |
+| 6 | 식품의약품안전처 고시 제2017- 86호(2017. 11. 6, 개정) |
+| 7 | 식품의약품안전처 고시 제2018- 88호(2018. 11. 2, 개정) |
+| 8 | 식품의약품안전처 고시 제2019- 41호(2019. 5. 22, 개정) |
+| 9 | 식품의약품안전처 고시 제2019-131호(2019. 12. 17, 개정) |
+| 10 | 식품의약품안전처 고시 제2020- 61호(2020. 7. 10, 개정) |
+| 11 | 식품의약품안전처 고시 제2020-130호(2020. 12. 28, 개정) |
+| 12 | 식품의약품안전처 고시 제2021- 72호(2021. 8. 31, 개정) |
+| 13 | 식품의약품안전처 고시 제2021-106호(2021. 12. 16, 개정) |
+| 14 | 식품의약품안전처 고시 제2021-113호(2021. 12. 30, 개정) |
+| 15 | 식품의약품안전처 고시 제2022- 23호(2022. 3. 23, 개정) |
+| 16 | 식품의약품안전처 고시 제2022- 49호(2022. 6. 30, 개정) |
+| 17 | 식품의약품안전처 고시 제2022- 87호(2022. 12. 15, 개정) |
+| 18 | 식품의약품안전처 고시 제2023- 45호(2023. 7. 5, 개정) |
+| 19 | 식품의약품안전처 고시 제2023- 83호(2023. 12. 20, 개정) |
+| 20 | 식품의약품안전처 고시 제2024- 30호(2024. 6. 25, 개정) |
+| 21 | 식품의약품안전처 고시 제2024-466호(2024. 10. 11, 개정) |
+| 22 | 식품의약품안전처 고시 제2025- 46호(2025. 7. 14, 개정) |
+| 23 | 식품의약품안전처 고시 제2025-86호(2025. 12. 23, 개정) |
+| 24 | 식품의약품안전처 고시 제2026-52호(2026. 7. 21, 개정) |
+
+1~22번은 추출 텍스트의 표기(`제2014- 2호`의 공백 포함)를 그대로 두었다. 23~24번은 추출 텍스트에 띄어쓰기가 빠져 있어(`고시제2025-86호(2025.12. 23,개정)`) 띄어쓰기만 복원했다.
+
+## 2. 총칙
+
+### (1) 제1조(목적)
+
+이 규정은 「약사법」 제23조의2제1항제2호 및 제26조제2항제3호의 규정에 따라 병용금기성분, 특정연령대금기성분, 임부금기성분 등의 지정을 목적으로 한다.
+
+### (2) 제2조(적용범위)
+
+이 규정에 의한 금기성분은 별도의 표시가 없는 한 전신작용을 나타내는 제제에 적용한다.
+
+### (3) 제3조(정의)
+
+이 규정에서 사용하는 용어의 뜻은 다음과 같다.
+
+1. "병용금기성분"이란 두 가지 이상의 유효성분을 함께 사용하는 경우 치료효과의 변화 또는 심각한 부작용 발생 등의 우려가 있어 동시에 사용하지 않아야 하는 유효성분의 조합을 말한다.
+2. "특정연령대금기성분"이란 소아, 노인 등 특정한 연령대의 환자가 사용함에 있어 안전성이 확보되지 않았거나 심각한 부작용 발생 등의 우려가 있어 사용하지 않아야 하는 유효성분을 말한다.
+3. "임부금기성분"이란 태아에게 매우 심각한 위해성(태아기형 또는 태아독성 등)을 유발하거나 유발할 가능성이 높아 임부에게 사용하는 것이 권장되지 않는 유효성분을 말하는 것으로 다음 각 목의 구분에 따라 사용이 금지되는 성분을 말한다.
+   - 가. 1등급: 사람에서 태아에 대한 위해성이 명확하고, 약물 사용의 위험성이 치료상의 유익성을 상회하는 경우로 원칙적으로 사용금지
+   - 나. 2등급: 사람에서 태아에 대한 위해성이 나타날 수 있으며, 약물 사용의 위험성이 치료상의 유익성을 상회하는 경우로 원칙적으로 사용금지. 다만, 치료상의 유익성이 약물 사용의 잠재적 위험성을 상회하거나 명확한 임상적 사유가 있어 사용하는 경우에는 예외로 한다.
+4. "용량주의성분"이란 성인에서 특정 용량을 초과하여 투여 시 효과의 증가는 기대하기 어렵고 용량의존적 부작용 발생 가능성이 높아져 1일 최대용량에 대한 주의가 필요한 유효성분을 말한다.
+5. "투여기간주의성분"이란 특정 투여기간을 초과하여 투여 시 효과의 증가는 기대하기 어렵고 부작용 발생 가능성이 높아져 1회 최대 투여기간에 대한 주의가 필요한 유효성분을 말한다.
+6. "효능군중복주의성분"이란 약리기전이 동일하거나 유사한 효능군 내에서 중복 투여될 때 추가적인 효과의 증가는 기대하기 어렵고 부작용 발생 가능성이 높아져 주의가 필요한 유효성분을 말한다.
+7. "노인주의성분"이란 노인에서 부작용 발생 빈도 증가 등의 우려가 있어 사용 시 주의가 필요한 유효성분을 말한다.
+8. "수유부주의성분"이란 수유 중의 소아에게 부작용 발생 등의 우려가 있어 수유부에게 사용 시 주의가 필요한 유효성분을 말한다.
+9. "분할주의의약품"이란 단위의 제형을 분할하여 복용할 경우 허가된 약효를 기대하기 어려운 의약품을 말한다.
+10. "유효성분"이란 내재된 약리작용에 의하여 그 의약품의 효능·효과를 직접 또는 간접적으로 발현한다고 기대되는 물질 또는 물질군(약리학적 활성성분 등이 밝혀지지 아니한 생약 등을 포함한다)으로서 주성분을 말한다. 별도의 표시가 없는 한 해당 유효성분의 염, 수화물 또는 이성체 등을 포함한다.
+
+### (4) 제4조(병용금기성분)
+
+병용금기성분은 별표 1과 같다.
+
+### (5) 제5조(특정연령대금기성분)
+
+특정연령대금기성분은 별표 2와 같다.
+
+### (6) 제6조(임부금기성분)
+
+임부금기성분은 별표 3과 같으며, 단일제 및 복합제에 적용한다.
+
+### (7) 제7조(자문)
+
+식품의약품안전처장은 병용금기성분, 특정연령대금기성분, 임부금기성분 등을 지정하기 위해 필요한 경우 중앙약사심의위원회의 자문을 받을 수 있다.
+
+### (8) 제8조(주의정보의 공고)
+
+식품의약품안전처장은 의약품 적정사용을 위해 용량주의성분, 투여기간주의성분, 효능군중복주의성분, 노인주의성분, 수유부주의성분, 분할주의의약품 등의 정보를 인터넷 홈페이지 등을 통하여 공고한다.
+
+### (9) 제9조(재검토기한)
+
+식품의약품안전처장은 「훈령·예규 등의 발령 및 관리에 관한 규정」에 따라 이 고시에 대하여 2017년 1월 1일 기준으로 매 3년이 되는 시점(매 3년째의 12월 31일까지를 말한다)마다 그 타당성을 검토하여 개선 등의 조치를 하여야 한다.
+
+## 3. 별표 2 특정연령대금기 성분
+
+[별표 2] 특정연령대 금기 성분 (제5조 관련)
+
+원문 표의 머리글은 `연번 | 유효성분 | 연령기준 | 해당 제형`이다. 아래 표는 열을 `연번 | 유효성분 | 연령기준·해당 제형` 세 칸으로 하고, 원문 순서와 줄바꿈(`<br>`)을 그대로 두었다. 연령기준과 해당 제형을 짝지어 풀지 않았다. 연번은 원문상 1~211이다(쪽별 범위: 45쪽 1~40, 46쪽 41~76, 47쪽 77~120, 48쪽 121~164, 49쪽 165~185, 50쪽 186~211).
+
+### (1) 연번 표
+
+**45쪽 연번 1~40** (행 단위로 추출되어 열 구분이 유지된 구간)
+
+| 연번 | 유효성분 | 연령기준·해당 제형 |
+|---|---|---|
+| 1 | acarbose | 18세 이하 정제 |
+| 2 | acetaminophen | 12세 미만 서방형제제(encapsulated포함) |
+| 3 | albendazole | 2세 미만 정제, 액제 |
+| 4 | alclometasone | 1세 이하 외용제제 |
+| 5 | aloxiprin | 14세 이하 정제 |
+| 6 | amisulpride | 15세 미만 정제, 시럽제 |
+| 7 | atazanavir | 3개월 미만 캡슐제 |
+| 8 | atomoxetine | 6세 미만 캡슐제, 시럽제 |
+| 9 | atropine | 12세 미만 4세 미만 점안제(1%)<br>점안제(0.125%) |
+| 10 | azelastine | 6세 이하 정제 |
+| 11 | benzonatate | 10세 이하 캡슐제 |
+| 12 | benztropine | 3세 미만 정제, 주사제 |
+| 13 | bicalutamide | 18세 미만 정제 |
+| 14 | brimonidine | 2세 미만 18세 미만 점안제<br>겔제 |
+| 15 | brimonidine + timolol | 2세 미만 점안제 |
+| 16 | butorphanol | 18세 이하 주사제 |
+| 17 | `<삭제>` | |
+| 18 | cefetamet | 3세 미만 정제, 산제 |
+| 19 | cetirizine | 2세 미만 6세 미만 액제<br>정제, 캡슐제 |
+| 20 | chlorpromazine | 1세 미만 정제 |
+| 21 | chlorprothixene | 6세 미만 정제 |
+| 22 | ciprofloxacin | 18세 미만 정제, 주사제 |
+| 23 | clemastine | 1세 이하 정제, 주사제 |
+| 24 | clobetasol | 24개월 미만 외용제제 |
+| 25 | cyclopentolate | 1세 미만 점안제(0.5% 이상) |
+| 26 | cyproheptadine | 2세 이하 정제 |
+| 27 | dactinomycin | 1세 미만 주사제 |
+| 28 | dexketoprofen | 12세 이하 정제, 주사제 |
+| 29 | diazepam | 6개월 이하 4주 미만 정제<br>벤질알코올 함유한 주사제 |
+| 30 | diclofenac | 4주 미만 벤질알코올 함유한 주사제 |
+| 31 | dicyclomine | 6개월 이하 정제, 캡슐제 |
+| 32 | diethylpropion | 16세 이하 정제 |
+| 33 | dihydrocodeine | 12세 이하 정제 |
+| 34 | dolasetron | 18세 이하 주사제 |
+| 35 | doxazosin | 12세 이하 정제(서방제제 제외) |
+| 36 | doxycycline | 12세 미만<br>(다만, 다른 약을 사용할 수<br>없거나 효과가 없는 경우에만<br>8세이상 신중 투여)<br>정제, 캡슐제 |
+| 37 | doxylamine | 15세 이하 정제, 산제 |
+| 38 | dutasteride | 18세 미만 정제, 캡슐제 |
+| 39 | enoxacin | 18세 이하 정제 |
+| 40 | etidronate | 12세 미만 정제 |
+
+**46~50쪽 연번 41~211** (열 단위로 추출되어 연번·유효성분·연령기준·해당 제형이 각각 덩어리로 나뉜 구간)
+
+이 구간은 추출 텍스트에서 같은 열의 값이 모여 나온다. 한 행의 값을 찾을 수 없고 연령기준·해당 제형의 개수가 연번 수와 맞지 않는 쪽도 있어, 행으로 나누지 않고 쪽별로 열 덩어리를 원문 순서와 줄바꿈 그대로 옮겼다. 영문 성분명의 띄어쓰기는 복원하지 않았다.
+
+**46쪽 (연번 41~76)**
+
+연번:
+
+```
+41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76
+```
+
+유효성분:
+
+```
+etomidate fentanyl
+ferucarbotran ferumoxide flurazepam fluticasone fusidic acid gemifloxacin hydroxocobalamin ibandronic acid isopropyl antipyrine 함유제제 ketoprofen ketoprofen함유 외용제 ketoprofen ketorolac levodopa + benserazide levofloxacin lidocaine + prilocaine lindane lomefloxacin loperamide loratadine lorazepam lornoxicam lovastatin mazindol meloxicam mesalazine
+metacycline
+methylphenidate metoclopramide metoclopramide + pancreatin metoclopramide + dizet100 +
+simethicone milnacipran minocycline
+mirodenafil
+```
+
+연령기준:
+
+```
+2세 미만 2세 미만 18세 미만 18세 미만 18세 미만 15세 이하 3개월 미만 4주 미만 18세 이하 4주 미만 18세 이하 15세 미만 4주 미만 15세 미만 6세 미만 16세 이하 2세 미만 25세 미만 18세 이하 3개월 이하 3세 미만 18세 이하 2세 미만 2세 미만 6세 미만 4주 미만 18세 이하 18세 이하,65세 초과 20세 미만 16세 이하 15세 이하 4주 미만 2세 미만 6세 미만 12세 미만 12세미만
+(다만,다른 약을 사용할 수
+없거나 효과가 없는 경우에만
+8세이상 신중 투여)
+5세 이하 1세 미만 1세 미만 1세 미만 18세 미만 12세미만
+(다만,다른 약을 사용할 수
+없거나 효과가 없는 경우에만
+8세이상 신중 투여)
+18세 이하
+```
+
+해당 제형:
+
+```
+주사제
+주사제
+구강정,박칼정,설하정,
+점비액제,경피흡수제
+주사제
+주사제
+정제
+크림제
+주사제
+정제, 주사제
+벤질알코올 함유한 주사제
+정제, 주사제
+정제
+벤질알코올 함유한 주사제
+외용제제*분류번호:264(진통,진양,수렴,소
+염제)
+외용제제*분류번호:231(치과구강용약)
+정제
+주사제
+정제, 캡슐제
+정제, 주사제
+외용제제
+외용제제
+정제, 캡슐제
+정제, 캡슐제,시럽제
+시럽제
+정제, 캡슐제,구강붕해필름
+벤질알코올 함유한 주사제
+정제
+주사제
+정제
+정제
+정제, 캡슐제
+좌제
+정제(장용정제,서방형장용정제
+포함),과립제
+서방형정제, 서방형 과립제
+외용액제,포말제
+캡슐제
+정제, 캡슐제
+정제, 주사제
+정제
+정제
+캡슐제
+캡슐제
+정제, 구강붕해필름
+```
+
+**47쪽 (연번 77~120)**
+
+연번:
+
+```
+77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120
+```
+
+유효성분:
+
+```
+molindone mometasone
+moxonidine nalidixic acid norfloxacin nortriptyline ofloxacin olanzapine oxycodone oxytetracycline
+pefloxacin perphenazine phendimetrazine phentermine phenylephrine pimecrolimus pipemidic acid piracetam piroxicam polystyrene sulfonate calcium pyrazinobutazone repaglinide ritodrine sildenafil silversulfadiazine sodiumferricgluconatecomplex sodium tetradecyl sulfate sulfadiazine + trimethoprim sulfadoxine + pyrimethamine sulfamethoxazole + trimethoprim sulfasalazine sulfisoxazole sulfisoxazole+erythromycin tacrolimus tadalafil talniflumate taurolidine telbivudine terazosin terbinafine teriparatide(recombinant를 포함) tetracycline
+thiothixene tianeptine
+```
+
+연령기준:
+
+```
+12세 이하 2세 이하 24개월 미만 12세 미만 18세 미만 3개월 미만 18세 이하 18세 이하 18세 이하 13세 미만 18세 미만 12세미만
+(다만,다른 약을 사용할 수
+없거나 효과가 없는 경우에만
+8세이상 신중 투여)
+15세 이하 14세 이하 16세 이하 16세 이하 4주 미만 2세 미만 18세 이하 16세 미만 4주 미만 1개월 미만 14세 이하 18세 미만 65세 이상,12세 미만 18세 이하(다만,발기부전
+치료에 한함)
+2개월 미만 12개월 미만 3세 미만 2개월 미만 2개월 미만 2개월 미만 2세 이하 2개월 미만 2개월 미만 2세 미만 18세 미만 12세 이하 6세 미만 16세 미만 12세 이하 2세 미만 18세 미만 12세미만
+(다만,다른 약을 사용할 수
+없거나 효과가 없는 경우에만
+8세이상 신중 투여)
+12세 이하 15세 미만
+```
+
+해당 제형:
+
+```
+정제
+크림제,연고제,로션제
+분무제(점비제)
+흡입제
+정제
+정제
+정제, 캡슐제
+정제
+정제, 주사제
+정제, 주사제
+정제, 주사제
+정제, 캡슐제
+정제, 주사제
+정제, 주사제
+정제
+정제, 캡슐제
+점안제
+외용제제
+캡슐제
+정제, 캡슐제,주사제
+벤질알코올 함유한 주사제
+시럽제,과립제,겔제,액제,
+산제, 경구용 젤리제
+캡슐제
+정제
+캡슐제,주사제
+정제, 세립제, 츄정, 구강붕해정,
+구강붕해필름,구강용해필름
+외용제제
+캡슐제,액제
+주사제
+정제
+정제
+정제, 시럽제,주사제
+정제
+정제
+시럽제
+외용제제
+정제, 구강용해필름,산제
+정제, 캡슐제
+주사제
+정제
+정제
+정제
+주사제
+캡슐제
+캡슐제
+정제
+```
+
+**48쪽 (연번 121~164)**
+
+연번:
+
+```
+121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164
+```
+
+유효성분:
+
+```
+tigecycline timonacic topiramate tiaprofenate udenafil vardenafil venlafaxine zolpidem 6β-Iodomethyl-19-norcholest-5(10)-en-3β-ol(131I) balofloxacin moxifloxacin tosufloxacin codeine codeine + acetaminophen codeine + acetaminophen+ibuprofen thiocolchicoside thiocolchicoside + aescin avanafil darunavir dibasic sodium phosphate +
+monobasic sodium phosphate dibasic sodium phosphate +
+monobasic sodium phosphate efavirenz pazopanib pazufloxacin Attenuated yellow fever live virus xylometazoline desvenlafaxine tapentadol duloxetine mirtazapine levocetirizine mequitazine vortioxetine diclofenac + misoprostol nifuroxazide verapamil L-carbocysteine olodaterol+ tiotropium cholecalciferol zabofloxacin chlorhexidine + lidocaine strontium chloride dihydrocodeine+chlorpheniramine+
+methylephedrine + guaifenesin dihydrocodeine+chlorpheniramine+
+methylephedrine + ammonium chlori
+de
+```
+
+연령기준:
+
+```
+8세 이하 12세 미만 2세 미만 2세 이하 18세 이하 18세 미만 18세 미만 18세 미만 18세 미만 18세 미만 18세 미만 18세 미만 12세 이하 12세 이하 12세 이하 16세 미만 16세 미만 18세 이하 3세 미만 3세 미만 5세 이하 3개월 미만 2세 미만 18세 이하 6개월 미만 12세 미만 2세 미만 18세 미만 18세 미만 18세미만
+(다만,‘주요 우울장애의 치료’에
+한함) 18세 미만 6세미만 1세미만 24개월 미만 18세 미만 18세 미만 1개월 미만 24개월 미만 24개월 미만 18세 미만 3개월 미만 18세 미만 24개월 미만 12세 미만 12세 미만 12세 미만
+```
+
+해당 제형:
+
+```
+주사제
+정제, 캡슐제
+정제, 캡슐제
+주사제
+정제
+정제
+정제, 캡슐제
+정제
+주사제
+정제
+정제, 주사제
+정제
+정제
+정제
+캡슐제
+캡슐제,주사제
+정제
+정제
+정제
+액제(관장제)
+액제(경구제)
+정제
+정제
+주사제
+주사제
+점비제(0.1%)
+점비제(0.05%)
+서방형정제
+속효성정제, 서방형정제
+캡슐제,정제
+정제, 구강붕해정
+정제
+액제
+정제, 시럽제
+정제
+정제
+캡슐제,현탁액제
+정제, 서방형정제, 주사제
+캡슐제,시럽제
+흡입제
+정제
+정제
+겔제
+주사제
+시럽제,
+정제
+시럽제
+```
+
+**49쪽 (연번 165~185)**
+
+연번:
+
+```
+165 166 167 168
+169 170 171 172 173 174 175 176 177 178 179 180 181 182
+183
+184
+185
+```
+
+유효성분:
+
+```
+dihydrocodeine+chlorpheniramine+
+methylephedrine + caffeine cobicistat + atazanavir cobicistat + darunavir live attenuated influenza virus type
+A (H1N1) +
+live attenuated influenza virus type
+A (H3N2) +
+live attenuated influenza virus type
+B
+polymyxin B +
+dexamethasone + neomycin naltrexone +
+bupropion
+piroxicam propofol Tramadol Tramadol+ Acetaminophen Acamprosate Cinnoxicam Cyclobenzaprine Dioctahedral smectite Kaolin + Berberine tannate + Pectin Hydrotalcite Hydrotalcite + Azulene + Glutamine PulvisCinnamomiCorticis(Cinnamon
+BarkPowder)+PulvisGentianaeLu
+teaeRadicisetRhizomatis(GentianP
+owder)+Hydrotalcite+Sodiumbica
+rbonate
+Aluminium hydroxide + Benfotiamin
+e+PulvisSyzygiiFlos(ClovePowde
+r)+LicoriceExtractPowder+Pulvi
+sCurcumaeRadicis(CurcumaRootP
+owder)+Fennel+PulvisGinsengR
+adicis+Hydrotalcite+Magnesiumh
+ydroxide+Methylmethioninesulfoni
+umchloride+ZingiberisRhizomaRe
+cens
+Calciumcarbonate+CinnamonOil+
+Diastase-protease-cellulase+Fennel
+Oil+Hydrotalcite+LipaseⅡ+Pro
+zyme+Sodiumbicarbonate+Ursod
+eoxycholic acid
+Calciumcarbonate+PulvisCinnamo
+mi Corticis(Cinnamon Bark Powder)
++PulvisSyzygiiFlos(ClovePowder)
++PulvisGlycyrrhizaeRadicisetRhi
+zomatis(LicoricePowder)+Fennel+
+Pulvis Zingiberis Rhizomatis(Ginger
+Powder)+PulvisGinsengRadicis(Gi
+nsengPowder) + Hydrotalcite + L-
+menthol+Magnesiumaluminosilicat
+e+PulvisPhellodendriCorticis(Phell
+```
+
+연령기준:
+
+```
+12세 미만 3개월 미만 36개월 미만 24개월 미만,
+50세 이상 28일 미만 18세 이하,
+75세 이상 80세 이상 1개월 이하(전신마취) 36개월 미만(전신마취) 12세 미만 12세 미만 65세 이상 80세 이상 65세 이상 24개월 미만 19세 미만 15세 미만 15세 미만 15세 미만 15세 미만 15세 미만 15세 미만
+```
+
+해당 제형:
+
+```
+정제
+정제
+정제
+점비제
+점안제,안연고제
+서방형정제
+정제, 캡슐제,주사제
+주사제(1%)
+주사제(2%)
+캡슐제,서방캡슐제,서방정제,
+발포정제,주사제
+정제, 서방정제
+정제
+정제
+정제, 서방캡슐제
+현탁액제
+시럽제
+과립제,산제
+저작정
+정제
+과립제
+정제
+정제
+```
+
+**50쪽 (연번 186~211)**
+
+연번:
+
+```
+186 187
+188 189 190 191 192 193 194 195 196 197 198 199 200 201
+202 203 204 205 206 207 208 209 210 211
+```
+
+유효성분 (185번 성분명의 뒷부분이 이 쪽 첫 줄로 이어짐):
+
+```
+odendron Bark Powder)+ Scopolia E
+xtract
+Milk-thistle Fruit Dry Extract(Milk
+Thistle Dry Extract) Calciumpantothenate+Cyanocobala
+min+Milk-thistleFruitDryExtract
+(MilkThistleDryExtract)+Nicotin
+amide + Pyridoxine hydrochloride +
+Thiamine nitrate
+Tipiracil + Trifluridine Mebendazole Rifampicin+Isoniazid+Pyrazinamid
+e + Ethambutol D-Mannitol Methacholine Molnupiravir Eszopiclone Armodafinil Nitrofurantoin Permethrin Racecadotril Hydromorphone Morphine sulfate Ammonium chloride + Chlorphenira
+mine+Dihydrocodeine+Methylephe
+drine+Pelargoniumsidoidesextract
+Triazolam Lidocaine
+Acrinol + Berberine + Enterococcus
+Faecalis + Loperamide D-Camphor함유제제 DL-Camphor 함유제제 Chlorpheniramine + Dipotassium
+Glycyrrhizinate + Naphazoline Phentermine + Topiramate Povidone-iodine
+Naloxone/Oxycodon Opiranserin
+```
+
+연령기준:
+
+```
+12세 이하 12세 이하 18세 이하 1세 미만 8세 미만 6세 미만 5세 미만 18세 미만 18세 미만 18세 미만 3개월 미만 2세 미만 3개월 미만 18세 미만 18세 미만 12세 미만 18세 이하 4세 이하 3개월 이하 3개월 이하 3세 미만 2세 미만 30개월 이하 30개월 이하 12세 미만 18세 미만 6세 미만 2세 이하 6개월 미만 18세 미만 18세 미만
+```
+
+해당 제형:
+
+```
+정제, 캡슐제,액제
+캡슐제
+정제
+정제, 시럽제
+정제
+흡입제
+흡입제
+캡슐제
+정제
+정제
+캡슐제
+크림제
+캡슐제,산제
+서방정
+서방정
+시럽제
+정제
+구강용겔제(5%)
+연고제(침윤거즈)
+겔제(5%)
+구강용액제(2%)
+캡슐제
+외용제제
+외용제제
+점비액제
+캡슐제
+구강용 액제,구강용 스프레이제
+에어로솔제
+질용좌제,외용액제,연고제
+서방정
+주사제
+```
+
+### (2) 열 구분이 모호한 행
+
+**45쪽 연번 1~40 중 연령기준 또는 해당 제형이 여러 값이거나 여러 줄로 나뉜 연번**
+
+연령기준과 해당 제형을 짝지어 풀지 않고 원문 순서대로 두었다.
+
+| 연번 | 유효성분 | 원문 순서 그대로 | 모호한 이유 |
+|---|---|---|---|
+| 9 | atropine | 12세 미만 4세 미만 점안제(1%)<br>점안제(0.125%) | 연령기준 2개, 해당 제형 2줄 |
+| 14 | brimonidine | 2세 미만 18세 미만 점안제<br>겔제 | 연령기준 2개, 해당 제형 2줄 |
+| 19 | cetirizine | 2세 미만 6세 미만 액제<br>정제, 캡슐제 | 연령기준 2개, 해당 제형 2줄 |
+| 29 | diazepam | 6개월 이하 4주 미만 정제<br>벤질알코올 함유한 주사제 | 연령기준 2개, 해당 제형 2줄 |
+| 36 | doxycycline | 12세 미만<br>(다만, 다른 약을 사용할 수<br>없거나 효과가 없는 경우에만<br>8세이상 신중 투여)<br>정제, 캡슐제 | 연령기준과 단서 문구가 4줄로 나뉨 |
+
+**46~50쪽 연번 41~211**
+
+- 이 구간 전체가 열 단위로 추출되어 행별 열 구분을 알 수 없다. 위 (1)의 쪽별 덩어리가 원문 순서 그대로다.
+- 연령기준이 여러 줄이거나 단서 문구를 가진 값(원문 표기대로):
+  - 46쪽: `12세미만 (다만,다른 약을 사용할 수 없거나 효과가 없는 경우에만 8세이상 신중 투여)`가 2회 나옴
+  - 47쪽: `12세미만 (다만,다른 약을 사용할 수 없거나 효과가 없는 경우에만 8세이상 신중 투여)`가 2회, `18세 이하(다만,발기부전 치료에 한함)`가 1회 나옴
+  - 48쪽: `18세미만 (다만,‘주요 우울장애의 치료’에 한함)`
+  - 49쪽: `24개월 미만,`과 `50세 이상`이 줄로 나뉨, `18세 이하,`와 `75세 이상`이 줄로 나뉨
+  - 46쪽 `18세 이하,65세 초과`, 47쪽 `65세 이상,12세 미만`은 한 값 안에 쉼표로 두 기준이 있음
+- 49쪽은 연령기준에 쉼표·줄바꿈으로 이어진 값이 있어, 값을 세는 방법에 따라 연번 수(21)와 맞는지 확정할 수 없고 값과 연번의 대응을 정할 수 없다.
+- 해당 제형이 여러 줄로 나뉜 값: 46쪽 `구강정,박칼정,설하정, / 점비액제,경피흡수제`, `외용제제*분류번호:264(진통,진양,수렴,소 / 염제)`, `정제(장용정제,서방형장용정제 / 포함),과립제`, 47쪽 `시럽제,과립제,겔제,액제, / 산제, 경구용 젤리제`, `정제, 세립제, 츄정, 구강붕해정, / 구강붕해필름,구강용해필름`, 48쪽 `시럽제,`(줄 끝 쉼표), 49쪽 `캡슐제,서방캡슐제,서방정제, / 발포정제,주사제`
+- 유효성분이 여러 줄로 나뉘거나 쪽을 넘어 이어진 값: 46쪽 `metoclopramide + dizet100 + / simethicone`, 48쪽 인산나트륨 2건과 dihydrocodeine 복합제 2건, 49~50쪽의 긴 복합 성분명(185번 성분명이 50쪽 첫 줄로 이어짐). 이 중 일부는 줄바꿈 위치에서 단어가 잘려 있다(예: `chlori / de`).
+
+## 4. 변환 범위와 한계
+
+### (1) 변환하지 않은 부분
+
+| 부분 | 쪽 | 규모 | 변환하지 않은 이유 |
+|---|---|---|---|
+| 별표 1 병용금기 | 9~44쪽 | 약 1501행 | 아래 이유 참고 |
+| 별표 3 임부금기 | 51~76쪽 | 약 1219행 | 아래 이유 참고 |
+| 부칙 | 5~8쪽 | | 이번 변환 범위에서 제외(4쪽 끝의 `부 칙<제2014-2호, 2014. 1. 9.>`는 부칙의 시작 부분이며 옮기지 않음) |
+
+별표 1·3을 옮기지 않은 이유는 두 가지다. 첫째, 이 내용은 KIDS 파일 데이터(병용금기 JSON, 임부금기 CSV)가 구조화된 형태로 이미 있다. 둘째, 표 파서를 정하기 전이라 사람이 눈으로 확인할 수 없는 상태에서 표를 옮기지 않았다. 별표 2도 46쪽 이후는 같은 이유로 행으로 나누지 않고 열 덩어리로 두었다.
+
+### (2) 띄어쓰기 복원과 확인 필요
+
+- 1~4쪽 추출 텍스트에는 띄어쓰기가 빠져 있어(예: `이규정은`) 띄어쓰기만 복원했다. 단어, 숫자, 기호, 조항 번호, 날짜는 바꾸지 않았다. 일부 줄은 추출 텍스트에 이미 띄어쓰기가 있어 그대로 두었다(제3조 제6호 등).
+- 복원은 판단에 따른 것이므로, 법령 인용 부분(`제23조의2제1항제2호` 등 조항 표기의 붙임)과 제3조 각 호의 띄어쓰기는 원본 PDF와 대조해 확인이 필요하다.
+- 별표 2의 영문 성분명, 연령기준, 해당 제형은 추출 텍스트를 그대로 두었고 띄어쓰기를 복원하지 않았다(`12세미만`, `Calciumcarbonate+...` 등).
+- 개정 이력 23~24번은 추출 텍스트에서 `고시제2025-86호(2025.12. 23,개정)`처럼 띄어쓰기가 빠져 있어 복원했다. 1~22번은 `제2014- 2호` 같은 추출 표기를 그대로 두었다.
+- 별표 2의 연번은 원문상 1~211까지 있다. 202까지로 전달받은 범위보다 9개 많아 211까지 옮겼다.
+- 연번 17은 `<삭제>`로 표시되어 있다. 연번 41~211의 추출 텍스트에는 `<삭제>` 표시가 보이지 않으나, 열 단위 추출이라 행 단위로 확인하지는 못했다.
