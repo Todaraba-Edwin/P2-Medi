@@ -15,9 +15,13 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | 에이전트 | 정의 파일 | 맡는 일 |
 |---|---|---|
 | `schedule-writer` | [`.claude/agents/schedule-writer.md`](.claude/agents/schedule-writer.md) | `schedule.md`와 `tickets/` 작성·갱신, 진행 현황과 Top 5 관리. 이 두 곳 밖의 파일은 읽기만 한다 |
+| `tickets-writer` | [`.claude/agents/tickets-writer.md`](.claude/agents/tickets-writer.md) | 티켓 문서의 본문(설명·해설) 작성. `#` 제목과 `##` 소제목을 분리하고 상단에 Index(목차 링크)를 둔다. 상태·일정은 다루지 않는다 |
+| `documents-writer` | [`.claude/agents/documents-writer.md`](.claude/agents/documents-writer.md) | PDF·DOCX 등 문서 파일을 읽고 마크다운으로 정리해 `P2-doc/`에 기록. `#` 제목, `## Index`, `## 1.` 번호 소제목, `### (1)` 세부 항목 규칙. `.env`는 열지 않는다 |
 | `git-actor` | [`.claude/agents/git-actor.md`](.claude/agents/git-actor.md) | git 작업 전담: 커밋, 브랜치, 병합, 태그, `.gitignore` 관리. 파일 내용은 고치지 않는다 |
 
-일정, 티켓, 진행률 문서 작업은 `schedule-writer`가, git과 관련된 모든 작업은 `git-actor`가 전담한다. 키워드(SCH, RFP, PRD, AG, BE, FE), 문서 형식, 브랜치 정책(git-flow), 커밋 메시지 형식(`[keyword] 핵심내용`, 한글), 보고 형식은 각 정의 파일에서 확인한다. push는 사용자가 요청할 때만 한다.
+역할은 이렇게 나눈다. 일정 표, 티켓 파일 생성, 상태·완료일은 `schedule-writer`가, 티켓 본문의 설명 작성은 `tickets-writer`가, git과 관련된 모든 작업은 `git-actor`가 전담한다. 키워드(SCH, RFP, PRD, AG, BE, FE), 문서 형식, 브랜치 정책(git-flow), 보고 형식은 각 정의 파일에서 확인한다.
+
+커밋 메시지는 `[keyword] 라벨-번호 커밋내용` 형식이며 내용은 한글로 쓴다. 예: `[docs] RFP-01 FR 의미 설명 추가`. 티켓이 없는 저장소 공통 작업은 `[chore] 커밋내용`으로 쓴다. push는 사용자가 요청할 때만 한다.
 
 ### herdr 환경(`HERDR_ENV=1`)에서의 실행 규칙
 
@@ -28,3 +32,10 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 종료하기 전에 **반영 내용을 Main pane에 보고**한다. 보고에는 변경 파일 수, SCH별 현황, Top 5, 가정·확인 필요 사항을 담는다. 보고만 믿지 않고 변경된 파일을 직접 확인한 뒤 닫는다.
 - 다음 경우에는 pane을 닫지 않는다. 에이전트가 `working` 또는 `blocked` 상태이거나 timeout으로 끝났을 때, 사용자의 답이나 승인이 필요할 때, pane 입력창에 사용자가 적은 내용이 남아 있을 때다. 승인 창이 떠 있으면 입력을 임의로 보내지 않고 사용자에게 알린다.
 - 열기, 시작, 요청, 보고 읽기, 종료의 구체적인 명령은 정의 파일의 "메인 세션 호출·종료 절차"를 따른다.
+
+## 3. 비밀 정보와 환경변수
+
+- API 주소와 인증키는 저장소 루트의 `.env`에 보관한다. `.env`와 `.env.*`는 `.gitignore` 대상이며 커밋하지 않는다.
+- **서브에이전트는 `.env`를 열지 않는다.** 시작 옵션 `--disallowedTools 'Read(./.env)' 'Read(./.env.*)'`로 읽기를 막는다. 문서와 티켓, 커밋 메시지에는 **변수 이름만** 쓰고 값은 쓰지 않는다.
+- 현재 사용자가 알려준 변수는 e약은요 서비스용 `DRDEASYDRUG_END_POINT`(서비스 호출 주소)와 `DRDEASYDRUG_API_KEY`(인증키)다. 이 목록은 `.env`를 직접 읽지 않고 사용자가 알려준 내용에 근거한다. 변수가 늘면 사용자가 알려 주는 대로 이 목록에 이름만 추가한다.
+- 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.

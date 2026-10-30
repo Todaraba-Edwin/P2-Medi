@@ -89,6 +89,13 @@ done: -               # 완료한 날에만 날짜를 적는다
 
 # AG-03 · Validator 노드 구현
 
+## Index
+- [이슈](#이슈)
+- [완료 조건](#완료-조건)
+- [하위 작업](#하위-작업)
+- [관련](#관련)
+- [메모](#메모)
+
 ## 이슈
 무엇이 왜 필요한지 3~5줄. RFP 근거 문장을 인용하면 출처를 함께 적는다.
 
@@ -107,6 +114,8 @@ done: -               # 완료한 날에만 날짜를 적는다
 
 - `완료 조건`은 **실행·확인할 수 있는 문장**으로 쓴다("잘 동작한다"는 쓰지 않는다).
 - RFP에 없는 내용을 티켓에 넣을 때는 `메모`에 `가정:`으로 표시한다.
+- **모든 새 티켓은 `# 제목` 바로 아래에 `## Index`를 둔다.** 문서는 `# 제목` 하나, `## 소제목`, 필요하면 `### 세부 항목`으로 나누고, Index에는 모든 `##`·`###`(Index 자신은 제외)를 앵커 링크로 나열한다. 앵커 만드는 법은 `.claude/agents/tickets-writer.md`의 "Index 형식과 앵커 만드는 법"을 따른다.
+- 소제목을 추가·삭제·이름 변경하면 Index도 같은 작업 안에서 고친다. 티켓 본문의 긴 해설을 새로 쓰는 일은 `tickets-writer`의 몫이므로, 여기서는 위 템플릿의 섹션만 채운다.
 
 ## 지켜야 할 규칙
 
@@ -131,7 +140,7 @@ done: -               # 완료한 날에만 날짜를 적는다
 2. **pane 열기**: `herdr pane split --current --direction right --cwd "$PWD" --no-focus`. 응답의 `.result.pane.pane_id`를 `<pane>`으로 쓴다.
    - 이어서 **이름을 붙인다**: `herdr pane rename <pane> schedule-writer`. 메인 pane은 `P2-Medi-Main`이다.
    - pane ID는 `herdr pane list`로 workspace와 `cwd`를 확인한 뒤 명시한다. `$HERDR_PANE_ID`를 이름 변경·종료 명령에 그대로 쓰지 않는다.
-3. **시작**: `herdr agent start schedule-writer --kind claude --pane <pane> -- --agent schedule-writer --permission-mode acceptEdits`
+3. **시작**: `herdr agent start schedule-writer --kind claude --pane <pane> -- --agent schedule-writer --permission-mode acceptEdits --disallowedTools 'Read(./.env)' 'Read(./.env.*)'`
 4. **작업 요청**: `herdr agent prompt schedule-writer "<모드와 요청>" --wait --timeout 600000`
 5. **보고 읽기**: `herdr agent read schedule-writer --source recent-unwrapped --lines 120`. 아래 "마지막 응답 형식"의 보고를 찾아 사용자에게 요약해 전달한다.
 6. **결과 확인**: 보고만 믿지 않고 변경 파일, 링크, 체크박스와 티켓 `status` 일치를 직접 확인한다.
