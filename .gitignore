@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# 환경·비밀
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Claude Code 개인 설정
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+
+# 에디터·IDE
+.idea/
+.vscode/
+
+# 로그·임시
+*.log
+.cache/
+
+# 로컬 데이터 (Vector DB·캐시 저장소)
+chroma/
+.chroma/
+qdrant_storage/
+*.sqlite3
