@@ -1,7 +1,7 @@
 ---
 id: RFP-15
 label: RFP
-title: 1주차 결정사항 확정(LLM·Vector DB·PDF 파서·평가 문항 수)
+title: 1주차 결정사항 확정(LLM·DB·Vector DB·PDF 파서·평가 문항 수)
 sch: SCH-01
 status: todo
 priority: 필수
@@ -20,22 +20,31 @@ done: -
 - [메모](#메모)
 
 ## 이슈
-RFP는 "후보 (1주차 확정)"로 LLM `[선택 예정]`, Vector DB(Chroma/Qdrant/pgvector), PDF 파싱(pdfplumber/LlamaParse)을 남겨 두었고, 평가 세트 세트별 `[__]`문항도 1주차 확정이다. 이 결정을 한 곳에 기록한다.
+RFP는 "후보 (1주차 확정)"로 LLM `[선택 예정]`, Vector DB(Chroma/Qdrant/pgvector, Supabase 무료 플랜의 pgvector 포함), PDF 파싱(pdfplumber/LlamaParse)을 남겨 두었고, 평가 세트 세트별 `[__]`문항도 1주차 확정이다. 8장은 DB·인증으로 Supabase 무료 플랜 검토를 적어 두었다(Postgres·Auth·pgvector, DB 500MB, 월간 활성 사용자 5만 명, 비활동 1주 뒤 일시정지). 금기 데이터(BE-09)를 어디에 적재할지도 이 결정에 달려 있다. 이 결정을 한 곳에 기록한다. 이 티켓은 BE-04·BE-09·BE-11의 선행이다.
 
 ## 완료 조건
 - [ ] LLM, Vector DB, PDF 파서 선택과 이유 한 줄씩이 `메모`에 기록되어 있다.
 - [ ] 평가 세트 4종(정상/오탈자/범위 외/오정보)의 세트별 문항 수가 정해져 있다.
 - [ ] 결정 내용이 PRD-01 또는 README에 반영되어 있다.
+- [ ] (a) 표 파서 시험 결과가 기록되어 있다(RFP-17 결정 12). 고시 별표 2의 46~50쪽에서, 합격 기준은 행 수가 211과 같고 무작위 20행이 원문과 일치하는 것이다. 통과한 파서가 BE-04의 파서가 된다. 통과하지 못하면 PDF 표는 쓰지 않고 구조화된 파일·API를 우선한다고 적는다.
+- [ ] (b) DB·벡터 저장소 결정이 기록되어 있다. 후보는 Supabase 무료 플랜(Postgres + pgvector + Auth)과 로컬 Chroma(+ 로컬 DB)다. 결정에 다음이 포함된다. 금기 데이터(BE-09)의 적재소, Vector DB(BE-05)의 위치, 적재 크기가 Supabase 무료 한도(DB 500MB)에 들어가는지 확인한 값, 비활동 1주 일시정지 대응(시연 전에 깨워 둠), 확장 BE-11(Auth)을 Supabase로 할지 여부.
 
 ## 하위 작업
 - [ ] LLM 선택
 - [ ] Vector DB 선택
 - [ ] PDF 파서 선택
 - [ ] 세트별 문항 수 결정
+- [ ] 표 파서 시험(별표 2의 46~50쪽, 후보 파서별)
+- [ ] 적재 크기 확인과 DB·벡터 저장소 결정(Supabase 무료 플랜 vs 로컬 Chroma)
+- [ ] 결정을 BE-04·BE-05·BE-09·BE-11에 전달
 
 ## 관련
 - 선행: 없음
-- 관련 문서: `P2-doc/PJ2-RFP.md` 8장, 9장
+- 후속: BE-04, BE-09, BE-11, AG-04(문항 수)
+- 관련: RFP-17(결정 12, 표 파서 시험 조건)
+- 관련 문서: `P2-doc/PJ2-RFP.md` 8장, 9장, 12장
 
 ## 메모
 - 가정: 오케스트레이션 LangGraph, 백엔드 FastAPI, 평가 Ragas는 RFP에 단일 후보로 적혀 있어 확정으로 본다.
+- 가정: Supabase 무료 플랜을 택해도 BE-11(로그인)은 확장이라 SCH-02 필수 뒤에만 한다. 적재소 결정과 Auth 사용 여부는 분리해서 기록한다.
+- 2026-10-31 추가 확인: 프론트 프레임워크(FE-01 메모의 예: Streamlit) 선택이 이 티켓의 결정 목록에 없다. FE-04의 로그인 화면 난이도가 여기에 달려 있어 함께 정한다. 또한 핵심 경로의 저장소는 Supabase 일시정지·한도와 무관하게 동작해야 한다(RFP 8장).
