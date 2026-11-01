@@ -164,7 +164,7 @@ API 코드는 수집 스크립트와 Tool 래퍼로 한정한다. RAG 개발·�
 |---|---|---|---|---|---|
 | 의약품개요정보(e약은요) | 식약처 | https://www.data.go.kr/data/15075057/openapi.do | `https://apis.data.go.kr/1471000/DrbEasyDrugInfoService` | `DRDEASYDRUG_*` | 키 보유 |
 | 의약품안전사용서비스(DUR) 품목정보 | 식약처 | https://www.data.go.kr/data/15059486/openapi.do | `https://apis.data.go.kr/1471000/DURPrdlstInfoService03` | `DURPrdlstInfoService03_*` | 키 보유 |
-| 의약품안전사용서비스(DUR) 성분정보 | 식약처 | https://www.data.go.kr/data/15056780/openapi.do | `https://apis.data.go.kr/1471000/DURIrdntInfoService03` (오퍼레이션 이름이 `…List02`로 끝남) | `DURIrdntInfoService03_*` | 2026-10-31 활용 승인. `.env` 키는 403(키 미등록)이라 확인 필요 |
+| 의약품안전사용서비스(DUR) 성분정보 | 식약처 | https://www.data.go.kr/data/15056780/openapi.do | `https://apis.data.go.kr/1471000/DURIrdntInfoService03` (오퍼레이션 이름이 `…List02`로 끝남) | `DURIrdntInfoService03_*` | 2026-10-31 활용 승인. 2026-11-01 키 교체 후 정상 |
 | 의약품 제품 허가정보 | 식약처 | https://www.data.go.kr/data/15095677/openapi.do | `https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService08` | 없음 | 미신청 (조건부) |
 
 **문서·참고**

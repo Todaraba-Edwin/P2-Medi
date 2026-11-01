@@ -22,7 +22,7 @@
 |---|---|---|
 | 의약품개요정보(e약은요) | `DRDEASYDRUG_*` | 정상. 전체 4,746건. **성분 필드가 없고 전문의약품이 없다** |
 | DUR 품목정보 | `DURPrdlstInfoService03_*` | 정상. 오퍼레이션 9개 모두 응답. 전문의약품 포함 |
-| DUR 성분정보 | `DURIrdntInfoService03_*` | **`.env`의 성분정보 키로는 403(키 미등록)**. 오퍼레이션 이름은 `…02`. 품목정보 키로 호출하면 정상 |
+| DUR 성분정보 | `DURIrdntInfoService03_*` | 정상(2026-11-01 키 교체 후). 오퍼레이션 이름은 `…02`. 교체 전에는 키 길이가 70이라 403(키 미등록)이었다 |
 
 ## 3. 서비스별 응답
 
@@ -69,7 +69,7 @@
 - 응답은 `items` 안에 `{"item": {...}}`가 한 겹 더 싸여 있다.
 - 필드: 병용금기는 `INGR_CODE`·`INGR_KOR_NAME`과 상대 성분 `MIXTURE_INGR_CODE`·`MIXTURE_INGR_KOR_NAME`·`PROHBT_CONTENT`·`NOTIFICATION_DATE`·`DEL_YN`, 임부금기는 `GRADE`(예 `1등급`), 특정연령대금기는 `AGE_BASE`, 용량주의는 `MAX_QTY`를 갖는다.
 - 필터: `ingrCode`(`D000762` 형식)가 동작한다. `ingrName`, `ingrEngName`은 무시되어 전체가 돌아온다.
-- **키**: `.env`의 성분정보 키는 403(`SERVICE_KEY_IS_NOT_REGISTERED_ERROR`)이고, 같은 계정의 품목정보 키로 호출하면 정상이다. e약은요 키와 품목정보 키는 같은 값이고 성분정보 키만 다르다(값은 비공개).
+- **키**: 처음 `.env`의 성분정보 키는 길이 70이었고 403(`SERVICE_KEY_IS_NOT_REGISTERED_ERROR`)이었다. 2026-11-01 사용자가 키를 교체한 뒤 길이 64의 계정 키(세 서비스가 같은 값)가 되어 성분정보 오퍼레이션 7개가 모두 자기 키로 정상 응답한다(전체 21회 호출 실패 0건).
 
 ## 4. 설계에 영향을 주는 사실
 
@@ -83,7 +83,7 @@
 
 ## 5. 열린 항목
 
-1. `.env`의 `DURIrdntInfoService03_API_KEY` 확인. 사용자가 포털에서 성분정보·품목정보 두 서비스가 승인 상태임을 확인했다. 세 서비스의 `END_POINT`는 형식이 정상이고, 성분정보 키만 길이가 70이라 다른 키(64)와 다르다. 사용자가 `END_POINT`와 키를 확인 중이다. 정상 키로 바꾸면 `/battery`를 다시 실행해 성분정보 오퍼레이션을 자기 키로 확인한다.
+1. (해결, 2026-11-01) `.env`의 `DURIrdntInfoService03_API_KEY` 교체로 성분정보가 정상이다.
 2. 허가정보 API(`DrugPrdtPrmsnInfoService08`) 활용신청 시점. 사용자 결정이 필요하다.
 3. KIDS 제품코드와 DUR 품목정보 `EDI_CODE`가 같은 코드인지 대조(가정: 같다).
 4. `NOTIFICATION_DATE`와 KIDS 고시일자·고시번호가 같은 기준인지 대조.

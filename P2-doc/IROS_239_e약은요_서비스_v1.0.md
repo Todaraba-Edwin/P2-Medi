@@ -227,3 +227,18 @@ http://apis.data.go.kr/1471000/DrbEasyDrugInfoService/getDrbEasyDrugList?service
 
 - 실제 응답값을 확인한 뒤 수정한다. 그 전까지 이 문서의 해당 부분은 원문 그대로이며 신뢰하지 않는다.
 - 수정할 때는 바뀐 항목과 근거(실제 응답)를 이 섹션에 남긴다.
+
+### (3) 실제 응답 확인 결과 (2026-11-01)
+
+FastAPI 프로브(`scripts/api_probe/`)로 호출해 위 (1)의 8건을 대조했다. 원문은 고치지 않았고 아래에 확인 결과만 남긴다.
+
+| 번호 | 확인 결과 | 근거 |
+|---|---|---|
+| 1 | **원문 오류 확인.** `trustEntpName`과 `startPage`는 동작하지 않는다. `entpName`만 업체명 필터로 동작한다 | `entpName=켄뷰코리아판매유한회사` 12건, `trustEntpName` 같은 값은 필터가 걸리지 않고 전체 4,746건, `startPage=2`는 1쪽과 같은 첫 항목, `pageNo=2`는 다른 항목 |
+| 2 | **원문 오류 확인.** 실제 XML 응답은 태그가 올바르게 닫힌다 | `type=xml` 응답에 `</item>`이 있고 `<efcyQesitm>`은 `</efcyQesitm>`으로 닫힘 |
+| 3 | **원문 오류 확인.** 실제 응답 필드명은 카멜 표기다. 대문자 스네이크 태그는 없다 | XML·JSON 모두 `efcyQesitm`, `useMethodQesitm` 등 |
+| 4 | 명세가 맞다. 응답 필드는 `atpnWarnQesitm`을 포함한 7개 문항이고 `depositMethodQesitm`이 보관법이다. 어긋난 것은 서비스 설명의 문항 번호다 | 응답 필드 14개 중 문항 필드 7개 |
+| 5 | 응답으로 확인할 수 없음 | 문서 표의 칸 값 문제이고 응답에는 `itemImage`가 이미지 주소(없으면 null)로만 나온다 |
+| 6 | 확인하지 않음 | WADL 주소는 호출에 쓰지 않는다 |
+| 7 | 응답에서는 `?` 문자가 나오지 않는다. 문서 표의 깨짐이다 | 타이레놀 응답 문장에 `?` 0개 |
+| 8 | 부분 확인. 에러 코드 12(서비스 없음)는 실제 응답과 일치한다(`NO_OPENAPI_SERVICE_ERROR`, `returnReasonCode` 12). 나머지 코드는 만나지 못했다 | 성분정보 서비스에 없는 오퍼레이션 이름을 호출했을 때 |
