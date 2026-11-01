@@ -30,6 +30,9 @@ CASES = [
     ("dur-ingr", "usjnt_itraconazole", "getUsjntTabooInfoList02", {"ingrCode": "D000762", "numOfRows": 3}, "병용금기: 성분 단위, ingrCode 필터, 상대 성분(MIXTURE_*)"),
     ("dur-ingr", "pwnm_grade", "getPwnmTabooInfoList02", {"numOfRows": 3}, "임부금기: 성분 단위, 등급(GRADE)"),
     ("dur-ingr", "age_base", "getSpcifyAgrdeTabooInfoList02", {"numOfRows": 3}, "특정연령대금기: 성분 단위, 연령 기준(AGE_BASE)"),
+    ("drug-prmsn", "list_tylenol", "getDrugPrdtPrmsnInq08", {"item_name": "타이레놀", "numOfRows": 3}, "허가 목록: 타이레놀 7개 품목(어린이 타이레놀 2개 포함). 필터 이름은 item_name"),
+    ("drug-prmsn", "detail_children_tylenol_suspension", "getDrugPrdtPrmsnDtlInq08", {"item_seq": "202200525"}, "허가 상세: 효능·용법·주의사항 본문(XML)과 연령·체중별 용량 표. 필터 이름은 item_seq"),
+    ("drug-prmsn", "ingredients_cold_s", "getDrugPrdtMcpnDtlInq08", {"Prduct": "타이레놀콜드-에스정"}, "주성분 상세: 제품 → 성분 4개와 M-코드. 필터 이름은 Prduct(대문자 P, 제품명 정확 일치)"),
 ]
 
 # 오퍼레이션별 필드 조사: 결과가 있는 조건으로 호출한다(후보를 순서대로 시도).
@@ -44,6 +47,9 @@ SURVEY = [
     ("dur-item", "getEfcyDplctInfoList03", [{"itemName": "타이레놀"}]),
     ("dur-item", "getSeobangjeongPartitnAtentInfoList03", [{"itemName": "타이레놀"}]),
     ("eyak", "getDrbEasyDrugList", [{"itemName": "타이레놀"}]),
+    ("drug-prmsn", "getDrugPrdtPrmsnInq08", [{"item_name": "타이레놀"}]),
+    ("drug-prmsn", "getDrugPrdtPrmsnDtlInq08", [{"item_seq": "202200525"}]),
+    ("drug-prmsn", "getDrugPrdtMcpnDtlInq08", [{"Prduct": "타이레놀콜드-에스정"}]),
 ] + [("dur-ingr", op, [{}]) for op in probe.DUR_INGR_OPS]
 
 

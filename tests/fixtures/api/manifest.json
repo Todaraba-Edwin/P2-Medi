@@ -11,7 +11,7 @@
     "total_count": 7,
     "purpose": "타이레놀 품목 7개(totalCount 7)가 조회되는 정상 응답. 이 파일에는 처음 3개만 저장. 문장형 필드 7개",
     "file": "tests/fixtures/api/eyak/hit_tylenol.json",
-    "captured_at": "2026-11-01T14:57:33+09:00"
+    "captured_at": "2026-11-01T17:02:30+09:00"
   },
   {
     "service": "eyak",
@@ -25,7 +25,7 @@
     "total_count": 0,
     "purpose": "전문의약품은 e약은요에 없다. 결과 0건일 때의 응답 모양",
     "file": "tests/fixtures/api/eyak/empty_rx_methotrexate.json",
-    "captured_at": "2026-11-01T14:57:33+09:00"
+    "captured_at": "2026-11-01T17:02:30+09:00"
   },
   {
     "service": "eyak",
@@ -39,7 +39,7 @@
     "total_count": 4746,
     "purpose": "필터 없이 전체 건수(totalCount)와 페이지 이동",
     "file": "tests/fixtures/api/eyak/page2_no_filter.json",
-    "captured_at": "2026-11-01T14:57:33+09:00"
+    "captured_at": "2026-11-01T17:02:30+09:00"
   },
   {
     "service": "dur-item",
@@ -53,7 +53,7 @@
     "total_count": 5,
     "purpose": "품목 정보(전문/일반 구분, 성분 문자열, 문서 ID). 같은 이름이 e약은요에서는 7개, 여기서는 5개(어린이 타이레놀 2개가 없음)",
     "file": "tests/fixtures/api/dur-item/product_tylenol.json",
-    "captured_at": "2026-11-01T14:57:33+09:00"
+    "captured_at": "2026-11-01T17:02:30+09:00"
   },
   {
     "service": "dur-item",
@@ -67,7 +67,7 @@
     "total_count": 1,
     "purpose": "특정연령대금기: 품목 단위, 성분코드·고시일자 포함",
     "file": "tests/fixtures/api/dur-item/age_taboo_tylenol.json",
-    "captured_at": "2026-11-01T14:57:33+09:00"
+    "captured_at": "2026-11-01T17:02:30+09:00"
   },
   {
     "service": "dur-item",
@@ -81,7 +81,7 @@
     "total_count": 460,
     "purpose": "병용금기: 품목 단위, itemSeq 필터(460건)",
     "file": "tests/fixtures/api/dur-item/usjnt_methotrexate_injection.json",
-    "captured_at": "2026-11-01T14:57:33+09:00"
+    "captured_at": "2026-11-01T17:02:30+09:00"
   },
   {
     "service": "dur-ingr",
@@ -95,7 +95,7 @@
     "total_count": 19,
     "purpose": "병용금기: 성분 단위, ingrCode 필터, 상대 성분(MIXTURE_*)",
     "file": "tests/fixtures/api/dur-ingr/usjnt_itraconazole.json",
-    "captured_at": "2026-11-01T14:57:33+09:00"
+    "captured_at": "2026-11-01T17:02:30+09:00"
   },
   {
     "service": "dur-ingr",
@@ -108,7 +108,7 @@
     "total_count": 1459,
     "purpose": "임부금기: 성분 단위, 등급(GRADE)",
     "file": "tests/fixtures/api/dur-ingr/pwnm_grade.json",
-    "captured_at": "2026-11-01T14:57:33+09:00"
+    "captured_at": "2026-11-01T17:02:30+09:00"
   },
   {
     "service": "dur-ingr",
@@ -121,6 +121,46 @@
     "total_count": 233,
     "purpose": "특정연령대금기: 성분 단위, 연령 기준(AGE_BASE)",
     "file": "tests/fixtures/api/dur-ingr/age_base.json",
-    "captured_at": "2026-11-01T14:57:33+09:00"
+    "captured_at": "2026-11-01T17:02:30+09:00"
+  },
+  {
+    "service": "drug-prmsn",
+    "case": "list_tylenol",
+    "operation": "getDrugPrdtPrmsnInq08",
+    "params": {
+      "item_name": "타이레놀",
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 7,
+    "purpose": "허가 목록: 타이레놀 7개 품목(어린이 타이레놀 2개 포함). 필터 이름은 item_name",
+    "file": "tests/fixtures/api/drug-prmsn/list_tylenol.json",
+    "captured_at": "2026-11-01T17:02:30+09:00"
+  },
+  {
+    "service": "drug-prmsn",
+    "case": "detail_children_tylenol_suspension",
+    "operation": "getDrugPrdtPrmsnDtlInq08",
+    "params": {
+      "item_seq": "202200525"
+    },
+    "http_status": 200,
+    "total_count": 1,
+    "purpose": "허가 상세: 효능·용법·주의사항 본문(XML)과 연령·체중별 용량 표. 필터 이름은 item_seq",
+    "file": "tests/fixtures/api/drug-prmsn/detail_children_tylenol_suspension.json",
+    "captured_at": "2026-11-01T17:02:30+09:00"
+  },
+  {
+    "service": "drug-prmsn",
+    "case": "ingredients_cold_s",
+    "operation": "getDrugPrdtMcpnDtlInq08",
+    "params": {
+      "Prduct": "타이레놀콜드-에스정"
+    },
+    "http_status": 200,
+    "total_count": 4,
+    "purpose": "주성분 상세: 제품 → 성분 4개와 M-코드. 필터 이름은 Prduct(대문자 P, 제품명 정확 일치)",
+    "file": "tests/fixtures/api/drug-prmsn/ingredients_cold_s.json",
+    "captured_at": "2026-11-01T17:02:30+09:00"
   }
 ]

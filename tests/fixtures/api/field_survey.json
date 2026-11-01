@@ -1727,6 +1727,585 @@
     ]
   },
   {
+    "service": "drug-prmsn",
+    "operation": "getDrugPrdtPrmsnInq08",
+    "params": {
+      "item_name": "타이레놀"
+    },
+    "total_count": 7,
+    "sampled": 7,
+    "fields": [
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "202005623"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "어린이타이레놀산160밀리그램(아세트아미노펜)"
+      },
+      {
+        "name": "ITEM_ENG_NAME",
+        "type": "null/str",
+        "filled": "6/7",
+        "null_string": 0,
+        "example": "Tylenol Tablet 500mg"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "켄뷰코리아판매유한회사"
+      },
+      {
+        "name": "ENTP_ENG_NAME",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "Kenvue Korea Selling & Distribution LLC"
+      },
+      {
+        "name": "ENTP_SEQ",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "20160540"
+      },
+      {
+        "name": "ENTP_NO",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "85"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "20200803"
+      },
+      {
+        "name": "INDUTY",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "의약품 및 의약외품 수입업"
+      },
+      {
+        "name": "PRDLST_STDR_CODE",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "202005623"
+      },
+      {
+        "name": "SPCLTY_PBLC",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "일반의약품"
+      },
+      {
+        "name": "PRDUCT_TYPE",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "[01140]해열.진통.소염제"
+      },
+      {
+        "name": "PRDUCT_PRMISN_NO",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "56"
+      },
+      {
+        "name": "ITEM_INGR_NAME",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "Acetaminophen Granules"
+      },
+      {
+        "name": "ITEM_INGR_CNT",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "1"
+      },
+      {
+        "name": "BIG_PRDT_IMG_URL",
+        "type": "str",
+        "filled": "4/7",
+        "null_string": 0,
+        "example": "https://nedrug.mfds.go.kr/pbp/cmn/itemImageDown…"
+      },
+      {
+        "name": "PERMIT_KIND_CODE",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "허가"
+      },
+      {
+        "name": "CANCEL_DATE",
+        "type": "null",
+        "filled": "0/7",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "CANCEL_NAME",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "정상"
+      },
+      {
+        "name": "EDI_CODE",
+        "type": "null/str",
+        "filled": "2/7",
+        "null_string": 0,
+        "example": "672300240"
+      },
+      {
+        "name": "BIZRNO",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "1068649891"
+      }
+    ]
+  },
+  {
+    "service": "drug-prmsn",
+    "operation": "getDrugPrdtPrmsnDtlInq08",
+    "params": {
+      "item_seq": "202200525"
+    },
+    "total_count": 1,
+    "sampled": 1,
+    "fields": [
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "202200525"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "어린이타이레놀현탁액(아세트아미노펜)"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "켄뷰코리아판매유한회사"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "20220203"
+      },
+      {
+        "name": "CNSGN_MANUF",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "ETC_OTC_CODE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "일반의약품"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "백색 내지 미백색의 체리향 현탁액"
+      },
+      {
+        "name": "BAR_CODE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "8806469026108,8806469026115,8806469026122,88064…"
+      },
+      {
+        "name": "MATERIAL_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "총량 : 100밀리리터|성분명 : 아세트아미노펜(미분화)|분량 : 3.2|단위 : 그…"
+      },
+      {
+        "name": "EE_DOC_ID",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "HTTPS://NEDRUG.MFDS.GO.KR/PBP/CMN/PDFDOWNLOAD/2…"
+      },
+      {
+        "name": "UD_DOC_ID",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "HTTPS://NEDRUG.MFDS.GO.KR/PBP/CMN/PDFDOWNLOAD/2…"
+      },
+      {
+        "name": "NB_DOC_ID",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "HTTPS://NEDRUG.MFDS.GO.KR/PBP/CMN/PDFDOWNLOAD/2…"
+      },
+      {
+        "name": "INSERT_FILE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "HTTPS://NEDRUG.MFDS.GO.KR/PBP/CMN/PDFDOWNLOAD/2…"
+      },
+      {
+        "name": "STORAGE_METHOD",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "기밀용기, 실온(1-30°C)보관"
+      },
+      {
+        "name": "VALID_TERM",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "제조일로부터 24 개월"
+      },
+      {
+        "name": "REEXAM_TARGET",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "REEXAM_DATE",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "PACK_UNIT",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "100밀리리터/병,500밀리리터/병"
+      },
+      {
+        "name": "EDI_CODE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "672300253"
+      },
+      {
+        "name": "PERMIT_KIND_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "신고"
+      },
+      {
+        "name": "ENTP_NO",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "85"
+      },
+      {
+        "name": "MAKE_MATERIAL_FLAG",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "완제의약품"
+      },
+      {
+        "name": "NEWDRUG_CLASS_NAME",
+        "type": "str",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "INDUTY_TYPE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "의약품 및 의약외품 수입업"
+      },
+      {
+        "name": "CANCEL_DATE",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "CANCEL_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "정상"
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "20260408"
+      },
+      {
+        "name": "NARCOTIC_KIND_CODE",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "GBN_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "사용상의 주의사항, 2026-04-08/사용상주의사항변경(부작용포함), 2025-11…"
+      },
+      {
+        "name": "TOTAL_CONTENT",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "100"
+      },
+      {
+        "name": "EE_DOC_DATA",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "<DOC title=\"효능효과\" type=\"EE\">\r\n  <SECTION title=…"
+      },
+      {
+        "name": "UD_DOC_DATA",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "<DOC title=\"용법용량\" type=\"UD\">\r\n  <SECTION title=…"
+      },
+      {
+        "name": "NB_DOC_DATA",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "<DOC title=\"사용상의주의사항\" type=\"NB\">\r\n  <SECTION ti…"
+      },
+      {
+        "name": "PN_DOC_DATA",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "MAIN_ITEM_INGR",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "[M281939]아세트아미노펜(미분화)"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "[M007131]정제수|[M040043]글리세린|[M060131]소르빈산칼륨|[M08…"
+      },
+      {
+        "name": "ATC_CODE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "N02BE01"
+      },
+      {
+        "name": "ITEM_ENG_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "Children's Tylenol Suspension"
+      },
+      {
+        "name": "ENTP_ENG_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "Kenvue Korea Selling & Distribution LLC"
+      },
+      {
+        "name": "MAIN_INGR_ENG",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "Acetaminophen Micronized"
+      },
+      {
+        "name": "BIZRNO",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "1068649891"
+      },
+      {
+        "name": "RARE_DRUG_YN",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "N"
+      },
+      {
+        "name": "DATA_PROTECT_START_DATE",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "DATA_PROTECT_END_DATE",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      }
+    ]
+  },
+  {
+    "service": "drug-prmsn",
+    "operation": "getDrugPrdtMcpnDtlInq08",
+    "params": {
+      "Prduct": "타이레놀콜드-에스정"
+    },
+    "total_count": 4,
+    "sampled": 4,
+    "fields": [
+      {
+        "name": "ENTRPS_PRMISN_NO",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "85"
+      },
+      {
+        "name": "ENTRPS",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "켄뷰코리아판매유한회사"
+      },
+      {
+        "name": "PRDUCT",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "타이레놀콜드-에스정"
+      },
+      {
+        "name": "MTRAL_SN",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "1"
+      },
+      {
+        "name": "MTRAL_CODE",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "M040353"
+      },
+      {
+        "name": "MTRAL_NM",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "아세트아미노펜"
+      },
+      {
+        "name": "QNT",
+        "type": "null",
+        "filled": "0/4",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "INGD_UNIT_CD",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "밀리그램"
+      },
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "202106954"
+      },
+      {
+        "name": "MAIN_INGR_ENG",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "Acetaminophen/Chlorpheniramine Maleate/Dextrome…"
+      },
+      {
+        "name": "BIZRNO",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "1068649891"
+      },
+      {
+        "name": "CPNT_CTNT_CONT",
+        "type": "null",
+        "filled": "0/4",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "TAMT_SEQ",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "1"
+      }
+    ]
+  },
+  {
     "service": "dur-ingr",
     "operation": "getUsjntTabooInfoList02",
     "params": {},

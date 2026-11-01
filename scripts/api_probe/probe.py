@@ -23,6 +23,7 @@ SERVICES = {
     "eyak": "DRDEASYDRUG",
     "dur-item": "DURPrdlstInfoService03",
     "dur-ingr": "DURIrdntInfoService03",
+    "drug-prmsn": "DrugPrdtPrmsnInfoService08",  # 의약품 제품 허가정보 (2026-11-01 승인)
 }
 
 
