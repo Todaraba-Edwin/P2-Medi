@@ -8,6 +8,7 @@
 - [5. 열린 항목](#5-열린-항목)
 - [6. 다시 실행하는 법](#6-다시-실행하는-법)
 
+> 엔티티·필드 사전과 목 픽스처는 `P2-doc/PJ2-API-엔티티.md`와 `tests/fixtures/api/`에 있다.
 > 2026-11-01 실제 호출로 확인한 값이다. 인증키는 `.env`에서 환경변수로만 읽었고 이 문서와 저장소에는 키 값이 없다. 원본 응답은 `data/api_samples/`(git 제외)에 있다. 응답은 시간이 지나면 바뀔 수 있다.
 
 ## 1. 확인 방법
@@ -51,7 +52,7 @@
 - 전문의약품이 있다: `메토트렉세이트` 21품목, `알렌드론` 31품목.
 - 금기·주의 응답 공통 필드: `INGR_CODE`(예 `D000147`), `INGR_NAME`, `ITEM_SEQ`, `ITEM_NAME`, `NOTIFICATION_DATE`(고시일자, `YYYYMMDD`), `PROHBT_CONTENT`(내용), `REMARK`, `CHANGE_DATE`.
 - 필터: `itemName`이 동작하고, `itemSeq`도 동작한다(메토트렉세이트 주사제 `itemSeq`로 병용금기 460건).
-- 주의: 일부 응답의 키 이름에 공백이 붙어 있다(`"TYPE_NAME  "`). 문자열 `"null"`이 JSON null 대신 들어온다. `ITEM_PERMIT_DATE`가 `1979January9th` 형태다.
+- 주의: 품목정보 상세 응답의 키 `"TYPE_NAME  "`는 끝에 공백이 있다. 선택 필드는 문자열이 아니라 JSON null로 온다(2026-11-01 정정: 앞서 "문자열 `"null"`"이라 적은 것은 프로브가 null을 문자열로 출력한 착오였다). 날짜 표기는 세 가지가 섞여 있다(`20140109`, `2026-10-22`, `1979January9th`).
 
 ### (3) DUR 성분정보 `DURIrdntInfoService03`
 
@@ -79,7 +80,7 @@
 4. **고시일자 필드가 있다.** 5.1 (7)의 "확인 전 사항"에 답한다. API 응답에 `NOTIFICATION_DATE`가 있어 "API가 파일보다 최신"인지 비교할 수 있다. 다만 두 값이 같은 기준인지는 아직 대조하지 않았다.
 5. **연령금기 오퍼레이션**: 품목 단위는 `getSpcifyAgrdeTabooInfoList03`(`itemName`, `itemSeq`), 성분 단위는 `getSpcifyAgrdeTabooInfoList02`(`ingrCode`)다.
 6. **병용금기 품목정보 API는 느리다**(약 3초). 평가에서 API를 끄는 설계(5.1 (7))와 맞다.
-7. **응답 정규화가 필요하다**: 키 이름의 공백, 문자열 `"null"`, 날짜 형식, `items` 한 겹 싸임.
+7. **응답 정규화가 필요하다**: 키 이름의 공백, 선택 필드의 JSON null, 날짜 표기 세 가지, `items` 한 겹 싸임, 결과 0건일 때 `items` 키 없음. 자세한 규칙은 `P2-doc/PJ2-API-엔티티.md` 8장.
 
 ## 5. 열린 항목
 
