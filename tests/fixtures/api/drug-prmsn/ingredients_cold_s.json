@@ -1,0 +1,58 @@
+{
+  "header": {
+    "resultCode": "00",
+    "resultMsg": "NORMAL SERVICE."
+  },
+  "body": {
+    "pageNo": 1,
+    "totalCount": 4,
+    "numOfRows": 3,
+    "items": [
+      {
+        "ENTRPS_PRMISN_NO": "85",
+        "ENTRPS": "켄뷰코리아판매유한회사",
+        "PRDUCT": "타이레놀콜드-에스정",
+        "MTRAL_SN": "1",
+        "MTRAL_CODE": "M040353",
+        "MTRAL_NM": "아세트아미노펜",
+        "QNT": null,
+        "INGD_UNIT_CD": "밀리그램",
+        "ITEM_SEQ": "202106954",
+        "MAIN_INGR_ENG": "Acetaminophen/Chlorpheniramine Maleate/Dextromethorphan Hydrobromide/Pseudoephedrine Hydrochloride",
+        "BIZRNO": "1068649891",
+        "CPNT_CTNT_CONT": null,
+        "TAMT_SEQ": "1"
+      },
+      {
+        "ENTRPS_PRMISN_NO": "85",
+        "ENTRPS": "켄뷰코리아판매유한회사",
+        "PRDUCT": "타이레놀콜드-에스정",
+        "MTRAL_SN": "2",
+        "MTRAL_CODE": "M203364",
+        "MTRAL_NM": "슈도에페드린염산염",
+        "QNT": null,
+        "INGD_UNIT_CD": "밀리그램",
+        "ITEM_SEQ": "202106954",
+        "MAIN_INGR_ENG": "Acetaminophen/Chlorpheniramine Maleate/Dextromethorphan Hydrobromide/Pseudoephedrine Hydrochloride",
+        "BIZRNO": "1068649891",
+        "CPNT_CTNT_CONT": null,
+        "TAMT_SEQ": "1"
+      },
+      {
+        "ENTRPS_PRMISN_NO": "85",
+        "ENTRPS": "켄뷰코리아판매유한회사",
+        "PRDUCT": "타이레놀콜드-에스정",
+        "MTRAL_SN": "3",
+        "MTRAL_CODE": "M202983",
+        "MTRAL_NM": "덱스트로메토르판브롬화수소산염",
+        "QNT": null,
+        "INGD_UNIT_CD": "밀리그램",
+        "ITEM_SEQ": "202106954",
+        "MAIN_INGR_ENG": "Acetaminophen/Chlorpheniramine Maleate/Dextromethorphan Hydrobromide/Pseudoephedrine Hydrochloride",
+        "BIZRNO": "1068649891",
+        "CPNT_CTNT_CONT": null,
+        "TAMT_SEQ": "1"
+      }
+    ]
+  }
+}

@@ -7,8 +7,9 @@
 - [4. DUR 품목정보 엔티티](#4-dur-품목정보-엔티티)
 - [5. DUR 성분정보 엔티티](#5-dur-성분정보-엔티티)
 - [6. 엔티티 관계와 연결 키](#6-엔티티-관계와-연결-키)
-- [7. 목 픽스처 9건](#7-목-픽스처-9건)
+- [7. 목 픽스처 12건](#7-목-픽스처-12건)
 - [8. 정규화 규칙과 열린 항목](#8-정규화-규칙과-열린-항목)
+- [9. 의약품 제품 허가정보 엔티티](#9-의약품-제품-허가정보-엔티티)
 
 > 2026-11-01 실제 호출로 확인한 값이다. 필드 의미는 응답에서 관찰한 사실을 우선하고, 명세서가 없어 짐작한 것은 "추정"으로 표시했다(DUR 명세서는 아직 받지 못했다). 인증키는 문서와 픽스처에 없다.
 
@@ -20,7 +21,7 @@
 | RFP 기록 | [PJ2-RFP.md 5.2절](PJ2-RFP.md#52-사전-주간-api-실측-확인과-실현-가능성-rfp-21) | 실측 결과와 실현 가능성 판정 |
 | 서비스별 응답 요약 | [PJ2-API-응답확인.md](PJ2-API-응답확인.md) | 오퍼레이션, 건수, 키 상태 |
 | e약은요 명세 정리본 | [IROS_239_e약은요_서비스_v1.0.md](IROS_239_e약은요_서비스_v1.0.md#3-실제-응답-확인-결과-2026-11-01) | 원문 오류 8건을 실제 응답과 대조 |
-| 목 픽스처 | [tests/fixtures/api/](../tests/fixtures/api/) | 실제 응답 9건. [manifest.json](../tests/fixtures/api/manifest.json)이 목록 |
+| 목 픽스처 | [tests/fixtures/api/](../tests/fixtures/api/) | 실제 응답 12건. [manifest.json](../tests/fixtures/api/manifest.json)이 목록 |
 | 필드 조사 | [field_survey.json](../tests/fixtures/api/field_survey.json) | 오퍼레이션별 필드 이름·타입·채움 비율 |
 | 캡처 스크립트 | [capture_fixtures.py](../scripts/api_probe/capture_fixtures.py) | 픽스처를 다시 만든다 |
 | FastAPI 목 | [app.py](../scripts/api_probe/app.py)의 `/mock`, `/mock/{service}/{case}` | API 호출·한도 없이 픽스처를 돌려줌 |
@@ -85,7 +86,7 @@
 | `ETC_OTC_CODE` | 전문/일반 구분. **이름은 코드인데 값은 이름** | `전문의약품`, `일반의약품` |
 | `CLASS_NO` | 분류번호와 분류명 | `[114]해열.진통.소염제` |
 | `MATERIAL_NAME` | 원료 성분 문자열(쉼표 구분) | `메토트렉세이트,,25,밀리그램,USP,` |
-| `EE_DOC_ID`, `UD_DOC_ID`, `NB_DOC_ID` | 효능효과, 용법용량, **사용상의 주의사항** 문서. **이름은 ID인데 값은 nedrug PDF 주소** | 본문은 주지 않는다 |
+| `EE_DOC_ID`, `UD_DOC_ID`, `NB_DOC_ID` | 효능효과, 용법용량, **사용상의 주의사항** 문서. **이름은 ID인데 값은 nedrug PDF 주소** | 본문은 주지 않지만, 주소의 `/pbp/cmn/pdfViewer/`를 `/dsie/pdf/drb/`로 바꾸면 원문 PDF를 받는다(RFP-21 결정 1) |
 | `EDI_CODE` | 보험 EDI 코드(KIDS 제품코드와 연결 후보) | 5건 중 1건만 채워짐 |
 | `ITEM_PERMIT_DATE`, `CHANGE_DATE` | 허가일, 변경일 | `2021August23rd` (**영문 월 표기**) |
 | `CANCEL_NAME` | 취하/취소 상태 | `정상` |
@@ -144,14 +145,14 @@ KIDS 파일(성분코드 100501ATE 형식, 제품코드) ── ? ──▶ DUR 
 | 연결 | 실측 | 판단 |
 |---|---|---|
 | e약은요 ↔ 품목정보 | 같은 품목기준코드(`itemSeq` = `ITEM_SEQ`) | 연결된다 |
-| 품목 ↔ 성분 | 품목 단위 제한 응답에 `INGR_CODE`가 있다. 단 e약은요에만 있는 품목(어린이 타이레놀 2개 등)은 품목정보에 없어 이 경로가 막힌다 | 일부만 연결된다. 나머지는 제품명 괄호의 성분(`(아세트아미노펜)`)이나 사전(BE-10)으로 잇는다 |
+| 품목 ↔ 성분 | 품목 단위 제한 응답에 `INGR_CODE`가 있다. 단 e약은요에만 있는 품목은 품목정보에 없어 이 경로가 막힌다. **허가정보 주성분 상세의 `MTRAL_CODE`는 모든 허가 품목의 M-코드를 주고, 성분정보 `ORI_INGR`와 6개 중 4개가 일치했다** | 대부분 연결된다. 불일치한 어린이 타이레놀 2개(`M281939`, `M279100`)는 같은 이름의 다른 M-코드가 성분정보에 있어 이름으로 보조한다 |
 | KIDS 파일 ↔ API, **영문 성분명** | 임부금기: API 1,206개 중 정규화 후 정확 일치 770(64%), 접두 일치까지 934(77%). 병용금기: API 475개 중 170(36%) | 일부만 이어진다 |
 | KIDS 파일 ↔ API, **품목** | KIDS 제품코드를 품목정보 `EDI_CODE`와 대조: 표본 8개 중 4개 일치. `ITEM_SEQ`와는 0개 | 제품코드는 `ITEM_SEQ`가 아니라 EDI 코드로 보인다. 표본이 작다 |
 
 - 두 목록의 수록 범위와 표기가 달라서(예: `abacavir`는 API에 있고 KIDS 임부금기 CSV에는 없음) 일치율이 낮은 원인은 확인하지 못했다(가정).
 - 따라서 파일과 API의 비교는 같은 코드의 일치가 아니라 영문 성분명 정규화 + 품목(`EDI_CODE`) 연결을 합친 **부분 비교**가 되며, 이어지지 않는 경우는 "비교 불가"로 표시해야 한다(RFP 5.1절 (7)의 관찰값).
 
-## 7. 목 픽스처 9건
+## 7. 목 픽스처 12건
 
 각 서비스에서 실제 호출 3건씩이다(`tests/fixtures/api/manifest.json`, 캡처 2026-11-01).
 
@@ -166,6 +167,9 @@ KIDS 파일(성분코드 100501ATE 형식, 제품코드) ── ? ──▶ DUR 
 | 성분정보 | [dur-ingr/usjnt_itraconazole](../tests/fixtures/api/dur-ingr/usjnt_itraconazole.json) | `getUsjntTabooInfoList02`, `ingrCode=D000762` | `{"item": …}` 한 겹, 성분 쌍, 19건 |
 | 성분정보 | [dur-ingr/pwnm_grade](../tests/fixtures/api/dur-ingr/pwnm_grade.json) | `getPwnmTabooInfoList02` | 임부 등급 `GRADE`, 1,459건 |
 | 성분정보 | [dur-ingr/age_base](../tests/fixtures/api/dur-ingr/age_base.json) | `getSpcifyAgrdeTabooInfoList02` | 연령 기준 `AGE_BASE`, 233건 |
+| 허가정보 | [drug-prmsn/list_tylenol](../tests/fixtures/api/drug-prmsn/list_tylenol.json) | `getDrugPrdtPrmsnInq08`, `item_name=타이레놀` | 타이레놀 7개 품목(어린이 타이레놀 2개 포함) |
+| 허가정보 | [drug-prmsn/detail_children_tylenol_suspension](../tests/fixtures/api/drug-prmsn/detail_children_tylenol_suspension.json) | `getDrugPrdtPrmsnDtlInq08`, `item_seq=202200525` | 본문 XML 3개와 연령·체중별 용량 표 |
+| 허가정보 | [drug-prmsn/ingredients_cold_s](../tests/fixtures/api/drug-prmsn/ingredients_cold_s.json) | `getDrugPrdtMcpnDtlInq08`, `Prduct=타이레놀콜드-에스정` | 제품 → 성분 4개와 M-코드 |
 
 W1에서 클라이언트 단위 테스트는 이 파일들을 입력으로 쓰고, 개발 중에는 FastAPI `/mock`으로 API 호출 없이 돌릴 수 있다. 평가는 파일 기준이라 API를 끈다는 원칙(RFP 5.1절 (7))과도 맞는다.
 
@@ -186,5 +190,21 @@ W1에서 클라이언트 단위 테스트는 이 파일들을 입력으로 쓰�
 ### (2) 열린 항목
 
 1. DUR 명세서를 받지 못해 `TYPE_CODE`, `DEL_YN`, `CLASS_NO` 같은 필드의 공식 의미는 확인하지 못했다.
-2. 허가정보 API는 현재 키로 호출하면 403(키 미등록)이다. 활용신청 시점은 사용자 결정이다(RFP 5.2절).
+2. 허가정보 API는 현재 키로 호출하면 403(키 미등록)이다. 2026-11-01 보류로 결정했다(RFP-21 결정 1).
 3. 품목 연결(`EDI_CODE`)의 일치율은 표본 8개 기준이다. 더 큰 표본으로 다시 재야 한다.
+
+## 9. 의약품 제품 허가정보 엔티티
+
+서비스 `DrugPrdtPrmsnInfoService08`(2026-11-01 승인). 엔티티 셋: **허가 품목(목록)**, **허가 상세**, **주성분(제품당 성분 행)**. 연결 키는 `ITEM_SEQ`(품목기준코드)로, e약은요 `itemSeq`·품목정보 `ITEM_SEQ`와 같은 코드다.
+
+| 오퍼레이션 | 엔티티 | 건수 | 필터 | 주요 필드 |
+|---|---|---|---|---|
+| `getDrugPrdtPrmsnInq08` | 허가 품목 | 42,707 | `item_name`(포함) | `ITEM_SEQ`, `ITEM_NAME`, `ITEM_ENG_NAME`, `ENTP_NAME`, `ITEM_PERMIT_DATE`(`20220203`), `SPCLTY_PBLC`(전문/일반), `PRDUCT_TYPE`(`[01140]해열.진통.소염제`), `ITEM_INGR_NAME`(영문 성분), `EDI_CODE`, `CANCEL_NAME` |
+| `getDrugPrdtPrmsnDtlInq08` | 허가 상세 | 42,707 | `item_seq`, `item_name` | 위 정보에 더해 `MATERIAL_NAME`(`성분명 : …\|분량 : …`), `STORAGE_METHOD`, `PACK_UNIT`, `ATC_CODE`, **`EE_DOC_DATA`·`UD_DOC_DATA`·`NB_DOC_DATA`·`PN_DOC_DATA`**(본문 XML), `EE/UD/NB_DOC_ID`(주소), `MAIN_INGR_ENG`, `RARE_DRUG_YN` |
+| `getDrugPrdtMcpnDtlInq08` | 주성분 | 125,590 | `Prduct`(제품명 정확 일치, 대문자 P) | `ITEM_SEQ`, **`MTRAL_CODE`**(M-코드), `MTRAL_NM`, `QNT`, `INGD_UNIT_CD`, `MAIN_INGR_ENG`, `TAMT_SEQ` |
+
+- **본문 XML 구조**: `<DOC title="사용상의주의사항" type="NB"> <SECTION> <ARTICLE title="1. 경고"> <PARAGRAPH>…<![CDATA[문장]]>`. 절 제목이 있어 청크의 `parent_id`(절)로 쓸 수 있다. 줄바꿈은 `\r\n`이다.
+- **본문 길이(XML 문자 수)**: 어린이타이레놀현탁액 효능 415·용법 2,965·주의 8,715, 유한메토트렉세이트정 효능 1,059·용법 5,351·주의 16,242. 필드가 비어 있는 제품도 있다(예: `PN_DOC_DATA` 0자).
+- **용량 표**: 어린이타이레놀현탁액의 용법용량에 연령·체중별 1회 권장용량 표가 있다(예: "만 2~3세 12 ~ 15.9kg 160mg 5mL"). 인용 여부는 RFP-21 결정 3이다.
+- **M-코드 연결**: 주성분 상세의 제품 → `MTRAL_CODE`를 성분정보 `ORI_INGR`(원료 코드 목록)와 대조했다. 아세트아미노펜 `M040353`, 슈도에페드린 `M203364`, 덱스트로메토르판 `M202983`, 메토트렉세이트 `M040168`은 일치했고, 어린이 타이레놀의 `M281939`(아세트아미노펜(미분화))·`M279100`(아세트아미노펜과립)은 성분정보 `D000147`의 목록에 없다(같은 이름의 `M246556`, `M262287`이 있다).
+- **사례**: `drug-prmsn/list_tylenol`, `drug-prmsn/detail_children_tylenol_suspension`, `drug-prmsn/ingredients_cold_s`.
