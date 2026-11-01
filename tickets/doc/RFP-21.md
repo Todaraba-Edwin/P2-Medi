@@ -46,9 +46,10 @@ PJ2-W1 구현을 시작하기 전에 e약은요·DUR 품목정보·DUR 성분정
 
 ## 관련
 - 선행: 없음
-- 상위: RFP-01(RFP 문서 작성, 2026-11-01 종결)
-- 관련: RFP-15, RFP-19, BE-01, BE-02, BE-03, BE-09, BE-10
-- 관련 문서: `P2-doc/PJ2-RFP.md` 5.2절·10장, `P2-doc/PJ2-API-응답확인.md`, `P2-doc/IROS_239_e약은요_서비스_v1.0.md` 5장 (3)
+- 상위: [RFP-01](RFP-01.md)(RFP 문서 작성, 2026-11-01 종결)
+- 관련 티켓: [RFP-15](RFP-15.md), [RFP-19](RFP-19.md), [BE-01](../backend/BE-01.md), [BE-02](../backend/BE-02.md), [BE-03](../backend/BE-03.md), [BE-09](../backend/BE-09.md), [BE-10](../backend/BE-10.md)
+- 관련 문서: [PJ2-RFP.md 5.2절](../../P2-doc/PJ2-RFP.md#52-사전-주간-api-실측-확인과-실현-가능성-rfp-21), [PJ2-RFP.md 10장](../../P2-doc/PJ2-RFP.md#10-일정), [API 응답 확인](../../P2-doc/PJ2-API-응답확인.md), [API 엔티티·값](../../P2-doc/PJ2-API-엔티티.md), [e약은요 명세 정리본 5장 (3)](../../P2-doc/IROS_239_e약은요_서비스_v1.0.md#3-실제-응답-확인-결과-2026-11-01)
+- 관련 코드·자료: [목 픽스처 목록](../../tests/fixtures/api/manifest.json), [필드 조사](../../tests/fixtures/api/field_survey.json), [캡처 스크립트](../../scripts/api_probe/capture_fixtures.py), [프로브](../../scripts/api_probe/probe.py), [FastAPI 앱(/mock)](../../scripts/api_probe/app.py)
 
 ## 메모
 - RFP-01은 2026-11-01 닫혔고 RFP 5.2절은 그 뒤 RFP-21로 추가된 내용이다. RFP-01의 사용자 확인 범위에 들지 않으므로 별도 확인이 필요하다.

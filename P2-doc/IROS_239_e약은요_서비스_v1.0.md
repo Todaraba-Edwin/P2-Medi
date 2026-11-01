@@ -230,7 +230,7 @@ http://apis.data.go.kr/1471000/DrbEasyDrugInfoService/getDrbEasyDrugList?service
 
 ### (3) 실제 응답 확인 결과 (2026-11-01)
 
-FastAPI 프로브(`scripts/api_probe/`)로 호출해 위 (1)의 8건을 대조했다. 원문은 고치지 않았고 아래에 확인 결과만 남긴다.
+FastAPI 프로브([`scripts/api_probe/`](../scripts/api_probe/probe.py))로 호출해 위 (1)의 8건을 대조했다. 관련: [RFP-21](../tickets/doc/RFP-21.md), [API 엔티티·값](PJ2-API-엔티티.md), [API 응답 확인](PJ2-API-응답확인.md). 원문은 고치지 않았고 아래에 확인 결과만 남긴다.
 
 | 번호 | 확인 결과 | 근거 |
 |---|---|---|

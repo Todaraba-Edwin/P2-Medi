@@ -208,7 +208,7 @@ API 코드는 수집 스크립트와 Tool 래퍼로 한정한다. RAG 개발·�
 
 ### 5.2 사전 주간 API 실측 확인과 실현 가능성 (RFP-21)
 
-> 2026-11-01 작성(사용자 확인 대기). 1주차(PJ2-W1) 구현을 시작하기 전에 "실제 공공 API로 이 프로젝트를 진행할 수 있는가"를 확인한 결과다. 추적 티켓은 `tickets/doc/RFP-21.md`, 서비스별 응답은 `P2-doc/PJ2-API-응답확인.md`, 호출 도구는 `scripts/api_probe/`(FastAPI)다. 인증키는 환경변수로만 읽었고 문서·저장소·커밋 이력에 없음을 확인했다.
+> 2026-11-01 작성(사용자 확인 대기). 1주차(PJ2-W1) 구현을 시작하기 전에 "실제 공공 API로 이 프로젝트를 진행할 수 있는가"를 확인한 결과다. 추적 티켓은 [RFP-21](../tickets/doc/RFP-21.md), 서비스별 응답은 [PJ2-API-응답확인.md](PJ2-API-응답확인.md), 호출 도구는 [scripts/api_probe/](../scripts/api_probe/probe.py)(FastAPI)다. 인증키는 환경변수로만 읽었고 문서·저장소·커밋 이력에 없음을 확인했다.
 
 #### (1) 실측 결과
 
@@ -244,7 +244,7 @@ API 코드는 수집 스크립트와 Tool 래퍼로 한정한다. RAG 개발·�
 
 #### (4) 엔티티와 목 픽스처
 
-- 세 API의 필드·엔티티·연결 키는 `P2-doc/PJ2-API-엔티티.md`에, 실제 응답 9건(서비스마다 3건)은 `tests/fixtures/api/`에 저장했다. W1의 클라이언트 단위 테스트가 이 픽스처를 입력으로 쓰고, FastAPI `/mock`으로 API 호출 없이 돌릴 수 있다.
+- 세 API의 필드·엔티티·연결 키는 [PJ2-API-엔티티.md](PJ2-API-엔티티.md)에, 실제 응답 9건(서비스마다 3건)은 [tests/fixtures/api/](../tests/fixtures/api/manifest.json)에 저장했다. W1의 클라이언트 단위 테스트가 이 픽스처를 입력으로 쓰고, FastAPI `/mock`으로 API 호출 없이 돌릴 수 있다.
 - 연결 키 실측: e약은요 `itemSeq` = 품목정보 `ITEM_SEQ`. KIDS 파일과 API는 같은 성분코드가 아니다.
 - 구조화 값(`GRADE`, `AGE_BASE`, `MAX_QTY`, `MAX_DOSAGE_TERM`)은 성분정보 API와 KIDS 파일에만 있다. 품목정보 API는 같은 내용을 `PROHBT_CONTENT` 문장으로만 준다.
 
