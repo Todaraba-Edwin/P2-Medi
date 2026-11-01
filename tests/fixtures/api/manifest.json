@@ -9,7 +9,7 @@
     },
     "http_status": 200,
     "total_count": 7,
-    "purpose": "일반의약품이 조회되는 정상 응답. 문장형 필드 7개",
+    "purpose": "타이레놀 품목 7개(totalCount 7)가 조회되는 정상 응답. 이 파일에는 처음 3개만 저장. 문장형 필드 7개",
     "file": "tests/fixtures/api/eyak/hit_tylenol.json",
     "captured_at": "2026-11-01T14:57:33+09:00"
   },
@@ -51,7 +51,7 @@
     },
     "http_status": 200,
     "total_count": 5,
-    "purpose": "품목 정보(전문/일반 구분, 성분 문자열, 문서 ID)",
+    "purpose": "품목 정보(전문/일반 구분, 성분 문자열, 문서 ID). 같은 이름이 e약은요에서는 7개, 여기서는 5개(어린이 타이레놀 2개가 없음)",
     "file": "tests/fixtures/api/dur-item/product_tylenol.json",
     "captured_at": "2026-11-01T14:57:33+09:00"
   },
