@@ -1,0 +1,70 @@
+{
+  "header": {
+    "resultCode": "00",
+    "resultMsg": "NORMAL SERVICE."
+  },
+  "body": {
+    "pageNo": 1,
+    "totalCount": 233,
+    "numOfRows": 3,
+    "items": [
+      {
+        "item": {
+          "DUR_SEQ": "455",
+          "TYPE_NAME": "특정연령대금기",
+          "MIX_TYPE": "단일",
+          "INGR_CODE": "D000149",
+          "INGR_ENG_NAME": "Acarbose",
+          "INGR_NAME": "아카보즈",
+          "MIX_INGR": "",
+          "ORI_INGR": "[M085039]아카보즈",
+          "CLASS_NAME": "[03960]당뇨병용제",
+          "FORM_NAME": "정제",
+          "NOTIFICATION_DATE": "20140109",
+          "PROHBT_CONTENT": "안전성 및 유효성 미확립",
+          "REMARK": null,
+          "DEL_YN": "정상",
+          "AGE_BASE": "18세 이하"
+        }
+      },
+      {
+        "item": {
+          "DUR_SEQ": "456",
+          "TYPE_NAME": "특정연령대금기",
+          "MIX_TYPE": "단일",
+          "INGR_CODE": "D000147",
+          "INGR_ENG_NAME": "Acetaminophen",
+          "INGR_NAME": "아세트아미노펜",
+          "MIX_INGR": "",
+          "ORI_INGR": "[M040353]아세트아미노펜/[M082309]아세트아미노펜제피세립/[M233006]아세트아미노펜 DC 500/600/[M246556]아세트아미노펜 (미분화)/[M262287]아세트아미노펜 과립",
+          "CLASS_NAME": "[01140]해열.진통.소염제",
+          "FORM_NAME": "서방정/서방성필름코팅정/서방성당의정/서방성다층정/서방성장용필름코팅정",
+          "NOTIFICATION_DATE": "20140109",
+          "PROHBT_CONTENT": "-소아 및 고령자(노인)는 최소 필요량을 복용하고 이상반응에 유의\n- 과도한 체온강하, 허탈, 사지냉각 등이 나타날 수 있음",
+          "REMARK": null,
+          "DEL_YN": "정상",
+          "AGE_BASE": "12세 미만"
+        }
+      },
+      {
+        "item": {
+          "DUR_SEQ": "457",
+          "TYPE_NAME": "특정연령대금기",
+          "MIX_TYPE": "단일",
+          "INGR_CODE": "D000254",
+          "INGR_ENG_NAME": "Albendazole",
+          "INGR_NAME": "알벤다졸",
+          "MIX_INGR": "",
+          "ORI_INGR": "[M081226]알벤다졸",
+          "CLASS_NAME": "[06420]구충제",
+          "FORM_NAME": "경구용현탁액제/점이제, 현탁액용산제/현탁액제용주사용용제/직장용현탁액제/일반현탁분무제/정량현탁분무제/이식용현탁액제/점이현탁액제/유제/틴크제/전제/침제/레모네이드제/방향수제/주정제/피부액제/피부리니멘트제/도료/샴푸/경구용액제/질세정액/관류제/점이액제/혈액항응고보존액제/밀폐제용용액제/장기보존용액제/주사/피부단자시험용용액/방광내적용용액",
+          "NOTIFICATION_DATE": "20140109",
+          "PROHBT_CONTENT": "안전성 및 유효성 미확립",
+          "REMARK": null,
+          "DEL_YN": "정상",
+          "AGE_BASE": "2세 미만"
+        }
+      }
+    ]
+  }
+}

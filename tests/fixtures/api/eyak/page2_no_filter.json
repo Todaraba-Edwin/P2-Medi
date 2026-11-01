@@ -1,0 +1,61 @@
+{
+  "header": {
+    "resultCode": "00",
+    "resultMsg": "NORMAL SERVICE."
+  },
+  "body": {
+    "pageNo": 2,
+    "totalCount": 4746,
+    "numOfRows": 3,
+    "items": [
+      {
+        "entpName": "동아제약(주)",
+        "itemName": "타치온정50밀리그램(글루타티온(환원형))",
+        "itemSeq": "197100015",
+        "efcyQesitm": "이 약은 약물중독, 자가중독에 사용합니다.\n",
+        "useMethodQesitm": "성인은 1회 1~2정(50~100 mg), 1일 1~3회 복용합니다.\n\n연령, 증상에 따라 적절히 증감합니다.\n",
+        "atpnWarnQesitm": null,
+        "atpnQesitm": null,
+        "intrcQesitm": null,
+        "seQesitm": "드물게 발진, 식욕부진, 구역, 구토, 위통 등이 나타나는 경우 복용을 즉각 중지하고 의사 또는 약사와 상의하십시오.\n",
+        "depositMethodQesitm": "실온에서 보관하십시오.\n\n어린이의 손이 닿지 않는 곳에 보관하십시오.\n",
+        "openDe": "20211001",
+        "updateDe": "2024-01-11",
+        "itemImage": "",
+        "bizrno": "2048100130"
+      },
+      {
+        "entpName": "동아제약(주)",
+        "itemName": "타치온정50밀리그램(글루타티온(환원형))",
+        "itemSeq": "197100015",
+        "efcyQesitm": "이 약은 약물중독, 자가중독에 사용합니다.\n",
+        "useMethodQesitm": "성인은 1회 1~2정(50~100 mg), 1일 1~3회 복용합니다.\n\n연령, 증상에 따라 적절히 증감합니다.\n",
+        "atpnWarnQesitm": null,
+        "atpnQesitm": null,
+        "intrcQesitm": null,
+        "seQesitm": "드물게 발진, 식욕부진, 구역, 구토, 위통 등이 나타나는 경우 복용을 즉각 중지하고 의사 또는 약사와 상의하십시오.\n",
+        "depositMethodQesitm": "실온에서 보관하십시오.\n\n어린이의 손이 닿지 않는 곳에 보관하십시오.\n",
+        "openDe": "20211001",
+        "updateDe": "2024-01-11",
+        "itemImage": "https://nedrug.mfds.go.kr/pbp/cmn/itemImageDownload/1NOwp2F66kj",
+        "bizrno": "2048100130"
+      },
+      {
+        "entpName": "(주)보령",
+        "itemName": "겔포스현탁액(인산알루미늄겔)",
+        "itemSeq": "197400207",
+        "efcyQesitm": "이 약은 위·십이지장 궤양, 위염, 위산과다(속쓰림, 위통, 구역, 구토)의 제산작용 및 증상의 개선에 사용합니다.\n",
+        "useMethodQesitm": "성인은 1회 1포씩, 1일 3~4회 식간(식사 때와 식사 때 사이) 및 취침 시 복용합니다.\n\n연령 또는 증상에 따라 적절히 증감합니다.\n",
+        "atpnWarnQesitm": null,
+        "atpnQesitm": "이 약을 복용하기 전에 신장장애, 변비 환자는 의사 또는 약사와 상의하십시오.\n",
+        "intrcQesitm": "테트라사이클린계 항생물질과 함께 사용하지 마십시오.\n",
+        "seQesitm": "변비 등이 나타날 수 있습니다.\n",
+        "depositMethodQesitm": "빛을 피해 실온에서 보관하십시오.\n",
+        "openDe": "20210225",
+        "updateDe": "2024-11-29",
+        "itemImage": null,
+        "bizrno": "2088100281"
+      }
+    ]
+  }
+}

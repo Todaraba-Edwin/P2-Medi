@@ -1,0 +1,2541 @@
+[
+  {
+    "service": "dur-item",
+    "operation": "getDurPrdlstInfoList03",
+    "params": {
+      "itemName": "타이레놀"
+    },
+    "total_count": 5,
+    "sampled": 5,
+    "fields": [
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "202106092"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "타이레놀정500밀리그람(아세트아미노펜)"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "켄뷰코리아판매유한회사"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "2021August23rd"
+      },
+      {
+        "name": "ETC_OTC_CODE",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "일반의약품"
+      },
+      {
+        "name": "CLASS_NO",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "[114]해열.진통.소염제"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "흰색의 장방형 필름코팅정제"
+      },
+      {
+        "name": "BAR_CODE",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "8806723002343"
+      },
+      {
+        "name": "MATERIAL_NAME",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "아세트아미노펜,,500,밀리그램,USP,"
+      },
+      {
+        "name": "EE_DOC_ID",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "https://nedrug.mfds.go.kr/pbp/cmn/pdfViewer/202…"
+      },
+      {
+        "name": "UD_DOC_ID",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "https://nedrug.mfds.go.kr/pbp/cmn/pdfViewer/202…"
+      },
+      {
+        "name": "NB_DOC_ID",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "https://nedrug.mfds.go.kr/pbp/cmn/pdfViewer/202…"
+      },
+      {
+        "name": "INSERT_FILE",
+        "type": "null/str",
+        "filled": "4/5",
+        "null_string": 0,
+        "example": "http://www.health.kr/images/insert_pdf/IN_20210…"
+      },
+      {
+        "name": "STORAGE_METHOD",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "밀폐용기, 실온보관(1-30℃)"
+      },
+      {
+        "name": "VALID_TERM",
+        "type": "null",
+        "filled": "0/5",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "REEXAM_TARGET",
+        "type": "null",
+        "filled": "0/5",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "REEXAM_DATE",
+        "type": "null",
+        "filled": "0/5",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "PACK_UNIT",
+        "type": "null",
+        "filled": "0/5",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "EDI_CODE",
+        "type": "null/str",
+        "filled": "1/5",
+        "null_string": 0,
+        "example": "672300240"
+      },
+      {
+        "name": "CANCEL_DATE",
+        "type": "null",
+        "filled": "0/5",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "CANCEL_NAME",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "정상"
+      },
+      {
+        "name": "TYPE_CODE",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "D"
+      },
+      {
+        "name": "TYPE_NAME  ",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "용량주의"
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "2025November10th"
+      },
+      {
+        "name": "BIZRNO",
+        "type": "str",
+        "filled": "5/5",
+        "null_string": 0,
+        "example": "1068649891"
+      }
+    ]
+  },
+  {
+    "service": "dur-item",
+    "operation": "getUsjntTabooInfoList03",
+    "params": {
+      "itemSeq": "197900070"
+    },
+    "total_count": 460,
+    "sampled": 20,
+    "fields": [
+      {
+        "name": "DUR_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "40"
+      },
+      {
+        "name": "TYPE_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "A"
+      },
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "병용금기"
+      },
+      {
+        "name": "MIX",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000716"
+      },
+      {
+        "name": "INGR_KOR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "메토트렉세이트"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Methotrexate"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "null",
+        "filled": "0/20",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "197900070"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "엠티엑스주(메토트렉세이트)"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "제이더블유중외제약(주)"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "갈색 바이알에 충진된 담황색 주사액"
+      },
+      {
+        "name": "FORM_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "210101"
+      },
+      {
+        "name": "ETC_OTC_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "02"
+      },
+      {
+        "name": "CLASS_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "04210"
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "용액주사제"
+      },
+      {
+        "name": "ETC_OTC_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "전문의약품"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "항악성종양제"
+      },
+      {
+        "name": "MAIN_INGR",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[M040168]메토트렉세이트"
+      },
+      {
+        "name": "MIXTURE_DUR_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "40"
+      },
+      {
+        "name": "MIXTURE_MIX",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "MIXTURE_INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000019"
+      },
+      {
+        "name": "MIXTURE_INGR_KOR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "분무건조아시트레틴25%"
+      },
+      {
+        "name": "MIXTURE_INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Spray Dried Acitretin 25%"
+      },
+      {
+        "name": "MIXTURE_ITEM_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "200806769"
+      },
+      {
+        "name": "MIXTURE_ITEM_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "네오티가손캡슐10밀리그램(아시트레틴)"
+      },
+      {
+        "name": "MIXTURE_ENTP_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "(주)종근당"
+      },
+      {
+        "name": "MIXTURE_FORM_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "020101"
+      },
+      {
+        "name": "MIXTURE_ETC_OTC_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "02"
+      },
+      {
+        "name": "MIXTURE_CLASS_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "03110"
+      },
+      {
+        "name": "MIXTURE_FORM_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "경질캡슐제, 산제"
+      },
+      {
+        "name": "MIXTURE_ETC_OTC_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "전문의약품"
+      },
+      {
+        "name": "MIXTURE_CLASS_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "비타민 A 및 D제"
+      },
+      {
+        "name": "MIXTURE_MAIN_INGR",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[M086538]분무건조아시트레틴25%"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20090303"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "간 독성\n"
+      },
+      {
+        "name": "REMARK",
+        "type": "null/str",
+        "filled": "19/20",
+        "null_string": 0,
+        "example": "methotrexate (1週에 15mg 이상 투여시)"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20080620"
+      },
+      {
+        "name": "MIXTURE_ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "19790109"
+      },
+      {
+        "name": "MIXTURE_CHART",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "미황색 또는 황색의 가루가 충전된 상부 갈색, 하부 흰색의 경질 캡슐제"
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20200427"
+      },
+      {
+        "name": "MIXTURE_CHANGE_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20260422"
+      },
+      {
+        "name": "BIZRNO",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "1188102477"
+      }
+    ]
+  },
+  {
+    "service": "dur-item",
+    "operation": "getSpcifyAgrdeTabooInfoList03",
+    "params": {
+      "itemName": "타이레놀"
+    },
+    "total_count": 1,
+    "sampled": 1,
+    "fields": [
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "특정연령대금기"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "D000147"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "Acetaminophen"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "아세트아미노펜"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "서방성필름코팅정"
+      },
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "202200407"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "타이레놀8시간이알서방정(아세트아미노펜)"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "20220125"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "켄뷰코리아판매유한회사"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "흰색의 장방형 서방성 필름코팅정제"
+      },
+      {
+        "name": "CLASS_CODE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "01140"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "해열.진통.소염제"
+      },
+      {
+        "name": "ETC_OTC_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "일반의약품"
+      },
+      {
+        "name": "MAIN_INGR",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "[M040353]아세트아미노펜/[M040353]아세트아미노펜"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "20140109"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "-소아 및 고령자(노인)는 최소 필요량을 복용하고 이상반응에 유의- 과도한 체온강하,…"
+      },
+      {
+        "name": "REMARK",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "INGR_ENG_NAME_FULL",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "Acetaminophen(아세트아미노펜)"
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "20251110"
+      }
+    ]
+  },
+  {
+    "service": "dur-item",
+    "operation": "getPwnmTabooInfoList03",
+    "params": {
+      "itemName": "프로게스테론"
+    },
+    "total_count": 9,
+    "sampled": 9,
+    "fields": [
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "임부금기"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "D000100"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "Progesterone"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "프로게스테론"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "null",
+        "filled": "0/9",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "용액주사제"
+      },
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "201805378"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "프롤루텍스주25밀리그램(프로게스테론)"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "20181231"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "(주)아이젠파마코리아"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "무색의 맑은 액이 무색투명한 바이알에 든 주사제"
+      },
+      {
+        "name": "CLASS_CODE",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "02470"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "난포호르몬제 및 황체호르몬제"
+      },
+      {
+        "name": "ETC_OTC_NAME",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "전문의약품"
+      },
+      {
+        "name": "MAIN_INGR",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "[M040719]프로게스테론"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "20081211"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "임부에 대한 안전성 미확립."
+      },
+      {
+        "name": "REMARK",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "경구"
+      },
+      {
+        "name": "INGR_ENG_NAME_FULL",
+        "type": "str",
+        "filled": "9/9",
+        "null_string": 0,
+        "example": "Progesterone(프로게스테론)"
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "null/str",
+        "filled": "6/9",
+        "null_string": 0,
+        "example": "20221012"
+      }
+    ]
+  },
+  {
+    "service": "dur-item",
+    "operation": "getOdsnAtentInfoList03",
+    "params": {
+      "itemName": "디아제팜"
+    },
+    "total_count": 8,
+    "sampled": 8,
+    "fields": [
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "노인주의"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "D000090"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "Diazepam"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "디아제팜"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "[M040102]디아제팜"
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "나정"
+      },
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "197700525"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "대원디아제팜정2밀리그램(수출명:디아잠정2밀리그램)(수출명2:트레즈콘정2밀리그램)"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "19770512"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "대원제약(주)"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "백색의 원형 정제"
+      },
+      {
+        "name": "CLASS_CODE",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "01170"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "정신신경용제"
+      },
+      {
+        "name": "ETC_OTC_NAME",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "전문의약품"
+      },
+      {
+        "name": "MAIN_INGR",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "[M040102]디아제팜"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "20150728"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "노인에서의 장기지속형 벤조다이아제핀 사용은 운동실조, 과진정 등이 나타나기 쉬움으로 …"
+      },
+      {
+        "name": "REMARK",
+        "type": "null",
+        "filled": "0/8",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "INGR_ENG_NAME_FULL",
+        "type": "str",
+        "filled": "8/8",
+        "null_string": 0,
+        "example": "Diazepam(디아제팜)"
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "null",
+        "filled": "0/8",
+        "null_string": 0,
+        "example": null
+      }
+    ]
+  },
+  {
+    "service": "dur-item",
+    "operation": "getCpctyAtentInfoList03",
+    "params": {
+      "itemName": "타이레놀"
+    },
+    "total_count": 4,
+    "sampled": 4,
+    "fields": [
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "용량주의"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "D000147"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "Acetaminophen"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "아세트아미노펜"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "null/str",
+        "filled": "1/4",
+        "null_string": 0,
+        "example": "[D000997]Pamabrom(파마브롬)"
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "필름코팅정"
+      },
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "202106092"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "타이레놀정500밀리그람(아세트아미노펜)"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "20210823"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "켄뷰코리아판매유한회사"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "흰색의 장방형 필름코팅정제"
+      },
+      {
+        "name": "CLASS_CODE",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "01140"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "해열.진통.소염제"
+      },
+      {
+        "name": "ETC_OTC_NAME",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "일반의약품"
+      },
+      {
+        "name": "MAIN_INGR",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "[M040353]아세트아미노펜"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "20141230"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "모든 제형"
+      },
+      {
+        "name": "REMARK",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "단일제·복합제 포함"
+      },
+      {
+        "name": "INGR_ENG_NAME_FULL",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "Acetaminophen(아세트아미노펜)"
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "str",
+        "filled": "4/4",
+        "null_string": 0,
+        "example": "20251110"
+      }
+    ]
+  },
+  {
+    "service": "dur-item",
+    "operation": "getMdctnPdAtentInfoList03",
+    "params": {
+      "itemName": "졸피뎀"
+    },
+    "total_count": 14,
+    "sampled": 14,
+    "fields": [
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "투여기간주의"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "D000271"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "Zolpidem Tartrate"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "졸피뎀타르타르산염"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "null",
+        "filled": "0/14",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "필름코팅정"
+      },
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "200410861"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "졸피드정10밀리그램(졸피뎀타르타르산염)"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "20061019"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "한미약품(주)"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "흰색의 장방형 필름코팅정"
+      },
+      {
+        "name": "CLASS_CODE",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "01120"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "최면진정제"
+      },
+      {
+        "name": "ETC_OTC_NAME",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "전문의약품"
+      },
+      {
+        "name": "MAIN_INGR",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "[M239566]졸피뎀타르타르산염"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "20141230"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "null",
+        "filled": "0/14",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "REMARK",
+        "type": "null",
+        "filled": "0/14",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "INGR_ENG_NAME_FULL",
+        "type": "str",
+        "filled": "14/14",
+        "null_string": 0,
+        "example": "Zolpidem Tartrate(졸피뎀타르타르산염)"
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "null",
+        "filled": "0/14",
+        "null_string": 0,
+        "example": null
+      }
+    ]
+  },
+  {
+    "service": "dur-item",
+    "operation": "getEfcyDplctInfoList03",
+    "params": {
+      "itemName": "타이레놀"
+    },
+    "total_count": 3,
+    "sampled": 3,
+    "fields": [
+      {
+        "name": "DUR_SEQ",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "2508"
+      },
+      {
+        "name": "EFFECT_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "해열진통소염제"
+      },
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "효능군중복"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "D000147"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "아세트아미노펜"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "Acetaminophen"
+      },
+      {
+        "name": "FORM_CODE_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "필름코팅정"
+      },
+      {
+        "name": "MIX",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "null",
+        "filled": "0/3",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "202106092"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "타이레놀정500밀리그람(아세트아미노펜)"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "20210823"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "흰색의 장방형 필름코팅정제"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "켄뷰코리아판매유한회사"
+      },
+      {
+        "name": "FORM_CODE",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "010201"
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "필름코팅정"
+      },
+      {
+        "name": "ETC_OTC_CODE",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "01"
+      },
+      {
+        "name": "ETC_OTC_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "일반의약품"
+      },
+      {
+        "name": "CLASS_CODE",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "01140"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "해열.진통.소염제"
+      },
+      {
+        "name": "MAIN_INGR",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "[M040353]아세트아미노펜"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "20120831"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "null",
+        "filled": "0/3",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "REMARK",
+        "type": "null",
+        "filled": "0/3",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "INGR_ENG_NAME_FULL",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "Acetaminophen(아세트아미노펜)"
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "20260408"
+      },
+      {
+        "name": "BIZRNO",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "1068649891"
+      },
+      {
+        "name": "SERS_NAME",
+        "type": "str",
+        "filled": "3/3",
+        "null_string": 0,
+        "example": "아닐리드계 해열진통제"
+      }
+    ]
+  },
+  {
+    "service": "dur-item",
+    "operation": "getSeobangjeongPartitnAtentInfoList03",
+    "params": {
+      "itemName": "타이레놀"
+    },
+    "total_count": 1,
+    "sampled": 1,
+    "fields": [
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "분할주의"
+      },
+      {
+        "name": "ITEM_SEQ",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "202200407"
+      },
+      {
+        "name": "ITEM_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "타이레놀8시간이알서방정(아세트아미노펜)"
+      },
+      {
+        "name": "ITEM_PERMIT_DATE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "2022January25th"
+      },
+      {
+        "name": "FORM_CODE_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "서방성필름코팅정"
+      },
+      {
+        "name": "ENTP_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "켄뷰코리아판매유한회사"
+      },
+      {
+        "name": "CHART",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "흰색의 장방형 서방성 필름코팅정제"
+      },
+      {
+        "name": "CLASS_CODE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "01140 "
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "해열.진통.소염제"
+      },
+      {
+        "name": "ETC_OTC_NAME",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "일반의약품"
+      },
+      {
+        "name": "MIX",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "MAIN_INGR",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "[M040353]아세트아미노펜/[M040353]아세트아미노펜"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "분할불가"
+      },
+      {
+        "name": "REMARK",
+        "type": "null",
+        "filled": "0/1",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "CHANGE_DATE",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "20260122"
+      },
+      {
+        "name": "BIZRNO",
+        "type": "str",
+        "filled": "1/1",
+        "null_string": 0,
+        "example": "1068649891"
+      }
+    ]
+  },
+  {
+    "service": "eyak",
+    "operation": "getDrbEasyDrugList",
+    "params": {
+      "itemName": "타이레놀"
+    },
+    "total_count": 7,
+    "sampled": 7,
+    "fields": [
+      {
+        "name": "entpName",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "켄뷰코리아판매유한회사"
+      },
+      {
+        "name": "itemName",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "어린이타이레놀산160밀리그램(아세트아미노펜)"
+      },
+      {
+        "name": "itemSeq",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "202005623"
+      },
+      {
+        "name": "efcyQesitm",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "이 약은 감기로 인한 발열 및 동통(통증), 두통, 신경통, 근육통, 월경통, 염좌통…"
+      },
+      {
+        "name": "useMethodQesitm",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "만 7~12세 소아는 1회 권장용량을 4~6시간마다 필요시 물 없이 혀에 직접 복용합…"
+      },
+      {
+        "name": "atpnWarnQesitm",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "매일 세잔 이상 정기적 음주자가 이 약 또는 다른 해열진통제를 복용할 때는 의사 또는…"
+      },
+      {
+        "name": "atpnQesitm",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "이 약에 과민증 환자, 소화성궤양, 심한 혈액 이상, 심한 간장애, 심한 신장(콩팥)…"
+      },
+      {
+        "name": "intrcQesitm",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "바르비탈계 약물, 삼환계 항우울제, 알코올, 다른 소염(항염)진통제와 함께 복용하지 …"
+      },
+      {
+        "name": "seQesitm",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "쇽 증상(호흡곤란, 온몸이 붉어짐, 혈관부기, 두드러기 등), 천식발작, 혈소판 감소…"
+      },
+      {
+        "name": "depositMethodQesitm",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "실온에서 보관하십시오.\n\n어린이의 손이 닿지 않는 곳에 보관하십시오.\n"
+      },
+      {
+        "name": "openDe",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "20241231"
+      },
+      {
+        "name": "updateDe",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "2026-10-22"
+      },
+      {
+        "name": "itemImage",
+        "type": "null/str",
+        "filled": "4/7",
+        "null_string": 0,
+        "example": "https://nedrug.mfds.go.kr/pbp/cmn/itemImageDown…"
+      },
+      {
+        "name": "bizrno",
+        "type": "str",
+        "filled": "7/7",
+        "null_string": 0,
+        "example": "1068649891"
+      }
+    ]
+  },
+  {
+    "service": "dur-ingr",
+    "operation": "getUsjntTabooInfoList02",
+    "params": {},
+    "total_count": 1836,
+    "sampled": 20,
+    "fields": [
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "병용금기"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000762"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Itraconazole"
+      },
+      {
+        "name": "INGR_KOR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "이트라코나졸"
+      },
+      {
+        "name": "MIX",
+        "type": "str",
+        "filled": "1/20",
+        "null_string": 0,
+        "example": "[D001266]Anhydrous Caffeine(카페인무수물)"
+      },
+      {
+        "name": "ORI",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[M083733]이트라코나졸제피과립/[M083734]이트라코나졸/[M092870]이트…"
+      },
+      {
+        "name": "CLASS",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[06290]기타의 화학요법제"
+      },
+      {
+        "name": "MIXTURE_MIX_TYPE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "MIXTURE_INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000027"
+      },
+      {
+        "name": "MIXTURE_INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Simvastatin"
+      },
+      {
+        "name": "MIXTURE_INGR_KOR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "심바스타틴"
+      },
+      {
+        "name": "MIXTURE_MIX",
+        "type": "str",
+        "filled": "0/20",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "MIXTURE_ORI",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[M089710]심바스타틴"
+      },
+      {
+        "name": "MIXTURE_CLASS",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[02180]동맥경화용제"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20090303"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "횡문근융해증"
+      },
+      {
+        "name": "REMARK",
+        "type": "null",
+        "filled": "0/20",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "DEL_YN",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정상"
+      }
+    ]
+  },
+  {
+    "service": "dur-ingr",
+    "operation": "getSpcifyAgrdeTabooInfoList02",
+    "params": {},
+    "total_count": 233,
+    "sampled": 20,
+    "fields": [
+      {
+        "name": "DUR_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "455"
+      },
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "특정연령대금기"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000149"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Acarbose"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "아카보즈"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "str",
+        "filled": "1/20",
+        "null_string": 0,
+        "example": "[D000684]Timolol(티몰롤)"
+      },
+      {
+        "name": "ORI_INGR",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[M085039]아카보즈"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[03960]당뇨병용제"
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정제"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20140109"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "안전성 및 유효성 미확립"
+      },
+      {
+        "name": "REMARK",
+        "type": "null/str",
+        "filled": "1/20",
+        "null_string": 0,
+        "example": "점안제(1%)"
+      },
+      {
+        "name": "DEL_YN",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정상"
+      },
+      {
+        "name": "AGE_BASE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "18세 이하"
+      }
+    ]
+  },
+  {
+    "service": "dur-ingr",
+    "operation": "getPwnmTabooInfoList02",
+    "params": {},
+    "total_count": 1459,
+    "sampled": 20,
+    "fields": [
+      {
+        "name": "DUR_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "1893"
+      },
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "임부금기"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000100"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Progesterone"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "프로게스테론"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "str",
+        "filled": "0/20",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "ORI_INGR",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[M040719]프로게스테론/[M086429]미분화프로게스테론/[M252921]프로게…"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "7/20",
+        "null_string": 0,
+        "example": "[02470]난포호르몬제 및 황체호르몬제"
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "연질캡슐제, 현탁상/유화주사제/용액용분말주사제/서방성현탁액용분말주사제/용액용동결건조분…"
+      },
+      {
+        "name": "GRADE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "1등급"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20081211"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "null/str",
+        "filled": "19/20",
+        "null_string": 0,
+        "example": "임부에 대한 안전성 미확립."
+      },
+      {
+        "name": "REMARK",
+        "type": "null/str",
+        "filled": "10/20",
+        "null_string": 0,
+        "example": "경구"
+      },
+      {
+        "name": "DEL_YN",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정상"
+      }
+    ]
+  },
+  {
+    "service": "dur-ingr",
+    "operation": "getOdsnAtentInfoList02",
+    "params": {},
+    "total_count": 112,
+    "sampled": 20,
+    "fields": [
+      {
+        "name": "DUR_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "1"
+      },
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "노인주의"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000056"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Chlordiazepoxide"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "클로르디아제폭시드"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "str",
+        "filled": "1/20",
+        "null_string": 0,
+        "example": "[D000585]Clidinium(클리디늄)"
+      },
+      {
+        "name": "ORI_INGR",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[M088403]클로르디아제폭시드/[M223206]클로르디아제폭시드염산염"
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "0/20",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20150728"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "노인에서의 장기지속형 벤조다이아제핀 사용은 운동실조, 과진정 등이 나타나기 쉬움으로 …"
+      },
+      {
+        "name": "REMARK",
+        "type": "null",
+        "filled": "0/20",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "DEL_YN",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정상"
+      }
+    ]
+  },
+  {
+    "service": "dur-ingr",
+    "operation": "getCpctyAtentInfoList02",
+    "params": {},
+    "total_count": 708,
+    "sampled": 20,
+    "fields": [
+      {
+        "name": "DUR_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "636"
+      },
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "용량주의"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000592"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Triazolam"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "트리아졸람"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "str",
+        "filled": "1/20",
+        "null_string": 0,
+        "example": "[D000414]Hydrochlorothiazide(히드로클로로티아지드)"
+      },
+      {
+        "name": "ORI_INGR",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[I005603]트리아졸람/[M088380]트리아졸람"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[01120]최면진정제"
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정제"
+      },
+      {
+        "name": "MAX_QTY",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "0.25밀리그램"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20130703"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "null/str",
+        "filled": "2/20",
+        "null_string": 0,
+        "example": "캅토프릴 100mg/히드로클로로티아지드 50mg"
+      },
+      {
+        "name": "REMARK",
+        "type": "null",
+        "filled": "0/20",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "DEL_YN",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정상"
+      }
+    ]
+  },
+  {
+    "service": "dur-ingr",
+    "operation": "getMdctnPdAtentInfoList02",
+    "params": {},
+    "total_count": 98,
+    "sampled": 20,
+    "fields": [
+      {
+        "name": "DUR_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "459"
+      },
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "투여기간주의"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000592"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Triazolam"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "트리아졸람"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "str",
+        "filled": "3/20",
+        "null_string": 0,
+        "example": "[D000232]Aescin(에스신)"
+      },
+      {
+        "name": "ORI_INGR",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[I005603]트리아졸람/[M088380]트리아졸람"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "19/20",
+        "null_string": 0,
+        "example": "[01120]최면진정제"
+      },
+      {
+        "name": "FORM_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정제"
+      },
+      {
+        "name": "MAX_DOSAGE_TERM",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "21일"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20100511"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "null/str",
+        "filled": "1/20",
+        "null_string": 0,
+        "example": "주성분 함량 : 30mg/ml"
+      },
+      {
+        "name": "REMARK",
+        "type": "null/str",
+        "filled": "1/20",
+        "null_string": 0,
+        "example": "항암제 투여로 인한 구역 및 구토의 방지에 쓰는 제품에 한함"
+      },
+      {
+        "name": "DEL_YN",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정상"
+      }
+    ]
+  },
+  {
+    "service": "dur-ingr",
+    "operation": "getEfcyDplctInfoList02",
+    "params": {},
+    "total_count": 406,
+    "sampled": 20,
+    "fields": [
+      {
+        "name": "DUR_SEQ",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "2463"
+      },
+      {
+        "name": "TYPE_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "효능군중복"
+      },
+      {
+        "name": "MIX_TYPE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "단일"
+      },
+      {
+        "name": "INGR_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "D000739"
+      },
+      {
+        "name": "INGR_ENG_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "Aceclofenac"
+      },
+      {
+        "name": "INGR_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "아세클로페낙"
+      },
+      {
+        "name": "MIX_INGR",
+        "type": "str",
+        "filled": "0/20",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "ORI_INGR",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[M040359]아세클로페낙"
+      },
+      {
+        "name": "CLASS_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "[01140]해열.진통.소염제"
+      },
+      {
+        "name": "EFFECT_CODE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "해열진통소염제"
+      },
+      {
+        "name": "NOTIFICATION_DATE",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "20120831"
+      },
+      {
+        "name": "PROHBT_CONTENT",
+        "type": "null",
+        "filled": "0/20",
+        "null_string": 0,
+        "example": null
+      },
+      {
+        "name": "REMARK",
+        "type": "null/str",
+        "filled": "1/20",
+        "null_string": 0,
+        "example": "용량 Aspirin > 325mg\n"
+      },
+      {
+        "name": "DEL_YN",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "정상"
+      },
+      {
+        "name": "SERS_NAME",
+        "type": "str",
+        "filled": "20/20",
+        "null_string": 0,
+        "example": "비스테로이드성 소염제"
+      }
+    ]
+  }
+]

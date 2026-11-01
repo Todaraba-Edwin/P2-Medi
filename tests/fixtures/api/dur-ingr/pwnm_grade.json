@@ -1,0 +1,70 @@
+{
+  "header": {
+    "resultCode": "00",
+    "resultMsg": "NORMAL SERVICE."
+  },
+  "body": {
+    "pageNo": 1,
+    "totalCount": 1459,
+    "numOfRows": 3,
+    "items": [
+      {
+        "item": {
+          "DUR_SEQ": "1893",
+          "TYPE_NAME": "임부금기",
+          "MIX_TYPE": "단일",
+          "INGR_CODE": "D000100",
+          "INGR_ENG_NAME": "Progesterone",
+          "INGR_NAME": "프로게스테론",
+          "MIX_INGR": "",
+          "ORI_INGR": "[M040719]프로게스테론/[M086429]미분화프로게스테론/[M252921]프로게스테론(미분화)",
+          "CLASS_NAME": "[02470]난포호르몬제 및 황체호르몬제",
+          "FORM_NAME": "연질캡슐제, 현탁상/유화주사제/용액용분말주사제/서방성현탁액용분말주사제/용액용동결건조분말주사제/현탁액용동결건조분말주사제/서방성현탁액용동결건조분말주사제/리포좀화현탁액용동결건조분말주사제/현탁액주사제/서방성현탁액성주사제/용액주사제",
+          "GRADE": "1등급",
+          "NOTIFICATION_DATE": "20081211",
+          "PROHBT_CONTENT": "임부에 대한 안전성 미확립.",
+          "REMARK": "경구",
+          "DEL_YN": "정상"
+        }
+      },
+      {
+        "item": {
+          "DUR_SEQ": "1894",
+          "TYPE_NAME": "임부금기",
+          "MIX_TYPE": "단일",
+          "INGR_CODE": "D000597",
+          "INGR_ENG_NAME": "3'-Deoxy-3'-Fluorothymidine(18F)",
+          "INGR_NAME": "3'-데옥시-3'-플루오로티미딘(18F)",
+          "MIX_INGR": "",
+          "ORI_INGR": "[M230797]3´-데옥시-3´-플루오로티미딘(18F)액/[M262548]3'-데옥시-3'-플루오로티미딘(18F)액",
+          "CLASS_NAME": "",
+          "FORM_NAME": "용액주사제/유화주사제/용액용분말주사제/서방성현탁액용분말주사제/용액용동결건조분말주사제/현탁액용동결건조분말주사제/서방성현탁액용동결건조분말주사제/리포좀화현탁액용동결건조분말주사제/현탁액주사제/서방성현탁액성주사제",
+          "GRADE": "2등급",
+          "NOTIFICATION_DATE": "20150520",
+          "PROHBT_CONTENT": "임부에 대한 안전성 미확립.",
+          "REMARK": null,
+          "DEL_YN": "정상"
+        }
+      },
+      {
+        "item": {
+          "DUR_SEQ": "1895",
+          "TYPE_NAME": "임부금기",
+          "MIX_TYPE": "단일",
+          "INGR_CODE": "D000654",
+          "INGR_ENG_NAME": "Abacavir",
+          "INGR_NAME": "아바카비르",
+          "MIX_INGR": "",
+          "ORI_INGR": "[I012292]아바카비르황산염/[M262968]아바카비르황산염",
+          "CLASS_NAME": "",
+          "FORM_NAME": "정제",
+          "GRADE": "2등급",
+          "NOTIFICATION_DATE": "20150520",
+          "PROHBT_CONTENT": "임부에 대한 안전성 미확립.\n동물실험에서 태반이행 보고. 랫드에서 태자 체중감소, 부종, 골격변화, 기형, 조기 자궁내 사망, 출생지연 등 나타남.",
+          "REMARK": null,
+          "DEL_YN": "정상"
+        }
+      }
+    ]
+  }
+}

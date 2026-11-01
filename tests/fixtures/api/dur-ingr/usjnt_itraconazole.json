@@ -1,0 +1,82 @@
+{
+  "header": {
+    "resultCode": "00",
+    "resultMsg": "NORMAL SERVICE."
+  },
+  "body": {
+    "pageNo": 1,
+    "totalCount": 19,
+    "numOfRows": 3,
+    "items": [
+      {
+        "item": {
+          "TYPE_NAME": "병용금기",
+          "MIX_TYPE": "단일",
+          "INGR_CODE": "D000762",
+          "INGR_ENG_NAME": "Itraconazole",
+          "INGR_KOR_NAME": "이트라코나졸",
+          "MIX": "",
+          "ORI": "[M083733]이트라코나졸제피과립/[M083734]이트라코나졸/[M092870]이트라코나졸고체분산체/[M201487]이트라코나졸고체분산/[M201624]제피이트라코나졸과립",
+          "CLASS": "[06290]기타의 화학요법제",
+          "MIXTURE_MIX_TYPE": "단일",
+          "MIXTURE_INGR_CODE": "D000027",
+          "MIXTURE_INGR_ENG_NAME": "Simvastatin",
+          "MIXTURE_INGR_KOR_NAME": "심바스타틴",
+          "MIXTURE_MIX": "",
+          "MIXTURE_ORI": "[M089710]심바스타틴",
+          "MIXTURE_CLASS": "[02180]동맥경화용제",
+          "NOTIFICATION_DATE": "20090303",
+          "PROHBT_CONTENT": "횡문근융해증",
+          "REMARK": null,
+          "DEL_YN": "정상"
+        }
+      },
+      {
+        "item": {
+          "TYPE_NAME": "병용금기",
+          "MIX_TYPE": "단일",
+          "INGR_CODE": "D000762",
+          "INGR_ENG_NAME": "Itraconazole",
+          "INGR_KOR_NAME": "이트라코나졸",
+          "MIX": "",
+          "ORI": "[M083733]이트라코나졸제피과립/[M083734]이트라코나졸/[M092870]이트라코나졸고체분산체/[M201487]이트라코나졸고체분산/[M201624]제피이트라코나졸과립",
+          "CLASS": "[06290]기타의 화학요법제",
+          "MIXTURE_MIX_TYPE": "단일",
+          "MIXTURE_INGR_CODE": "D000592",
+          "MIXTURE_INGR_ENG_NAME": "Triazolam",
+          "MIXTURE_INGR_KOR_NAME": "트리아졸람",
+          "MIXTURE_MIX": "",
+          "MIXTURE_ORI": "[I005603]트리아졸람/[M088380]트리아졸람",
+          "MIXTURE_CLASS": "[01120]최면진정제",
+          "NOTIFICATION_DATE": "20090303",
+          "PROHBT_CONTENT": "triazolam 의 약리학적 효과 및 작용(수면유도 및 진정작용 등의 중추신경 억제 효과) 증가\n",
+          "REMARK": null,
+          "DEL_YN": "정상"
+        }
+      },
+      {
+        "item": {
+          "TYPE_NAME": "병용금기",
+          "MIX_TYPE": "단일",
+          "INGR_CODE": "D000762",
+          "INGR_ENG_NAME": "Itraconazole",
+          "INGR_KOR_NAME": "이트라코나졸",
+          "MIX": "",
+          "ORI": "[M083733]이트라코나졸제피과립/[M083734]이트라코나졸/[M092870]이트라코나졸고체분산체/[M201487]이트라코나졸고체분산/[M201624]제피이트라코나졸과립",
+          "CLASS": "[06290]기타의 화학요법제",
+          "MIXTURE_MIX_TYPE": "단일",
+          "MIXTURE_INGR_CODE": "D000419",
+          "MIXTURE_INGR_ENG_NAME": "Lovastatin",
+          "MIXTURE_INGR_KOR_NAME": "로바스타틴",
+          "MIXTURE_MIX": "",
+          "MIXTURE_ORI": "[M083392]로바스타틴",
+          "MIXTURE_CLASS": "[02180]동맥경화용제",
+          "NOTIFICATION_DATE": "20090303",
+          "PROHBT_CONTENT": "횡문근융해증\n",
+          "REMARK": null,
+          "DEL_YN": "정상"
+        }
+      }
+    ]
+  }
+}
