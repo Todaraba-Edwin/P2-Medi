@@ -8,7 +8,7 @@
 - [5. 열린 항목](#5-열린-항목)
 - [6. 다시 실행하는 법](#6-다시-실행하는-법)
 
-> 엔티티·필드 사전과 목 픽스처는 `P2-doc/PJ2-API-엔티티.md`와 `tests/fixtures/api/`에 있다.
+> 관련: [RFP-21](../tickets/doc/RFP-21.md) · [RFP 5.2절](PJ2-RFP.md#52-사전-주간-api-실측-확인과-실현-가능성-rfp-21) · [API 엔티티·값](PJ2-API-엔티티.md) · [목 픽스처](../tests/fixtures/api/manifest.json) · [프로브](../scripts/api_probe/probe.py)
 > 2026-11-01 실제 호출로 확인한 값이다. 인증키는 `.env`에서 환경변수로만 읽었고 이 문서와 저장소에는 키 값이 없다. 원본 응답은 `data/api_samples/`(git 제외)에 있다. 응답은 시간이 지나면 바뀔 수 있다.
 
 ## 1. 확인 방법
