@@ -1,0 +1,126 @@
+[
+  {
+    "service": "eyak",
+    "case": "hit_tylenol",
+    "operation": "getDrbEasyDrugList",
+    "params": {
+      "itemName": "타이레놀",
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 7,
+    "purpose": "일반의약품이 조회되는 정상 응답. 문장형 필드 7개",
+    "file": "tests/fixtures/api/eyak/hit_tylenol.json",
+    "captured_at": "2026-11-01T14:57:33+09:00"
+  },
+  {
+    "service": "eyak",
+    "case": "empty_rx_methotrexate",
+    "operation": "getDrbEasyDrugList",
+    "params": {
+      "itemName": "메토트렉세이트",
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 0,
+    "purpose": "전문의약품은 e약은요에 없다. 결과 0건일 때의 응답 모양",
+    "file": "tests/fixtures/api/eyak/empty_rx_methotrexate.json",
+    "captured_at": "2026-11-01T14:57:33+09:00"
+  },
+  {
+    "service": "eyak",
+    "case": "page2_no_filter",
+    "operation": "getDrbEasyDrugList",
+    "params": {
+      "pageNo": 2,
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 4746,
+    "purpose": "필터 없이 전체 건수(totalCount)와 페이지 이동",
+    "file": "tests/fixtures/api/eyak/page2_no_filter.json",
+    "captured_at": "2026-11-01T14:57:33+09:00"
+  },
+  {
+    "service": "dur-item",
+    "case": "product_tylenol",
+    "operation": "getDurPrdlstInfoList03",
+    "params": {
+      "itemName": "타이레놀",
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 5,
+    "purpose": "품목 정보(전문/일반 구분, 성분 문자열, 문서 ID)",
+    "file": "tests/fixtures/api/dur-item/product_tylenol.json",
+    "captured_at": "2026-11-01T14:57:33+09:00"
+  },
+  {
+    "service": "dur-item",
+    "case": "age_taboo_tylenol",
+    "operation": "getSpcifyAgrdeTabooInfoList03",
+    "params": {
+      "itemName": "타이레놀",
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 1,
+    "purpose": "특정연령대금기: 품목 단위, 성분코드·고시일자 포함",
+    "file": "tests/fixtures/api/dur-item/age_taboo_tylenol.json",
+    "captured_at": "2026-11-01T14:57:33+09:00"
+  },
+  {
+    "service": "dur-item",
+    "case": "usjnt_methotrexate_injection",
+    "operation": "getUsjntTabooInfoList03",
+    "params": {
+      "itemSeq": "197900070",
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 460,
+    "purpose": "병용금기: 품목 단위, itemSeq 필터(460건)",
+    "file": "tests/fixtures/api/dur-item/usjnt_methotrexate_injection.json",
+    "captured_at": "2026-11-01T14:57:33+09:00"
+  },
+  {
+    "service": "dur-ingr",
+    "case": "usjnt_itraconazole",
+    "operation": "getUsjntTabooInfoList02",
+    "params": {
+      "ingrCode": "D000762",
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 19,
+    "purpose": "병용금기: 성분 단위, ingrCode 필터, 상대 성분(MIXTURE_*)",
+    "file": "tests/fixtures/api/dur-ingr/usjnt_itraconazole.json",
+    "captured_at": "2026-11-01T14:57:33+09:00"
+  },
+  {
+    "service": "dur-ingr",
+    "case": "pwnm_grade",
+    "operation": "getPwnmTabooInfoList02",
+    "params": {
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 1459,
+    "purpose": "임부금기: 성분 단위, 등급(GRADE)",
+    "file": "tests/fixtures/api/dur-ingr/pwnm_grade.json",
+    "captured_at": "2026-11-01T14:57:33+09:00"
+  },
+  {
+    "service": "dur-ingr",
+    "case": "age_base",
+    "operation": "getSpcifyAgrdeTabooInfoList02",
+    "params": {
+      "numOfRows": 3
+    },
+    "http_status": 200,
+    "total_count": 233,
+    "purpose": "특정연령대금기: 성분 단위, 연령 기준(AGE_BASE)",
+    "file": "tests/fixtures/api/dur-ingr/age_base.json",
+    "captured_at": "2026-11-01T14:57:33+09:00"
+  }
+]

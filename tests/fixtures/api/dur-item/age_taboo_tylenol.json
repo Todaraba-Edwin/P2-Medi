@@ -1,0 +1,36 @@
+{
+  "header": {
+    "resultCode": "00",
+    "resultMsg": "NORMAL SERVICE."
+  },
+  "body": {
+    "pageNo": 1,
+    "totalCount": 1,
+    "numOfRows": 3,
+    "items": [
+      {
+        "TYPE_NAME": "특정연령대금기",
+        "MIX_TYPE": "단일",
+        "INGR_CODE": "D000147",
+        "INGR_ENG_NAME": "Acetaminophen",
+        "INGR_NAME": "아세트아미노펜",
+        "MIX_INGR": null,
+        "FORM_NAME": "서방성필름코팅정",
+        "ITEM_SEQ": "202200407",
+        "ITEM_NAME": "타이레놀8시간이알서방정(아세트아미노펜)",
+        "ITEM_PERMIT_DATE": "20220125",
+        "ENTP_NAME": "켄뷰코리아판매유한회사",
+        "CHART": "흰색의 장방형 서방성 필름코팅정제",
+        "CLASS_CODE": "01140",
+        "CLASS_NAME": "해열.진통.소염제",
+        "ETC_OTC_NAME": "일반의약품",
+        "MAIN_INGR": "[M040353]아세트아미노펜/[M040353]아세트아미노펜",
+        "NOTIFICATION_DATE": "20140109",
+        "PROHBT_CONTENT": "-소아 및 고령자(노인)는 최소 필요량을 복용하고 이상반응에 유의- 과도한 체온강하, 허탈, 사지냉각 등이 나타날 수 있음",
+        "REMARK": null,
+        "INGR_ENG_NAME_FULL": "Acetaminophen(아세트아미노펜)",
+        "CHANGE_DATE": "20251110"
+      }
+    ]
+  }
+}
