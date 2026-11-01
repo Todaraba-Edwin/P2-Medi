@@ -21,10 +21,10 @@ OUT = probe.ROOT / "tests" / "fixtures" / "api"
 
 # (서비스, 사례 이름, 오퍼레이션, 요청 파라미터, 이 사례가 보여 주는 것)
 CASES = [
-    ("eyak", "hit_tylenol", "getDrbEasyDrugList", {"itemName": "타이레놀", "numOfRows": 3}, "일반의약품이 조회되는 정상 응답. 문장형 필드 7개"),
+    ("eyak", "hit_tylenol", "getDrbEasyDrugList", {"itemName": "타이레놀", "numOfRows": 3}, "타이레놀 품목 7개(totalCount 7)가 조회되는 정상 응답. 이 파일에는 처음 3개만 저장. 문장형 필드 7개"),
     ("eyak", "empty_rx_methotrexate", "getDrbEasyDrugList", {"itemName": "메토트렉세이트", "numOfRows": 3}, "전문의약품은 e약은요에 없다. 결과 0건일 때의 응답 모양"),
     ("eyak", "page2_no_filter", "getDrbEasyDrugList", {"pageNo": 2, "numOfRows": 3}, "필터 없이 전체 건수(totalCount)와 페이지 이동"),
-    ("dur-item", "product_tylenol", "getDurPrdlstInfoList03", {"itemName": "타이레놀", "numOfRows": 3}, "품목 정보(전문/일반 구분, 성분 문자열, 문서 ID)"),
+    ("dur-item", "product_tylenol", "getDurPrdlstInfoList03", {"itemName": "타이레놀", "numOfRows": 3}, "품목 정보(전문/일반 구분, 성분 문자열, 문서 ID). 같은 이름이 e약은요에서는 7개, 여기서는 5개(어린이 타이레놀 2개가 없음)"),
     ("dur-item", "age_taboo_tylenol", "getSpcifyAgrdeTabooInfoList03", {"itemName": "타이레놀", "numOfRows": 3}, "특정연령대금기: 품목 단위, 성분코드·고시일자 포함"),
     ("dur-item", "usjnt_methotrexate_injection", "getUsjntTabooInfoList03", {"itemSeq": "197900070", "numOfRows": 3}, "병용금기: 품목 단위, itemSeq 필터(460건)"),
     ("dur-ingr", "usjnt_itraconazole", "getUsjntTabooInfoList02", {"ingrCode": "D000762", "numOfRows": 3}, "병용금기: 성분 단위, ingrCode 필터, 상대 성분(MIXTURE_*)"),
