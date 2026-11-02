@@ -96,6 +96,23 @@ for i, m in tick.items():
     miss = [l for l in heads if "(#" + slug(l.lstrip("#")) + ")" not in idx]
     if miss:
         errors.append(f"{i}: Index 누락 {miss[:2]}")
+    n2 = n3 = 0
+    fence = False
+    for l in t.split("\n"):
+        if l.startswith("```"):
+            fence = not fence
+        mm = None if fence else re.match(r"(#{2,3}) (.*)$", l)
+        if not mm or mm.group(2) == "Index":
+            continue
+        if len(mm.group(1)) == 2:
+            n2 += 1
+            n3 = 0
+            if not mm.group(2).startswith(f"{n2}. "):
+                errors.append(f"{i}: '## {mm.group(2)}'는 '## {n2}. ' 번호로 시작해야 함")
+        else:
+            n3 += 1
+            if not mm.group(2).startswith(f"{n2}.{n3} "):
+                errors.append(f"{i}: '### {mm.group(2)}'는 '### {n2}.{n3} ' 번호로 시작해야 함")
     anchors = {slug(l.lstrip("#")) for l in t.split("\n") if l.startswith("#")}
     bad = [a for a in re.findall(r"\]\(#([^)]+)\)", t) if a not in anchors]
     if bad:
@@ -140,6 +157,14 @@ for i, m_ in tick.items():
 pending = {k for k, v in dec.items() if v == "대기"}
 sec2 = s.split("### 먼저 답할 결정")[1].split("\n## ")[0] if "### 먼저 답할 결정" in s else ""
 listed = set(re.findall(r"^\| ((?:RFP|PRD|AG|BE|FE)-\d+-\d{2}) \|", sec2, re.M))
+# "먼저 답할 결정" 표의 읽을 곳 열: 모든 행에 링크가 있어야 한다
+hdr = re.search(r"^\| 번호 \|(.*)$", sec2, re.M)
+if not hdr or "읽을 곳" not in hdr.group(0):
+    errors.append("'먼저 답할 결정' 표에 '읽을 곳' 열이 없음")
+else:
+    for row in re.findall(r"^\| ((?:RFP|PRD|AG|BE|FE)-\d+-\d{2}) \|(.*)$", sec2, re.M):
+        if "](" not in row[1]:
+            errors.append(f"{row[0]}: '읽을 곳'에 링크가 없음")
 for k in sorted(pending - listed):
     errors.append(f"{k}: 티켓에서 대기인데 schedule.md '먼저 답할 결정' 표에 없음")
 for k in sorted(listed - pending):
@@ -147,6 +172,24 @@ for k in sorted(listed - pending):
 for i, m_ in tick.items():
     if m_["status"] == "done" and any(k.startswith(i + "-") for k in pending):
         errors.append(f"{i}: 대기 중인 결정이 있는데 done")
+# 카드: 대기 결정이 있거나 Top 5에 오른 티켓은 제목 아래 카드가 있어야 한다(건수, 대기 번호, schedule.md로 돌아가는 링크)
+for i, m_ in tick.items():
+    mine = sorted(k for k in pending if k.startswith(i + "-"))
+    if not mine and i not in ids:
+        continue
+    head = m_["text"].split("## Index")[0]
+    mm = re.search(r"이 티켓에서 사용자가 답할 것 \(대기 (\d+)건\)", head)
+    if not mm:
+        errors.append(f"{i}: 제목 아래 '답할 것' 카드가 없음")
+        continue
+    if int(mm.group(1)) != len(mine):
+        errors.append(f"{i}: 카드의 대기 {mm.group(1)}건 != 실제 {len(mine)}건")
+    if "schedule.md#지금-해야-할-일-top-5" not in head:
+        errors.append(f"{i}: 카드에 schedule.md Top 5로 돌아가는 링크가 없음")
+    for k in mine:
+        if k not in head:
+            errors.append(f"{i}: 카드에 {k}가 없음")
+
 def expand(cell):
     out = set()
     for pre, nums in re.findall(r"((?:RFP|PRD|AG|BE|FE)-\d+)-(\d{2}(?:·\d{2})*)", cell):
