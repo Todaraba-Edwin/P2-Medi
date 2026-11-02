@@ -55,9 +55,9 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | 식약처 [DUR 품목정보 OpenAPI](https://www.data.go.kr/data/15059486/openapi.do) | `DURPrdlstInfoService03_END_POINT`, `DURPrdlstInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
 | 식약처 [DUR 성분정보 OpenAPI](https://www.data.go.kr/data/15056780/openapi.do) (성분 단위 버전) | `DURIrdntInfoService03_END_POINT`, `DURIrdntInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
 | 식약처 [의약품 제품 허가정보 OpenAPI](https://www.data.go.kr/data/15095677/openapi.do) (2026-11-01 활용 승인) | `DrugPrdtPrmsnInfoService08_END_POINT`, `DrugPrdtPrmsnInfoService08_API_KEY` | 서비스 호출 주소, 인증키 |
-| OpenAI | `OPENAI_API_KEY` | 에이전트·답변 생성(`gpt-6-luna`), 임베딩 후보 |
+| OpenAI | `OPENAI_API_KEY` | 에이전트·답변 생성(`gpt-6-luna`), 임베딩(OpenAI 계열, `gpt-6-luna` 지시·`text-embedding-3-small` 후보, RFP-15-05 시험) |
 | Anthropic | `ANTHROPIC_API_KEY` | 평가용 LLM judge(Claude Sonnet 계열 예정), 평가 문항 생성(Haiku 4.5) |
-| Upstage | `UPSTAGE_API_KEY` | 용도는 RFP-15에서 확인(PDF 파싱·임베딩 후보로 추정) |
+| Upstage | `UPSTAGE_API_KEY` | 평가 질문을 Haiku 4.5로 생성한 뒤 한국어 질문 품질 비교·대안으로 활용(RFP-15-01) |
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
 
 ## 4. 데이터 파일
