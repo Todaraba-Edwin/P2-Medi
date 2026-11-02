@@ -52,6 +52,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | e약은요 서비스 | `DRDEASYDRUG_END_POINT`, `DRDEASYDRUG_API_KEY` | 서비스 호출 주소, 인증키 |
 | 식약처 [DUR 품목정보 OpenAPI](https://www.data.go.kr/data/15059486/openapi.do) | `DURPrdlstInfoService03_END_POINT`, `DURPrdlstInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
 | 식약처 [DUR 성분정보 OpenAPI](https://www.data.go.kr/data/15056780/openapi.do) (성분 단위 버전) | `DURIrdntInfoService03_END_POINT`, `DURIrdntInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
+| 식약처 [의약품 제품 허가정보 OpenAPI](https://www.data.go.kr/data/15095677/openapi.do) (2026-11-01 활용 승인) | `DrugPrdtPrmsnInfoService08_END_POINT`, `DrugPrdtPrmsnInfoService08_API_KEY` | 서비스 호출 주소, 인증키 |
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
 
 ## 4. 데이터 파일
