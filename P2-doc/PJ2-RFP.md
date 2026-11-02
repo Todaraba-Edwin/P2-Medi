@@ -334,15 +334,15 @@ API 코드는 수집 스크립트와 Tool 래퍼로 한정한다. RAG 개발·�
 ```
 > 위 분기는 코드가 나누는 경로가 아니라 **에이전트가 고르는 도구 호출의 기본 경로**다. 판정(성분코드 일치)·응급 119·고정 문구·Validator는 코드가 맡는다(8.2절).
 
-| 역할 | 후보 (1주차 확정) |
+| 역할 | 결정 또는 후보 (결정된 것은 날짜·결정 번호, 시험으로 정할 것은 "시험"으로 표시) |
 |---|---|
-| 오케스트레이션 | **LangGraph 1.x**: `StateGraph`로 에이전트(ReAct)의 흐름·상태·분기·종료 점검을 직접 제어한다(2026-11-02 사용자 방향). 노드 안의 모델 호출·`@tool`은 LangChain 패키지(`langchain-openai` 등)를 부품으로 쓰지만, 이는 라이브러리 의존이지 오케스트레이션 선택이 아니다. 기준선은 처음부터 ReAct 그래프로 만든다(RFP-22-03 A). 핵심 루프는 `model ⇄ tools`지만 도구가 6개이고 입구·출구 안전 장치가 있어 실제 노드는 두 개보다 늘어난다. 노드 구성은 RFP-23-01에서 정한다(6노드 안: 입구·router·model·tools·validator·finalize) |
+| 오케스트레이션 | **LangGraph 1.x**: `StateGraph`로 에이전트(ReAct)의 흐름·상태·분기·종료 점검을 직접 제어한다(2026-11-02 사용자 방향). 노드 안의 모델 호출·`@tool`은 LangChain 패키지(`langchain-openai` 등)를 부품으로 쓰지만, 이는 라이브러리 의존이지 오케스트레이션 선택이 아니다. 기준선은 처음부터 ReAct 그래프로 만든다(RFP-22-03 A). 핵심 루프는 `model ⇄ tools`지만 도구가 6개이고 입구·출구 안전 장치가 있어 실제 노드는 두 개보다 늘어난다. 노드 구성은 6노드로 확정했다(RFP-23-01 A, 2026-11-02: `guardrail_in`·`router`·`model`·`tools`·`validator`·`finalize`) |
 | LLM | **OpenAI 계열**(2026-11-02 사용자 방향): 에이전트·답변 생성은 `gpt-6-luna`(강의 실습 모델), 임베딩은 OpenAI 계열로 하며 `gpt-6-luna`(사용자 지시, 2026-11-02)와 `text-embedding-3-small`을 시험 후보로 둔다(`gpt-6-luna`의 임베딩 지원 여부는 미확인이라 RFP-15-05 시험에서 확인). **평가용 LLM judge는 추후 Claude Sonnet 계열**로 한다(작업자와 채점자를 다른 제공자로 분리, 교안 23쪽). 세부 모델·구조화 출력·병렬 도구 호출 확인은 RFP-15. 키 변수 이름은 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`(판정용), `UPSTAGE_API_KEY`(평가 질문을 Haiku 4.5로 생성한 뒤 한국어 질문 품질 비교·대안으로 활용, RFP-15-01) |
 | 백엔드 | FastAPI |
 | 프론트엔드·배포 | 프론트는 **Vercel**, 백엔드(FastAPI)는 **AWS가 무료로 제공하는 인스턴스 1대**에 배포하는 방향을 고려 중이다(2026-11-02 사용자, RFP-15-06). DB·벡터 저장소는 Supabase다. 프론트 프레임워크는 **Vite + React(+TypeScript) SPA를 Vercel에 정적 배포**한다(2026-11-02 사용자, RFP-15-07). 서버 렌더링·서버 API는 쓰지 않는다(백엔드는 FastAPI). AWS 무료 제공의 범위·기간은 계정에서 확인하지 못했다 |
 | Vector DB | **pgvector(Supabase 무료 플랜의 Postgres + pgvector)**. PJ2는 배포되어야 하므로 사용자 결정(2026-11-02, RFP-15-03). 적재 크기가 DB 500MB에 들어가는지는 RFP-15에서 확인 |
 | DB·인증 | **Supabase 무료 플랜(Postgres·pgvector·Auth)**을 DB로 쓴다. PJ2는 배포되어야 하고 판정 테이블 같은 일반 RDB도 필요하므로 사용자 결정(2026-11-02, RFP-15-03)이다. 금기 판정 테이블(①)·제품·성분 사전(②)은 Postgres 테이블에, 근거 코퍼스(③) 임베딩은 pgvector에 둔다. 인증·프로필(소셜 로그인)은 확장이다. 무료 플랜은 DB 500MB, 월간 활성 사용자 5만 명이고 비활동 1주 뒤 프로젝트가 일시정지되므로 시연 전에 깨워 두고, 적재 크기가 500MB에 들어가는지 RFP-15에서 확인한다. 소셜 로그인은 Google·Apple·Kakao가 기본 제공이고 Naver는 별도 연동 가능 여부를 확인한다. Apple은 개발자 계정 조건을 확인한다 |
-| PDF 파싱 | pdfplumber, LlamaParse |
+| PDF 파싱 | 시험 후 결정(RFP-15-04, 표 파서 시험): 후보 pdfplumber, LlamaParse. Upstage Document Parse는 비교용으로만 시험할 수 있다(RFP-15-01) |
 | 평가 | Ragas (LLM judge는 Claude Sonnet 계열 예정) |
 
 > DUR 금기 판정은 파일 적재 데이터와 식약처 OpenAPI를 함께 쓰는 혼합 방식으로 한다. 판정은 성분코드 정확 일치로 하고, RAG는 고시 조문·정의·비고, 금기사유·예외 설명, 인용을 맡는다(`tickets/doc/RFP-17.md`에서 2026-10-30 결정).
