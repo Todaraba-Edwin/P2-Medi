@@ -228,7 +228,13 @@ if not m:
     errors.append("마지막 갱신 날짜 없음")
 elif m.group(1) != datetime.date.today().isoformat():
     warns.append(f"마지막 갱신 {m.group(1)}이 오늘({datetime.date.today()})이 아님. 오늘 바꾼 것이 없다면 무시")
-logs = re.findall(r"^- (\d{4}-\d{2}-\d{2}) ·", s, re.M)
+if not os.path.exists("schedule-changelog.md"):
+    errors.append("schedule-changelog.md 없음(변경 로그는 이 파일에서 관리)")
+    logs = []
+else:
+    logs = re.findall(r"^- (\d{4}-\d{2}-\d{2}) ·", open("schedule-changelog.md", encoding="utf-8").read(), re.M)
+if "](schedule-changelog.md)" not in s:
+    errors.append("schedule.md에 schedule-changelog.md 링크 없음")
 if logs and m and logs[0] != m.group(1):
     warns.append(f"변경 로그 최신({logs[0]})과 마지막 갱신({m.group(1)})이 다름")
 
