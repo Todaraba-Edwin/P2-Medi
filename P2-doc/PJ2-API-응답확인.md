@@ -13,7 +13,7 @@
 
 ## 1. 확인 방법
 
-- FastAPI 프로브(`scripts/api_probe/`)로 세 서비스를 호출했다. `/battery`가 항목별 호출을 한꺼번에 실행하고 `/probe/{service}/{operation}`이 한 건씩 호출한다.
+- FastAPI 프로브(`scripts/api_probe/`)로 세 서비스(e약은요·DUR 품목정보·성분정보)를 호출했고, 허가정보(4번째)는 오퍼레이션별로 따로 호출해 확인했다. `/battery`가 항목별 호출을 한꺼번에 실행하고 `/probe/{service}/{operation}`이 한 건씩 호출한다.
 - 호출은 약 60회이고, 개발계정 일일 한도(10,000)에 비해 작다.
 - 이 확인은 BE-01(FastAPI 초기화), BE-02, BE-03의 응답 샘플 확인에 해당한다.
 

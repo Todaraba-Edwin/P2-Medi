@@ -28,7 +28,7 @@
 
 ## 2. 공통 응답 구조
 
-세 서비스 모두 data.go.kr 공통 형식이다.
+네 서비스 모두 data.go.kr 공통 형식이다.
 
 ```
 { "header": { "resultCode": "00", "resultMsg": "NORMAL SERVICE." },
