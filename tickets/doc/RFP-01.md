@@ -155,7 +155,7 @@ FR은 Functional Requirement, 즉 **기능 요구사항**이다. [`P2-doc/PJ2-RF
 ## 5. 한눈에 보는 표
 | FR | 이름 | 한 줄 의미 | 우선순위 | 추적 티켓 | 구현 티켓 |
 |---|---|---|---|---|---|
-| FR-01 | Router | 엔티티 추출 후 도구 분기 | 필수 | [RFP-02](RFP-02.md) | [AG-05](../agent/AG-05.md), [BE-06](../backend/BE-06.md) |
+| FR-01 | Router(입력 정리) | 엔티티 추출·모호 판정·유형 라벨 기록, 도구 선택은 에이전트(RFP-25-02) | 필수 | [RFP-02](RFP-02.md) | [AG-05](../agent/AG-05.md), [BE-06](../backend/BE-06.md) |
 | FR-02 | 공공 API Tool | e약은요·DUR(식약처 OpenAPI) 조회, 조회 시각 기록 | 필수 | [RFP-03](RFP-03.md) | [AG-02](../agent/AG-02.md), [BE-02](../backend/BE-02.md), [BE-03](../backend/BE-03.md) |
 | FR-03 | 문서 RAG | 표 보존 파싱, 메타데이터(문서종류·연도·부처·고시번호·기준일) 필터 검색 | 필수 | [RFP-04](RFP-04.md) | [AG-03](../agent/AG-03.md), [BE-04](../backend/BE-04.md), [BE-05](../backend/BE-05.md) |
 | FR-04 | Citation | 출처·조회 시각(또는 자료 기준일)·조항 표기 | 필수 | [RFP-05](RFP-05.md) | [AG-06](../agent/AG-06.md), [BE-06](../backend/BE-06.md), [FE-02](../frontend/FE-02.md) |
