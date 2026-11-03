@@ -58,6 +58,7 @@ RFP는 "후보 (1주차 확정)"로 LLM `[선택 예정]`, Vector DB(Chroma/Qdra
 
 ### 3.2 시험형(11-04~05, 소량 호출·스크립트, 결과만 문서에 기록)
 - [ ] `gpt-6-luna` 호출 확인: 구조화 출력·병렬 도구 호출·임베딩 지원, 1회 비용·지연(9.7절 예산표 채움)
+- [ ] (RFP-26) Ragas + Claude Sonnet 5.5 judge + 한국어 소량 시험: Faithfulness·Context Precision·Recall이 한국어 질문·답변에서 동작하는지, `adapt()`로 프롬프트를 한국어에 맞출지, 1회 호출 비용·지연(9.7절 예산표), 구조화 정답을 reference 문장으로 바꾸는 템플릿 시험
 - [ ] 표 파서 시험(별표 2의 46~50쪽, 후보 파서별)
 - [ ] 임베딩 한국어 약 이름·성분명 질의 시험(`gpt-6-luna`가 지원하면 포함, `text-embedding-3-small` 비교)
 

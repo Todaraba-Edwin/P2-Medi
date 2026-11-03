@@ -16,7 +16,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 
 에이전트 하네스 원칙: 책임을 지지 않는 대신 모든 답변에 근거를 달고, 금기가 조회되지 않아도 안전하다고 말하지 않으며, 근처 약국·약사에게 확인하도록 안내한다. 응급 키워드가 있으면 119 안내를 맨 위에 두되 금기 조회는 막지 않는다. 이런 고정 문구는 프롬프트가 아니라 코드로 강제한다.
 
-구현 방향(2026-11-02): Agent-RAG이므로 **ReAct 에이전트가 중심**이다(Reflexion은 3주 이후 확장·비교로 미룬다). 프로젝트는 **LangGraph**로 구성한다(LangChain 패키지는 노드 안의 모델·도구 부품으로만 쓴다). 기준선은 가장 단순한 ReAct 그래프와 도구로 만들고, 실패를 관찰한 뒤 노드·분기를 더해 개선한다(기준선은 처음부터 ReAct 그래프, RFP-22-03. 노드 구성은 RFP-23-01에서 정하며 `model ⇄ tools` 두 노드보다 늘어난다). LLM은 OpenAI 계열, 평가 judge는 Claude Sonnet 계열이다(RFP 8.2절, `tickets/doc/RFP-22.md`). **평가 기준의 원본은 `P2-doc/PJ2-RFP.md` 9장**(지표 정의·평가 세트·소표본 대응·비교 조건)이며, 개발은 이 정의에 맞춘다(5장 평가 기준 유지 규칙).
+구현 방향(2026-11-02): Agent-RAG이므로 **ReAct 에이전트가 중심**이다(Reflexion은 3주 이후 확장·비교로 미룬다). 프로젝트는 **LangGraph**로 구성한다(LangChain 패키지는 노드 안의 모델·도구 부품으로만 쓴다). 기준선은 가장 단순한 ReAct 그래프와 도구로 만들고, 실패를 관찰한 뒤 노드·분기를 더해 개선한다(기준선은 처음부터 ReAct 그래프, RFP-22-03. 노드 구성은 RFP-23-01에서 정하며 `model ⇄ tools` 두 노드보다 늘어난다). LLM은 OpenAI 계열, 평가 judge는 Claude Sonnet 5.5다(RFP 8.2절, `tickets/doc/RFP-22.md`). **평가 기준의 원본은 `P2-doc/PJ2-RFP.md` 9장**(지표 정의·평가 세트·소표본 대응·비교 조건)이며, 개발은 이 정의에 맞춘다(5장 평가 기준 유지 규칙).
 
 방향성과 단계는 RFP(`P2-doc/PJ2-RFP.md`)의 3주 일정과 주차별 완료 기준을 따른다. 주차 완료 기준에 미달하면 다음 주 범위를 줄인다.
 
@@ -60,7 +60,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | 식약처 [DUR 성분정보 OpenAPI](https://www.data.go.kr/data/15056780/openapi.do) (성분 단위 버전) | `DURIrdntInfoService03_END_POINT`, `DURIrdntInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
 | 식약처 [의약품 제품 허가정보 OpenAPI](https://www.data.go.kr/data/15095677/openapi.do) (2026-11-01 활용 승인) | `DrugPrdtPrmsnInfoService08_END_POINT`, `DrugPrdtPrmsnInfoService08_API_KEY` | 서비스 호출 주소, 인증키 |
 | OpenAI | `OPENAI_API_KEY` | 에이전트·답변 생성(`gpt-6-luna`), 임베딩(OpenAI 계열, `gpt-6-luna` 지시·`text-embedding-3-small` 후보, RFP-15-05 시험) |
-| Anthropic | `ANTHROPIC_API_KEY` | 평가용 LLM judge(Claude Sonnet 계열 예정), 평가 문항 생성(Haiku 4.5) |
+| Anthropic | `ANTHROPIC_API_KEY` | 평가용 LLM judge(Claude Sonnet 5.5), 평가 문항 생성(Haiku 4.5) |
 | Upstage | `UPSTAGE_API_KEY` | 평가 질문을 Haiku 4.5로 생성한 뒤 한국어 질문 품질 비교·대안으로 활용(RFP-15-01) |
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
 
@@ -114,7 +114,8 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 기능(FR), 도구, 그래프 노드, 데이터, 모델(에이전트·judge·문항 생성), 비교 조건이 바뀌면 **같은 작업에서 9장과 위 티켓을 확인하고 필요하면 고친다.** 사용자가 평가에 대한 우려·방침을 주면 9장에 먼저 기록하고 영향 티켓에 반영한다.
 - 지표 정의·목표·평가 세트를 **측정을 시작한 뒤에는 바꾸지 않는다.** 바꿔야 하면 이유와 날짜를 9장에 남기고 이전 결과와 섞지 않는다(RFP-23 §5.1 사전 고정 원칙).
 - 9장의 목표 수치는 잠정이다(RFP-22-11). 결과 보고는 k/n과 Wilson 95% 구간으로 하고, 칸당 n이 8 이하면 유의성을 주장하지 않는다(9.1절).
-- 평가 문항 생성은 Claude Haiku 4.5(사용자 결정), 한국어 품질이 부족하면 Upstage를 고려한다(9.2절). 평가 대상은 `gpt-6-luna`, judge는 Claude Sonnet 계열이다.
+- 평가 문항 생성은 Claude Haiku 4.5(사용자 결정), 한국어 품질이 부족하면 Upstage를 고려한다(9.2절). 평가 대상은 `gpt-6-luna`, judge는 **Claude Sonnet 5.5(`claude-sonnet-5-5`)로 고정**한다(RFP-26-01).
+- **judge의 모델 ID·루브릭 버전은 평가 기간 중 바꾸지 않는다.** judge 루브릭(J1~J5)의 원본은 `tickets/doc/RFP-26.md` §7.5이고, judge는 본 측정 전에 사람 라벨 40문항으로 보정한다(RFP-26-02·03). 개선(AG-13)은 **개발셋**만 보고 하고 **시험셋은 개선 중에 열람하지 않는다**(RFP-26-04, 9.1절 8번).
 - 평가 이슈 점검 이력은 `tickets/doc/RFP-23.md` §10에 있다. 평가를 크게 바꿀 때는 새 점검을 그 아래에 이어 적는다.
 
 ### 갱신 규칙
