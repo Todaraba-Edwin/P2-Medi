@@ -25,6 +25,14 @@ done: -
 - [4. 결정 현황](#4-결정-현황)
 - [5. 관련](#5-관련)
 - [6. 메모](#6-메모)
+- [7. 서버 배포·Supabase 사전 확인 (2026-11-03)](#7-서버-배포supabase-사전-확인-2026-11-03)
+  - [7.1 확인한 것 (공식 문서)](#71-확인한-것-공식-문서)
+  - [7.2 확인하지 못한 것 (미확인)](#72-확인하지-못한-것-미확인)
+  - [7.3 판단: 구성은 가능하지만 위험 3가지](#73-판단-구성은-가능하지만-위험-3가지)
+  - [7.4 권장 구성안 (사전 확인 기준)](#74-권장-구성안-사전-확인-기준)
+  - [7.5 사용자 확인 필요](#75-사용자-확인-필요)
+  - [7.6 Supabase 처음 시작 안내](#76-supabase-처음-시작-안내)
+  - [7.7 이 확인이 바꾸는 것](#77-이-확인이-바꾸는-것)
 
 ## 1. 이슈
 RFP는 "후보 (1주차 확정)"로 LLM `[선택 예정]`, Vector DB(Chroma/Qdrant/pgvector, Supabase 무료 플랜의 pgvector 포함), PDF 파싱(pdfplumber/LlamaParse)을 남겨 두었고, 평가 세트 세트별 `[__]`문항도 1주차 확정이다. 8장은 DB·인증으로 Supabase 무료 플랜 검토를 적어 두었다(Postgres·Auth·pgvector, DB 500MB, 월간 활성 사용자 5만 명, 비활동 1주 뒤 일시정지). 금기 데이터(BE-09)를 어디에 적재할지도 이 결정에 달려 있다. 이 결정을 한 곳에 기록한다. 이 티켓은 BE-04·BE-09·BE-11의 선행이다.
@@ -44,7 +52,7 @@ RFP는 "후보 (1주차 확정)"로 LLM `[선택 예정]`, Vector DB(Chroma/Qdra
 > 사전 후반(11-03~06) 진행 계획(2026-11-02 사용자 요청: SCH-01 전에 다룰 수 있는 RFP 티켓을 최대한 내일 중에): **확인형 항목은 11-03(RFP-19 다음)**, **시험형 항목은 11-04~05**, 11-06에 기록·종결을 시도한다. 11-09부터 W1이다.
 
 ### 3.1 확인형(11-03, 문서·계정 화면으로 확인)
-- [ ] Supabase 무료 한도(DB 500MB, 일시정지)·AWS 무료 인스턴스의 범위·기간·Vercel 무료 한도 확인 후 §2 (b)(d)에 기록
+- [x] Supabase 무료 한도(DB 500MB, 일시정지)·AWS 무료 인스턴스의 범위·기간·Vercel 무료 한도 확인 후 §2 (b)(d)에 기록(2026-11-03, §7. 공식 문서 기준, 미확인 항목은 §7.2, 사용자 확인은 §7.5)
 - [ ] 외부 LLM 제공자(OpenAI·Anthropic·사용 시 Upstage)의 API 데이터 보관·학습 정책 확인 후 RFP-12 완료 조건(RFP-24-01)에 이관 기록
 - [ ] 모델별 가격·한도(문서·계정 화면) 확인 후 PJ2-RFP.md 9.7절 예산표 초안(RFP-24-03)
 
@@ -85,6 +93,7 @@ RFP는 "후보 (1주차 확정)"로 LLM `[선택 예정]`, Vector DB(Chroma/Qdra
 - 관련 문서: `P2-doc/PJ2-RFP.md` 5.1절, 8장, 9장, 12장
 
 ## 6. 메모
+- 2026-11-03 사용자 요청으로 서버 배포(백엔드·에이전트 포함)와 Supabase DB 활용을 먼저 확인했다(§7). 공식 문서로 확인한 것(AWS Free Plan 신규 계정 6개월·최대 $200, Supabase Free 500MB·1주 일시정지·백업 없음·서울 리전·IPv4는 session pooler, Vercel Hobby 비상업적) 위험 3가지(AWS 6개월 계정 폐쇄, Supabase 일시정지·백업 없음, 500MB와 임베딩 크기)와 Supabase 처음 시작 안내(§7.6)를 기록했다. 남은 확인형: 외부 LLM 제공자 보관·학습 정책, 모델 가격·한도.
 - 2026-11-02 사용자 답: RFP-15-07 A(Vite + React SPA, Vercel 정적 배포). Next.js의 서버 렌더링·서버 API·검색 노출은 이 프로젝트에 필요하지 않다. 확인 남음: Vercel의 Vite 배포 설정, 프론트(HTTPS) → 백엔드(AWS) 호출의 HTTPS·CORS(혼합 콘텐츠, rewrite 사용 가능 여부와 스트리밍 지속 시간은 미확인).
 - 2026-11-02 사용자 답: RFP-15-02·04·05·06 권장대로(A). RFP-15-01: 강의 내용보다 PJ2-RFP.md 결정이 우선, 임베딩은 `gpt-6-luna`(사용자 지시, 임베딩 지원 여부 미확인이라 RFP-15-05 시험에서 확인하고 안 되면 `text-embedding-3-small`), Upstage는 평가 질문을 Haiku 4.5로 생성한 뒤 한국어 질문 비교·대안으로 활용.
 - 가정: 오케스트레이션 LangGraph 1.x(노드 안 부품으로 LangChain 패키지, 구성은 RFP-22-03), 백엔드 FastAPI, 평가 Ragas는 RFP에 단일 후보로 적혀 있어 확정으로 본다.
@@ -97,3 +106,77 @@ RFP는 "후보 (1주차 확정)"로 LLM `[선택 예정]`, Vector DB(Chroma/Qdra
 - 2026-11-01 후속: 허가정보 API 승인(RFP-21 결정 1). 라벨 본문은 허가 상세 XML, 품목↔성분은 주성분 상세 M-코드로 얻는다. 허가사항 용법용량 표의 인용 여부(RFP-21 결정 3)가 새로 생겼다.
 - 2026-11-02 사용자 결정(RFP-15-03): 배포가 필요하고 일반 RDB도 쓰므로 DB와 Vector DB 모두 Supabase 무료 플랜(Postgres + pgvector)으로 간다. 이전 가정("핵심 경로는 로컬 저장소를 기본", Supabase는 확장만)은 이 결정으로 대체된다. 새 리스크: 일시정지되면 핵심 기능도 멈추므로 적재 크기 확인과 시연 전 깨우기가 필수다. BE-05·BE-09는 Supabase를 적재소로 쓴다. Auth(BE-11)는 여전히 확장이다.
 - 2026-11-02 사용자 방향(RFP-15-06): 프론트는 Vercel, 백엔드는 AWS의 무료 인스턴스 1대에 배포하는 안을 고려 중이다. 따라서 FE-01 메모의 프레임워크 예(Streamlit)는 재검토 대상이다. 미확인: AWS 무료 제공의 범위·기간, Vercel 무료 플랜 한도, Vercel(프론트) → AWS(백엔드) → Supabase 사이의 CORS·HTTPS·지연. 이 확인은 코드를 만들지 않고 문서와 계정 화면으로 한다(Pre-Week 방침).
+
+## 7. 서버 배포·Supabase 사전 확인 (2026-11-03)
+> 사용자 요청(2026-11-03): RFP-15를 먼저 진행하고, 백엔드(에이전트)를 포함한 서버 배포와 Supabase DB 활용을 먼저 확인한다. Supabase는 처음 쓰므로 시작 안내(§7.6)를 포함한다. **공식 문서(AWS, Supabase, Vercel)를 읽어 확인한 것**과 **확인하지 못한 것**을 구분했다. 제3자 블로그 요약은 근거로 쓰지 않았다.
+
+### 7.1 확인한 것 (공식 문서)
+| 대상 | 확인한 내용 | 출처 |
+|---|---|---|
+| AWS Free Plan (신규 계정, 2025-07-15 이후) | 가입 즉시 $100 크레딧 + 활동으로 최대 $100 추가(최대 $200). **6개월**. "계정은 개설 6개월 뒤 또는 크레딧이 소진될 때 중 먼저 오는 때 스스로 닫힌다." Paid 플랜으로 바꾸지 않으면 과금되지 않는다 | [aws.amazon.com/free](https://aws.amazon.com/free/) |
+| Supabase Free | DB 500MB, 활성 프로젝트 2개, egress 5GB, 월간 활성 사용자 5만, **1주 비활동 시 일시정지**, **백업 미포함** | [supabase.com/pricing](https://supabase.com/pricing) |
+| Supabase 연결 | Direct connection은 기본 **IPv6**(IPv4는 add-on). 공유 pooler는 **모든 플랜에서 IPv4 전용**이고 무료 플랜에도 있다. IPv4 네트워크에는 pooler의 session mode를 쓴다. 장시간 실행 백엔드에는 direct를 권장한다 | [연결 문서](https://supabase.com/docs/guides/database/connecting-to-postgres) |
+| Supabase 리전 | 한국 **Northeast Asia (Seoul) `ap-northeast-2`** 가 있다 | [리전 문서](https://supabase.com/docs/guides/platform/regions) |
+| Supabase API 키 | 새 키: publishable(`sb_publishable_…`, 브라우저 가능, RLS로만 보호)·secret(`sb_secret_…`, **서버 전용, 절대 브라우저·소스에 넣지 않음**). 레거시 `anon`·`service_role`은 **2026년 말 폐기 예정**. 키는 대시보드 Settings > API Keys 또는 Connect 대화상자에서 본다 | [API 키 문서](https://supabase.com/docs/guides/api/api-keys) |
+| Supabase pgvector | Database > Extensions에서 `vector`를 켜거나 `create extension vector with schema extensions;`. IVFFlat·HNSW 인덱스를 지원한다 | [pgvector 문서](https://supabase.com/docs/guides/database/extensions/pgvector) |
+| Supabase 일시정지 복구 | 일시정지된 프로젝트는 **1년 안에** Studio에서 복구할 수 있다 | [플랫폼 문서](https://supabase.com/docs/guides/platform/upgrading) |
+| Vercel Hobby | **비상업적 개인 용도 전용**, Fast Data Transfer 100GB, 배포 하루 100회, Function 최대 300초 | [Hobby 플랜](https://vercel.com/docs/plans/hobby) |
+| Vercel rewrites | 외부 origin으로 rewrite 가능(`vercel.json`, `https://` 예시). 방문자 IP 헤더 전달, 비밀 헤더로 origin 직접 접근 차단 가능 | [Rewrites](https://vercel.com/docs/rewrites) |
+
+### 7.2 확인하지 못한 것 (미확인)
+- **AWS**: 신규 계정 Free Plan에서 쓸 수 있는 EC2 인스턴스 유형과 크레딧 소모 속도(공식 페이지에 없음), 2025-07-15 이전 계정의 기존 12개월 방식(공식 문서로 확인 안 함), **사용자의 AWS 계정 개설일**.
+- **Supabase**: 연결 수 제한(별도 문서), 무료 플랜의 pgvector 사용 가능 여부(문서에 명시 없음), 프로젝트 만든 뒤 리전 변경 가능 여부, 가입 화면의 실제 순서(문서에서 확인하지 못함).
+- **Vercel**: 외부 rewrite의 요청 제한 시간과 http(HTTPS 아닌) origin 허용 여부, 취업 포트폴리오가 "비상업적 개인 용도"에 해당하는지(fair-use 문서는 읽지 않음).
+- **서버 메모리**: FastAPI·LangGraph·BM25 색인이 선택할 인스턴스 메모리에서 도는지. BM25를 서버 메모리에 둘지 Postgres에 둘지도 미정이다(RFP-15-05 시험).
+
+### 7.3 판단: 구성은 가능하지만 위험 3가지
+1. **AWS 신규 계정은 6개월 뒤 계정이 닫힌다.** 데모를 6개월 넘게 열어 두기 어렵다. 대응: 데모 영상·스크린샷(FE-03, PRD-04)을 남기고, 배포는 3주차 후반 최소 구성(BE-13)으로 하며 시연 직전에 기동한다. 기간이 부족하면 유료 전환이나 다른 호스트를 검토한다. 계정 개설일에 따라 달라진다(§7.5).
+2. **Supabase 무료는 1주 비활동 시 일시정지되고 백업이 없다.** 복구는 1년 안에 Studio에서 가능하다. 대응: 모든 적재는 `data/` 파일에서 스크립트로 다시 만들 수 있게 하고(BE-09·BE-05), 시연 전에 깨우며, 필요하면 `pg_dump`로 수동 백업한다(아직 해 보지 않음).
+3. **500MB 한도와 임베딩 크기(추정).** `text-embedding-3-small`의 기본 차원 1,536을 float4로 저장하면 벡터 하나가 약 6KB다. 벡터가 5만 개면 약 300MB이고 HNSW 인덱스·원문 텍스트·판정 테이블이 더해진다. e약은요 전체(4,746건)를 **문장 단위**로 쪼개면 청크가 수만~수십만 개가 될 수 있어 한도를 넘길 가능성이 있다(청크 수는 아직 모름). 대응 후보: 청크 단위를 문단으로, 라벨 선별 수집, 임베딩 차원 축소 옵션(OpenAI 문서로 확인 필요), 판정 테이블은 성분 쌍 단위(RFP-17). 실측은 BE-05·BE-09에서 하고 §2 (b)에 값을 적는다.
+
+### 7.4 권장 구성안 (사전 확인 기준)
+```
+브라우저 (Vercel, Vite + React 정적 SPA)
+    │ HTTPS
+    ▼
+백엔드 (AWS EC2 1대: FastAPI + LangGraph 에이전트, 장시간 요청 가능)
+    │ Session pooler (IPv4)              │ HTTPS
+    ▼                                     ▼
+Supabase (Postgres + pgvector, 서울)     외부 LLM API (OpenAI · Anthropic)
+```
+- **Supabase 연결은 Session pooler**로 한다. EC2는 기본 IPv4이고 direct는 IPv6가 기본이기 때문이다(문서 확인). 로컬 개발 PC의 IPv6 지원 여부는 확인하지 못했으므로 로컬에서도 session pooler를 쓰는 것이 안전하다.
+- **백엔드 HTTPS**: 브라우저(HTTPS)가 AWS 백엔드를 부르려면 HTTPS가 필요하다(혼합 콘텐츠 차단). 후보 ① 백엔드에 도메인과 인증서를 붙인다(CORS 설정 필요). ② Vercel rewrite로 프록시한다(같은 출처라 CORS 불필요하지만 http origin 허용과 제한 시간은 미확인). 어느 쪽인지는 BE-13에서 시험하고 정한다.
+- **에이전트 요청 길이**: 에이전트는 모델을 최대 8번 부르므로 응답이 길 수 있다. Vercel Function 300초 한도는 서버리스에 해당하고 우리 백엔드는 EC2라 해당하지 않는다. 다만 Vercel의 외부 rewrite 제한 시간은 미확인이다.
+
+### 7.5 사용자 확인 필요
+| # | 확인할 것 | 왜 |
+|---|---|---|
+| 1 | **AWS 계정 개설일**(2025-07-15 이후인지)과 현재 플랜(Free/Paid) | 이후라면 6개월·최대 $200 크레딧, 이전이면 다른 무료 방식일 수 있다(공식 문서 미확인) |
+| 2 | 백엔드에 쓸 **도메인**이 있는지(HTTPS 방안 ①) | 없으면 방안 ②를 시험한다 |
+| 3 | Supabase **프로젝트 생성**과 연결 정보 변수 이름 | §7.6 순서대로. 값은 알려 주지 않고 이름만 알려 준다 |
+| 4 | Vercel 계정(Hobby) 보유 | 정적 배포용 |
+
+### 7.6 Supabase 처음 시작 안내
+> 처음 쓰는 사용자를 위한 순서다. **화면 구성은 바뀔 수 있고 가입 화면의 정확한 순서는 문서로 확인하지 못했다.** 아래 중 "문서 확인"으로 표시한 것만 공식 문서로 확인했다. 약 30분 안팎을 예상하지만 시간은 확인하지 못했다.
+
+1. **가입**: supabase.com에서 계정을 만든다(이메일 또는 소셜 로그인, 화면 확인).
+2. **조직(Organization) 만들기**: 이름을 정하고 **Free 플랜**을 고른다. 결제 수단 입력이 필요한지는 확인하지 못했다. 입력을 요구하면 Free 플랜인지 다시 확인한다.
+3. **새 프로젝트(New project)**
+   - 이름: 예) `can-i-biyak`
+   - **Database password**: 강한 비밀번호를 만들어 **비밀번호 관리자에 저장**한다. 이 값은 채팅, 문서, 커밋, 티켓에 쓰지 않는다. 잃어버리면 재설정해야 한다.
+   - **Region: Northeast Asia (Seoul)** — `ap-northeast-2` (문서 확인). 프로젝트를 만든 뒤 리전을 바꿀 수 있는지는 확인하지 못했으니 처음부터 서울로 한다.
+   - 만들면 준비가 끝날 때까지 기다린다(시간은 미확인).
+4. **연결 문자열 찾기**: 프로젝트 화면 위쪽의 **Connect** 버튼(문서 확인)에서 Direct / Session pooler / Transaction pooler 중 **Session pooler**의 연결 문자열을 본다. 형식은 `postgres://postgres.[프로젝트ref]:[비밀번호]@aws-…pooler.supabase.com:5432/postgres` 꼴이다(비밀번호 자리는 3번의 값, 실제 값은 어디에도 붙여 넣지 않는다).
+5. **pgvector 켜기**: Database > Extensions에서 `vector`를 찾아 켜거나(문서 확인), SQL Editor에서 `create extension vector with schema extensions;`를 실행한다.
+6. **API 키 확인**: Settings > API Keys(문서 확인). **새 키를 쓴다.** publishable 키는 브라우저에 두어도 되지만 RLS로만 보호되고, **secret 키는 서버에서만** 쓰며 브라우저·소스 코드·저장소에 넣지 않는다. 레거시 `anon`·`service_role` 키는 2026년 말 폐기 예정이라 쓰지 않는다. 핵심 경로는 백엔드가 Postgres에 직접 연결하므로 확장(로그인)을 하기 전에는 브라우저에서 Supabase 키가 필요 없을 수 있다.
+7. **첫 연습(선택)**: SQL Editor에서 테스트 테이블을 만들어 `insert`/`select`를 해 본다. 백엔드에서의 연결 확인은 BE-01 이후에 한다.
+8. **RLS(행 수준 보안)**: 브라우저에서 Supabase 클라이언트를 쓰게 되면 RLS가 유일한 보호라고 문서가 밝힌다(문서 확인). 핵심 경로가 백엔드 직접 연결이면 테이블에 RLS를 켜 두는 쪽이 안전하고 일반적이다(일반 원칙이며 정책 설계는 로그인 확장 BE-11에서).
+9. **일시정지 대비**: 1주 비활동이면 일시정지된다(문서 확인). 시연 전에 접속해 깨운다. 일시정지돼도 1년 안에는 Studio에서 복구할 수 있다(문서 확인). 백업은 무료 플랜에 없다.
+10. **알려 줄 것(이름만)**: 사용자가 알려 주는 대로 `.env` 변수 **이름**만 문서에 추가한다(값은 알려 주지 않는다). 이름 제안: `SUPABASE_DB_URL`(Session pooler 연결 문자열), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`. 이름은 제안이며 사용자가 정한다.
+
+**오늘 할 최소 순서**: 가입 → 조직(Free) → 프로젝트(서울) → Connect에서 Session pooler 문자열 확인 → `vector` 확장 켜기 → 변수 이름 알려 주기.
+
+### 7.7 이 확인이 바꾸는 것
+- RFP 12장에 리스크 행 추가: "AWS 무료 플랜 기간(신규 계정 6개월 뒤 계정 폐쇄)". 리스크는 22건 → 23건(RFP-14·PRD-01 갱신).
+- BE-13: 백엔드 HTTPS 방안 ①②, session pooler, 메모리 확인, 시연 직전 기동.
+- BE-05·BE-09: 500MB 한도 계산(벡터 6KB/개, 인덱스·텍스트 포함)과 청크 단위 대안.
