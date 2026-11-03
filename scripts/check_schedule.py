@@ -1,4 +1,4 @@
-"""schedule.md와 tickets/ 일관성, Top 5 최신 여부를 점검한다. 사용: python3 scripts/check_schedule.py
+"""schedule.md·schedule-done.md와 tickets/ 일관성, Top 5 최신 여부를 점검한다. 사용: python3 scripts/check_schedule.py
 점검: 티켓 파일 <-> schedule 행(SCH·제목·체크·링크), 선행 관계(존재·순환·나중 SCH), Index·앵커, Top 5(5개, 미완, 선행 충족 또는 Top 5 안),
 Recap·사용자 결정 큐 섹션, 마지막 갱신일. 문제가 있으면 목록을 출력하고 종료 코드 1을 돌려준다. 코드는 읽기만 한다.
 """
@@ -34,16 +34,28 @@ for d in sorted(set(DIRS.values())):
         tick[meta["id"]] = meta
 
 s = open("schedule.md", encoding="utf-8").read()
+if not os.path.exists("schedule-done.md"):
+    errors.append("schedule-done.md 없음(완료된 티켓 행과 결정 기록은 이 파일에서 관리)")
+    dn = ""
+else:
+    dn = open("schedule-done.md", encoding="utf-8").read()
 sched, cur = {}, None
-for line in s.split("\n"):
-    m = re.match(r"## (SCH-\d+)", line)
-    if m:
-        cur = m.group(1)
-    elif line.startswith("## ") and not line.startswith("## SCH"):
-        cur = None
-    r = re.match(r"^\| `\[(.)\]` \| `([A-Z]+-\d+)` \| \[(.*?)\]\((.*?)\) \|", line)
-    if r and cur:
-        sched[r.group(2)] = (cur, r.group(1), r.group(3), r.group(4))
+# 완료([x]) 행은 schedule-done.md에, 미완 행은 schedule.md에 둔다. 두 파일을 합쳐 티켓과 대조한다.
+for src, text in (("schedule.md", s), ("schedule-done.md", dn)):
+    cur = None
+    for line in text.split("\n"):
+        m = re.match(r"## (SCH-\d+)", line)
+        if m:
+            cur = m.group(1)
+        elif line.startswith("## ") and not line.startswith("## SCH"):
+            cur = None
+        r = re.match(r"^\| `\[(.)\]` \| `([A-Z]+-\d+)` \| \[(.*?)\]\((.*?)\) \|", line)
+        if r and cur:
+            if src == "schedule.md" and r.group(1) == "x":
+                errors.append(f"{r.group(2)}: 완료([x]) 행은 schedule-done.md로 옮겨야 함")
+            if src == "schedule-done.md" and r.group(1) != "x":
+                errors.append(f"{r.group(2)}: 미완 행이 schedule-done.md에 있음(schedule.md로 옮길 것)")
+            sched[r.group(2)] = (cur, r.group(1), r.group(3), r.group(4))
 
 for i in sorted(set(tick) - set(sched)):
     errors.append(f"{i}: 티켓은 있는데 schedule.md 표에 없음")
