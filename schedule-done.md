@@ -31,7 +31,7 @@
 
 ## 결정 번호 전체 목록 (답한 결정)
 
-PRD-06-01~03 모두 A(Can I Biyak, 마스코트 보조 자리, "삐!" 경고 표지·소리 배제), RFP-24-01~04 모두 A(외부 LLM 전송 명시, 프롬프트 인젝션, 비용 예산, 화면 기준), RFP-15-01 Upstage는 문항 한국어 비교·대안, RFP-15-02 약 150문항, RFP-15-04·05 시험 계획 승인(임베딩 후보 `gpt-6-luna`·`text-embedding-3-small`), RFP-15-06 Vercel·AWS·Supabase, RFP-15-07 프론트는 Vite + React SPA, RFP-23-01~03 모두 A(6노드, 4조건 비교, "언제 이득인가" 서술), RFP-22-01~06 모두 A(코퍼스별 도구, 코드 검사 먼저, 최소 ReAct 그래프, 범위 제한, 8회·2회, trace는 합성 질문만), RFP-21-01 허가정보 신청, RFP-21-02 성분 연결 규칙 A(W1 이관), RFP-21-03 용법용량 원문 인용 B(조건부, 근거 상세에만), RFP-21-04 5.2절 판정 A(확인), RFP-22-10 디자인 패턴은 ReAct 먼저·Reflexion은 3주 이후, RFP-22-07 모델 역할(OpenAI + Claude judge), RFP-22-08 기준선에는 안전 필수만, RFP-15-03 DB·벡터 저장소는 Supabase.
+PRD-06-01~03 모두 A(Can I Biyak, 마스코트 보조 자리, "삐!" 경고 표지·소리 배제), RFP-24-01~04 모두 A(외부 LLM 전송 명시, 프롬프트 인젝션, 비용 예산, 화면 기준), RFP-15-08 A(Anthropic 크레딧 만료 전 4가지 활용, 상한 $30, 2026-11-04, 진행은 RFP-28), RFP-15-01 Upstage는 문항 한국어 비교·대안, RFP-15-02 약 150문항, RFP-15-04·05 시험 계획 승인(임베딩 후보 `gpt-6-luna`·`text-embedding-3-small`), RFP-15-06 Vercel·AWS·Supabase, RFP-15-07 프론트는 Vite + React SPA, RFP-23-01~03 모두 A(6노드, 4조건 비교, "언제 이득인가" 서술), RFP-22-01~06 모두 A(코퍼스별 도구, 코드 검사 먼저, 최소 ReAct 그래프, 범위 제한, 8회·2회, trace는 합성 질문만), RFP-21-01 허가정보 신청, RFP-21-02 성분 연결 규칙 A(W1 이관), RFP-21-03 용법용량 원문 인용 B(조건부, 근거 상세에만), RFP-21-04 5.2절 판정 A(확인), RFP-22-10 디자인 패턴은 ReAct 먼저·Reflexion은 3주 이후, RFP-22-07 모델 역할(OpenAI + Claude judge), RFP-22-08 기준선에는 안전 필수만, RFP-15-03 DB·벡터 저장소는 Supabase.
 
 ## SCH-00 · 사전 준비(pre Week)
 
