@@ -265,6 +265,18 @@ m = re.search(r"총 (\d+)개", s)
 if m and int(m.group(1)) != total:
     errors.append(f"총 티켓 수 {m.group(1)} != 실제 {total}")
 
+# 리포트(report/): md와 pdf는 한 쌍(CLAUDE.md 6장)
+import pathlib
+rep = pathlib.Path("report")
+if rep.is_dir():
+    for md in sorted(rep.glob("*.md")):
+        pdf = md.with_suffix(".pdf")
+        if not pdf.exists() or pdf.stat().st_size < 2000:
+            errors.append(f"리포트 {md.name}: 같은 이름의 PDF가 없다(python3 scripts/make_report_pdf.py {md})")
+    for pdf in sorted(rep.glob("*.pdf")):
+        if not pdf.with_suffix(".md").exists():
+            errors.append(f"리포트 {pdf.name}: 같은 이름의 md가 없다")
+
 print(f"티켓 {total}개, schedule 행 {len(sched)}개, SCH별 {dict(cnt)}, Top 5 {ids}, 대기 결정 {len(pending)}건")
 for w in warns:
     print("경고:", w)
