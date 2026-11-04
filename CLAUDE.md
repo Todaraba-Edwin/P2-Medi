@@ -62,6 +62,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | OpenAI | `OPENAI_API_KEY` | 에이전트·답변 생성(`gpt-6-luna`), 임베딩(OpenAI 계열, `gpt-6-luna` 지시·`text-embedding-3-small` 후보, RFP-15-05 시험) |
 | Anthropic | `ANTHROPIC_API_KEY` | 평가용 LLM judge(Claude Sonnet 5.5), 평가 문항 생성(Haiku 4.5) |
 | Upstage | `UPSTAGE_API_KEY` | 평가 질문을 Haiku 4.5로 생성한 뒤 한국어 질문 품질 비교·대안으로 활용(RFP-15-01) |
+| Supabase (Postgres + pgvector, 2026-11-04 사용자 알림) | `SUPABASE_DB_URL`(Session pooler 연결 문자열, 핵심 경로), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`(서버 전용), `SUPABASE_JWKS_URL` | DB 연결(백엔드). 뒤 네 개는 이메일 로그인(BE-11, 확장)용이며 DB 비밀번호는 `SUPABASE_DB_URL`에 들어 있다 |
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
 
 ## 4. 데이터 파일
