@@ -1,6 +1,6 @@
 # CLAUDE.md: MediAgent(P2-Medi) 작업 지침
 
-MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 프로젝트다. 이 파일은 저장소(P2-Medi)에서 작업할 때 따라야 할 맥락과 규칙이다. 문서(RFP, PRD, 아키텍처 문서, 평가 리포트, 발표 자료)는 `P2-doc/`에 둔다. 요구사항 원본은 `P2-doc/PJ2-RFP.md`이고, 일정과 티켓은 저장소 루트의 `schedule.md`와 `tickets/`에 둔다.
+MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 프로젝트다. 이 파일은 저장소(P2-Medi)에서 작업할 때 따라야 할 맥락과 규칙이다. 문서(RFP, PRD, 아키텍처 문서, 평가 리포트, 발표 자료)는 `P2-doc/`에 두고, **스프린트 보고서 등 리포트는 `report/`에 md와 PDF 한 쌍으로** 둔다(6장). 요구사항 원본은 `P2-doc/PJ2-RFP.md`이고, 일정과 티켓은 저장소 루트의 `schedule.md`와 `tickets/`에 둔다.
 
 ## 1. 프로젝트 한 줄 정의
 
@@ -60,8 +60,8 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | 식약처 [DUR 성분정보 OpenAPI](https://www.data.go.kr/data/15056780/openapi.do) (성분 단위 버전) | `DURIrdntInfoService03_END_POINT`, `DURIrdntInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
 | 식약처 [의약품 제품 허가정보 OpenAPI](https://www.data.go.kr/data/15095677/openapi.do) (2026-11-01 활용 승인) | `DrugPrdtPrmsnInfoService08_END_POINT`, `DrugPrdtPrmsnInfoService08_API_KEY` | 서비스 호출 주소, 인증키 |
 | OpenAI | `OPENAI_API_KEY` | 에이전트·답변 생성(`gpt-6-luna`), 임베딩(OpenAI 계열, `gpt-6-luna` 지시·`text-embedding-3-small` 후보, RFP-15-05 시험) |
-| Anthropic | `ANTHROPIC_API_KEY` | 평가용 LLM judge(Claude Sonnet 5.5), 평가 문항 생성(Haiku 4.5) |
-| Upstage | `UPSTAGE_API_KEY` | 평가 질문을 Haiku 4.5로 생성한 뒤 한국어 질문 품질 비교·대안으로 활용(RFP-15-01) |
+| Anthropic | `ANTHROPIC_API_KEY` | 평가용 LLM judge(Claude Sonnet 5.5), 평가 문항 생성 보조(Haiku 4.5) |
+| Upstage | `UPSTAGE_API_KEY` | 평가 질문 문장 **주 생성기**(`solar-pro4`, RFP-28-04: 블라인드 비교에서 Haiku보다 자주 선택됨), Haiku 4.5는 보조 |
 | Supabase (Postgres + pgvector, 2026-11-04 사용자 알림) | `SUPABASE_DB_URL`(Session pooler 연결 문자열, 핵심 경로), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`(서버 전용), `SUPABASE_JWKS_URL` | DB 연결(백엔드). 뒤 네 개는 이메일 로그인(BE-11, 확장)용이며 DB 비밀번호는 `SUPABASE_DB_URL`에 들어 있다 |
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
 
@@ -115,7 +115,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 기능(FR), 도구, 그래프 노드, 데이터, 모델(에이전트·judge·문항 생성), 비교 조건이 바뀌면 **같은 작업에서 9장과 위 티켓을 확인하고 필요하면 고친다.** 사용자가 평가에 대한 우려·방침을 주면 9장에 먼저 기록하고 영향 티켓에 반영한다.
 - 지표 정의·목표·평가 세트를 **측정을 시작한 뒤에는 바꾸지 않는다.** 바꿔야 하면 이유와 날짜를 9장에 남기고 이전 결과와 섞지 않는다(RFP-23 §5.1 사전 고정 원칙).
 - 9장의 목표 수치는 잠정이다(RFP-22-11). 결과 보고는 k/n과 Wilson 95% 구간으로 하고, 칸당 n이 8 이하면 유의성을 주장하지 않는다(9.1절).
-- 평가 문항 생성은 Claude Haiku 4.5(사용자 결정), 한국어 품질이 부족하면 Upstage를 고려한다(9.2절). 평가 대상은 `gpt-6-luna`, judge는 **Claude Sonnet 5.5(`claude-sonnet-5-5`)로 고정**한다(RFP-26-01).
+- 평가 문항 생성은 Upstage `solar-pro4` 주 + Claude Haiku 4.5 보조(사용자 결정 RFP-28-04, 2026-11-04. 9.2절)이고 정답은 코드가 산출한다. 평가 대상은 `gpt-6-luna`, judge는 **Claude Sonnet 5.5(`claude-sonnet-5-5`)로 고정**한다(RFP-26-01).
 - 경로(Trajectory) 평가는 문항별 기대 경로 스키마로 코드가 채점하고 judge를 쓰지 않으며, 신뢰성(Reliability) 평가는 안전 핵심 40문항 3회 반복으로 `pass^3`·`pass@3`·일치율을 본다(RFP-26-05·06, `tickets/doc/RFP-26.md` §7.6·§7.7).
 - **judge의 모델 ID·루브릭 버전은 평가 기간 중 바꾸지 않는다.** judge 루브릭(J1~J5)의 원본은 `tickets/doc/RFP-26.md` §7.5이고, judge는 본 측정 전에 사람 라벨 40문항으로 보정한다(RFP-26-02·03). 개선(AG-13)은 **개발셋**만 보고 하고 **시험셋은 개선 중에 열람하지 않는다**(RFP-26-04, 9.1절 8번).
 - 평가 이슈 점검 이력은 `tickets/doc/RFP-23.md` §10에 있다. 평가를 크게 바꿀 때는 새 점검을 그 아래에 이어 적는다.
@@ -129,3 +129,12 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - Top 5 선정은 `.claude/agents/schedule-writer.md`의 규칙을 따른다.
 - 작업을 끝내고 보고할 때는 **현재 Top 5(⛔ 포함)와 Recap(결정됨·진행 중·대기)**을 포함한다.
 - 커밋 전에 `python3 scripts/check_schedule.py`를 실행한다. 티켓 ↔ `schedule.md` 일치, 선행 관계, Top 5가 최신인지, 결정 번호가 티켓 표와 `schedule.md`에서 일치하는지 검사한다. 실패하면 고치고 다시 실행한다.
+
+## 6. 리포트(`report/`)
+
+- **리포트는 항상 md와 PDF 한 쌍**이다. 같은 폴더·같은 이름(`.md`, `.pdf`)으로 두고 **둘을 함께 커밋**한다. md가 원본이고 PDF는 md에서 만든다. md만 있거나 PDF만 있으면 안 된다(`scripts/check_schedule.py`가 짝을 검사한다).
+- **파일 이름**: `report/{SCH-nn}-{주제}-{기준일 YYYY-MM-DD}.md`. 예: `report/SCH-00-pre-week-2026-11-04.md`. 같은 스프린트의 중간·마감 보고서는 기준일로 구분하고 이전 파일을 덮어쓰지 않는다.
+- **PDF 만들기**: `python3 scripts/make_report_pdf.py report/<이름>.md`(pandoc → Chrome headless, 한글 글꼴 Apple SD Gothic Neo, 필요: pandoc·Google Chrome). md를 고치면 PDF를 다시 만든 뒤 커밋한다. 만든 PDF는 첫 쪽 이상을 직접 열어 글꼴·표가 깨지지 않았는지 확인한다.
+- **스프린트 보고서의 근거**는 `schedule.md`(Recap·Top 5·진행 현황), `schedule-done.md`, `schedule-changelog.md`, 각 티켓이다. 숫자는 이 파일과 `python3 scripts/check_schedule.py`, `git log`에서 직접 세고 출처를 적는다. **측정하지 않은 값은 "측정 전·잠정"으로 쓰고** 사실과 제 추정을 구분한다. 소표본은 k/n과 구간으로만 보고하며 유의성을 주장하지 않는다(5장 평가 기준 유지 규칙).
+- **형식**: `#` 제목, 제목 바로 아래 `**SPRINT REPORT: 스프린트 보고서**` 부제목(다른 종류의 리포트는 그 종류의 약어 부제목), 기준일·성격·근거 목록, `## Index`, `## 1.` 번호 절. 절은 1 한눈에 보기, 2 목표 대비, 3 진행 현황, 4 주요 결정, 5 수치, 6 발견·정정, 7 리스크, 8 Top 5와 사용자 몫, 9 다음 스프린트, 10 회고(Keep·Problem·Try), 11 근거 자료를 기본으로 한다.
+- 비밀 정보(키 값, 연결 문자열)와 개인 정보를 쓰지 않는다. 리포트도 변수 이름만 쓴다(3장). 스프린트 종료(마감) 때와 사용자가 요청할 때 새로 만들고, 만든 뒤 `schedule-changelog.md`에 한 줄을 더한다.
