@@ -1,6 +1,6 @@
 """리포트(report/*.md)를 같은 이름의 PDF로 만든다. 사용: python3 scripts/make_report_pdf.py report/<이름>.md [...]
 순서: pandoc(md -> 단일 HTML, CSS 내장) -> Chrome headless(HTML -> PDF). 한글 글꼴은 macOS 'Apple SD Gothic Neo'.
-필요: pandoc, /Applications/Google Chrome.app. 결과 PDF는 md와 같은 폴더·같은 이름(.pdf)이며 둘을 함께 커밋한다(CLAUDE.md 6장)."""
+필요: pandoc, /Applications/Google Chrome.app. 결과 PDF는 md와 같은 폴더·같은 이름(.pdf)이다. `report/`는 로컬 전용(.gitignore)이라 커밋하지 않는다(CLAUDE.md 6장)."""
 import re, subprocess, sys, tempfile
 from pathlib import Path
 
