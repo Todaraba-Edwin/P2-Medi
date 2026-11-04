@@ -1,6 +1,6 @@
 # CLAUDE.md: MediAgent(P2-Medi) 작업 지침
 
-MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 프로젝트다. 이 파일은 저장소(P2-Medi)에서 작업할 때 따라야 할 맥락과 규칙이다. 문서(RFP, PRD, 아키텍처 문서, 평가 리포트, 발표 자료)는 `P2-doc/`에 두고, **스프린트 보고서 등 리포트는 `report/`에 md와 PDF 한 쌍으로** 둔다(6장). 요구사항 원본은 `P2-doc/PJ2-RFP.md`이고, 일정과 티켓은 저장소 루트의 `schedule.md`와 `tickets/`에 둔다.
+MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 프로젝트다. 이 파일은 저장소(P2-Medi)에서 작업할 때 따라야 할 맥락과 규칙이다. 문서(RFP, PRD, 아키텍처 문서, 평가 리포트, 발표 자료)는 `P2-doc/`에 두고, **스프린트 보고서 등 리포트는 `report/`에 md와 PDF 한 쌍으로 두되 커밋하지 않는다**(6장, 로컬 전용). 요구사항 원본은 `P2-doc/PJ2-RFP.md`이고, 일정과 티켓은 저장소 루트의 `schedule.md`와 `tickets/`에 둔다.
 
 ## 1. 프로젝트 한 줄 정의
 
@@ -132,10 +132,11 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 
 ## 6. 리포트(`report/`)
 
-- **리포트는 항상 md와 PDF 한 쌍**이다. 같은 폴더·같은 이름(`.md`, `.pdf`)으로 두고 **둘을 함께 커밋**한다. md가 원본이고 PDF는 md에서 만든다. md만 있거나 PDF만 있으면 안 된다(`scripts/check_schedule.py`가 짝을 검사한다).
+- **리포트는 항상 md와 PDF 한 쌍**이다. 같은 폴더·같은 이름(`.md`, `.pdf`)으로 두고, md가 원본이며 PDF는 md에서 만든다. md만 있거나 PDF만 있으면 안 된다(`scripts/check_schedule.py`가 로컬 `report/`의 짝을 검사한다).
+- **`report/`는 로컬 전용이다**(2026-11-04 사용자 결정). `.gitignore`에 `report/`를 넣어 **커밋하지 않는다.** 리포트에는 내부 평가 문항·파일 제품명·비용 등 저장소에 올리지 않을 내용이 섞이기 때문이다. 로컬 파일이라 지워지면 되살릴 수 없으니 필요하면 별도로 백업한다.
 - **파일 이름**: `report/{SCH-nn}-{주제}-{기준일 YYYY-MM-DD}.md`. 예: `report/SCH-00-pre-week-2026-11-04.md`. 같은 스프린트의 중간·마감 보고서는 기준일로 구분하고 이전 파일을 덮어쓰지 않는다.
-- **PDF 만들기**: `python3 scripts/make_report_pdf.py report/<이름>.md`(pandoc → Chrome headless, 한글 글꼴 Apple SD Gothic Neo, 필요: pandoc·Google Chrome). md를 고치면 PDF를 다시 만든 뒤 커밋한다. 만든 PDF는 첫 쪽 이상을 직접 열어 글꼴·표가 깨지지 않았는지 확인한다.
+- **PDF 만들기**: `python3 scripts/make_report_pdf.py report/<이름>.md`(pandoc → Chrome headless, 한글 글꼴 Apple SD Gothic Neo, 필요: pandoc·Google Chrome). md를 고치면 PDF를 다시 만든다. 만든 PDF는 첫 쪽 이상을 직접 열어 글꼴·표가 깨지지 않았는지 확인한다.
 - **스프린트 보고서의 근거**는 `schedule.md`(Recap·Top 5·진행 현황), `schedule-done.md`, `schedule-changelog.md`, 각 티켓이다. 숫자는 이 파일과 `python3 scripts/check_schedule.py`, `git log`에서 직접 세고 출처를 적는다. **측정하지 않은 값은 "측정 전·잠정"으로 쓰고** 사실과 제 추정을 구분한다. 소표본은 k/n과 구간으로만 보고하며 유의성을 주장하지 않는다(5장 평가 기준 유지 규칙).
 - **PDF 조판 규칙**(`make_report_pdf.py`가 적용): 제목(`#`·`##`·`###`)은 **한 줄**로 줄바꿈하지 않으므로 짧게 쓰고(`#` 제목은 약 25자 안팎, 프로젝트명은 첫 줄 목록에 둔다), 표 첫 열은 **26자 이하면 줄바꿈하지 않으므로** 첫 열 문구를 짧게 쓴다. 티켓·결정 번호(`RFP-22-03`)는 하이픈에서 끊기지 않는다. 줄간격은 본문 1.68, 표 1.5(셀 위아래 여백 4pt)이고 현재 보고서는 7쪽이다(줄간격을 바꾸면 쪽수가 바뀌므로 확인한다).
 - **형식**: `#` 제목, 제목 바로 아래 `**SPRINT REPORT: 스프린트 보고서**` 부제목(다른 종류의 리포트는 그 종류의 약어 부제목), 기준일·성격·근거 목록, `## Index`, `## 1.` 번호 절. 절은 1 한눈에 보기, 2 목표 대비, 3 진행 현황, 4 주요 결정, 5 수치, 6 발견·정정, 7 리스크, 8 Top 5와 사용자 몫, 9 다음 스프린트, 10 회고(Keep·Problem·Try), 11 근거 자료를 기본으로 한다.
-- 비밀 정보(키 값, 연결 문자열)와 개인 정보를 쓰지 않는다. 리포트도 변수 이름만 쓴다(3장). 스프린트 종료(마감) 때와 사용자가 요청할 때 새로 만들고, 만든 뒤 `schedule-changelog.md`에 한 줄을 더한다.
+- 비밀 정보(키 값, 연결 문자열)와 개인 정보를 쓰지 않는다. 리포트도 변수 이름만 쓴다(3장). 스프린트 종료(마감) 때와 사용자가 요청할 때 새로 만들고, 만든 뒤 `schedule-changelog.md`에 한 줄을 더한다(리포트 자체는 커밋하지 않고 변경 로그만 커밋한다).

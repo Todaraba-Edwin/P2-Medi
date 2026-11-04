@@ -43,3 +43,6 @@ chroma/
 qdrant_storage/
 *.sqlite3
 data/
+
+# 리포트 (로컬 전용, 커밋하지 않음)
+report/
