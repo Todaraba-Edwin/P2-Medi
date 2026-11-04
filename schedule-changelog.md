@@ -4,6 +4,9 @@
 
 ## 변경 로그
 
+- 2026-11-04 · 갱신: ① 사용자가 크레딧 콘솔을 확인(만료분 잔액 57.00 USD → 사용액 약 $2.0, 해석 표기)해 RFP-28 §8.4·§2와 done 파일에 반영. ② 사용자 요청으로 **`report/` 폴더 신설과 Pre-Week 스프린트 보고서**(`report/SCH-00-pre-week-2026-11-04.md` + `.pdf`) 작성, PDF 생성 스크립트 `scripts/make_report_pdf.py`, **CLAUDE.md 6장에 리포트 규칙**(md·PDF 한 쌍, 이름, 형식, 근거) 명시, `check_schedule.py`에 짝 검사 추가. 대기 결정 0건.
+- 2026-11-04 · 갱신: 사용자 답 **RFP-28-04 A(권장대로)**. 질문 문장 생성기를 Upstage `solar-pro4` 주 + Haiku 4.5 보조로 확정하고 PJ2-RFP.md 9.2절·9.7절, CLAUDE.md 3·5장, AG-04, RFP-26, RFP-15 메모에 반영. **RFP-28 종결**(done 파일로 이동). Top 5: RFP-15 → BE-01 → PRD-01 → PRD-07 → AG-04(올림). 대기 결정 0건.
+- 2026-11-04 · 갱신: 사용자가 S2 비교를 골랐다(질문 문장 Upstage 8 대 Haiku 2, 변형은 코드·Haiku 선택, Upstage 변형은 결함). RFP-28 §8.8 신설, 결정 **RFP-28-04**(질문 문장 생성기: Upstage 주 + Haiku 보조, ★A) 올림. Recap의 S2 비교 고르기 행 삭제. 소표본이라 유의성은 주장하지 않음.
 - 2026-11-04 · 갱신: 사용자 답 **RFP-28-02 A, RFP-28-03 A(권장대로)**. 02 반영: PJ2-RFP.md 9.2절(오탈자 14 + 축약·표기 6, `variant` 라벨), AG-04·AG-10, 변형 코드 `variants.py`·`rebuild_variants.py`. 03 실행: `t5_upstage_compare.py`로 Upstage `solar-pro4`와 Haiku의 블라인드 비교 파일 `S2_compare.md` 생성. 대기 결정 0건, 사용자 몫은 Recap 1번(S2 비교 고르기).
 - 2026-11-04 · 갱신: 사용자 질문("Upstage도 비교용으로 S2를 생성하는 관점은?")에 답하며 **RFP-15-01이 이미 Upstage 비교를 정했음을 확인**하고 RFP-28의 "Upstage 비교는 하지 않는다"는 잘못된 문구를 정정. RFP-28 §8.7 신설, 결정 **RFP-28-03**(Upstage `solar-pro4`로 같은 10틀 비교 생성, ★A) 올림. 대기 결정 2건(RFP-28-02·03).
 - 2026-11-04 · 갱신: 사용자 답 **S2: 시험 10문항의 한국어 말투는 좋다**(Upstage 비교 불필요)와 의견(오탈자와 축약어는 다른 관점). RFP-28 §8.6 신설, 결정 **RFP-28-02**(오탈자 20문항 = 오탈자 14 + 축약·표기 6, ★A) 올림. Recap의 S2 행 삭제. 직전 결정 반영(RFP-28-01, RFP-29-01·02)은 a2dacef로 병합됨.
