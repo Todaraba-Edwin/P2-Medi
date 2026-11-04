@@ -4,6 +4,7 @@
 
 ## 변경 로그
 
+- 2026-11-04 · 갱신: 사용자 확인: Supabase `vector` 확장 켜짐. 사용자 결정("권장을 따름"): **AWS 계정은 W3 시작 때 개설**. Recap의 AWS 행을 "W3 시작 때 개설"로 바꾸고 RFP-15 §6 메모·BE-13 메모에 기록.
 - 2026-11-04 · 갱신: 사용자가 Supabase 프로젝트를 만들고(서울, 자동 RLS) 변수 이름을 알림. `CLAUDE.md` 3장 표에 Supabase 5개 이름(`SUPABASE_DB_URL`·`SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`·`SUPABASE_SECRET_KEY`·`SUPABASE_JWKS_URL`)을 추가하고 BE-01 메모·Top 5 이슈(환경변수 16개)를 맞춤. Recap의 Supabase 시작 행을 지우고 `SUPERBASE_DB_PASSWORD` 철자 확인 행을 올림.
 - 2026-11-04 · 갱신: 사용자 요청("PRD-01과 RFP-15 중 무엇을 먼저")에 **RFP-15 먼저**로 정하고 Top 5 순서를 RFP-15 → PRD-01 → PRD-07 → BE-01 → AG-04로 바꿈(이유: W1 선행 체인, 사용자 계정 작업의 대기 시간, PRD-01 NFR 수치가 RFP-15 측정에 의존). 이미 답한 PRD-01-01~04가 Recap 5번에 남아 있던 것을 지우고 번호를 다시 매김. 법률 검토 보류 커밋·병합(ad4e5de) 완료.
 - 2026-11-03 · 갱신: 사용자 방침 "법률적인 부분은 추후 검토로 남겨두자"를 기록. PJ2-RFP.md 12장 리스크에 보류 항목 5개(민감정보 별도 동의, 개인정보, 의료기기 해당 여부, 공공 자료 이용 조건, LLM 제공자 정책)와 현재 대응을 한 행으로 추가하고, `schedule.md` Recap 9번에 보류로 올림. 결정 번호는 새로 만들지 않음.

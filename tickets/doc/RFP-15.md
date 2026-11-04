@@ -181,3 +181,4 @@ Supabase (Postgres + pgvector, 서울)     외부 LLM API (OpenAI · Anthropic)
 - RFP 12장에 리스크 행 추가: "AWS 무료 플랜 기간(신규 계정 6개월 뒤 계정 폐쇄)". 리스크는 22건 → 23건(RFP-14·PRD-01 갱신).
 - BE-13: 백엔드 HTTPS 방안 ①②, session pooler, 메모리 확인, 시연 직전 기동.
 - BE-05·BE-09: 500MB 한도 계산(벡터 6KB/개, 인덱스·텍스트 포함)과 청크 단위 대안.
+- 2026-11-04 사용자: Supabase 프로젝트를 만들었고(서울, 자동 RLS 켬) `vector` 확장이 켜진 것을 확인했다. **AWS 계정 개설은 W3 시작 때로 미룬다**(§7.5 1번은 그때 확인, 도메인 보유 여부도 그때). Session pooler 연결은 백엔드 연결 확인 때 시험한다(BE-01 이후).
