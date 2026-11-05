@@ -1,6 +1,6 @@
 # MediAgent 일정
 
-> 마지막 갱신: 2026-11-04 (RFP-30-02 결정을 11-05로 미룸, PRD-07-02 명확화, 티켓 70개)
+> 마지막 갱신: 2026-11-04 (PRD-07 종결, RFP-31 mock 데이터 사전 생성 신설, 티켓 71개)
 > RFP(`P2-doc/PJ2-RFP.md`) 10장 일정(사전·1~3주)을 SCH-00~03으로 나누고 각 SCH 아래 티켓을 묶었다. 티켓 파일의 `status`가 기준이다.
 
 ## Recap (현재 상태와 놓쳤을 수 있는 것)
@@ -49,11 +49,11 @@
 | SCH | 기간 | 완료/전체 | 상태 |
 |---|---|---|---|
 | SCH-00 | 사전 (10-30~11-06) | 8/8 | 완료 · 기록은 [schedule-done.md](schedule-done.md) · 사전 기간은 11-06까지, W1은 11-09 시작 |
-| SCH-01 | 1주 | 7/20 | 착수 가능 · 대기 결정 1건(RFP-30-02, 11-05로 미룸) · RFP-30 조사 완료 · 구현 10(도구·적재 중심) |
+| SCH-01 | 1주 | 7/21 | 착수 가능 · 대기 결정 1건(RFP-30-02, 11-05로 미룸) · RFP-30 조사 완료 · 구현 10(도구·적재 중심) |
 | SCH-02 | 2주 | 0/31 | 진행 전 · SCH-01 완료 후 (필수 22 / 권장 4 / 확장 3) |
 | SCH-03 | 3주 | 0/10 | 진행 전 · SCH-02 완료 후 |
 
-완료([x]) 티켓의 행은 [schedule-done.md](schedule-done.md)로 옮긴다. dropped 티켓은 체크박스 [ ]로 표에 남기고 진행 현황 숫자와 Top 5에서 제외한다. 총 70개(RFP 30 / PRD 7 / AG 16 / BE 13 / FE 4), dropped 1개(RFP-18).
+완료([x]) 티켓의 행은 [schedule-done.md](schedule-done.md)로 옮긴다. dropped 티켓은 체크박스 [ ]로 표에 남기고 진행 현황 숫자와 Top 5에서 제외한다. 총 71개(RFP 31 / PRD 7 / AG 16 / BE 13 / FE 4), dropped 1개(RFP-18).
 
 ## SCH-01 · 1주차: 데이터·도구 기반
 
@@ -67,6 +67,7 @@
 | `[ ]` | `RFP-03` | [FR-02 공공 API Tool 요구사항 추적](tickets/doc/RFP-03.md) | e약은요·DUR 조회와 조회 시각 확인 | - |
 | `[ ]` | `RFP-11` | [비기능 재현성(같은 평가 세트 반복 측정) 추적](tickets/doc/RFP-11.md) | 평가 세트 버전 고정 확인 | - |
 | `[ ]` | `RFP-30` | [개발 하네스 사례 조사(OMC·gajae-code 등)와 차용할 스킬 후보](tickets/doc/RFP-30.md) | 조사 완료(§11·§12), 직접 쓸 스킬 결정 RFP-30-02는 11-05로 미룸 | - |
+| `[ ]` | `RFP-31` | [다음 주(W1) 작업용 mock 데이터 사전 생성(Anthropic API, 상한 20 USD, 로컬 전용)](tickets/doc/RFP-31.md) | 별도 pane 서브에이전트가 `/chat` 응답·경로 trace·judge 출력·질문 틀·Validator 입력쌍 mock을 `mock/`(git 제외)에 생성, 상한 20 USD를 코드로 강제. 진행은 티켓 §6 | - |
 | `[ ]` | `AG-02` | [공공 API·금기 조회 도구 함수(에이전트 Tool)](tickets/agent/AG-02.md) | 도구 3개(`identify_drug`·`check_contraindications`·`get_label_section`), 병용·연령·임부를 한 번에 조회, 파일 1차 + API 병기, 불일치 4경우 | - |
 | `[ ]` | `AG-03` | [문서 검색 도구 함수(메타데이터 필터)](tickets/agent/AG-03.md) | 코퍼스별 검색 도구 3개(고시·사유·라벨)+코드 검사 우선 관련성 표시. 분해 검색·증거 묶음은 (개선)으로 AG-13 | - |
 | `[ ]` | `AG-04` | [평가 세트 초안(정상·오탈자·모호·오정보·근거 없음·범위 외, 개발셋·시험셋)](tickets/agent/AG-04.md) | 약 150문항 시험셋 + 별도 개발셋, 골든 문항, M·연령·임부·보유약·멀티홉(TC-15, 21~23) 문항 포함 | - |
@@ -144,7 +145,7 @@ RFP-20, BE-11, FE-04는 확장(권장)이다. AG-15도 권장이며 retrieval �
 | 키워드 | 뜻 | 티켓 폴더 |
 |---|---|---|
 | `SCH-nn` | 스크럼 단위(스프린트). SCH-00은 사전 준비, 01~03은 1~3주차 | 없음 (이 문서의 섹션) |
-| `RFP-nn` | RFP 문서 작성(01)과 요구사항·결정 추적 (02~09 = FR-01~08, 27 = FR-10 되묻기 추적, 28 = Anthropic 크레딧 만료 전 활용 진행 기록, 29 = 하네스 엔지니어링 전략(Guides·Sensors), 30 = 개발 하네스 사례 조사(OMC·gajae-code), 10~16 = 비기능·리스크·결정·산출물, 17 = DUR 확보 결정, 18 = 검진 문서 확보 확인(dropped), 19 = 응급·안전상비의약품 공식 근거 조사, 20 = FR-09 온보딩·계정 추적, 21 = Pre-Week API 4종 실측 확인, 22 = Agent 101 기준 컨셉 점검, 23 = Pre-Week 그래프 노드 구성·에이전트 필요성 수치 증명 설계, 24 = Pre-Week 마감 점검·RFP 기획 누락 점검, 25 = Pre-Week 에이전트 디자인 패턴 비교·자유도 사다리, 26 = Pre-Week 평가 설계 구체화·LLM judge 루브릭·개발/시험셋) | `tickets/doc/` |
+| `RFP-nn` | RFP 문서 작성(01)과 요구사항·결정 추적 (02~09 = FR-01~08, 27 = FR-10 되묻기 추적, 28 = Anthropic 크레딧 만료 전 활용 진행 기록, 29 = 하네스 엔지니어링 전략(Guides·Sensors), 30 = 개발 하네스 사례 조사(OMC·gajae-code), 31 = W1 작업용 mock 데이터 사전 생성(상한 20 USD), 10~16 = 비기능·리스크·결정·산출물, 17 = DUR 확보 결정, 18 = 검진 문서 확보 확인(dropped), 19 = 응급·안전상비의약품 공식 근거 조사, 20 = FR-09 온보딩·계정 추적, 21 = Pre-Week API 4종 실측 확인, 22 = Agent 101 기준 컨셉 점검, 23 = Pre-Week 그래프 노드 구성·에이전트 필요성 수치 증명 설계, 24 = Pre-Week 마감 점검·RFP 기획 누락 점검, 25 = Pre-Week 에이전트 디자인 패턴 비교·자유도 사다리, 26 = Pre-Week 평가 설계 구체화·LLM judge 루브릭·개발/시험셋) | `tickets/doc/` |
 | `PRD-nn` | PRD 등 문서 작성 작업 (01 PRD 정리, 06 서비스 이름·마스코트, 07 유저플로우·화면 상태 심층) | `tickets/doc/` |
 | `AG-nn` | Agent (LangChain·LangGraph, Router, Validator, Guardrail, RAG, 평가) | `tickets/agent/` |
 | `BE-nn` | Backend (FastAPI, 공공 API, e약은요 수집, 금기 데이터 적재, 인증·프로필, 캐시, 설정, 배포) | `tickets/backend/` |
