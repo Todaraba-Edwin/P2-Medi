@@ -30,6 +30,9 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | `tickets-writer` | [`.claude/agents/tickets-writer.md`](.claude/agents/tickets-writer.md) | 티켓 문서의 본문(설명·해설) 작성. `#` 제목과 `##` 소제목을 분리하고 상단에 Index(목차 링크)를 둔다. 상태·일정은 다루지 않는다 |
 | `documents-writer` | [`.claude/agents/documents-writer.md`](.claude/agents/documents-writer.md) | PDF·DOCX 등 문서 파일을 읽고 마크다운으로 정리해 `P2-doc/`에 기록. `#` 제목, `## Index`, `## 1.` 번호 소제목, `### (1)` 세부 항목 규칙. `.env`는 열지 않는다 |
 | `git-actor` | [`.claude/agents/git-actor.md`](.claude/agents/git-actor.md) | git 작업 전담: 커밋, 브랜치, 병합, 태그, `.gitignore` 관리. 파일 내용은 고치지 않는다 |
+| `plan-critic` | [`.claude/agents/plan-critic.md`](.claude/agents/plan-critic.md) | **읽기 전용** 점검(Read·Glob·Grep만): PRD·티켓·평가 설계를 읽고 REJECT/REVISE/ACCEPT와 `파일:줄` 근거를 낸다. 문서를 고치지 않는다(RFP-30-02) |
+
+**스킬**: `.claude/skills/requirements-interview`(RFP-30-02)는 모호한 요구를 결정 번호가 붙은 선택지로 정리하는 절차다. 질문은 한 번에 한 가지씩 하고 산출은 티켓 `결정 현황` 표 초안으로만 낸다. **새 스킬·에이전트(`.claude/` 정의 파일)를 더할 때는 결정 번호를 부여하고 총량을 늘리지 않는다**(RFP-30-02는 2개로 제한, 기존 서브에이전트와 겹치면 새로 만들지 않고 기존 정의를 보강). 외부 문구를 가져오면 출처 URL·읽은 날짜를 정의 머리에 적는다.
 
 **문서 부제목 규칙**: 요구서 문서는 제목(`#`) 바로 아래에 약어 부제목을 굵게 적는다. `P2-doc/PJ2-RFP.md`는 `**RFP (Request for Proposal): 제안요청서**`, PRD 문서는 `**PRD (Product Requirements Document): 제품 요구사항 문서**`다. 두 문서의 약어를 섞어 쓰지 않는다(RFP는 제안요청서, PRD는 제품 요구사항 문서).
 
@@ -128,7 +131,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 갱신 시점: 티켓 상태·선행·범위가 바뀔 때, 사용자가 답이나 방침을 줄 때, 티켓을 만들거나 없앨 때, **커밋하기 전**. 같은 작업 안에서 Top 5, 먼저 답할 결정, 티켓의 결정 현황 표, Recap, "마지막 갱신" 날짜, 변경 로그(`schedule-changelog.md`, 별도 파일, 최신이 위)를 함께 고친다. 미루지 않는다.
 - 사용자가 결정에 답하면: 티켓 표의 상태를 `완료`로(결과·날짜 기록), `먼저 답할 결정` 표에서 삭제, Top 5의 ⛔ 칸 갱신, Recap으로 이동, 막혀 있던 티켓을 Top 5에서 올릴 수 있는지 다시 계산한다.
 - Top 5 선정은 `.claude/agents/schedule-writer.md`의 규칙을 따른다.
-- 작업을 끝내고 보고할 때는 **현재 Top 5(⛔ 포함)와 Recap(결정됨·진행 중·대기)**을 포함한다.
+- 작업을 끝내고 보고할 때는 **현재 Top 5(⛔ 포함)와 Recap(결정됨·진행 중·대기)**을 포함한다. **완료·종결 보고에는 `python3 scripts/check_schedule.py` 결과(통과/실패, 실행하지 못했으면 "미실행")와 변경 파일 목록을 붙인다**(RFP-30-02 증거 규칙).
 - 커밋 전에 `python3 scripts/check_schedule.py`를 실행한다. 티켓 ↔ `schedule.md` 일치, 선행 관계, Top 5가 최신인지, 결정 번호가 티켓 표와 `schedule.md`에서 일치하는지 검사한다. 실패하면 고치고 다시 실행한다.
 
 ## 6. 리포트(`report/`)
