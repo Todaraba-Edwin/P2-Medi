@@ -59,6 +59,7 @@ PRD-07-01~03(대화 상태 브라우저 메모리, 보관 고지, 119 링크), P
 
 | 완료 | Label | Title | 이슈 | 완료일 |
 |---|---|---|---|---|
+| `[x]` | `RFP-31` | [다음 주(W1) 작업용 mock 데이터 사전 생성(Anthropic API, 상한 20 USD, 로컬 전용)](tickets/doc/RFP-31.md) | M1 `/chat` 응답 19·M2 경로 trace 98·M3 judge 출력 305·M4 질문 틀 130·M5 Validator 220쌍, 비용 $2.72(원장), `mock/` git 제외, 콘솔 확인 대기 | 2026-11-05 |
 | `[x]` | `PRD-07` | [PRD 유저플로우·화면 상태 심층(시나리오·화면별 상태·요구사항 추적)](tickets/doc/PRD-07.md) | `P2-doc/PJ2-PRD.md` 15장(시나리오 10개·유저플로우·화면 상태 12개·FR/NFR 추적표), 결정 PRD-07-01~03(대화 상태 브라우저 메모리·보관 고지·119 링크) | 2026-11-04 |
 | `[x]` | `PRD-01` | [PRD 정리(범위·포함/제외·성공 기준)](tickets/doc/PRD-01.md) | `P2-doc/PJ2-PRD.md` 작성(15개 장, FR 10·NFR 10 추적, 범위·데이터 12행·5지표), 결정 PRD-01-01~08 | 2026-11-04 |
 | `[x]` | `RFP-15` | [1주차 결정사항 확정(LLM·DB·Vector DB·PDF 파서·평가 문항 수)](tickets/doc/RFP-15.md) | 결정 RFP-15-01~10 완료(LLM `gpt-6-luna` 우선·평가 Sonnet 5.5, Supabase, Vercel·AWS, Vite + React, 문항 150). 남은 시험·확인은 BE-04·05·09·10·13·01·08·PRD-04로 이관 | 2026-11-04 |
