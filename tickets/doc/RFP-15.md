@@ -180,7 +180,7 @@ Supabase (Postgres + pgvector, 서울)     외부 LLM API (OpenAI · Anthropic)
 1. **가입**: supabase.com에서 계정을 만든다(이메일 또는 소셜 로그인, 화면 확인).
 2. **조직(Organization) 만들기**: 이름을 정하고 **Free 플랜**을 고른다. 결제 수단 입력이 필요한지는 확인하지 못했다. 입력을 요구하면 Free 플랜인지 다시 확인한다.
 3. **새 프로젝트(New project)**
-   - 이름: 예) `can-i-biyak`
+   - 이름: 예) `can-i-ppiyak`
    - **Database password**: 강한 비밀번호를 만들어 **비밀번호 관리자에 저장**한다. 이 값은 채팅, 문서, 커밋, 티켓에 쓰지 않는다. 잃어버리면 재설정해야 한다.
    - **Region: Northeast Asia (Seoul)** — `ap-northeast-2` (문서 확인). 프로젝트를 만든 뒤 리전을 바꿀 수 있는지는 확인하지 못했으니 처음부터 서울로 한다.
    - 만들면 준비가 끝날 때까지 기다린다(시간은 미확인).

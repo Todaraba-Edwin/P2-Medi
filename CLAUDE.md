@@ -8,7 +8,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 
 **이 프로젝트는 상용 서비스가 아니라 취업 포트폴리오다.** 핵심 목표는 Agent-RAG를 활용한 AX(AI 전환) 경험, 곧 에이전트(Router, 도구 선택, 근거 고정, Validator)를 직접 설계·구현·평가하고 수치로 개선을 보이는 것이다. 어떤 결정이든 이 목표를 잃지 않는지 먼저 따진다. 원스글로벌 Dr.DI 같은 기존 서비스는 MediAgent 아이디어에 가능성이 있음을 확인하는 사례일 뿐, 재현 대상이 아니다. 같은 문제를 Agent-RAG의 대상 도메인으로 삼아 3주·1인 개발 규모의 유사한 축소판을 만들고 취업 포트폴리오에 담는 것이 목표이며, 성능 수치는 비교하지 않는다.
 
-**서비스 표시 이름은 Can I Biyak(한글 삐약)이다**(PRD-06-01). `Biyak`은 삐약(병아리 소리)의 영어 음역이고 "삐"는 금지·경고의 뜻도 담는다. 화면·README·PRD 제목·발표 자료에는 표시 이름을 쓰고, 저장소 이름(P2-Medi)·코드 패키지·티켓·환경변수에는 코드명 MediAgent를 유지한다. 병아리 마스코트는 보조 자리에만 쓰고 응급·금기 결과·고정 문구 영역에는 쓰지 않으며, "삐!" 경고 표현은 금기 결과의 경고 표지(글자·아이콘)로만 쓰고 소리는 쓰지 않는다(PRD-06-02·03).
+**서비스 표시 이름은 Can I PPiyak(한글 삐약)이다**(PRD-06-01). `PPiyak`은 삐약(병아리 소리)의 로마자 표기(국어 로마자 표기법)이고 "삐"는 금지·경고의 뜻도 담는다. 화면·README·PRD 제목·발표 자료에는 표시 이름을 쓰고, 저장소 이름(P2-Medi)·코드 패키지·티켓·환경변수에는 코드명 MediAgent를 유지한다. 병아리 마스코트는 보조 자리에만 쓰고 응급·금기 결과·고정 문구 영역에는 쓰지 않으며, "삐!" 경고 표현은 금기 결과의 경고 표지(글자·아이콘)로만 쓰고 소리는 쓰지 않는다(PRD-06-02·03).
 
 주 사용자는 일반인(비의료인)이고 의료인·약사도 쓸 수 있도록 확장한다. 임산부·영유아·아동·고령자(만성질환 약을 여러 개 복용)가 있는 집에서 응급 상황이나 평소에 상비약·보유 의약품을 먹기 전에 병용·연령·임부 금기와 중복·용량 주의를 스스로 확인하게 해 오남용을 막는 것이 목적이다. 답변은 쉬운 요약을 먼저, 근거 상세는 펼쳐 보게 하며, 복용 여부와 용량은 정해 주지 않는다. 다만 허가사항의 용법용량 안내는 숨기지 않고 근거 상세에 원문 그대로 인용할 수 있다(요약에는 용량 숫자를 쓰지 않고, 사용자에게 맞는 용량을 골라 주지 않는다. RFP-21-03). 전문가 전용 기능은 두지 않는다. 범위는 핵심(병용·연령·임부 금기)을 먼저 끝내고 확장(중복·용량·수유부)은 그다음에 하며, 미달하면 확장부터 줄이되 Agent-RAG 핵심 요소는 줄이지 않는다.
 
@@ -50,6 +50,44 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 다음 경우에는 pane을 닫지 않는다. 에이전트가 `working` 또는 `blocked` 상태이거나 timeout으로 끝났을 때, 사용자의 답이나 승인이 필요할 때, pane 입력창에 사용자가 적은 내용이 남아 있을 때다. 승인 창이 떠 있으면 입력을 임의로 보내지 않고 사용자에게 알린다.
 - 열기, 시작, 요청, 보고 읽기, 종료의 구체적인 명령은 정의 파일의 "메인 세션 호출·종료 절차"를 따른다.
 
+### 메인 pane의 역할과 위임 (컨텍스트 윈도우 관리, 2026-11-06 사용자 지시)
+
+`P2-Medi-Main` pane은 **사용자와의 대화, 결정 정리, 위임 지시, 완료 보고 검수**만 맡는다. 길게 읽고 쓰는 일은 별도 pane의 서브에이전트가 하고, 메인은 **지시서와 완료 보고**만 주고받아 컨텍스트 윈도우를 아낀다.
+
+**1. 위임 기준.** 아래에 해당하면 메인이 직접 하지 않고 별도 pane에 맡긴다.
+- 문서를 새로 쓰거나 크게 고치는 일(요구서·PRD·설계 문서·티켓 본문), 300줄 넘는 문서를 처음부터 끝까지 읽어야 하는 일
+- 웹 조사, 여러 파일을 가로지르는 정합성 점검, 문서 검토(회차를 나눈 점검 포함)
+- 코드·스크립트 작성과 시험, 데이터 수집, 비용이 드는 API 호출
+- git 작업 전부, 보고서 작성(`report/`)
+메인이 직접 해도 되는 것: 결정 번호 정리와 사용자 답 반영처럼 **한두 군데의 짧은 정정**, 위임 보고의 사실 확인(아래 4), 사용자와의 대화. `schedule.md`·티켓·변경 로그의 갱신은 **`schedule-writer`에 맡기는 것이 기본**이고, 메인 직접 편집은 표기 정정처럼 작은 것으로 한정하며 변경 로그에 적는다.
+
+**2. 에이전트 고르기.** 정의 파일이 있는 에이전트를 먼저 쓰고, 맞는 것이 없을 때 사용자 전역 에이전트나 일반 에이전트를 쓴다. 새 정의 파일(`.claude/`)은 만들지 않는다(위 스킬 문단의 총량 규칙).
+
+| 일 | 쓸 에이전트 | 모델 | 시작 옵션 |
+|---|---|---|---|
+| 일정 표·티켓 파일·상태·Top 5 | `schedule-writer`(저장소) | 기본 | `--agent schedule-writer --permission-mode acceptEdits` |
+| 티켓 본문 설명 | `tickets-writer`(저장소) | 기본 | `--agent tickets-writer --permission-mode acceptEdits` |
+| PDF·DOCX → `P2-doc/` 마크다운 | `documents-writer`(저장소) | 기본 | `--agent documents-writer --permission-mode acceptEdits` |
+| git(커밋·병합·태그·`.gitignore`) | `git-actor`(저장소) | 기본 | `--agent git-actor`(승인 창은 사용자가 처리) |
+| 읽기 전용 문서 점검(회차 분리) | `plan-critic`(저장소) | **opus** | `--agent plan-critic --model claude-opus-5-5` |
+| 웹 조사·사례 조사 | `deep-research`(전역) | 기본, 어려우면 opus | `--agent deep-research` |
+| 설계·요구 문서 신설(PRD·하네스·로깅 등) | 정의 파일이 맞지 않으면 일반 에이전트 | **opus** | `--model claude-opus-5-5 --permission-mode acceptEdits` |
+| Python 코드·스크립트·mock·스냅샷 | `python-expert`(전역) | 기본 | `--agent python-expert --permission-mode acceptEdits` |
+| 시험·품질·엣지케이스 | `quality-engineer`(전역) | 기본 | `--agent quality-engineer` |
+| 보안·개인정보 점검 | `security-engineer`(전역) | 기본 | `--agent security-engineer` |
+| 요구 정리·모호한 요구 분해 | `requirements-analyst`(전역) 또는 `requirements-interview` 스킬 | 기본 | `--agent requirements-analyst` |
+| 원인 분석(병목·실패 사례) | `root-cause-analyst`(전역) | 기본 | `--agent root-cause-analyst` |
+
+- 전역 에이전트의 정의는 저장소 밖(사용자 설정)이라 내용이 바뀔 수 있다. 시작 옵션에는 **항상** `--disallowedTools 'Read(./.env)' 'Read(./.env.*)'`를 붙이고, 지시서에 비밀값 금지를 적는다.
+- 모델은 작업 난도로 정한다. **opus 사용은 사용자가 허락했다(2026-11-06)**: 새 설계 문서, 정합성 점검, 어려운 조사에 쓴다. 정의 파일의 기본 모델은 `--model`로 덮어쓸 수 있다. 비용이 큰 호출은 지시서에 상한을 적는다.
+- 같은 일에 서로 다른 시각이 필요하면(예: 검토 3회) **회차마다 관점을 나눠** 한 pane에서 순서대로 시키고, 앞 회차의 결론을 다음 회차에 알려 주지 않는다(앵커링 방지).
+
+**3. 지시서와 보고 형식.** 지시는 길어지므로 **지시서 파일**에 쓰고 pane에는 "지시서 경로를 읽고 수행하라"만 보낸다. 지시서는 로컬 전용 `mock/briefs/`에 둔다(`.gitignore` 대상, 커밋하지 않음). 지시서에는 목표, 먼저 읽을 파일, **고치지 않을 파일**(동시에 다른 pane이나 메인이 고치는 것), 산출물 경로, 검증 방법(`check_schedule.py`가 일시적으로 실패하면 이유), 보고 형식을 적는다. 보고는 `## <에이전트> 보고` 아래 **작업, 변경 파일(신규·수정 개수와 경로), 확인한 것·확인하지 못한 것, 결정 현황(번호·질문·★), 가정·확인 필요, `check_schedule` 결과**를 담는다. 보고에서 "메인 세션이 할 일"이 있으면 메인은 그것만 한다.
+
+**4. 보고 검수는 가볍게 한다.** 메인은 위임 결과를 처음부터 다시 읽지 않는다. 변경 파일 목록(`git status`), 줄 수(`wc -l`), 절·Index(`grep -n '^## '`), 결정 표 행(`grep`), `check_schedule.py` 결과처럼 **작은 사실 확인**만 한다. 사용자에게 전할 때는 요점만 요약하고 원문 위치(파일·절)를 적는다. 보고만 믿지 않는다는 위 규칙은 그대로이며, 이 확인으로 충족한다.
+
+**5. 실행 요령.** 여러 pane을 병행할 수 있지만 같은 파일을 두 pane이 동시에 고치지 않게 파일 소유를 나눈다. 완료를 기다릴 때는 전경에서 `sleep`으로 기다리지 않고 **백그라운드 감시 루프**(`herdr agent get <이름>`의 `agent_status`가 `working`이 아닐 때까지)를 쓴다. `blocked`(승인 창)이면 사용자에게 알리고 입력을 보내지 않는다. 끝난 pane은 보고를 받고 검수한 뒤 닫는다. 메인 pane의 ID는 `herdr pane list`로 확인해 `herdr pane split <메인 pane ID> --direction right ...`처럼 **명시**한다(`--current`는 다른 workspace의 pane으로 풀린 적이 있다).
+
 ## 3. 비밀 정보와 환경변수
 
 - API 주소와 인증키는 저장소 루트의 `.env`에 보관한다. `.env`와 `.env.*`는 `.gitignore` 대상이며 커밋하지 않는다.
@@ -62,8 +100,8 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | 식약처 [DUR 품목정보 OpenAPI](https://www.data.go.kr/data/15059486/openapi.do) | `DURPrdlstInfoService03_END_POINT`, `DURPrdlstInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
 | 식약처 [DUR 성분정보 OpenAPI](https://www.data.go.kr/data/15056780/openapi.do) (성분 단위 버전) | `DURIrdntInfoService03_END_POINT`, `DURIrdntInfoService03_API_KEY` | 서비스 호출 주소, 인증키 |
 | 식약처 [의약품 제품 허가정보 OpenAPI](https://www.data.go.kr/data/15095677/openapi.do) (2026-11-01 활용 승인) | `DrugPrdtPrmsnInfoService08_END_POINT`, `DrugPrdtPrmsnInfoService08_API_KEY` | 서비스 호출 주소, 인증키 |
-| OpenAI | `OPENAI_API_KEY` | 에이전트·답변 생성(`gpt-6-luna`), 임베딩(OpenAI 계열, `gpt-6-luna` 지시·`text-embedding-3-small` 후보, RFP-15-05 시험) |
-| Anthropic | `ANTHROPIC_API_KEY` | 평가용 LLM judge(Claude Sonnet 5.5), 평가 문항 생성 보조(Haiku 4.5) |
+| OpenAI | `OPENAI_API_KEY` | 에이전트·답변 생성(`gpt-6-luna`), 임베딩(OpenAI 계열, `gpt-6-luna` 지시·`text-embedding-3-small` 후보, RFP-15-05 시험), 약봉투 사진 약 이름 추출(`gpt-6-luna` 비전, PRD-08-06 A, 확대 전처리 + 확인 카드·사전 후보 결합) |
+| Anthropic | `ANTHROPIC_API_KEY` | 평가용 LLM judge(Claude Sonnet 5.5), 평가 문항 생성 보조(Haiku 4.5). 서비스 런타임에는 쓰지 않는다(PRD-08-06 A, Haiku는 비전 시험에서 불가 판정) |
 | Upstage | `UPSTAGE_API_KEY` | 평가 질문 문장 **주 생성기**(`solar-pro4`, RFP-28-04: 블라인드 비교에서 Haiku보다 자주 선택됨), Haiku 4.5는 보조 |
 | Supabase (Postgres + pgvector, 2026-11-04 사용자 알림) | `SUPABASE_DB_URL`(Session pooler 연결 문자열, 핵심 경로), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`(서버 전용), `SUPABASE_JWKS_URL` | DB 연결(백엔드). 뒤 네 개는 이메일 로그인(BE-11, 확장)용이며 DB 비밀번호는 `SUPABASE_DB_URL`에 들어 있다 |
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
@@ -71,7 +109,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 ## 4. 데이터 파일
 
 - 내려받은 원본 데이터는 `data/`에 둔다. `data/`는 `.gitignore` 대상이며 커밋하지 않는다. 용량이 크고(병용금기 JSON 약 540MB), 라이선스가 "공공저작물 제2유형(출처표시, 상업적 이용금지)"이라 저장소로 재배포하지 않는다.
-- 현재 파일은 한국의약품안전관리원의 [임부금기약물](https://www.data.go.kr/data/15089735/fileData.do) CSV, [병용금기약물(AI 학습용)](https://www.data.go.kr/data/15161282/fileData.do) JSON, 임부금기 항목정의서 xlsx다. 두 데이터의 최신 고시일이 2026-07-21이라 이날을 기준일로 본다.
+- 현재 파일(`data/`, 2026-11-05 기준)은 한국의약품안전관리원의 [임부금기약물](https://www.data.go.kr/data/15089735/fileData.do) CSV, [병용금기약물(AI 학습용)](https://www.data.go.kr/data/15161282/fileData.do) JSON, 연령금기·용량주의·수유부주의 CSV, 임부금기 항목정의서 xlsx, 건강보험심사평가원 DUR 품목리스트 CSV 5종, 고시·별표 PDF와 추출 텍스트, 약사법 시행규칙 제18조 발췌 PDF(보건복지부령 제1181호, 시행 2026-06-21)와 약사법 제28조 제2항 발췌 PDF(`약사법_제2항.pdf`, 시행 2026-10-08)와 추출본(`약사법_*_추출.txt`, 2026-11-06 사용자 제공), API 샘플(`data/api_samples/`), 평가 후보 풀(`data/credit_use/`)이다. 두 데이터의 최신 고시일이 2026-07-21이라 이날을 기준일로 본다.
 - 읽을 때 주의한다. 임부금기 CSV는 **CP949** 인코딩이고, 병용금기 JSON은 크므로 한 번에 읽지 말고 스트리밍으로 처리한다. 임부금기의 `금기등급` 1·2는 고시 「의약품 병용금기 성분 등의 지정에 관한 규정」 제3조 제3호의 정의를 따른다. `M`은 고시에 없고 건강보험심사평가원 「기능과 역할」(2021~2026년판 여섯 판)만 "상병에 따른 1등급 또는 2등급"이라고 설명한다. 모델은 이 설명만 인용하고 등급은 상세정보 문구를 그대로 전달하며, 처방·조제 사유 코드의 M(유·조산 치료)과 혼동하지 않는다(RFP-17의 "M 처리 규칙").
 - 고시 전문 PDF는 `P2-doc/`에 두고 커밋한다. 정부 고시는 일반적으로 저작권 보호 대상이 아니라고 보지만 법률 검토는 거치지 않았다. PDF 텍스트 추출은 `scripts/pdf_to_text.swift`(macOS PDFKit)로 한다.
 - 이 데이터를 쓴 답변과 문서에는 출처(한국의약품안전관리원)와 기준일을 표시한다.
