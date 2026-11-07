@@ -1,6 +1,6 @@
 """schedule.md·schedule-done.md와 tickets/ 일관성, Top 5 최신 여부를 점검한다. 사용: python3 scripts/check_schedule.py
 점검: 티켓 파일 <-> schedule 행(SCH·제목·체크·링크), 선행 관계(존재·순환·나중 SCH), Index·앵커, Top 5(5개, 미완, 선행 충족 또는 Top 5 안),
-Recap·사용자 결정 큐 섹션, 마지막 갱신일. 문제가 있으면 목록을 출력하고 종료 코드 1을 돌려준다. 코드는 읽기만 한다.
+Recap·사용자 결정 큐 섹션, 마지막 갱신일, (RFP-35-06) SCH 우선순위 합·Recap 번호 차례·본문의 낡은 "대기 N건". 문제가 있으면 목록을 출력하고 종료 코드 1을 돌려준다. 코드는 읽기만 한다.
 """
 import collections
 import datetime
@@ -264,6 +264,57 @@ total = len(tick)
 m = re.search(r"총 (\d+)개", s)
 if m and int(m.group(1)) != total:
     errors.append(f"총 티켓 수 {m.group(1)} != 실제 {total}")
+
+# (RFP-35-06) 세 검사: SCH 우선순위 합, Recap 번호 차례, 본문의 낡은 "대기 N건"
+# ① SCH 표 "(필수 N / 권장 N / 확장 N)"과 티켓 priority. frontmatter에는 필수·권장만 있으므로 확장은 권장에 넣어 센다.
+pri = collections.defaultdict(collections.Counter)
+for m_ in tick.values():
+    if m_["status"] != "dropped":
+        pri[m_["sch"]][m_.get("priority", "").strip()] += 1
+for line in s.split("\n"):
+    r = re.match(r"^\| (SCH-\d+) \| [^|]+\| \d+/(\d+) \|(.*)$", line)
+    mm = r and re.search(r"필수\s*(\d+)\s*/\s*권장\s*(\d+)(?:\s*/\s*확장\s*(\d+))?", r.group(3))
+    if not mm:
+        continue
+    sc, tot = r.group(1), int(r.group(2))
+    a, b, c = (int(x) if x else 0 for x in mm.groups())
+    if a + b + c != tot:
+        errors.append(f"진행 현황 {sc}: 우선순위 합 {a}+{b}+{c}={a + b + c} != 전체 {tot}")
+    if a != pri[sc]["필수"] or b + c != pri[sc]["권장"]:
+        errors.append(f"진행 현황 {sc}: 필수 {a}·권장(확장 포함) {b + c} != 티켓 priority 필수 {pri[sc]['필수']}·권장 {pri[sc]['권장']}")
+# ② Recap 표의 번호는 1부터 차례로 늘어야 한다("Recap N번"으로 찾아가므로)
+rec = s.split("## Recap")[1].split("\n## ")[0] if "## Recap" in s else ""
+nums = [int(x) for x in re.findall(r"^\| (\d+) \|", rec, re.M)]
+if nums != list(range(1, len(nums) + 1)):
+    errors.append(f"Recap 표 번호가 1부터 차례가 아님: {nums}")
+# ③ 본문의 "대기 중인 결정 N건"·"대기 결정 N건"·"(대기 N건)". 카드와 위의 schedule.md 두 문구는 이미 검사하므로 뺀다.
+#    가리키는 대상: 같은 줄에서 앞선 마지막 티켓 번호(없으면 그 티켓 자신), schedule.md는 전체(SCH 행은 그 SCH). "N건 →"는 이력이라 뺀다.
+WAIT = re.compile(r"(대기 중인 결정|대기 결정|\(대기)\s*\*{0,2}(\d+)\s*건(?!\s*→)")
+TID = re.compile(r"(?:RFP|PRD|AG|BE|FE)-\d+(?![\d-]\d)")
+def owed(t):
+    return sum(1 for k in pending if k.startswith(t + "-"))
+done_spans = set()
+for p_ in (r"대기 중인 결정 (\d+)건", r"\*\*대기\*\*: 아래 \"먼저 답할 결정\" (\d+)건"):
+    m_ = re.search(p_, s)
+    if m_:
+        done_spans.add(m_.start(1))
+for src, text, own in [("schedule.md", s, None)] + [(m_["path"], m_["text"], i) for i, m_ in sorted(tick.items())]:
+    fence, off = False, 0
+    for n, line in enumerate(text.split("\n"), 1):
+        if line.startswith("```"):
+            fence = not fence
+        for m_ in ([] if fence else WAIT.finditer(line)):
+            if "이 티켓에서 사용자가 답할 것" in line or (own is None and off + m_.start(2) in done_spans):
+                continue
+            if own is None:
+                r = re.match(r"^\| (SCH-\d+) \|", line)
+                exp = sum(1 for k in pending if tick.get(k.rsplit("-", 1)[0], {}).get("sch") == r.group(1)) if r else len(pending)
+            else:
+                ids = TID.findall(line[:m_.start()])
+                exp = owed(ids[-1] if ids else own)
+            if int(m_.group(2)) != exp:
+                errors.append(f"{src}:{n}: '{m_.group(0)}' != 실제 대기 {exp}건")
+        off += len(line) + 1
 
 # 리포트(report/): md와 pdf는 한 쌍(CLAUDE.md 6장)
 import pathlib
