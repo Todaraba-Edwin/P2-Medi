@@ -53,12 +53,22 @@ def postprocess(html: str) -> str:
             out.append(p if skip else idpat.sub(r'<span class="nb">\1</span>', p))
     return "".join(out)
 
+COMPACT = """
+@page { margin: 10mm 12mm; }
+body { font-size: 9.6pt; line-height: 1.5; }
+li { margin: 1pt 0; line-height: 1.4; }
+h1 { font-size: 16pt; margin: 0 0 4pt; padding-bottom: 3pt; }
+h2 { font-size: 11.5pt; margin-top: 8pt; margin-bottom: 3pt; padding-bottom: 2pt; }
+table { font-size: 8.6pt; line-height: 1.38; margin: 5pt 0; }
+th, td { padding: 2pt 4pt; }
+"""
+
 
 def build(md: Path):
     pdf = md.with_suffix(".pdf")
     with tempfile.TemporaryDirectory() as td:
         css = Path(td) / "r.css"
-        css.write_text(CSS)
+        css.write_text(CSS + (COMPACT if 'mentor' in md.stem else ''))
         html = Path(td) / "r.html"
         subprocess.run(["pandoc", str(md), "-f", "gfm", "-s", "--embed-resources", "--css", str(css),
                         "--metadata", f"title={md.stem}", "-o", str(html)], check=True)
