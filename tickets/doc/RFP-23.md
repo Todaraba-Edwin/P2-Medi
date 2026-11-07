@@ -157,6 +157,7 @@ START → guardrail_in ─(거절·범위 외)→ finalize → END
 | C2 | ReAct 에이전트(MediAgent) | **LLM**(ReAct) | AG-01 |
 
 - **같게 둘 것**: 모델 `gpt-6-luna`, 도구 함수와 데이터(파일 기준, API 끔), Guardrail·Validator·고정 문구, 평가 세트, 평가 judge(Claude Sonnet 계열).
+- **하네스 적용(RFP-33-03 A, 2026-11-06)**: 기준선 하네스 장치(인자 스키마·도구 출력 계약·상태 키 제한·`finalize` 항목별 문구)는 도구 함수와 입구·출구 안에 있어 C1·C1+·C2(와 C3)에 공통이다. 개선 단계 선택 제한 장치(`known_ids`·단위 보조 차단·반복 경고)는 C3에만 한 번에 하나씩 더한다. 조건별 적용표는 `harness@v1`로 BE-08 결과 파일에 기록한다(`P2-doc/PJ2-Agent-Harness.md` 7.2절).
 - **C1의 순서**: `guardrail_in` → `router` → 약마다 `identify_drug` → `check_contraindications` → `search_reason` → `search_label` → LLM 요약 → `validator` → `finalize`. 식별 결과가 0건이면 "약 미식별", 후보가 여럿이면 되묻기 카드로 끝낸다(**규칙은 이 두 가지만**).
 - **공정성 주의**: C1에 예외 규칙을 많이 넣을수록 에이전트의 이점은 줄어든다. 그래서 **기본 C1(규칙 2개)과 강화 C1+(오탈자 보정·재검색 1회 추가)** 두 단계를 모두 두고, 규칙 내용을 **미리 고정하고 문서화**한다. 에이전트가 C1에는 이기고 C1+에는 비슷하다면 그것도 결과로 그대로 쓴다. 이 수준을 바꾸면 결과 해석에 반드시 적는다.
 
