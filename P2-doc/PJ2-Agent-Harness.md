@@ -206,11 +206,11 @@ def post_tool_use(call, result, ctx) -> tuple[ToolMessage, dict]:
 | `NO_EVIDENCE` | "근거 문장을 찾지 못함" |
 | `NO_PRODUCT_INFO` | "제품 단위 정보(제품 연령 문장·허가 라벨·제형) 없음. 봉투의 제품명을 알려 주시면 더 확인할 수 있어요" |
 | `EASY_TEXT_MISSING` | "{약 이름}은 전문의약품이라 쉬운 설명(e약은요)이 없어서 허가사항 원문을 그대로 보여 드려요"(PRD-10-04, `EASY_TEXT_MISSING_NOTE`). 허가 상세 원문이 있을 때의 안내 한 줄이다 |
-| 미확보 `OUT_OF_SCOPE` | `MISSING_OUT_OF_SCOPE`: "{약 이름}은 전문의약품이라 이 서비스가 쓰는 공공 자료로는 설명을 확인할 수 없어요(서비스의 한계예요)" + 약사 확인 권고 |
+| 미확보 `OUT_OF_SCOPE` | `MISSING_OUT_OF_SCOPE`: "{약 이름}은 전문의약품이라 공공 자료로는 설명을 확인할 수 없어요" + 약사 확인 권고 |
 | 미확보 `ABSENT` | `MISSING_ABSENT`: "{약 이름} 허가사항에는 이 항목이 따로 적혀 있지 않아요" + 약사 확인 권고 |
 | 미확보 `FETCH_FAIL` | `MISSING_FETCH_FAIL`: "지금은 허가사항을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요" + 약사 확인 권고 |
 | 미확보 `SEARCH_MISS`(`NO_EVIDENCE`) | `MISSING_SEARCH_MISS`: "허가사항에서 관련 문장을 찾지 못했어요" + 약사 확인 권고 |
-| `source_kind` 표지 | `API_DIRECT` "공식 자료에서 직접 가져왔어요", `FILE` "공식 파일 기준이에요", `CORPUS_QUOTE` "공식 문서에서 찾은 문장이에요"(쉬운 말, 내부 용어 없음, 후보) |
+| `source_kind` 표지 | `API_DIRECT` "공식 자료에서 직접 가져왔어요", `FILE` "공식 파일 기준이에요", `CORPUS_QUOTE` "공식 문서에서 찾은 문장이에요"(쉬운 말, 내부 용어 없음, 후보). 표지는 `{종류 문구} · {dataset}` 형식으로 자료 약칭(출처 표 자료 열과 같은 문자열, 예: `공식 문서 · e약은요 쉬운 설명`)을 포함한다(PRD-12-03) |
 | `FILE_ONLY`·`API_ONLY`·`API_SAME` | PJ2-RFP.md 5.1절 (7)의 문구 |
 | `API_FAIL`·`API_PAIR_INCOMPLETE` | "실시간 확인을 하지 못함"(파일 기준 답은 그대로) |
 
