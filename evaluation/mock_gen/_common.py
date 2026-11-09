@@ -1,11 +1,11 @@
 """mock 데이터 사전 생성(RFP-31) 공용 모듈. 상한 20 USD(사용자 지정 2026-11-04).
-RFP-28의 scripts/credit_use/_common.py를 바탕으로 원장·출력 위치와 상한만 바꿨다.
+RFP-28의 evaluation/credit_use/_common.py를 바탕으로 원장·출력 위치와 상한만 바꿨다.
 
 원래 설명:
 
 - 키는 환경변수 ANTHROPIC_API_KEY로만 읽는다(.env를 dotenv로 로드, 값은 출력·기록하지 않는다).
-- 누적 비용이 CAP_USD(20)를 넘기려 하면 호출 전에 중단한다(원장: mock/ledger.json).
-- 호출 기록(모델·토큰·비용·프롬프트 해시)은 mock/calls.jsonl에 남긴다(프롬프트 원문은 각 출력 파일에).
+- 누적 비용이 CAP_USD(20)를 넘기려 하면 호출 전에 중단한다(원장: data/mock/ledger.json).
+- 호출 기록(모델·토큰·비용·프롬프트 해시)은 data/mock/calls.jsonl에 남긴다(프롬프트 원문은 각 출력 파일에).
 """
 import hashlib, json, os, time
 from pathlib import Path
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 import anthropic
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "mock"
+OUT = ROOT / "data" / "mock"
 OUT.mkdir(parents=True, exist_ok=True)
 load_dotenv(ROOT / ".env")
 

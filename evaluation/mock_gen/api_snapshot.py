@@ -9,7 +9,7 @@
 - 조회 시각·파라미터(키 제외)·HTTP 상태·건수는 mock/api_snapshots/manifest.jsonl 에 호출마다 한 줄. 실행 요약은 runs.jsonl.
 - 로컬 전용(mock/은 .gitignore). 공공 API 응답 원문의 재배포·이용 조건은 확인하지 못했다(법률 검토 보류).
 
-사용: .venv/bin/python scripts/mock/api_snapshot.py {identify|items|ingr|permit|all} [--dry]
+사용: .venv/bin/python evaluation/mock_gen/api_snapshot.py {identify|items|ingr|permit|all} [--dry]
 """
 import hashlib
 import json
@@ -29,7 +29,7 @@ MANIFEST = SNAP / "manifest.jsonl"
 RUNS = SNAP / "runs.jsonl"
 load_dotenv(ROOT / ".env")
 
-SERVICES = {  # 서비스 별칭 -> 환경변수 접두사 (scripts/api_probe/probe.py와 같다)
+SERVICES = {  # 서비스 별칭 -> 환경변수 접두사 (backend/scripts/api_probe/probe.py와 같다)
     "eyak": "DRDEASYDRUG",
     "dur-item": "DURPrdlstInfoService03",
     "dur-ingr": "DURIrdntInfoService03",

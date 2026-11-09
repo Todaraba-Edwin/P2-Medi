@@ -3,14 +3,14 @@
 - 자리표시: {약A} {약B} {약C}(파일에서 식별되는 제품), {모호이름}(후보가 여럿인 이름 앞부분, 예: 타이레놀), {가상약}(파일에 없는 가상 이름), {주제}(그 약의 자료에 없는 주제).
 - 말투: 일반인 존댓말(해요체·합쇼체) 위주(RFP-28 §7 4번). 반말 종결은 코드가 걸러 낸다.
 - 질문 틀은 사람이 쓴 시드(RFP 예시, 코드에 고정)와 Haiku 4.5가 시드를 바탕으로 만든 변형이다. 검증(코드): 자리표시 규칙·존댓말·제품명 누락/혼입·중복·유형별 신호어.
-- 오탈자·축약·표기 변형은 scripts/credit_use/variants.py가 코드로 만든다(이 세트에서는 만들지 않는다).
-사용법: python scripts/mock/m4_templates.py [--no-llm]
+- 오탈자·축약·표기 변형은 evaluation/credit_use/variants.py가 코드로 만든다(이 세트에서는 만들지 않는다).
+사용법: python evaluation/mock_gen/m4_templates.py [--no-llm]
 """
 import argparse, json, re, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import _common as C, facts as F, meta  # noqa: E402
-assert Path(C.__file__).parent.name == "mock" and C.CAP_USD == 20.0
+assert Path(C.__file__).parent.name == "mock_gen" and C.CAP_USD == 20.0
 
 VER, SET = "m4-v1", "question_templates"
 MODEL = C.HAIKU
@@ -193,7 +193,7 @@ def main():
         "{모호이름}": "앞부분이 2개 이상 제품으로 풀리는 이름(예: 타이레놀, 후보 7개). 코드가 후보 수 ≥2를 확인",
         "{가상약}": "어떤 파일·API에도 없는 가상 제품명. 코드가 파일에 없음을 확인(m1 S6b 방식: F.all_names())",
         "{주제}": "그 약의 라벨·DUR 파일에 나오지 않는 질환·상황 이름. 코드가 라벨 원문에 없음을 확인 후 채움",
-        "variants": "오탈자·축약·표기 변형은 scripts/credit_use/variants.py가 코드로 만든다(이 세트 범위 아님)"}, ensure_ascii=False, indent=2), encoding="utf-8")
+        "variants": "오탈자·축약·표기 변형은 evaluation/credit_use/variants.py가 코드로 만든다(이 세트 범위 아님)"}, ensure_ascii=False, indent=2), encoding="utf-8")
     from collections import Counter
     cnt = Counter(f"{r['type']}/{r['subtype']}" for r in recs)
     cost = sum(json.loads(l)["usd"] for l in open(C.CALLS) if json.loads(l)["tag"].startswith("m4-")) if C.CALLS.exists() else 0

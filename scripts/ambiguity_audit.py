@@ -1,6 +1,6 @@
 """문서 모호도(충돌·모호함) 수치 측정. 사용: python3 scripts/ambiguity_audit.py [--json 경로]
 
-정의(amb-v1, 2026-11-07 측정 전 고정)는 report/SCH-00-ambiguity-audit-2026-11-07.md 2장과 같다.
+정의(amb-v1, 2026-11-07 측정 전 고정)는 P2-doc/report/SCH-00-ambiguity-audit-2026-11-07.md 2장과 같다.
 코드로 셀 수 있는 값만 점수에 넣는다(모델 판단 없음). 표준 라이브러리만 쓰고 문서는 읽기만 한다.
 정규식 휴리스틱이라 거짓 양성·거짓 음성이 있다(보고서 8장). 결과는 결정적이다(정렬된 순회, 시각 미포함).
 """
@@ -476,7 +476,7 @@ def main():
         "unresolved_hits_by_marker": {k: sum(1 for h in unres_hits if h[3] == k) for k in UNRESOLVED},
         "deferred_hits_by_marker": {k: sum(1 for h in deferred_hits if h[3] == k) for k in DEFERRED},
     }
-    jpath = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else f"mock/ambiguity/audit-{today}.json"
+    jpath = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else f"data/mock/ambiguity/audit-{today}.json"
     os.makedirs(os.path.dirname(jpath), exist_ok=True)
     with open(jpath, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=1, sort_keys=True)

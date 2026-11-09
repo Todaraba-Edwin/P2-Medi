@@ -4,7 +4,7 @@
 파일(CSV)과 API가 다르면 감추지 않고 note에 그대로 적는다(고시일자·등급 표기 등).
 S7(범위 외·인젝션)은 데이터가 필요 없어 '해당 없음', S8(API 실패)은 스냅샷이 아니라 이 스크립트가 만든 오류 응답 샘플로 처리한다.
 결과: mock/api_snapshots/SCENARIO_COVERAGE.md, SCENARIO_COVERAGE.json, s8_error_samples/.
-사용: .venv/bin/python scripts/mock/replay_check.py
+사용: .venv/bin/python evaluation/mock_gen/replay_check.py
 """
 import json
 import re
@@ -456,7 +456,7 @@ def render(path_md, path_json):
     n_bad = sum(1 for s in STEPS if s["state"] == "미재현")
     n_na = sum(1 for s in STEPS if s["state"] == "해당 없음")
     lines = ["# 시나리오 × 스냅샷 재현 점검 (RFP-32)", "",
-             "> `scripts/mock/replay_check.py`가 **네트워크 없이** 스냅샷(`mock/api_snapshots/`)과 `data/` CSV만으로 만든 표다. 로컬 전용이며 개발용이다(서비스 근거 데이터 아님).",
+             "> `evaluation/mock_gen/replay_check.py`가 **네트워크 없이** 스냅샷(`mock/api_snapshots/`)과 `data/` CSV만으로 만든 표다. 로컬 전용이며 개발용이다(서비스 근거 데이터 아님).",
              "> 단계: 1 제품 찾기 → 2 성분 풀기 → 3 금기 확인 → 4 라벨 문장. 파일(CSV)과 API가 다르면 비고에 그대로 적었다.", "",
              f"**집계**: 단계 {len(STEPS)}개 중 재현 {n_ok}, 미재현 {n_bad}, 해당 없음 {n_na}.", "",
              "| 시나리오 | 단계 | 필요 데이터 | 스냅샷 파일(수) | 재현 |", "|---|---|---|---|---|"]

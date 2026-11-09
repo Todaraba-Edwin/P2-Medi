@@ -4,8 +4,8 @@
 
 - 작성일: 2026-11-06 (Pre-Week, 코드 전 설계 문서)
 - 담당 티켓: [`tickets/doc/RFP-34.md`](../tickets/doc/RFP-34.md) (결정 RFP-34-01~05)
-- 근거 문서: `CLAUDE.md` 1·3·4·5장, `tickets/doc/RFP-22.md`(§6 도구, §8, §14.2, RFP-22-05·06), `tickets/doc/RFP-23.md`(§4 노드·상태, §5 평가), `tickets/doc/RFP-26.md`(§7.6 경로, §7.7 신뢰성), `tickets/doc/RFP-29.md`(§4.3 개발 하네스, §6 H13·H16), `tickets/doc/RFP-32.md`(LLM 캐시), `tickets/doc/PRD-07.md`(PRD-07-01·02), `tickets/doc/PRD-08.md`(PRD-08-04, 읽기만), `P2-doc/PJ2-RFP.md` 7·9·12장, `P2-doc/PJ2-PRD.md` 6.2절(NFR), `tickets/backend/BE-01.md`, `tickets/backend/BE-08.md`, `scripts/mock/llm_cache.py`, `scripts/mock/_common.py`
-- 상태: **확정(결정 RFP-34-01~05 모두 A, 2026-11-06 사용자 "권장대로")**, 코드 없음. 구현은 새 티켓 없이 기존 티켓 완료 조건으로 나눴다(9장: L1·L5 → BE-01, L2 → AG-01, L3 → BE-08·AG-16, L4 → BE-06). 아래 "제안" 표기는 작성 당시 그대로 두며, 8장 결정 범위 안의 제안은 확정으로 읽는다.
+- 근거 문서: `CLAUDE.md` 1·3·4·5장, `tickets/doc/RFP-22.md`(§6 도구, §8, §14.2, RFP-22-05·06), `tickets/doc/RFP-23.md`(§4 노드·상태, §5 평가), `tickets/doc/RFP-26.md`(§7.6 경로, §7.7 신뢰성), `tickets/doc/RFP-29.md`(§4.3 개발 하네스, §6 H13·H16), `tickets/doc/RFP-32.md`(LLM 캐시), `tickets/doc/PRD-07.md`(PRD-07-01·02), `tickets/doc/PRD-08.md`(PRD-08-04, 읽기만), `P2-doc/PJ2-RFP.md` 7·9·12장, `P2-doc/PJ2-PRD.md` 6.2절(NFR), `tickets/backend/BE-01.md`, `tickets/backend/BE-08.md`, `evaluation/mock_gen/llm_cache.py`, `evaluation/mock_gen/_common.py`
+- 상태: **확정(결정 RFP-34-01~05 모두 A, 2026-11-06 사용자 "권장대로")**, 코드 없음. 구현은 새 티켓 없이 기존 티켓 완료 조건으로 나눴다(9장: L1·L5 → BE-15, L2 → AG-01, L3 → BE-08·AG-16, L4 → BE-06). 아래 "제안" 표기는 작성 당시 그대로 두며, 8장 결정 범위 안의 제안은 확정으로 읽는다.
 - 표기: **사실**(문서·코드에서 확인), **제안**(이 문서의 설계안, 결정 전), **측정 전·확인 못 함**(값이 없음). 모든 수치 목표는 측정 전이며 비워 둔다.
 - 하네스 문서(`P2-doc/PJ2-Agent-Harness.md`, RFP-33)는 이 문서를 쓰는 시점(2026-11-06)에 아직 없었다. 겹치는 하네스 제안은 "RFP-33 참고"로 연결만 하고, 규칙 ID는 기존 RFP-29 §6(H1~H16)을 쓴다. RFP-33 결정(2026-11-06) 뒤 RFP-29 §6에 H17~H21이 더해졌고, 하네스 동작 어휘 `warn`·`flag`는 PJ2-Agent-Harness.md 3.6절을 따른다.
 
@@ -93,7 +93,7 @@ trace (요청 1건, trace_id)
 | 종료 | `end_reason`(정상/호출 상한/안내 전환/거절/오류) | 경로 평가 지표 | RFP-26 §7.6 "종료 사유" |
 
 ### (3) trace 머리(요청 단위)에 남기는 것
-`mode`, `run_id`(평가 실행), `item_id`(평가 문항 ID), `condition`(C0~C3), `repeat_idx`(`pass^3`용 1~3), `branch_type`(분기 유형 라벨, 문항에서 복사), `model`, `prompt_version`(`prompts/*@v1`, RFP-29 §7.2 6번), `tool_schema_version`, `graph_version`(git 커밋 앞 7자), `api_enabled`, `data_as_of`, `total_latency_ms`, `total_cost_usd`, `end_reason`.
+`mode`, `run_id`(평가 실행), `item_id`(평가 문항 ID), `condition`(C0~C3), `repeat_idx`(`pass^3`용 1~3, 1은 본 측정 결과를 재사용, RFP-35-09 A), `branch_type`(분기 유형 라벨, 문항에서 복사), `model`, `prompt_version`(`prompts/*@v1`, RFP-29 §7.2 6번), `tool_schema_version`, `graph_version`(git 커밋 앞 7자), `api_enabled`, `data_as_of`, `total_latency_ms`, `total_cost_usd`, `end_reason`.
 
 ## 3. 로그 레벨과 실행 모드
 
@@ -105,7 +105,7 @@ trace (요청 1건, trace_id)
 ### (2) 모드별로 남기는 것과 남기지 않는 것
 | 항목 | `dev` (로컬 개발) | `eval` (합성 평가 세트) | `service` (실제 사용, 배포) |
 |---|---|---|---|
-| 입력 출처 | 개발자가 넣는 합성·가상 질문, mock(`mock/`), 스냅샷 | AG-04 개발셋·시험셋(합성) | 실제 사용자 |
+| 입력 출처 | 개발자가 넣는 합성·가상 질문, mock(`data/mock/`), 스냅샷 | AG-04 개발셋·시험셋(합성) | 실제 사용자 |
 | 질문 원문 | 로컬 파일에만 남김(`input_text`, 합성임을 `input_source`로 표시) | 남김(문항 파일에 이미 있는 합성 문장) | **남기지 않음** |
 | 질문 해시 | 남김 | 남김(문항 ID로 충분) | **남기지 않음**(짧은 질문은 사전 대입으로 되돌릴 수 있다) |
 | 약 이름·성분코드·프로필 | 남김 | 남김 | **남기지 않음**(약 이름 + 임신 여부는 건강 정보) |
@@ -183,13 +183,13 @@ trace (요청 1건, trace_id)
 2. **모드 필터**: `service`에서는 `input_text`·`output_text`·`input_summary`·`output_summary`·`evidence_ids`·`error` 메시지를 쓰기 전에 버린다. 필터는 로거 안의 한 함수이고 단위 테스트로 고정한다(H13, RFP-29 §6).
 3. **비밀 패턴 마스킹**(모든 모드): 환경변수 값(이름이 `_KEY`·`_SECRET`·`_DB_URL`로 끝나는 것)과 `sk-`·`serviceKey=`·`postgres://`·JWT 패턴을 `***`로 바꾼다. RFP-32 §9.6의 검색 패턴과 같다. 공공 API 요청 URL은 `serviceKey`를 지운 뒤 남긴다(RFP-32 §5).
 4. **마스킹 실패는 쓰지 않는다**: 마스킹 함수가 예외를 내면 그 줄을 버리고 `ERROR`(유형만)를 남긴다.
-5. **커밋 차단**: `logs/`를 `.gitignore`에 넣고, pre-commit 비밀 검사(BE-01, RFP-29-01 A)가 `logs/`를 다시 한 번 막는다.
+5. **커밋 차단**: `logs/`를 `.gitignore`에 넣고, pre-commit 비밀 검사(BE-15, RFP-29-01 A)가 `logs/`를 다시 한 번 막는다.
 
 ### (4) 캐시와 로그의 정합(RFP-32)
 - 모델 호출 span의 `cache`는 `llm_cache.py`의 결과를 그대로 적는다: `off`(캐시 안 씀), `hit`(저장본, 비용 0), `miss`→`stored`(record에서 호출 후 저장), `replay`에서 미스면 `error_type=CacheMiss`.
 - 캐시 적중 span의 `latency_ms`·`cost_usd`는 **실제 호출의 값이 아니다.** 지연·비용 집계에서 `cache != "off"`인 span은 따로 센다(섞으면 지연이 실제보다 작게 보인다).
 - **평가 오염 검사(제안, Sensor)**: `eval` 실행 결과의 모델 span 가운데 `cache != "off"`가 하나라도 있으면 그 실행을 무효로 표시한다. BE-08의 H16 검사(모델 ID·루브릭 버전·세트 해시)와 같은 자리에서 돈다.
-- 실제 호출 비용 원장은 지금처럼 `_common.call()`(Anthropic, `mock/ledger.json`)이 맡고, OpenAI도 같은 구조의 원장을 둔다(RFP-34-05). 로그의 `cost_usd` 합과 원장 증가분을 실행마다 대조해 어긋나면 `WARN`.
+- 실제 호출 비용 원장은 지금처럼 `_common.call()`(Anthropic, `data/mock/ledger.json`)이 맡고, OpenAI도 같은 구조의 원장을 둔다(RFP-34-05). 로그의 `cost_usd` 합과 원장 증가분을 실행마다 대조해 어긋나면 `WARN`.
 
 ### (5) 보관 기간과 위치(RFP-34-03 A 기준)
 | 종류 | 위치 | 보관 | 커밋 |
@@ -197,7 +197,7 @@ trace (요청 1건, trace_id)
 | 개발 trace | `logs/dev/YYYY-MM-DD.jsonl` | 14일 뒤 삭제(시작 시 정리) | 안 함 |
 | 평가 trace | `logs/eval/<run_id>/spans.jsonl` + BE-08 결과 파일 | 프로젝트 종료(발표)까지, 이후 사용자 판단 | 안 함(요약 수치만 리포트·문서) |
 | 서비스 지표 | 서버 표준 출력, 분 단위 집계 | 호스트 기본 보관(확인 못 함), 앱에서 따로 저장하지 않음 | 해당 없음 |
-| 비용 원장 | `mock/ledger.json`(Anthropic), OpenAI 원장(신규) | 프로젝트 종료까지 | 안 함 |
+| 비용 원장 | `data/mock/ledger.json`(Anthropic), OpenAI 원장(신규) | 프로젝트 종료까지 | 안 함 |
 
 - 평가 trace에는 시험셋 문항이 들어 있다. **개선 중에는 시험셋 trace를 열람하지 않는다**(RFP-26-04, PJ2-RFP.md 9.1절 8번). 요약 스크립트는 기본으로 개발셋만 읽고, 시험셋은 플래그와 기록을 남길 때만 연다.
 
@@ -206,12 +206,12 @@ trace (요청 1건, trace_id)
 ### (1) 후보
 | 후보 | 무엇 | 장점 | 단점 | 질문 전송·저장 | 1인·3주·무료 적합 |
 |---|---|---|---|---|---|
-| A. 로컬 JSONL + LangGraph 콜백/스트림 | LangGraph `stream_mode`(`updates`·`debug`)·LangChain 콜백으로 노드·모델·도구 이벤트를 받아 JSONL로 씀 | 설치 없음, 경로 채점기(BE-08)·mock trace(`mock/traces/`)와 같은 파일 형식으로 바로 이어짐, 모드 필터를 우리 코드가 강제 | 화면(시각화)이 없음, 집계 스크립트를 직접 씀 | 없음(로컬) | **높음** |
+| A. 로컬 JSONL + LangGraph 콜백/스트림 | LangGraph `stream_mode`(`updates`·`debug`)·LangChain 콜백으로 노드·모델·도구 이벤트를 받아 JSONL로 씀 | 설치 없음, 경로 채점기(BE-08)·mock trace(`data/mock/traces/`)와 같은 파일 형식으로 바로 이어짐, 모드 필터를 우리 코드가 강제 | 화면(시각화)이 없음, 집계 스크립트를 직접 씀 | 없음(로컬) | **높음** |
 | B. 로컬 SQLite | A의 레코드를 SQLite 테이블에 | SQL 집계가 쉬움 | 스키마 변경마다 마이그레이션, 동시 쓰기 주의 | 없음 | 중간(A + 요약 때 적재로 충분) |
 | C. OpenTelemetry SDK + 로컬 수집기 | OTel span을 로컬 파일·Jaeger 등으로 | 표준 규약, 나중에 어떤 백엔드로도 이동 | GenAI 규약이 개발 중 단계, 수집기·뷰어 설치와 학습 시간 | 로컬이면 없음 | 낮음~중간(3주 안에 이득 작음) |
 | D. Langfuse 셀프호스트(Docker) | 오픈소스(MIT) 추적 서버를 로컬에서 | 화면·평가·프롬프트 관리, 사용량 제한 없음 | Docker 구성 유지, 서버 하나가 더 생김 | 로컬이면 없음 | 중간(시각화가 꼭 필요할 때) |
 | E. Langfuse 클라우드(Hobby) | 무료 50k 단위/월, 30일, 사용자 2명 | 설치 없음, 화면 | 질문이 외부로 전송·보관됨 | **있음** | 합성 평가 질문에만이면 가능 |
-| F. LangSmith 클라우드(Developer) | 무료 5k base trace/월, 14일, 1석 | LangGraph와 연결이 가장 쉬움 | 질문 외부 전송, 무료 한도가 평가 규모(실행 약 1,530회 × span 여럿, PJ2-RFP.md 9.7절)에 빠듯할 수 있음(trace 단위 계산 방식 확인 못 함) | **있음** | 합성 평가 질문에만이면 가능 |
+| F. LangSmith 클라우드(Developer) | 무료 5k base trace/월, 14일, 1석 | LangGraph와 연결이 가장 쉬움 | 질문 외부 전송, 무료 한도가 평가 규모(실행 약 1,370회 × span 여럿, PJ2-RFP.md 9.7절)에 빠듯할 수 있음(trace 단위 계산 방식 확인 못 함) | **있음** | 합성 평가 질문에만이면 가능 |
 
 - 가격·한도는 §10 출처의 2026-11-06 조회 값이다. 약관(데이터 처리·학습 여부·지역 기본값)은 **확인 못 함**.
 
@@ -225,7 +225,7 @@ trace (요청 1건, trace_id)
 - 노드 단위: `graph.stream(..., stream_mode=["updates", "debug"])`로 노드 이름·상태 변화를 받는다. `debug`는 상태 전체를 싣기 때문에 **로거에 넘기기 전에 요약**한다(원문이 섞인다).
 - 모델·도구 단위: LangChain 콜백 핸들러(`on_chat_model_start/end`, `on_tool_start/end`)에서 토큰·지연·도구 이름을 받는다. 비동기 호출은 `RunnableConfig`를 명시적으로 넘겨야 콜백이 전파된다(LangGraph 문서). 
 - 하네스 이벤트: `guardrail_in`·`validator`·`finalize`는 우리 코드라 이벤트를 직접 쓴다(콜백에 의존하지 않음).
-- `gpt-6-luna` 응답의 토큰 사용량 필드 이름과 병렬 도구 호출 표시 방식은 **확인 못 함**(BE-01 호출 확인 스크립트에서 확인).
+- `gpt-6-luna` 응답의 토큰 사용량 필드 이름과 병렬 도구 호출 표시 방식은 **확인 못 함**(BE-15 호출 확인 스크립트에서 확인).
 
 ## 6. 로그로 답할 질문과 평가 지표 연결
 
@@ -269,7 +269,7 @@ trace (요청 1건, trace_id)
 | (b) 비용 | `tokens_in`의 `step`별 증가(도구 결과 누적), `tokens_out`, `cost_usd`, `cache` 미스율 | 도구 결과를 필드 제한·청크 ID로 줄이기(RFP-22 §4 12번), 시스템 프롬프트 단축(버전 올림), 개발은 캐시 `record/replay`, 개발 중 부분집합 실행, OpenAI 원장 상한(RFP-34-05) | 실행당 평균 비용 ___ USD → ___ USD. 정확도 하락 없음 | 측정 도중 모델을 바꾸지 않는다. 비용을 줄이려고 평가 문항을 측정 뒤에 빼지 않는다(9.2절 축소 순서를 따르고 이유 기록) |
 | (c) 루프·상한 초과 | `end_reason=호출 상한`, 같은 `tool`·같은 인자 반복, `rollbacks_so_far` | 도구 설명(docstring)의 경계 문장 보강, 오류 메시지에 다음 행동 적기(RFP-22 §4 3번), 같은 호출 반복 감지(개선 단계), 종료 sensor(AG-13) | 상한 종료 비율 ___ → ___ (k/n) | 상한 8·되돌림 2를 결과를 보고 몰래 바꾸지 않는다(RFP-22-05, 바꾸면 이유와 날짜를 남기고 이전 결과와 섞지 않음) |
 | (d) 데이터 적재·검색 | 적재 스크립트 시간·행 수, DB 크기(BE-09 500MB 실측), `search_*` 도구 `latency_ms`, 검색 0건/관련 없음 비율 | 성분 쌍 단위 적재(23,619쌍) 대 제품 쌍 단위(512,464건) 선택(BE-09), pgvector 색인(종류는 BE-05·BE-10에서 시험), 청크 단위·차원 축소(PJ2-RFP.md 12장), 적재 재현 스크립트 | DB 크기 ___ MB / 500MB, 검색 지연 ___ ms | Supabase 일시정지 상태로 측정하지 않는다(시연·측정 전 깨움). 색인을 바꾼 뒤 이전 검색 지표와 섞지 않는다(색인 버전 기록, BE-08) |
-| (e) 개발 병목 | 테스트 실행 시간, 외부 호출 수(`source=api`, `cache=off` 모델 span), 같은 실패 재현 실패 | API 스냅샷으로 오프라인 테스트(RFP-32, `mock/api_snapshots/`), LLM `replay`로 결정적 재현, mock trace(`mock/traces/`)로 채점기 테스트, 느린 테스트 분리(표시만) | 단위 테스트 전체 ___ 초, 외부 호출 0 | 캐시·mock 값을 평가 측정 값으로 쓰지 않는다(CLAUDE.md 4장). replay 결과로 정확도를 보고하지 않는다 |
+| (e) 개발 병목 | 테스트 실행 시간, 외부 호출 수(`source=api`, `cache=off` 모델 span), 같은 실패 재현 실패 | API 스냅샷으로 오프라인 테스트(RFP-32, `data/mock/api_snapshots/`), LLM `replay`로 결정적 재현, mock trace(`data/mock/traces/`)로 채점기 테스트, 느린 테스트 분리(표시만) | 단위 테스트 전체 ___ 초, 외부 호출 0 | 캐시·mock 값을 평가 측정 값으로 쓰지 않는다(CLAUDE.md 4장). replay 결과로 정확도를 보고하지 않는다 |
 | (f) 평가 병목 | judge span 수·`cost_usd`, 형식 오류 재시도, 실행 시간(150문항 × 조건 × 반복) | 코드 채점 우선(9.1절 3번), 부분집합 리허설, 중단 장치(호출 수·비용 상한, RFP-15 §8.3 ③), 실패 문항만 이어서 실행(같은 설정·같은 `run_id` 접두) | 1회 전체 실행 ___ 분·___ USD | **측정 도중 judge 모델·루브릭·평가 세트·C1 규칙을 바꾸지 않는다**(RFP-26-01, H16). 개선 중 시험셋을 열지 않는다(RFP-26-04) |
 
 ### (3) 병목 기록 양식
@@ -300,25 +300,25 @@ RFP-29 §7.3 실패 기록과 같은 자리(AG-13)에 둔다. 실패(정확도)�
 본문 태그: 서비스 지표 범위(RFP-34-01), 도구 선택(RFP-34-02), 보관(RFP-34-03), 동결(RFP-34-04), 개발 비용 상한(RFP-34-05).
 
 ## 9. 구현 티켓 생성안
-> **반영됨(2026-11-06)**: 새 티켓을 만들지 않고 아래 "대안" 열대로 기존 티켓 완료 조건에 붙였다(L1·L5 → BE-01, L2 → AG-01, L3 → BE-08·AG-16, L4 → BE-06, 동결 규칙 → AG-13). 아래 표는 결정 전 생성안이며 기록으로 남긴다.
+> **반영됨(2026-11-06)**: 새 티켓을 만들지 않고 아래 "대안" 열대로 기존 티켓 완료 조건에 붙였다(L1·L5 → BE-15, L2 → AG-01, L3 → BE-08·AG-16, L4 → BE-06, 동결 규칙 → AG-13). 아래 표는 결정 전 생성안이며 기록으로 남긴다.
 
 | 안 | 내용 | SCH(제안) | 선행(제안) | 대안(기존 티켓에 붙이기) |
 |---|---|---|---|---|
-| L1 로깅 모듈 | `MEDIAGENT_MODE`, span 스키마 `@v1`, 화이트리스트·모드 필터·비밀 마스킹, JSONL 쓰기·14일 정리, 단위 테스트(H13: 서비스 모드에 내용 필드가 남지 않음, 비밀 마스킹, `eval`↔`MEDIAGENT_EVAL` 일치) | SCH-01 | BE-01(골격·pytest) | BE-01 개발 하네스에 포함(다만 BE-01이 이미 크다, BE-01 §5 2026-11-05 메모) |
+| L1 로깅 모듈 | `MEDIAGENT_MODE`, span 스키마 `@v1`, 화이트리스트·모드 필터·비밀 마스킹, JSONL 쓰기·14일 정리, 단위 테스트(H13: 서비스 모드에 내용 필드가 남지 않음, 비밀 마스킹, `eval`↔`MEDIAGENT_EVAL` 일치) | SCH-01 | BE-01(골격·pytest) | BE-15 개발 하네스에 포함(BE-01이 커서 2026-11-09 BE-15로 분할, BE-01 §5 메모) |
 | L2 그래프 계측 | 6노드 span, 도구 6개 자식 span, 콜백 핸들러(토큰·지연), 하네스 이벤트, 캐시 상태 연결(`llm_cache.py`) | SCH-02 | L1, AG-01 | AG-01 완료 조건에 "trace 필드 채움" 추가 |
 | L3 요약·병목 리포트 스크립트 | trace → 노드·도구별 지연·토큰·비용 표, 종료 사유 분포, 상한 도달, 캐시 비율, 원장 대조, 병목 기록 초안 | SCH-02 | L1, L2 | BE-08의 결과 파일 요약에 포함 |
 | L4 서비스 집계 지표 | RFP-34-01 A의 분 단위 집계(요청 수·지연·오류 유형·규칙별 차단 건수), 내용 필드 없음 테스트 | SCH-03 | BE-06 | BE-06 완료 조건에 추가 |
-| L5 OpenAI 비용 원장 | `_common.py`와 같은 구조의 원장과 개발 상한(RFP-34-05) | SCH-01 | BE-01 호출 확인 | BE-01 `gpt-6-luna` 호출 확인 스크립트와 함께 |
+| L5 OpenAI 비용 원장 | `_common.py`와 같은 구조의 원장과 개발 상한(RFP-34-05) | SCH-01 | BE-15 호출 확인 | BE-15 `gpt-6-luna` 호출 확인 스크립트와 함께 |
 
 - 권장(제 의견): L1+L5는 BE-01을 나누는 안(BE-01 §5)과 함께 정하고, L2는 AG-01, L3은 BE-08, L4는 BE-06에 붙여 **새 티켓을 0~1개**로 둔다.
-- 경로 채점기·신뢰성 집계기는 이미 BE-08 완료 조건이다. 이 문서의 스키마가 그 입력 형식이 된다(`mock/traces/`의 형식과 맞추는 일은 BE-08에서 확인).
+- 경로 채점기·신뢰성 집계기는 이미 BE-08 완료 조건이다. 이 문서의 스키마가 그 입력 형식이 된다(`data/mock/traces/`의 형식과 맞추는 일은 BE-08에서 확인).
 
 ## 10. 확인하지 못한 것과 출처
 
 ### (1) 확인하지 못한 것
-- `gpt-6-luna` 응답의 토큰 사용량·캐시 토큰 필드 이름, 병렬 도구 호출 지원과 표시 방식(BE-01 호출 확인 스크립트에서 확인).
+- `gpt-6-luna` 응답의 토큰 사용량·캐시 토큰 필드 이름, 병렬 도구 호출 지원과 표시 방식(BE-15 호출 확인 스크립트에서 확인).
 - LangGraph 1.x에서 `stream_mode="debug"`와 콜백을 함께 쓸 때의 이벤트 중복 여부와 오버헤드(구현 때 확인).
-- `mock/traces/`(RFP-31)의 필드 구성과 이 스키마의 차이(이 문서 작성 중 열지 않았다. BE-08에서 맞춘다).
+- `data/mock/traces/`(RFP-31)의 필드 구성과 이 스키마의 차이(이 문서 작성 중 열지 않았다. BE-08에서 맞춘다).
 - 배포 호스트(AWS 무료 인스턴스)의 표준 출력 로그 보관 기간과 접근 범위.
 - 외부 추적 SaaS의 약관(데이터 처리·학습 여부·기본 지역), LangSmith trace 과금 단위가 span 수와 어떻게 대응하는지.
 - 모든 지연·비용·크기 값: **측정 전**.
@@ -332,4 +332,4 @@ RFP-29 §7.3 실패 기록과 같은 자리(AG-13)에 둔다. 실패(정확도)�
 - LangGraph 스트리밍(`updates`·`debug` 등 stream mode, 비동기 콜백 전파): https://docs.langchain.com/oss/python/langgraph/streaming
 
 ### (3) 저장소 출처
-`tickets/doc/RFP-22.md` §6·§8·§14.2, `tickets/doc/RFP-23.md` §4·§5, `tickets/doc/RFP-26.md` §7.6·§7.7, `tickets/doc/RFP-29.md` §4.3·§6·§7.3, `tickets/doc/RFP-32.md` §5·§9.4·§9.6, `tickets/doc/RFP-15.md` §8.3, `tickets/backend/BE-01.md`, `tickets/backend/BE-08.md`, `tickets/backend/BE-09.md`, `scripts/mock/llm_cache.py`, `scripts/mock/_common.py`, `P2-doc/PJ2-RFP.md` 7·9·12장, `P2-doc/PJ2-PRD.md` 6.2절.
+`tickets/doc/RFP-22.md` §6·§8·§14.2, `tickets/doc/RFP-23.md` §4·§5, `tickets/doc/RFP-26.md` §7.6·§7.7, `tickets/doc/RFP-29.md` §4.3·§6·§7.3, `tickets/doc/RFP-32.md` §5·§9.4·§9.6, `tickets/doc/RFP-15.md` §8.3, `tickets/backend/BE-01.md`, `tickets/backend/BE-08.md`, `tickets/backend/BE-09.md`, `evaluation/mock_gen/llm_cache.py`, `evaluation/mock_gen/_common.py`, `P2-doc/PJ2-RFP.md` 7·9·12장, `P2-doc/PJ2-PRD.md` 6.2절.

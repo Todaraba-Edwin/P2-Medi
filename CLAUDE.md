@@ -1,6 +1,6 @@
 # CLAUDE.md: MediAgent(P2-Medi) 작업 지침
 
-MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 프로젝트다. 이 파일은 저장소(P2-Medi)에서 작업할 때 따라야 할 맥락과 규칙이다. 문서(RFP, PRD, 아키텍처 문서, 평가 리포트, 발표 자료)는 `P2-doc/`에 두고, **스프린트 보고서 등 리포트는 `report/`에 md와 PDF 한 쌍으로 두되 커밋하지 않는다**(6장, 로컬 전용). 요구사항 원본은 `P2-doc/PJ2-RFP.md`이고, 일정과 티켓은 저장소 루트의 `schedule.md`와 `tickets/`에 둔다.
+MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 프로젝트다. 이 파일은 저장소(P2-Medi)에서 작업할 때 따라야 할 맥락과 규칙이다. 문서(RFP, PRD, 아키텍처 문서, 평가 리포트, 발표 자료)는 `P2-doc/`에 두고, **스프린트 보고서 등 리포트는 `P2-doc/report/`에 md와 PDF 한 쌍으로 두되 커밋하지 않는다**(6장, 로컬 전용). 요구사항 원본은 `P2-doc/PJ2-RFP.md`이고, 일정과 티켓은 저장소 루트의 `schedule.md`와 `tickets/`에 둔다.
 
 ## 1. 프로젝트 한 줄 정의
 
@@ -32,7 +32,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | `git-actor` | [`.claude/agents/git-actor.md`](.claude/agents/git-actor.md) | git 작업 전담: 커밋, 브랜치, 병합, 태그, `.gitignore` 관리. 파일 내용은 고치지 않는다 |
 | `plan-critic` | [`.claude/agents/plan-critic.md`](.claude/agents/plan-critic.md) | **읽기 전용** 점검(Read·Glob·Grep만): PRD·티켓·평가 설계를 읽고 REJECT/REVISE/ACCEPT와 `파일:줄` 근거를 낸다. 문서를 고치지 않는다(RFP-30-02) |
 
-**스킬**: `.claude/skills/requirements-interview`(RFP-30-02)는 모호한 요구를 결정 번호가 붙은 선택지로 정리하는 절차다. 질문은 한 번에 한 가지씩 하고 산출은 티켓 `결정 현황` 표 초안으로만 낸다. **새 스킬·에이전트(`.claude/` 정의 파일)를 더할 때는 결정 번호를 부여하고 총량을 늘리지 않는다**(RFP-30-02는 2개로 제한, 기존 서브에이전트와 겹치면 새로 만들지 않고 기존 정의를 보강). 외부 문구를 가져오면 출처 URL·읽은 날짜를 정의 머리에 적는다.
+**스킬**(`.claude/skills/`, 5개): ① `requirements-interview`(RFP-30-02)는 모호한 요구를 결정 번호가 붙은 선택지로 정리하는 절차다. 질문은 한 번에 한 가지씩 하고 산출은 티켓 `결정 현황` 표 초안으로만 낸다. ② `pr-consistency`는 PR·병합 전에 `PJ2-RFP.md`·`schedule.md`·`PJ2-PRD.md`를 기준으로 변경과 하위 문서의 충돌을 점검하고 일치시킨다. ③ `project-code-review`는 코드 변경을 비밀·고정 문구·판정은 코드·평가 고정 같은 Agent-RAG 안전 불변식으로 검토한다(기본 `/code-review` 뒤에 추가로). ④ `decision-register`는 결정을 티켓 결정 현황·카드·`schedule.md`·변경 로그에 동기화하는 절차다. ⑤ `delegation-brief`는 지시서(`data/mock/briefs/`)와 herdr pane 위임 절차다. ②~⑤는 RFP-30-03(2026-11-09, B)으로 등록했다. **새 스킬·에이전트(`.claude/` 정의 파일)를 더할 때는 결정 번호를 부여하고 총량을 늘리지 않는다**(RFP-30-02는 2개로 제한했고 RFP-30-03이 스킬 4개로 확장했다. 서브에이전트 정의는 그대로 5개이며, 기존 서브에이전트와 겹치면 새로 만들지 않고 기존 정의를 보강). 외부 문구를 가져오면 출처 URL·읽은 날짜를 정의 머리에 적는다.
 
 **문서 부제목 규칙**: 요구서 문서는 제목(`#`) 바로 아래에 약어 부제목을 굵게 적는다. `P2-doc/PJ2-RFP.md`는 `**RFP (Request for Proposal): 제안요청서**`, PRD 문서는 `**PRD (Product Requirements Document): 제품 요구사항 문서**`다. 두 문서의 약어를 섞어 쓰지 않는다(RFP는 제안요청서, PRD는 제품 요구사항 문서).
 
@@ -58,7 +58,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 문서를 새로 쓰거나 크게 고치는 일(요구서·PRD·설계 문서·티켓 본문), 300줄 넘는 문서를 처음부터 끝까지 읽어야 하는 일
 - 웹 조사, 여러 파일을 가로지르는 정합성 점검, 문서 검토(회차를 나눈 점검 포함)
 - 코드·스크립트 작성과 시험, 데이터 수집, 비용이 드는 API 호출
-- git 작업 전부, 보고서 작성(`report/`)
+- git 작업 전부, 보고서 작성(`P2-doc/report/`)
 메인이 직접 해도 되는 것: 결정 번호 정리와 사용자 답 반영처럼 **한두 군데의 짧은 정정**, 위임 보고의 사실 확인(아래 4), 사용자와의 대화. `schedule.md`·티켓·변경 로그의 갱신은 **`schedule-writer`에 맡기는 것이 기본**이고, 메인 직접 편집은 표기 정정처럼 작은 것으로 한정하며 변경 로그에 적는다.
 
 **2. 에이전트 고르기.** 정의 파일이 있는 에이전트를 먼저 쓰고, 맞는 것이 없을 때 사용자 전역 에이전트나 일반 에이전트를 쓴다. 새 정의 파일(`.claude/`)은 만들지 않는다(위 스킬 문단의 총량 규칙).
@@ -82,7 +82,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 모델은 작업 난도로 정한다. **opus 사용은 사용자가 허락했다(2026-11-06)**: 새 설계 문서, 정합성 점검, 어려운 조사에 쓴다. 정의 파일의 기본 모델은 `--model`로 덮어쓸 수 있다. 비용이 큰 호출은 지시서에 상한을 적는다.
 - 같은 일에 서로 다른 시각이 필요하면(예: 검토 3회) **회차마다 관점을 나눠** 한 pane에서 순서대로 시키고, 앞 회차의 결론을 다음 회차에 알려 주지 않는다(앵커링 방지).
 
-**3. 지시서와 보고 형식.** 지시는 길어지므로 **지시서 파일**에 쓰고 pane에는 "지시서 경로를 읽고 수행하라"만 보낸다. 지시서는 로컬 전용 `mock/briefs/`에 둔다(`.gitignore` 대상, 커밋하지 않음). 지시서에는 목표, 먼저 읽을 파일, **고치지 않을 파일**(동시에 다른 pane이나 메인이 고치는 것), 산출물 경로, 검증 방법(`check_schedule.py`가 일시적으로 실패하면 이유), 보고 형식을 적는다. 보고는 `## <에이전트> 보고` 아래 **작업, 변경 파일(신규·수정 개수와 경로), 확인한 것·확인하지 못한 것, 결정 현황(번호·질문·★), 가정·확인 필요, `check_schedule` 결과**를 담는다. 보고에서 "메인 세션이 할 일"이 있으면 메인은 그것만 한다.
+**3. 지시서와 보고 형식.** 지시는 길어지므로 **지시서 파일**에 쓰고 pane에는 "지시서 경로를 읽고 수행하라"만 보낸다. 지시서는 로컬 전용 `data/mock/briefs/`에 둔다(`.gitignore` 대상, 커밋하지 않음). 지시서에는 목표, 먼저 읽을 파일, **고치지 않을 파일**(동시에 다른 pane이나 메인이 고치는 것), 산출물 경로, 검증 방법(`check_schedule.py`가 일시적으로 실패하면 이유), 보고 형식을 적는다. 보고는 `## <에이전트> 보고` 아래 **작업, 변경 파일(신규·수정 개수와 경로), 확인한 것·확인하지 못한 것, 결정 현황(번호·질문·★), 가정·확인 필요, `check_schedule` 결과**를 담는다. 보고에서 "메인 세션이 할 일"이 있으면 메인은 그것만 한다.
 
 **4. 보고 검수는 가볍게 한다.** 메인은 위임 결과를 처음부터 다시 읽지 않는다. 변경 파일 목록(`git status`), 줄 수(`wc -l`), 절·Index(`grep -n '^## '`), 결정 표 행(`grep`), `check_schedule.py` 결과처럼 **작은 사실 확인**만 한다. 사용자에게 전할 때는 요점만 요약하고 원문 위치(파일·절)를 적는다. 보고만 믿지 않는다는 위 규칙은 그대로이며, 이 확인으로 충족한다.
 
@@ -113,7 +113,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 읽을 때 주의한다. 임부금기 CSV는 **CP949** 인코딩이고, 병용금기 JSON은 크므로 한 번에 읽지 말고 스트리밍으로 처리한다. 임부금기의 `금기등급` 1·2는 고시 「의약품 병용금기 성분 등의 지정에 관한 규정」 제3조 제3호의 정의를 따른다. `M`은 고시에 없고 건강보험심사평가원 「기능과 역할」(2021~2026년판 여섯 판)만 "상병에 따른 1등급 또는 2등급"이라고 설명한다. 모델은 이 설명만 인용하고 등급은 상세정보 문구를 그대로 전달하며, 처방·조제 사유 코드의 M(유·조산 치료)과 혼동하지 않는다(RFP-17의 "M 처리 규칙").
 - 고시 전문 PDF는 `P2-doc/`에 두고 커밋한다. 정부 고시는 일반적으로 저작권 보호 대상이 아니라고 보지만 법률 검토는 거치지 않았다. PDF 텍스트 추출은 `scripts/pdf_to_text.swift`(macOS PDFKit)로 한다.
 - 이 데이터를 쓴 답변과 문서에는 출처(한국의약품안전관리원)와 기준일을 표시한다.
-- **`mock/`는 로컬 전용이다**(`.gitignore` 대상, RFP-31). W1 개발·테스트용으로 LLM 결과를 미리 만들어 둔 합성·가상 데이터이며, 생성 비용은 **누적 20 USD 상한**을 `scripts/mock/_common.py`가 코드로 강제한다. 생성 스크립트(`scripts/mock/`)는 커밋하고 결과(`mock/`)는 커밋하지 않는다. 평가 측정 값으로 쓰지 않는다.
+- **`data/mock/`는 로컬 전용이다**(`.gitignore` 대상, RFP-31). W1 개발·테스트용으로 LLM 결과를 미리 만들어 둔 합성·가상 데이터이며, 생성 비용은 **누적 20 USD 상한**을 `evaluation/mock_gen/_common.py`가 코드로 강제한다. 생성 스크립트(`evaluation/mock_gen/`)는 커밋하고 결과(`data/mock/`)는 커밋하지 않는다. 평가 측정 값으로 쓰지 않는다.
 
 ## 5. 일정·Top 5·Recap 유지 규칙
 
@@ -172,13 +172,44 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 작업을 끝내고 보고할 때는 **현재 Top 5(⛔ 포함)와 Recap(결정됨·진행 중·대기)**을 포함한다. **완료·종결 보고에는 `python3 scripts/check_schedule.py` 결과(통과/실패, 실행하지 못했으면 "미실행")와 변경 파일 목록을 붙인다**(RFP-30-02 증거 규칙).
 - 커밋 전에 `python3 scripts/check_schedule.py`를 실행한다. 티켓 ↔ `schedule.md` 일치, 선행 관계, Top 5가 최신인지, 결정 번호가 티켓 표와 `schedule.md`에서 일치하는지 검사한다. 실패하면 고치고 다시 실행한다.
 
-## 6. 리포트(`report/`)
+## 6. 리포트(`P2-doc/report/`)
 
-- **리포트는 항상 md와 PDF 한 쌍**이다. 같은 폴더·같은 이름(`.md`, `.pdf`)으로 두고, md가 원본이며 PDF는 md에서 만든다. md만 있거나 PDF만 있으면 안 된다(`scripts/check_schedule.py`가 로컬 `report/`의 짝을 검사한다).
-- **`report/`는 로컬 전용이다**(2026-11-04 사용자 결정). `.gitignore`에 `report/`를 넣어 **커밋하지 않는다.** 리포트에는 내부 평가 문항·파일 제품명·비용 등 저장소에 올리지 않을 내용이 섞이기 때문이다. 로컬 파일이라 지워지면 되살릴 수 없으니 필요하면 별도로 백업한다.
-- **파일 이름**: `report/{SCH-nn}-{주제}-{기준일 YYYY-MM-DD}.md`. 예: `report/SCH-00-pre-week-2026-11-04.md`. 같은 스프린트의 중간·마감 보고서는 기준일로 구분하고 이전 파일을 덮어쓰지 않는다.
-- **PDF 만들기**: `python3 scripts/make_report_pdf.py report/<이름>.md`(pandoc → Chrome headless, 한글 글꼴 Apple SD Gothic Neo, 필요: pandoc·Google Chrome). md를 고치면 PDF를 다시 만든다. 만든 PDF는 첫 쪽 이상을 직접 열어 글꼴·표가 깨지지 않았는지 확인한다.
+- **리포트는 항상 md와 PDF 한 쌍**이다. 같은 폴더·같은 이름(`.md`, `.pdf`)으로 두고, md가 원본이며 PDF는 md에서 만든다. md만 있거나 PDF만 있으면 안 된다(`scripts/check_schedule.py`가 로컬 `P2-doc/report/`의 짝을 검사한다).
+- **`P2-doc/report/`는 로컬 전용이다**(2026-11-04 사용자 결정). `.gitignore`에 `P2-doc/report/`를 넣어 **커밋하지 않는다.** 리포트에는 내부 평가 문항·파일 제품명·비용 등 저장소에 올리지 않을 내용이 섞이기 때문이다. 로컬 파일이라 지워지면 되살릴 수 없으니 필요하면 별도로 백업한다.
+- **파일 이름**: `P2-doc/report/{SCH-nn}-{주제}-{기준일 YYYY-MM-DD}.md`. 예: `P2-doc/report/SCH-00-pre-week-2026-11-04.md`. 같은 스프린트의 중간·마감 보고서는 기준일로 구분하고 이전 파일을 덮어쓰지 않는다.
+- **PDF 만들기**: `python3 scripts/make_report_pdf.py P2-doc/report/<이름>.md`(pandoc → Chrome headless, 한글 글꼴 Apple SD Gothic Neo, 필요: pandoc·Google Chrome). md를 고치면 PDF를 다시 만든다. 만든 PDF는 첫 쪽 이상을 직접 열어 글꼴·표가 깨지지 않았는지 확인한다.
 - **스프린트 보고서의 근거**는 `schedule.md`(Recap·Top 5·진행 현황), `schedule-done.md`, `schedule-changelog.md`, 각 티켓이다. 숫자는 이 파일과 `python3 scripts/check_schedule.py`, `git log`에서 직접 세고 출처를 적는다. **측정하지 않은 값은 "측정 전·잠정"으로 쓰고** 사실과 제 추정을 구분한다. 소표본은 k/n과 구간으로만 보고하며 유의성을 주장하지 않는다(5장 평가 기준 유지 규칙).
 - **PDF 조판 규칙**(`make_report_pdf.py`가 적용): 제목(`#`·`##`·`###`)은 **한 줄**로 줄바꿈하지 않으므로 짧게 쓰고(`#` 제목은 약 25자 안팎, 프로젝트명은 첫 줄 목록에 둔다), 표 첫 열은 **26자 이하면 줄바꿈하지 않으므로** 첫 열 문구를 짧게 쓴다. 티켓·결정 번호(`RFP-22-03`)는 하이픈에서 끊기지 않는다. 줄간격은 본문 1.68, 표 1.5(셀 위아래 여백 4pt)이고 현재 보고서는 7쪽이다(줄간격을 바꾸면 쪽수가 바뀌므로 확인한다).
 - **형식**: `#` 제목, 제목 바로 아래 `**SPRINT REPORT: 스프린트 보고서**` 부제목(다른 종류의 리포트는 그 종류의 약어 부제목), 기준일·성격·근거 목록, `## Index`, `## 1.` 번호 절. 절은 1 한눈에 보기, 2 목표 대비, 3 진행 현황, 4 주요 결정, 5 수치, 6 발견·정정, 7 리스크, 8 Top 5와 사용자 몫, 9 다음 스프린트, 10 회고(Keep·Problem·Try), 11 근거 자료를 기본으로 한다.
 - 비밀 정보(키 값, 연결 문자열)와 개인 정보를 쓰지 않는다. 리포트도 변수 이름만 쓴다(3장). 스프린트 종료(마감) 때와 사용자가 요청할 때 새로 만들고, 만든 뒤 `schedule-changelog.md`에 한 줄을 더한다(리포트 자체는 커밋하지 않고 변경 로그만 커밋한다).
+
+## 7. 저장소 폴더 구조
+
+폴더 구조는 2026-11-09 사용자 결정(BE-01-01 B, BE-01-02 A, BE-01-03 A)으로 정했다. 결정의 원본은 `tickets/backend/BE-01.md` §6 결정 현황이다.
+
+```
+P2-Medi/
+├── CLAUDE.md, schedule.md, schedule-done.md, schedule-changelog.md   일정·지침 (커밋)
+├── tickets/            티켓 (doc/ backend/ frontend/ agent/ issues/)       (커밋)
+├── P2-doc/             RFP·PRD·설계 문서·고시 PDF                           (커밋)
+│   └── report/         스프린트 보고서 등 리포트 md+PDF 한 쌍               (로컬 전용, 커밋 안 함)
+├── backend/            런타임 서버 (FastAPI)                                (커밋)
+│   ├── app/{api,db,tools,agent}/   BE 티켓(api·db·tools), AG 티켓(agent)
+│   ├── scripts/api_probe/          공공 API 응답 확인·fixture 수집
+│   └── tests/                      pytest, tests/fixtures/api 응답 스냅샷
+├── evaluation/         평가 코드와 mock 생성기                              (커밋)
+│   ├── mock_gen/       W1 개발용 mock 생성 스크립트 (비용 상한 20 USD, RFP-31)
+│   └── credit_use/     평가 후보 풀 생성 스크립트
+├── frontend/           프런트 (Vite + React). 아직 없음                      (커밋)
+├── scripts/            거버넌스 도구: check_schedule.py, ambiguity_audit.py,
+│                       make_report_pdf.py, pdf_to_text.swift                (커밋)
+├── data/               내려받은 원본 데이터                                  (로컬 전용)
+│   └── mock/           mock 결과, briefs/(지시서), llm_cache 등             (로컬 전용)
+├── logs/               개발·평가 trace (RFP-34)                              (로컬 전용)
+└── claude-prompt/, images/, .claude/   프롬프트·이미지·에이전트·스킬 정의
+```
+
+- **성격 구분**: `scripts/`는 일정·문서·PDF를 다루는 **거버넌스 도구**만 둔다. 서비스가 도는 코드는 `backend/`(런타임), 측정·평가·mock 생성은 `evaluation/`, 화면은 `frontend/`에 둔다.
+- **코드 위치 규칙**: `backend/app/agent` = AG 티켓(그래프·노드·Router·Validator·Guardrail), `backend/app/{api,db,tools}` = BE 티켓(엔드포인트·DB·공공 API 도구), `evaluation/` = 평가·mock 생성(AG-04·AG-11~14·BE-08 계열), `frontend/` = FE 티켓.
+- **로컬 전용(`.gitignore` 대상)**: `data/`(원본 데이터와 `data/mock/`), `P2-doc/report/`, `logs/`. `.env`와 함께 커밋하지 않는다. `.gitignore` 수정은 `git-actor`가 한다.
+- 새 폴더를 만들거나 위 규칙과 다른 곳에 코드를 두려면 먼저 결정 번호를 올린다.

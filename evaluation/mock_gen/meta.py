@@ -3,7 +3,7 @@ import hashlib, json, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "mock"
+OUT = ROOT / "data" / "mock"
 
 
 def sha(*parts):

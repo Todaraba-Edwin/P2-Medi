@@ -5,13 +5,13 @@
    - 생성한 overall_pass는 항목에서 코드가 다시 계산해 일관되게 맞춘다(J1은 unsupported 주장이 하나도 없어야 pass).
    - 사전 시험의 두 판정이 일치하는데 이번 판정이 다르면 diverges_from_dryrun=true로 남긴다(보정 때 확인할 사례).
 2) 형식 오류·재시도 사례는 유효 출력에서 코드로 변형해 만든다(비용 0). 라벨은 judge_schema.classify가 정한다.
-사용법: python scripts/mock/m3_judge.py [--limit N] [--no-llm]
+사용법: python evaluation/mock_gen/m3_judge.py [--limit N] [--no-llm]
 """
 import argparse, json, random, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import _common as C, meta, judge_schema as S  # noqa: E402
-assert Path(C.__file__).parent.name == "mock" and C.CAP_USD == 20.0
+assert Path(C.__file__).parent.name == "mock_gen" and C.CAP_USD == 20.0
 
 VER, SET = "m3-v1", "judge_outputs"
 rnd = random.Random(20261105)
@@ -258,7 +258,7 @@ def main():
                              overall_recomputed=sum(1 for r in recs if r.get("overall_recomputed")), dryrun_runs_disagree=sum(1 for r in recs if r.get("dryrun_runs_disagree"))),
                         C.spent() - cost0,
                         notes=dict(source="data/credit_use/judge_dryrun.jsonl (RFP-28 §8.2 사전 시험, 합성 답변)", schema="tickets/doc/RFP-26.md §7.5 공통 출력 스키마",
-                                   variant_name_fix="원본에서 깨진 variant 이름 3건(unsupear 등)을 unsupported로 정정", validator="scripts/mock/judge_schema.py"))
+                                   variant_name_fix="원본에서 깨진 variant 이름 3건(unsupear 등)을 unsupported로 정정", validator="evaluation/mock_gen/judge_schema.py"))
     print("레코드", len(recs), dict(kinds), "비용 $%.3f" % (C.spent() - cost0))
 
 

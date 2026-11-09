@@ -45,7 +45,7 @@ qdrant_storage/
 data/
 
 # 리포트 (로컬 전용, 커밋하지 않음)
-report/
+P2-doc/report/
 
 # mock 데이터 (로컬 전용, 커밋하지 않음)
 /mock/

@@ -2,7 +2,7 @@
 
 인증키와 호출 주소는 저장소 루트의 `.env`에서 환경변수로만 읽는다. 키는 출력·저장·반환하지 않는다.
 원본 응답은 `data/api_samples/`(git 제외)에 저장한다.
-사용: .venv/bin/python scripts/api_probe/probe.py   (또는 app.py를 FastAPI로 띄움)
+사용: .venv/bin/python backend/backend/scripts/api_probe/probe.py   (또는 app.py를 FastAPI로 띄움)
 """
 import json
 import os

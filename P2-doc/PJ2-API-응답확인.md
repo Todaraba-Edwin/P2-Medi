@@ -8,12 +8,12 @@
 - [5. 열린 항목](#5-열린-항목)
 - [6. 다시 실행하는 법](#6-다시-실행하는-법)
 
-> 관련: [RFP-21](../tickets/doc/RFP-21.md) · [RFP 5.2절](PJ2-RFP.md#52-사전-주간-api-실측-확인과-실현-가능성-rfp-21) · [API 엔티티·값](PJ2-API-엔티티.md) · [목 픽스처](../tests/fixtures/api/manifest.json) · [프로브](../scripts/api_probe/probe.py)
+> 관련: [RFP-21](../tickets/doc/RFP-21.md) · [RFP 5.2절](PJ2-RFP.md#52-사전-주간-api-실측-확인과-실현-가능성-rfp-21) · [API 엔티티·값](PJ2-API-엔티티.md) · [목 픽스처](../backend/tests/fixtures/api/manifest.json) · [프로브](../backend/scripts/api_probe/probe.py)
 > 2026-11-01 실제 호출로 확인한 값이다. 인증키는 `.env`에서 환경변수로만 읽었고 이 문서와 저장소에는 키 값이 없다. 원본 응답은 `data/api_samples/`(git 제외)에 있다. 응답은 시간이 지나면 바뀔 수 있다.
 
 ## 1. 확인 방법
 
-- FastAPI 프로브(`scripts/api_probe/`)로 세 서비스(e약은요·DUR 품목정보·성분정보)를 호출했고, 허가정보(4번째)는 오퍼레이션별로 따로 호출해 확인했다. `/battery`가 항목별 호출을 한꺼번에 실행하고 `/probe/{service}/{operation}`이 한 건씩 호출한다.
+- FastAPI 프로브(`backend/scripts/api_probe/`)로 세 서비스(e약은요·DUR 품목정보·성분정보)를 호출했고, 허가정보(4번째)는 오퍼레이션별로 따로 호출해 확인했다. `/battery`가 항목별 호출을 한꺼번에 실행하고 `/probe/{service}/{operation}`이 한 건씩 호출한다.
 - 호출은 약 60회이고, 개발계정 일일 한도(10,000)에 비해 작다.
 - 이 확인은 BE-01(FastAPI 초기화), BE-02, BE-03의 응답 샘플 확인에 해당한다.
 
@@ -113,4 +113,4 @@ curl http://127.0.0.1:8765/battery
 curl "http://127.0.0.1:8765/probe/dur-item/getSpcifyAgrdeTabooInfoList03?itemName=타이레놀"
 ```
 
-또는 `.venv/bin/python scripts/api_probe/probe.py`. 결과 표는 `data/api_samples/report.md`에 쓴다.
+또는 `.venv/bin/python backend/scripts/api_probe/probe.py`. 결과 표는 `data/api_samples/report.md`에 쓴다.
