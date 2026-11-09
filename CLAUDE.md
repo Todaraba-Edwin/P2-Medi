@@ -109,7 +109,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 ## 4. 데이터 파일
 
 - 내려받은 원본 데이터는 `data/`에 둔다. `data/`는 `.gitignore` 대상이며 커밋하지 않는다. 용량이 크고(병용금기 JSON 약 540MB), 라이선스가 "공공저작물 제2유형(출처표시, 상업적 이용금지)"이라 저장소로 재배포하지 않는다.
-- 현재 파일(`data/`, 2026-11-05 기준)은 한국의약품안전관리원의 [임부금기약물](https://www.data.go.kr/data/15089735/fileData.do) CSV, [병용금기약물(AI 학습용)](https://www.data.go.kr/data/15161282/fileData.do) JSON, 연령금기·용량주의·수유부주의 CSV, 임부금기 항목정의서 xlsx, 건강보험심사평가원 DUR 품목리스트 CSV 5종, 고시·별표 PDF와 추출 텍스트, 약사법 시행규칙 제18조 발췌 PDF(보건복지부령 제1181호, 시행 2026-06-21)와 약사법 제28조 제2항 발췌 PDF(`약사법_제2항.pdf`, 시행 2026-10-08)와 추출본(`약사법_*_추출.txt`, 2026-11-06 사용자 제공), API 샘플(`data/api_samples/`), 평가 후보 풀(`data/credit_use/`)이다. 두 데이터의 최신 고시일이 2026-07-21이라 이날을 기준일로 본다.
+- 현재 파일(`data/`, 2026-11-05 기준)은 한국의약품안전관리원의 [임부금기약물](https://www.data.go.kr/data/15089735/fileData.do) CSV, [병용금기약물(AI 학습용)](https://www.data.go.kr/data/15161282/fileData.do) JSON, 연령금기·용량주의·수유부주의 CSV, 임부금기 항목정의서 xlsx, 건강보험심사평가원 DUR 품목리스트 CSV 5종, 고시·별표 PDF와 추출 텍스트, 약사법 시행규칙 제18조 발췌 PDF(보건복지부령 제1181호, 시행 2026-06-21)와 약사법 제28조 제2항 발췌 PDF(`약사법_제2항.pdf`, 시행 2026-10-08)와 추출본(`약사법_*_추출.txt`, 2026-11-06 사용자 제공), 외부 제공 API 설명서 docx(`IROS_239_의약품개요정보(e약은요) 서비스_v1.0.docx`, 정리본 md는 `P2-doc/IROS_239_e약은요_서비스_v1.0.md`), API 샘플(`data/api_samples/`), 평가 후보 풀(`data/credit_use/`)이다. **원본 문서(PDF·DOCX 등 외부에서 받은 파일)는 `data/`에 두고, 그 파일을 읽어 정리한 마크다운은 `P2-doc/`에 커밋한다**(2026-11-09 사용자 결정, 고시 PDF·IROS docx 이주 근거. 예외: 발표 자료는 6장 예외 규정에 따라 `P2-doc/report/presentation/`). 두 데이터의 최신 고시일이 2026-07-21이라 이날을 기준일로 본다.
 - 읽을 때 주의한다. 임부금기 CSV는 **CP949** 인코딩이고, 병용금기 JSON은 크므로 한 번에 읽지 말고 스트리밍으로 처리한다. 임부금기의 `금기등급` 1·2는 고시 「의약품 병용금기 성분 등의 지정에 관한 규정」 제3조 제3호의 정의를 따른다. `M`은 고시에 없고 건강보험심사평가원 「기능과 역할」(2021~2026년판 여섯 판)만 "상병에 따른 1등급 또는 2등급"이라고 설명한다. 모델은 이 설명만 인용하고 등급은 상세정보 문구를 그대로 전달하며, 처방·조제 사유 코드의 M(유·조산 치료)과 혼동하지 않는다(RFP-17의 "M 처리 규칙").
 - 고시 전문 PDF는 `data/`에 둔다(로컬 전용, 커밋하지 않는다). 추출 텍스트 정리본(`P2-doc/MFDS_병용금기_지정규정_고시.md` 등 마크다운)은 `P2-doc/`에 커밋한다. 정부 고시의 저작권·재배포 문제는 법률 검토를 거치지 않았으므로 PDF 원본은 저장소에 올리지 않는다(2026-11-09 사용자 결정). PDF 텍스트 추출은 `scripts/pdf_to_text.swift`(macOS PDFKit)로 한다.
 - 이 데이터를 쓴 답변과 문서에는 출처(한국의약품안전관리원)와 기준일을 표시한다.
@@ -176,7 +176,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 
 - **리포트는 항상 md와 PDF 한 쌍**이다. 같은 폴더·같은 이름(`.md`, `.pdf`)으로 두고, md가 원본이며 PDF는 md에서 만든다. md만 있거나 PDF만 있으면 안 된다(`scripts/check_schedule.py`가 로컬 `P2-doc/report/`의 짝을 검사한다).
 - **`P2-doc/report/`는 로컬 전용이다**(2026-11-04 사용자 결정). `.gitignore`에 `P2-doc/report/`를 넣어 **커밋하지 않는다.** 리포트에는 내부 평가 문항·파일 제품명·비용 등 저장소에 올리지 않을 내용이 섞이기 때문이다. 로컬 파일이라 지워지면 되살릴 수 없으니 필요하면 별도로 백업한다.
-- **`P2-doc/report/presentation/`**: md 짝이 없는 산출물 PDF(발표 자료 `MediAgent 포트폴리오 발표.pdf` 등)의 위치다. 로컬 전용이며 `scripts/check_schedule.py`가 검사하지 않는 하위 폴더다(2026-11-09 사용자 결정). 발표 PDF가 저장소에 보이지 않으므로 최종본을 저장소에 올릴지는 최종본 때 정한다(PRD-05).
+- **예외 규정 (`P2-doc/report/presentation/`)**: 원칙은 "원본 문서는 `data/`"(4장)이지만, **발표 자료(`MediAgent 포트폴리오 발표.pdf` 등 최종 산출물 PDF)는 예외로 `P2-doc/report/presentation/`에 둔다.** 로컬 전용이며, md 짝이 없는 산출물이라 `scripts/check_schedule.py` 짝 검사 대상이 아닌 하위 폴더다(2026-11-09 사용자 결정). 발표 PDF가 저장소에 보이지 않으므로 최종본을 저장소에 올릴지는 최종본 때 정한다(PRD-05).
 - **파일 이름**: `P2-doc/report/{SCH-nn}-{주제}-{기준일 YYYY-MM-DD}.md`. 예: `P2-doc/report/SCH-00-pre-week-2026-11-04.md`. 같은 스프린트의 중간·마감 보고서는 기준일로 구분하고 이전 파일을 덮어쓰지 않는다.
 - **PDF 만들기**: `python3 scripts/make_report_pdf.py P2-doc/report/<이름>.md`(pandoc → Chrome headless, 한글 글꼴 Apple SD Gothic Neo, 필요: pandoc·Google Chrome). md를 고치면 PDF를 다시 만든다. 만든 PDF는 첫 쪽 이상을 직접 열어 글꼴·표가 깨지지 않았는지 확인한다.
 - **스프린트 보고서의 근거**는 `schedule.md`(Recap·Top 5·진행 현황), `schedule-done.md`, `schedule-changelog.md`, 각 티켓이다. 숫자는 이 파일과 `python3 scripts/check_schedule.py`, `git log`에서 직접 세고 출처를 적는다. **측정하지 않은 값은 "측정 전·잠정"으로 쓰고** 사실과 제 추정을 구분한다. 소표본은 k/n과 구간으로만 보고하며 유의성을 주장하지 않는다(5장 평가 기준 유지 규칙).
@@ -194,7 +194,7 @@ P2-Medi/
 ├── tickets/            티켓 (doc/ backend/ frontend/ agent/)                (커밋)
 │   └── issues/         화면 이슈 이미지 ISSUE-nnn.png                      (로컬 전용, 커밋 안 함)
 ├── P2-doc/             RFP·PRD·설계 문서·고시 추출 정리 md                  (커밋)
-│   └── report/         스프린트 보고서 등 리포트 md+PDF 한 쌍, presentation/(발표 PDF) (로컬 전용, 커밋 안 함)
+│   └── report/         스프린트 보고서 등 리포트 md+PDF 한 쌍, presentation/(발표 PDF, 원본은 data/ 원칙의 예외 규정) (로컬 전용, 커밋 안 함)
 ├── backend/            런타임 서버 (FastAPI)                                (커밋)
 │   ├── app/{api,db,tools,agent}/   BE 티켓(api·db·tools), AG 티켓(agent)
 │   ├── scripts/api_probe/          공공 API 응답 확인·fixture 수집
