@@ -28,13 +28,13 @@ done: 2026-11-05
 - [8. 메모](#8-메모)
 
 ## 1. 이슈
-사용자 요청(2026-11-04): 다음 주 작업에 필요한 데이터의 결과를 **미리 mock으로 만들어 두어** 크레딧을 아낀다. Anthropic API로 생성하고, `mock/` 폴더에 넣고, `.gitignore`로 추적하지 않으며, **mock 생성 API 상한은 20 USD**다. 별도 pane의 서브에이전트가 진행하고 이 티켓에 기록한다.
+사용자 요청(2026-11-04): 다음 주 작업에 필요한 데이터의 결과를 **미리 mock으로 만들어 두어** 크레딧을 아낀다. Anthropic API로 생성하고, `data/mock/` 폴더에 넣고, `.gitignore`로 추적하지 않으며, **mock 생성 API 상한은 20 USD**다. 별도 pane의 서브에이전트가 진행하고 이 티켓에 기록한다.
 
 ## 2. 완료 조건
-- [x] `mock/` 폴더가 있고 `.gitignore`에 등록되어 커밋되지 않는다(`git check-ignore mock/README.md`로 확인).
-- [x] 생성 스크립트는 `scripts/mock/`(커밋 대상)에 있고 모든 호출이 `scripts/mock/_common.py`를 거쳐 **누적 20 USD 상한**이 코드로 강제된다.
+- [x] `data/mock/` 폴더가 있고 `.gitignore`에 등록되어 커밋되지 않는다(`git check-ignore data/mock/README.md`로 확인).
+- [x] 생성 스크립트는 `evaluation/mock_gen/`(커밋 대상)에 있고 모든 호출이 `evaluation/mock_gen/_common.py`를 거쳐 **누적 20 USD 상한**이 코드로 강제된다.
 - [x] §3의 세트가 만들어졌거나 건너뛴 이유가 §6에 있다. 세트마다 `manifest.json`(생성 모델·프롬프트 해시·비용·개수)이 있다.
-- [x] 누적 사용액이 §7에 있고 20 USD를 넘지 않았다(원장 `mock/ledger.json` $2.72, 호출 기록 합계와 차이 0). **콘솔 값은 사용자 확인 대기**(Recap).
+- [x] 누적 사용액이 §7에 있고 20 USD를 넘지 않았다(원장 `data/mock/ledger.json` $2.72, 호출 기록 합계와 차이 0). **콘솔 값은 사용자 확인 대기**(Recap).
 - [x] 값(등급·성분코드·기준일·제품명)은 파일·API 확인 결과에서 **코드가 가져온 것**이고 LLM은 문장만 썼음을 확인했다(검증 스크립트 결과).
 
 ## 3. mock 세트
@@ -43,13 +43,13 @@ done: 2026-11-05
 | M1 `chat_responses/` | **`/chat` 응답 fixture**: PRD 15.3 시나리오 S1~S8의 응답(`summary`·`detail`·`citations[]`·`fixed_notice`·`emergency`·`disclaimer`·`route`)과 스트리밍 이벤트 순서(응급이면 `emergency` 첫 이벤트, 진행 상태 이벤트). 값은 RFP-21 §4의 실제 값과 `data/` 파일에서 코드가 가져오고, 쉬운 요약 문장만 LLM | BE-06, FE-01, FE-02 | Haiku 4.5 (요약 품질이 부족하면 Sonnet 5.5 일부) | $1~3 |
 | M2 `traces/` | **에이전트 경로(trace) fixture**: 기대 경로 스키마(필수·권장·금지 도구, 순서, 호출 상한)와 정상·판정 도구 생략·금지 도구 호출·호출 상한 초과·인용 청크 ID 환각 등 Pass/Warn/Fail 사례. 대부분 코드로 생성 | BE-08 경로 채점기, AG-01 | 거의 없음(코드) | $0~1 |
 | M3 `judge_outputs/` | **judge 출력 fixture**: J1·J3·J4·J5 구조화 JSON(`items`·`reason`·`overall_pass`)과 형식 오류·재시도 사례. RFP-28 사전 시험 결과(`data/credit_use/judge_dryrun.jsonl`)를 가공하고 부족한 칸만 생성 | BE-08 judge 실행기 | Sonnet 5.5(사고 끔) | $1~3 |
-| M4 `question_templates/` | **질문 틀 확장**: 모호·근거 없음·범위 외(복용 중단·의료진 우회)·오정보 등 AG-04 후보 틀(자리 표시 `{약A}`). 제품명은 BE-10 뒤 코드가 채움. 오탈자·축약·표기 변형은 `scripts/credit_use/variants.py`가 코드로 만든다 | AG-04 | Haiku 4.5 | $1~2 |
+| M4 `question_templates/` | **질문 틀 확장**: 모호·근거 없음·범위 외(복용 중단·의료진 우회)·오정보 등 AG-04 후보 틀(자리 표시 `{약A}`). 제품명은 BE-10 뒤 코드가 채움. 오탈자·축약·표기 변형은 `evaluation/credit_use/variants.py`가 코드로 만든다 | AG-04 | Haiku 4.5 | $1~2 |
 | M5 `validator_pairs/` | **Validator 입력쌍**: (증거 묶음, 답변, 기대 판정) — 근거에 없는 주장·등급 틀림·안전 단정·복용 중단 지시·의료진 우회 문장 등 차단·수정되어야 하는 사례와 통과 사례 | AG-07 테스트 | Haiku 4.5 | $1~2 |
 | 합계 | | | | **약 $4~11(상한 $20)** |
 
 ## 4. 규칙
-- **상한 20 USD는 코드가 강제**한다(`scripts/mock/_common.py`, 원장 `mock/ledger.json`). 호출 전에 누적 + 예상 최대 비용이 20을 넘으면 중단한다. 에이전트는 상한을 올리거나 우회하지 않는다.
-- **로컬 전용**: `mock/`는 커밋하지 않는다. 스크립트(`scripts/mock/`)와 이 티켓은 커밋한다.
+- **상한 20 USD는 코드가 강제**한다(`evaluation/mock_gen/_common.py`, 원장 `data/mock/ledger.json`). 호출 전에 누적 + 예상 최대 비용이 20을 넘으면 중단한다. 에이전트는 상한을 올리거나 우회하지 않는다.
+- **로컬 전용**: `data/mock/`는 커밋하지 않는다. 스크립트(`evaluation/mock_gen/`)와 이 티켓은 커밋한다.
 - **합성·가상 데이터**만 만든다. 질문·답변 속 사람은 가상 인물이고, 값은 파일·API 확인 결과에서 가져온다. LLM이 등급·성분코드·고시번호·기준일을 새로 만들지 않는다(검증 스크립트로 확인).
 - 모든 mock 레코드에 `"mock": true`와 생성 모델·세트 버전을 남긴다.
 - 키는 환경변수(`ANTHROPIC_API_KEY`)로만 읽고 값은 기록하지 않는다.
@@ -61,18 +61,18 @@ done: 2026-11-05
 - 관련 문서: `P2-doc/PJ2-PRD.md` 15장, `tickets/doc/RFP-21.md` §4, `tickets/doc/RFP-26.md` §7.5·§7.6
 
 ## 6. 진행 기록 (실시간 갱신)
-- 2026-11-04 · 티켓 작성, `mock/`·`scripts/mock/_common.py`(상한 20 USD) 준비. 별도 pane의 서브에이전트가 시작한다.
-- 2026-11-05 · M2 `traces/` 완료(코드 생성, API 비용 0): 98건(Pass 50·Warn 16·Fail 32), 기대 경로 스키마·독립 채점기(`scripts/mock/trajectory.py`)로 의도 판정 일치 확인. 사실 추출 모듈 `scripts/mock/facts.py`(data/ CSV·API 샘플에서 코드로 값 추출) 추가.
+- 2026-11-04 · 티켓 작성, `data/mock/`·`evaluation/mock_gen/_common.py`(상한 20 USD) 준비. 별도 pane의 서브에이전트가 시작한다.
+- 2026-11-05 · M2 `traces/` 완료(코드 생성, API 비용 0): 98건(Pass 50·Warn 16·Fail 32), 기대 경로 스키마·독립 채점기(`evaluation/mock_gen/trajectory.py`)로 의도 판정 일치 확인. 사실 추출 모듈 `evaluation/mock_gen/facts.py`(data/ CSV·API 샘플에서 코드로 값 추출) 추가.
 - 2026-11-05 · M1 `chat_responses/` 완료: 응답 fixture 19건(S1×3·S2·S3×2·S4×2·S5×2·S6a/b/c·S7a~d·S8 파일 기준·S8 서버 오류) + 스트리밍 이벤트 19개. LLM은 요약 점 문장만(Haiku 4.5) 쓰고 Sonnet 5.5가 근거 대조. 규칙 검증기 `chat_checks.py`와 원본 파일 대조 통과. 누적 $0.16.
-  - 발견: `m1_chat.py` 초기판이 `scripts/credit_use`를 import 경로 앞에 넣어 RFP-28용 `_common`(원장 $2.40)을 불러올 뻔함 → dry 실행이라 호출은 없었고, 파일 경로로 `variants`만 읽도록 고치고 `assert`로 mock `_common`·상한 20을 확인한다. `variants.typo("로바스크정")`이 원래 이름을 그대로 돌려주는 사례도 있어(오탈자 미생성) 단언을 걸었다.
+  - 발견: `m1_chat.py` 초기판이 `scripts/credit_use`(현 경로 `evaluation/credit_use`)를 import 경로 앞에 넣어 RFP-28용 `_common`(원장 $2.40)을 불러올 뻔함 → dry 실행이라 호출은 없었고, 파일 경로로 `variants`만 읽도록 고치고 `assert`로 mock `_common`·상한 20을 확인한다. `variants.typo("로바스크정")`이 원래 이름을 그대로 돌려주는 사례도 있어(오탈자 미생성) 단언을 걸었다.
 
 - 2026-11-05 · M3 `judge_outputs/` 완료: 사전 시험 185건에 항목별 이유·근거(Sonnet 5.5, 사고 끔)를 채우고, 형식 오류·재시도 76건을 코드로 변형해 추가. 사전 시험에 없던 칸은 `m3b_extra.py`로 44건 보강(J4 복용 중단·감량·의료진 우회 경계 20, J1 22, J5 2).
 - 2026-11-05 · M5 `validator_pairs/` 완료: 220쌍(통과 59·실패 161). 해로운 문장은 모델이 아니라 고정 템플릿, 모델(Haiku)은 '근거에 없는 일반 상식' 14문장만. 규칙 탐침이 기대 판정을 모두 재현.
 - 2026-11-05 · M4 `question_templates/` 완료: 틀 130개(시드 + Haiku 변형, 규칙 검사 통과).
-- 2026-11-05 · 재작업: M3 보강 judge가 M1 요약에서 **fixture 결함**(S2 요약 3번에 병용금기 문장이 임부금기 '없음' 인용을 달고 있었음, 라벨 인용이 문장 중간을 잘라 둠, 문법이 어색한 문장이 검증 통과)을 잡아 M1을 고쳐 다시 만들고 M5·M3 보강본을 다시 생성했다. 전 세트 재검증 `scripts/mock/verify_all.py` 통과(ALL_OK).
+- 2026-11-05 · 재작업: M3 보강 judge가 M1 요약에서 **fixture 결함**(S2 요약 3번에 병용금기 문장이 임부금기 '없음' 인용을 달고 있었음, 라벨 인용이 문장 중간을 잘라 둠, 문법이 어색한 문장이 검증 통과)을 잡아 M1을 고쳐 다시 만들고 M5·M3 보강본을 다시 생성했다. 전 세트 재검증 `evaluation/mock_gen/verify_all.py` 통과(ALL_OK).
 
 ## 7. 결과 보고
-> 2026-11-05 작성. 수치는 `mock/verify_report.json`(검증 스크립트 출력)과 `mock/calls.jsonl`에서 직접 센 값이다. 모든 데이터는 합성·가상이며 W1 개발·테스트용이다(평가 측정 값 아님).
+> 2026-11-05 작성. 수치는 `data/mock/verify_report.json`(검증 스크립트 출력)과 `data/mock/calls.jsonl`에서 직접 센 값이다. 모든 데이터는 합성·가상이며 W1 개발·테스트용이다(평가 측정 값 아님).
 
 ### 7.1 세트별 결과
 | 세트 | 개수 | 모델 | 비용(호출 기록 합계) | 검증 |
@@ -82,12 +82,12 @@ done: 2026-11-05
 | M3 `judge_outputs/` | 305 = 정상 229(J1 94·J3 48·J4 53·J5 34) + 형식 오류 후 재시도 성공 40 + 재시도도 실패(judge 오류) 36 | Sonnet 5.5(사고 끔) + 코드 | $2.18 | 모든 시도를 다시 파싱해 라벨 일치 305/305, 스키마·일관성 통과 |
 | M4 `question_templates/` | 130 (모호 30·근거 없음 30·범위 외 40·오정보 30), 시드 25·LLM 105 | Haiku 4.5 + 사람이 쓴 시드(코드) | $0.10 | 자리표시·존댓말·제품명 혼입·용량/등급 노출·신호어·중복 규칙 130/130 통과 |
 | M5 `validator_pairs/` | 220쌍 (통과 59·실패 161, 기준선 191·개선 29) | 코드 + Haiku 4.5(14문장) | $0.03 | 규칙 탐침으로 기대 판정 재현 불일치 0(의미 판단 전용 14건은 규칙 대상 아님) |
-| 합계 | | | **$2.72 (원장 `mock/ledger.json` 2.717269 = 호출 기록 합계, 차이 0, 호출 662건)** | 상한 20 USD의 13.6%. 중단선 12 USD에 닿지 않음 |
+| 합계 | | | **$2.72 (원장 `data/mock/ledger.json` 2.717269 = 호출 기록 합계, 차이 0, 호출 662건)** | 상한 20 USD의 13.6%. 중단선 12 USD에 닿지 않음 |
 
 ### 7.2 검증 요약
-- 값은 코드가 가져왔다: 등급·성분코드·고시번호·일자·사유·제품명은 `data/` CSV(임부금기·연령금기·병용금기)에서, 라벨 문장은 `data/api_samples/` 원문에서, 등급 정의는 `P2-doc/MFDS_병용금기_지정규정_고시.md`에서 읽는다(`scripts/mock/facts.py`). "목록에 없음" 인용은 CSV를 다시 읽어 실제로 없음을 확인한다(가상 약 이름 `라모시넥스정`, `통풍` 라벨 부재 포함).
+- 값은 코드가 가져왔다: 등급·성분코드·고시번호·일자·사유·제품명은 `data/` CSV(임부금기·연령금기·병용금기)에서, 라벨 문장은 `data/api_samples/` 원문에서, 등급 정의는 `P2-doc/MFDS_병용금기_지정규정_고시.md`에서 읽는다(`evaluation/mock_gen/facts.py`). "목록에 없음" 인용은 CSV를 다시 읽어 실제로 없음을 확인한다(가상 약 이름 `라모시넥스정`, `통풍` 라벨 부재 포함).
 - M1 요약 문장 규칙(코드): 가부·안전 단정, 명령형, 복용 중단·감량, 의료진 우회, 용량 숫자, 근거에 없는 숫자·등급·코드, 따옴표 인용 원문 일치, 존댓말. 위반하면 위반 사유를 알려 최대 3회 다시 쓰고, 계속 어기면 코드가 만든 대체 문장을 쓴다(`summary_sources`에 기록).
-- 비밀·개인정보: `mock/` 안 파일에서 키 형태 문자열·연결 문자열·이메일을 검색해 0건. `.gitignore`에 `mock/` 있음.
+- 비밀·개인정보: `data/mock/` 안 파일에서 키 형태 문자열·연결 문자열·이메일을 검색해 0건. `.gitignore`에 `data/mock/` 있음.
 
 ### 7.3 발견한 것 (사실만)
 1. **M1 fixture 결함을 M3 보강 judge가 잡았다.** S2 요약 3번이 병용금기 문장인데 임부금기 '없음' 인용을 달고 있었고(근거 어긋남), 라벨 인용이 문장 중간을 잘라 judge가 맥락을 못 읽었으며, 문법이 어색한 문장이 근거 대조만으로는 통과했다. 모두 고쳐 다시 만들었다(검증기에 문법·인용 일치·조사 점검 추가).
@@ -95,7 +95,7 @@ done: 2026-11-05
 3. **J4 불량 답의 생성 의도와 judge 판정이 어긋나는 사례가 있다**: 사전 시험 J4의 `obey_injection`·`comply` 7건(Haiku가 일부 불량 답을 거부하고 정상 거절을 낸 사례, RFP-28 §7 8번과 같은 원인)과 J1 3건(`dry017-J1-unsupported`, `dry024-J1-good`, `dry036-J1-good`: 생성 의도와 judge 판정이 다름, 원인은 확인하지 않음). 이번 보강에서 사람이 쓴 고정 템플릿 불량 답 12개는 judge가 모두 fail로 판정했다(좋은 답 4 + 장황한 사과만 4는 pass).
 4. 정규식 함정: `세포`가 `세 + 포`(용량)로 걸려 신경세포 문장이 용량 위반으로 오탐됐다(검증기·탐침 모두 앞뒤 한글 경계 추가). AG-07 구현 때 같은 함정을 피해야 한다.
 5. 원본 파일 이슈: `judge_dryrun.jsonl`의 variant 이름 3건이 깨져 있어(`unsupear` 등) `unsupported`로 정정했다(M3 manifest에 기록). `variants.typo("로바스크정")`은 원래 이름을 그대로 돌려줘 오탈자가 생기지 않는다(M1 S6a는 `미프론정4mg` → `미프룬정4mg`로 바꿈, 변형 실패 단언 추가).
-6. **내 실수 기록**: `m1_chat.py` 초기판이 `scripts/credit_use`를 import 경로 앞에 넣어 RFP-28용 `_common`(원장 $2.40)을 불러올 뻔했다. 실제 호출 전(dry 실행)에 발견해 비용 누락은 없었고, 이후 모든 스크립트에 "mock `_common`·상한 20 USD" 단언을 넣었다. 한 번은 금지된 `rm`과 `git check-ignore`를 명령에 넣어 실행이 거부됐다(실행 전 차단, 파일 변경 없음).
+6. **내 실수 기록**: `m1_chat.py` 초기판이 `scripts/credit_use`(현 경로 `evaluation/credit_use`)를 import 경로 앞에 넣어 RFP-28용 `_common`(원장 $2.40)을 불러올 뻔했다. 실제 호출 전(dry 실행)에 발견해 비용 누락은 없었고, 이후 모든 스크립트에 "mock `_common`·상한 20 USD" 단언을 넣었다. 한 번은 금지된 `rm`과 `git check-ignore`를 명령에 넣어 실행이 거부됐다(실행 전 차단, 파일 변경 없음).
 
 ### 7.4 건너뛴 것
 - 사람 검수: M4 틀·M1 문장·M3 정상 출력의 사람 검수는 하지 않았다(RFP 9.2의 15~20% 검수는 AG-04 몫).
@@ -115,4 +115,4 @@ done: 2026-11-05
 - **범위 정정(2026-11-05, 사용자 설명)**: 사용자가 원한 mock은 e약은요·DUR API로 **실제 사례 의약품의 응답을 미리 확보**하는 것이었다. 이 티켓은 LLM 생성 fixture를 만들었고 값은 `data/` 파일·RFP-21에서 가져왔다(공공 API를 새로 호출하지 않음). 빈칸은 RFP-32가 맡는다. 이 티켓의 결과는 버리지 않고 RFP-32의 스냅샷 값 위에서 다시 만들 수 있다.
 - 사용자 지정: 상한 20 USD, `/mock` 폴더, `.gitignore` 등록(2026-11-04).
 - 이 mock은 **W1 개발·테스트용**이며 평가 측정(AG-11·12·14)의 결과 값으로 쓰지 않는다. 측정은 실제 에이전트·judge 호출로 한다.
-- 2026-11-05 종결(메인 pane 확인): 5개 세트 파일·`manifest.json`·`verify_report.json`·원장(2.717269 USD, 호출 662건)을 직접 확인했고 `scripts/mock/` 안 키·연결 문자열 0건, `mock/`는 `.gitignore` 대상임을 확인했다. **/chat 응답의 실제 JSON 모양은 제가 아닌 작업 에이전트가 정한 가정**(BE-06에 없는 필드: `summary_points`·`findings`·`notices`·`meta`·`clarify`·`corrected`, route 값 집합, 청크 ID 형식, 스트림 이벤트 이름)이라 BE-06·BE-05 구현 때 맞춰야 한다. 사용 안내: M1 → BE-06·FE-01·FE-02, M2·M3 → BE-08, M4 → AG-04, M5 → AG-07.
+- 2026-11-05 종결(메인 pane 확인): 5개 세트 파일·`manifest.json`·`verify_report.json`·원장(2.717269 USD, 호출 662건)을 직접 확인했고 `evaluation/mock_gen/` 안 키·연결 문자열 0건, `data/mock/`는 `.gitignore` 대상임을 확인했다. **/chat 응답의 실제 JSON 모양은 제가 아닌 작업 에이전트가 정한 가정**(BE-06에 없는 필드: `summary_points`·`findings`·`notices`·`meta`·`clarify`·`corrected`, route 값 집합, 청크 ID 형식, 스트림 이벤트 이름)이라 BE-06·BE-05 구현 때 맞춰야 한다. 사용 안내: M1 → BE-06·FE-01·FE-02, M2·M3 → BE-08, M4 → AG-04, M5 → AG-07.

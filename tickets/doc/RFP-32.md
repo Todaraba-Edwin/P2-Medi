@@ -41,11 +41,11 @@ done: 2026-11-05
 **정정**: RFP-31이 만든 mock은 이 뜻과 달랐다. RFP-31은 LLM이 쓴 문장·judge 출력·질문 틀 같은 **생성 결과 fixture**를 만들었고, 그 안의 값(등급·성분코드·기준일)은 `data/` 파일과 RFP-21(2026-11-01 확인값)에서 가져왔다. **공공 API를 새로 호출해 응답 원문을 확보하지는 않았다.** 이 티켓이 그 빈칸을 채운다. RFP-31 결과는 버리지 않고, 확보한 API 응답 위에서 다시 만들 수 있다(§3).
 
 ## 2. 완료 조건
-- [x] (RFP-32-01) 정한 범위의 약에 대해 e약은요·DUR 품목정보·DUR 성분정보·허가정보의 **필요 오퍼레이션 응답 원문**이 `mock/api_snapshots/`에 있고, 호출마다 조회 시각·파라미터(키 제외)·상태·건수가 `manifest.json`에 있다.
+- [x] (RFP-32-01) 정한 범위의 약에 대해 e약은요·DUR 품목정보·DUR 성분정보·허가정보의 **필요 오퍼레이션 응답 원문**이 `data/mock/api_snapshots/`에 있고, 호출마다 조회 시각·파라미터(키 제외)·상태·건수가 `manifest.json`에 있다.
 - [x] "없음"도 확보한다: 조회했는데 0건인 경우(예: 아세트아미노펜 단일제의 병용금기 0건)와 가상 약(미식별)의 0건 응답을 저장한다.
 - [x] PRD 15장 시나리오 S1~S8의 **각 단계가 필요로 하는 도구 결과**(제품 찾기, 성분 풀기, 금기 확인, 라벨 문장)를 스냅샷만으로 오프라인에서 재현할 수 있다는 점검표가 있다(시나리오 × 필요 데이터 × 스냅샷 위치).
 - [x] 스냅샷과 로그에 인증키·연결 문자열이 없음을 검색으로 확인했다.
-- [x] (RFP-32-02 A) LLM 호출 record/replay 캐시의 최소 구현(`scripts/mock/llm_cache.py`)과 시험이 있고, BE-01 개발 하네스에서 `gpt-6-luna` 호출에 연결하는 일은 BE-01 완료 조건으로 넘겼다.
+- [x] (RFP-32-02 A) LLM 호출 record/replay 캐시의 최소 구현(`evaluation/mock_gen/llm_cache.py`)과 시험이 있고, BE-15 개발 하네스에서 `gpt-6-luna` 호출에 연결하는 일은 BE-15 완료 조건으로 넘겼다.
 - [x] RFP-31 M1(`/chat` 응답)은 **다시 만들지 않았다**: 스냅샷과 대조해 값 차이가 0이라 수정이 필요 없었고(M1_DIFF.md, §9.4), `retrieved_at`만 실제 조회 시각으로 바꾸는 재생성은 제안으로 남겼다.
 - [x] 총 API 호출 수와 LLM 비용(있으면)이 기록되어 있다(공공 API 개발계정 일일 한도 10,000, Anthropic 상한은 RFP-31과 합쳐 20 USD).
 
@@ -75,9 +75,9 @@ done: 2026-11-05
 | 심바로드정20밀리그램(심바스타틴) | 200200173 | 전문 | **0건** | 수록 | S1-v1 |
 | 로바스크정(암로디핀베실산염) | 201804866 | 전문 | **0건** | 수록 | S1-v2 |
 | 라모시넥스정(가상, S6b) | — | — | 0건 | 0건 | S6b (허가 목록도 0건) |
-- 위 목록은 RFP-31 M1이 쓴 약과 같다. 시나리오 표(PRD 15.3)에 이름이 없던 심바로드정·로바스크정은 M1 S1 변형(`S1-v1`·`S1-v2`)에 쓰여 포함했다. `타리에스비정10`은 `scripts/mock/facts.py`에만 있고 M1 응답에는 쓰이지 않아 제외했다. S7(범위 외·인젝션)의 라모트리진은 데이터가 필요 없어 제외했다.
+- 위 목록은 RFP-31 M1이 쓴 약과 같다. 시나리오 표(PRD 15.3)에 이름이 없던 심바로드정·로바스크정은 M1 S1 변형(`S1-v1`·`S1-v2`)에 쓰여 포함했다. `타리에스비정10`은 `evaluation/mock_gen/facts.py`에만 있고 M1 응답에는 쓰이지 않아 제외했다. S7(범위 외·인젝션)의 라모트리진은 데이터가 필요 없어 제외했다.
 - 성분코드(DUR 성분정보, `D######`): 아세트아미노펜 D000147, 슈도에페드린 D000448, 덱스트로메토르판 D000200, 라사길린 D000698는 RFP-21 값이고, 에스오메프라졸 D000153, 메틸프레드니솔론 D000005, 심바스타틴 D000027, 암로디핀 D000152는 DUR 품목정보 응답의 `INGR_CODE`에서 찾았다. **클로르페니라민은 품목정보 응답에 걸리지 않아 코드를 확인하지 못했다**(콜드-에스 성분 단위 조회에서 빠짐).
-- 목록 밖의 약은 B(풀 전체) 또는 필요할 때 `scripts/mock/api_snapshot.py`의 `TARGETS`에 한 줄 더해 추가한다(같은 요청은 다시 호출하지 않는다).
+- 목록 밖의 약은 B(풀 전체) 또는 필요할 때 `evaluation/mock_gen/api_snapshot.py`의 `TARGETS`에 한 줄 더해 추가한다(같은 요청은 다시 호출하지 않는다).
 
 ### 4.2 서비스·오퍼레이션
 `P2-doc/PJ2-API-응답확인.md`와 `PJ2-API-엔티티.md`가 원본이다(4종 20개 오퍼레이션). 유저플로우 단계별로 필요한 것만 확보한다.
@@ -88,11 +88,11 @@ done: 2026-11-05
 | 4 금기 확인 | 병용·연령·임부 금기, 효능군 중복, 용량·투여기간 주의 | DUR 품목정보 9개 오퍼레이션, DUR 성분정보(`…02`) |
 | 5 근거 | 라벨 본문(효능·용법·주의사항) | 허가정보 허가 상세 XML |
 - 호출 규모 어림(제 추정): 12품목 × 평균 15호출 ≈ 200건 안팎. 개발계정 일일 한도(10,000)보다 훨씬 작다.
-- 기존 자산: `scripts/api_probe/capture_fixtures.py`(RFP-21의 12건 캡처 코드)와 `tests/fixtures/api/`(서비스별 3건, 커밋 대상 최소 픽스처)를 재사용·확장한다.
+- 기존 자산: `backend/scripts/api_probe/capture_fixtures.py`(RFP-21의 12건 캡처 코드)와 `backend/tests/fixtures/api/`(서비스별 3건, 커밋 대상 최소 픽스처)를 재사용·확장한다.
 
 ## 5. 규칙
 - 키는 환경변수로만 읽는다(`.env`는 사람이 만든 값이라 에이전트가 열지 않는다, CLAUDE.md 3장). 스냅샷·로그에 **인증키가 들어가지 않게** 요청 URL에서 `serviceKey`를 지운 뒤 저장한다.
-- **로컬 전용**: `mock/api_snapshots/`는 `.gitignore`의 `mock/` 아래라 커밋하지 않는다. 공공 API 응답 원문의 재배포·이용 조건을 확인하지 않았다(법률 검토 보류). 커밋 대상은 스크립트뿐이다.
+- **로컬 전용**: `data/mock/api_snapshots/`는 `.gitignore`의 `data/mock/` 아래라 커밋하지 않는다. 공공 API 응답 원문의 재배포·이용 조건을 확인하지 않았다(법률 검토 보류). 커밋 대상은 스크립트뿐이다.
 - 호출 간격을 두고(속도 제한), 같은 요청은 다시 호출하지 않는다(요청 해시 → 파일). 실패(HTTP 오류·한도)는 그대로 기록하고 재시도 횟수를 제한한다.
 - 응답 원문(JSON/XML)을 그대로 보존하고, 정규화한 색인은 별도 파일로 둔다(원문 수정 금지).
 - 평가 시험셋 후보(`data/credit_use/pool_test.jsonl`)는 열지 않는다. 시나리오·페르소나 약은 평가 세트와 별개다.
@@ -102,25 +102,25 @@ done: 2026-11-05
 | ID | 질문 | 선택지 | 권장(★) | 상태 | 읽을 곳 | 답해야 넘어가는 것 |
 |---|---|---|---|---|---|---|
 | RFP-32-01 | 사전 확보할 약의 범위는? | A) **시나리오·페르소나 약(약 12품목)** + 필요할 때 약을 추가하는 캐시 스크립트 / B) A + AG-04 후보 풀 제품 전체(수백 개, 호출 수천 건) | **결정됨(2026-11-05, 사용자 "권장대로")**: A. ★A. 유저플로우 S1~S8을 오프라인으로 돌리는 데 충분하고 호출·시간이 작다. 풀 전체는 BE-12(e약은요 전체 수집)·BE-10과 겹치고 일일 한도에 가까워진다 | 완료 | [RFP-32 §4](#4-확보-범위) | 확보 작업 착수 |
-| RFP-32-02 | 개발 중 LLM 호출 record/replay 캐시를 둘까? | A) **둔다**(모델·프롬프트·인자 해시 → 응답 저장, 로컬 `mock/llm_cache/`, 평가 측정에는 끔) / B) 두지 않음 | **결정됨(2026-11-05, 사용자 "권장대로")**: A. ★A. 같은 입력의 반복 호출을 막아 크레딧을 직접 아끼고 구현이 작다. 다만 프롬프트를 바꿀 때마다 키가 달라져 캐시가 무효가 되는 점과, 평가 측정에 섞이면 안 되는 점을 규칙으로 막아야 한다 | 완료 | [RFP-32 §3](#3-왜-이것이-llm-호출을-줄이는가) | BE-01 개발 하네스에 반영 |
+| RFP-32-02 | 개발 중 LLM 호출 record/replay 캐시를 둘까? | A) **둔다**(모델·프롬프트·인자 해시 → 응답 저장, 로컬 `data/mock/llm_cache/`, 평가 측정에는 끔) / B) 두지 않음 | **결정됨(2026-11-05, 사용자 "권장대로")**: A. ★A. 같은 입력의 반복 호출을 막아 크레딧을 직접 아끼고 구현이 작다. 다만 프롬프트를 바꿀 때마다 키가 달라져 캐시가 무효가 되는 점과, 평가 측정에 섞이면 안 되는 점을 규칙으로 막아야 한다 | 완료 | [RFP-32 §3](#3-왜-이것이-llm-호출을-줄이는가) | BE-15 개발 하네스에 반영 |
 
 ## 7. 관련
 - 선행: 없음
-- 관련: RFP-31(생성 mock, 이 티켓이 채우는 빈칸), RFP-21(API 4종 실측·페르소나), BE-02·BE-03(API 클라이언트), AG-02(도구), AG-01, BE-01(개발 하네스), RFP-29-01(개발 하네스 최소)
+- 관련: RFP-31(생성 mock, 이 티켓이 채우는 빈칸), RFP-21(API 4종 실측·페르소나), BE-02·BE-03(API 클라이언트), AG-02(도구), AG-01, BE-15(개발 하네스), RFP-29-01(개발 하네스 최소)
 - 관련 문서: `P2-doc/PJ2-API-응답확인.md`, `P2-doc/PJ2-API-엔티티.md`, `P2-doc/PJ2-PRD.md` 15장, `tickets/doc/RFP-31.md` §7
 
 ## 8. 진행 기록 (실시간 갱신)
-- 2026-11-05 · 6단계 완료: `scripts/mock/m1_diff.py` → `mock/api_snapshots/M1_DIFF.md`. M1 인용 27행 대조(L3 라벨 10·API 5·파일↔API 9·성분코드 3): 일치 21, 등급 일치·고시일자 다름 4, 고시일자 다름(병기 대상) 1, 참고 1, **값 차이 0**. M1은 고치지 않았다.
-- 2026-11-05 · 5단계 완료: `scripts/mock/llm_cache.py`(record/replay/off, 평가 실행 `MEDIAGENT_EVAL=1`이면 강제 off). 가짜 fetch 시험 7개와 Haiku 실호출 1건(+둘째 호출 적중)으로 `selftest` 통과. 누적 Anthropic 비용 2.717269 → 2.717350 USD(+0.000081).
-- 2026-11-05 · 4단계 완료: `scripts/mock/replay_check.py` → `SCENARIO_COVERAGE.md`. 단계 39개 중 재현 36·미재현 0·해당 없음 3(S4 금기, S6b 금기, S7). 첫 실행의 미재현 2건은 점검 코드 쪽 오류(산500 제품명 끝 공백이 해시를 바꿈, 에소메졸 라벨 절 이름 가정)였고 고쳤다.
+- 2026-11-05 · 6단계 완료: `evaluation/mock_gen/m1_diff.py` → `data/mock/api_snapshots/M1_DIFF.md`. M1 인용 27행 대조(L3 라벨 10·API 5·파일↔API 9·성분코드 3): 일치 21, 등급 일치·고시일자 다름 4, 고시일자 다름(병기 대상) 1, 참고 1, **값 차이 0**. M1은 고치지 않았다.
+- 2026-11-05 · 5단계 완료: `evaluation/mock_gen/llm_cache.py`(record/replay/off, 평가 실행 `MEDIAGENT_EVAL=1`이면 강제 off). 가짜 fetch 시험 7개와 Haiku 실호출 1건(+둘째 호출 적중)으로 `selftest` 통과. 누적 Anthropic 비용 2.717269 → 2.717350 USD(+0.000081).
+- 2026-11-05 · 4단계 완료: `evaluation/mock_gen/replay_check.py` → `SCENARIO_COVERAGE.md`. 단계 39개 중 재현 36·미재현 0·해당 없음 3(S4 금기, S6b 금기, S7). 첫 실행의 미재현 2건은 점검 코드 쪽 오류(산500 제품명 끝 공백이 해시를 바꿈, 에소메졸 라벨 절 이름 가정)였고 고쳤다.
 - 2026-11-05 · 3단계 완료(확보 실행): identify 21 + items 112(+4쪽 1) + ingr 58 + permit 36 = **HTTP 요청 228건, 오류 0, 403/429 없음**. 한 번 실행 상한 600 대비 최대 112건.
-- 2026-11-05 · 2단계 완료: `scripts/mock/api_snapshot.py`(요청 해시 캐시, 지연 0.3초, 재시도 ≤2, 상한 600, 403/429·오류율 20% 초과 시 중단). 스냅샷·manifest에 serviceKey 없음.
+- 2026-11-05 · 2단계 완료: `evaluation/mock_gen/api_snapshot.py`(요청 해시 캐시, 지연 0.3초, 재시도 ≤2, 상한 600, 403/429·오류율 20% 초과 시 중단). 스냅샷·manifest에 serviceKey 없음.
 - 2026-11-05 · 1단계 완료: 약 목록 확정(§4.1). 가상 약 `라모시넥스`는 e약은요·DUR 품목정보·허가 목록 모두 0건.
 - 2026-11-05 · 결정 RFP-32-01 A·02 A 반영, 별도 pane(`python-expert`)에서 확보 작업 시작. 순서: 약 목록 확정 → API 스냅샷 래퍼 → 확보 실행 → 시나리오 오프라인 재현 점검 → LLM 캐시 → RFP-31 M1 값 대조.
 - 2026-11-05 · 티켓 작성. 사용자 설명으로 RFP-31이 의도와 달랐음을 확인하고(§1) 결정 RFP-32-01·02를 올림. 답을 받으면 별도 pane에서 확보 작업을 시작한다.
 
 ## 9. 결과 보고
-> 2026-11-05 작성(`python-expert` pane). 수치는 `mock/api_snapshots/manifest.jsonl`·`runs.jsonl`·`SCENARIO_COVERAGE.json`·`M1_DIFF.md`와 `mock/calls.jsonl`에서 직접 센 값이다. 스냅샷은 **로컬 전용·개발용**이며 서비스 근거 데이터가 아니다.
+> 2026-11-05 작성(`python-expert` pane). 수치는 `data/mock/api_snapshots/manifest.jsonl`·`runs.jsonl`·`SCENARIO_COVERAGE.json`·`M1_DIFF.md`와 `data/mock/calls.jsonl`에서 직접 센 값이다. 스냅샷은 **로컬 전용·개발용**이며 서비스 근거 데이터가 아니다.
 
 ### 9.1 확보한 응답
 | 서비스 | 응답 파일 수 | 0건 응답 | 데이터 있는 응답 | 크기 |
@@ -160,12 +160,12 @@ done: 2026-11-05
 - 평가 시험셋 후보 `data/credit_use/pool_test.jsonl`은 열지 않았다.
 
 ### 9.6 확인하지 못한 것
-- 공공 API 응답 원문의 재배포·이용 조건(법률 검토 보류). 스냅샷은 `mock/`에만 있고 커밋하지 않는다.
+- 공공 API 응답 원문의 재배포·이용 조건(법률 검토 보류). 스냅샷은 `data/mock/`에만 있고 커밋하지 않는다.
 - 응답이 시간이 지나면 바뀌는지(스냅샷은 2026-11-05 12:1x~12:2x 조회분).
 - `NOTIFICATION_DATE`와 KIDS 고시일자의 기준이 같은지(§9.3 1~3).
 - `llm_cache.py`를 실제 OpenAI 호출(`gpt-6-luna`)에 연결한 시험은 하지 않았다(`cached_call`의 `fetch` 자리에 끼우는 구조만 검증).
-- 인증키·연결 문자열 검색: 환경변수 값 11개(원문·퍼센트 인코딩)와 `serviceKey=`·`postgres://`·`sk-`·JWT 패턴을 `mock/api_snapshots`·`mock/llm_cache`·`scripts/mock`·`mock/calls.jsonl`·이 티켓, 모두 261개 파일에서 검색해 **값 발견 0건**(`api_snapshot.py`의 URL 조립 코드 `serviceKey=`만 걸리며 값이 아님).
+- 인증키·연결 문자열 검색: 환경변수 값 11개(원문·퍼센트 인코딩)와 `serviceKey=`·`postgres://`·`sk-`·JWT 패턴을 `data/mock/api_snapshots`·`data/mock/llm_cache`·`scripts/mock`·`data/mock/calls.jsonl`·이 티켓, 모두 261개 파일에서 검색해 **값 발견 0건**(`api_snapshot.py`의 URL 조립 코드 `serviceKey=`만 걸리며 값이 아님).
 
 ### 9.7 산출물
-`scripts/mock/api_snapshot.py`, `scripts/mock/replay_check.py`, `scripts/mock/llm_cache.py`, `scripts/mock/m1_diff.py`(커밋 대상 스크립트) / `mock/api_snapshots/`(응답 228개, `manifest.jsonl`, `runs.jsonl`, `targets.json`, `ingr_codes.json`, `SCENARIO_COVERAGE.md|json`, `M1_DIFF.md`, `s8_error_samples/`), `mock/llm_cache/`(로컬 전용).
-- 2026-11-05 종결(메인 pane 확인): `mock/api_snapshots/manifest.jsonl`을 직접 읽어 **HTTP 요청 228건·오류 0·상태 200 전부**(서비스별 e약은요 19·DUR 품목 120·DUR 성분 58·허가정보 31)와 0건 응답 125건, 인증키·연결 문자열 검색 0건을 독립적으로 확인했다. 시나리오 재현 36/39(미재현 0, 해당 없음 3), M1 값 차이 0. 새 발견(성분 API 병용금기는 A쪽 성분 기준이라 양쪽을 모두 조회해야 함, e약은요에 전문의약품 없음)은 BE-03·AG-02·BE-02에 메모했다.
+`evaluation/mock_gen/api_snapshot.py`, `evaluation/mock_gen/replay_check.py`, `evaluation/mock_gen/llm_cache.py`, `evaluation/mock_gen/m1_diff.py`(커밋 대상 스크립트) / `data/mock/api_snapshots/`(응답 228개, `manifest.jsonl`, `runs.jsonl`, `targets.json`, `ingr_codes.json`, `SCENARIO_COVERAGE.md|json`, `M1_DIFF.md`, `s8_error_samples/`), `data/mock/llm_cache/`(로컬 전용).
+- 2026-11-05 종결(메인 pane 확인): `data/mock/api_snapshots/manifest.jsonl`을 직접 읽어 **HTTP 요청 228건·오류 0·상태 200 전부**(서비스별 e약은요 19·DUR 품목 120·DUR 성분 58·허가정보 31)와 0건 응답 125건, 인증키·연결 문자열 검색 0건을 독립적으로 확인했다. 시나리오 재현 36/39(미재현 0, 해당 없음 3), M1 값 차이 0. 새 발견(성분 API 병용금기는 A쪽 성분 기준이라 양쪽을 모두 조회해야 함, e약은요에 전문의약품 없음)은 BE-03·AG-02·BE-02에 메모했다.

@@ -21,10 +21,10 @@
 | RFP 기록 | [PJ2-RFP.md 5.2절](PJ2-RFP.md#52-사전-주간-api-실측-확인과-실현-가능성-rfp-21) | 실측 결과와 실현 가능성 판정 |
 | 서비스별 응답 요약 | [PJ2-API-응답확인.md](PJ2-API-응답확인.md) | 오퍼레이션, 건수, 키 상태 |
 | e약은요 명세 정리본 | [IROS_239_e약은요_서비스_v1.0.md](IROS_239_e약은요_서비스_v1.0.md#3-실제-응답-확인-결과-2026-11-01) | 원문 오류 8건을 실제 응답과 대조 |
-| 목 픽스처 | [tests/fixtures/api/](../tests/fixtures/api/) | 실제 응답 12건. [manifest.json](../tests/fixtures/api/manifest.json)이 목록 |
-| 필드 조사 | [field_survey.json](../tests/fixtures/api/field_survey.json) | 오퍼레이션별 필드 이름·타입·채움 비율 |
-| 캡처 스크립트 | [capture_fixtures.py](../scripts/api_probe/capture_fixtures.py) | 픽스처를 다시 만든다 |
-| FastAPI 목 | [app.py](../scripts/api_probe/app.py)의 `/mock`, `/mock/{service}/{case}` | API 호출·한도 없이 픽스처를 돌려줌 |
+| 목 픽스처 | [backend/tests/fixtures/api/](../backend/tests/fixtures/api/) | 실제 응답 12건. [manifest.json](../backend/tests/fixtures/api/manifest.json)이 목록 |
+| 필드 조사 | [field_survey.json](../backend/tests/fixtures/api/field_survey.json) | 오퍼레이션별 필드 이름·타입·채움 비율 |
+| 캡처 스크립트 | [capture_fixtures.py](../backend/scripts/api_probe/capture_fixtures.py) | 픽스처를 다시 만든다 |
+| FastAPI 목 | [app.py](../backend/scripts/api_probe/app.py)의 `/mock`, `/mock/{service}/{case}` | API 호출·한도 없이 픽스처를 돌려줌 |
 
 ## 2. 공통 응답 구조
 
@@ -154,22 +154,22 @@ KIDS 파일(성분코드 100501ATE 형식, 제품코드) ── ? ──▶ DUR 
 
 ## 7. 목 픽스처 12건
 
-각 서비스에서 실제 호출 3건씩이다(`tests/fixtures/api/manifest.json`, 캡처 2026-11-01).
+각 서비스에서 실제 호출 3건씩이다(`backend/tests/fixtures/api/manifest.json`, 캡처 2026-11-01).
 
 | 서비스 | 사례(파일) | 호출 | 보여 주는 것 |
 |---|---|---|---|
-| e약은요 | [eyak/hit_tylenol](../tests/fixtures/api/eyak/hit_tylenol.json) | `itemName=타이레놀` | 정상 응답(7건), 문장형 필드 7개, 일부 null |
-| e약은요 | [eyak/empty_rx_methotrexate](../tests/fixtures/api/eyak/empty_rx_methotrexate.json) | `itemName=메토트렉세이트` | 0건 응답에 `items` 키가 없음 |
-| e약은요 | [eyak/page2_no_filter](../tests/fixtures/api/eyak/page2_no_filter.json) | `pageNo=2` | 전체 4,746건과 페이지 이동 |
-| 품목정보 | [dur-item/product_tylenol](../tests/fixtures/api/dur-item/product_tylenol.json) | `getDurPrdlstInfoList03` | 품목 필드 25개, 영문 월 날짜, 키 이름 공백 |
-| 품목정보 | [dur-item/age_taboo_tylenol](../tests/fixtures/api/dur-item/age_taboo_tylenol.json) | `getSpcifyAgrdeTabooInfoList03` | 제한 필드 21개, 고시일자, 문장형 내용 |
-| 품목정보 | [dur-item/usjnt_methotrexate_injection](../tests/fixtures/api/dur-item/usjnt_methotrexate_injection.json) | `getUsjntTabooInfoList03`, `itemSeq` | 병용 쌍 43개 필드, A/`MIXTURE_` 구조, 460건 |
-| 성분정보 | [dur-ingr/usjnt_itraconazole](../tests/fixtures/api/dur-ingr/usjnt_itraconazole.json) | `getUsjntTabooInfoList02`, `ingrCode=D000762` | `{"item": …}` 한 겹, 성분 쌍, 19건 |
-| 성분정보 | [dur-ingr/pwnm_grade](../tests/fixtures/api/dur-ingr/pwnm_grade.json) | `getPwnmTabooInfoList02` | 임부 등급 `GRADE`, 1,459건 |
-| 성분정보 | [dur-ingr/age_base](../tests/fixtures/api/dur-ingr/age_base.json) | `getSpcifyAgrdeTabooInfoList02` | 연령 기준 `AGE_BASE`, 233건 |
-| 허가정보 | [drug-prmsn/list_tylenol](../tests/fixtures/api/drug-prmsn/list_tylenol.json) | `getDrugPrdtPrmsnInq08`, `item_name=타이레놀` | 타이레놀 7개 품목(어린이 타이레놀 2개 포함) |
-| 허가정보 | [drug-prmsn/detail_children_tylenol_suspension](../tests/fixtures/api/drug-prmsn/detail_children_tylenol_suspension.json) | `getDrugPrdtPrmsnDtlInq08`, `item_seq=202200525` | 본문 XML 3개와 연령·체중별 용량 표 |
-| 허가정보 | [drug-prmsn/ingredients_cold_s](../tests/fixtures/api/drug-prmsn/ingredients_cold_s.json) | `getDrugPrdtMcpnDtlInq08`, `Prduct=타이레놀콜드-에스정` | 제품 → 성분 4개와 M-코드 |
+| e약은요 | [eyak/hit_tylenol](../backend/tests/fixtures/api/eyak/hit_tylenol.json) | `itemName=타이레놀` | 정상 응답(7건), 문장형 필드 7개, 일부 null |
+| e약은요 | [eyak/empty_rx_methotrexate](../backend/tests/fixtures/api/eyak/empty_rx_methotrexate.json) | `itemName=메토트렉세이트` | 0건 응답에 `items` 키가 없음 |
+| e약은요 | [eyak/page2_no_filter](../backend/tests/fixtures/api/eyak/page2_no_filter.json) | `pageNo=2` | 전체 4,746건과 페이지 이동 |
+| 품목정보 | [dur-item/product_tylenol](../backend/tests/fixtures/api/dur-item/product_tylenol.json) | `getDurPrdlstInfoList03` | 품목 필드 25개, 영문 월 날짜, 키 이름 공백 |
+| 품목정보 | [dur-item/age_taboo_tylenol](../backend/tests/fixtures/api/dur-item/age_taboo_tylenol.json) | `getSpcifyAgrdeTabooInfoList03` | 제한 필드 21개, 고시일자, 문장형 내용 |
+| 품목정보 | [dur-item/usjnt_methotrexate_injection](../backend/tests/fixtures/api/dur-item/usjnt_methotrexate_injection.json) | `getUsjntTabooInfoList03`, `itemSeq` | 병용 쌍 43개 필드, A/`MIXTURE_` 구조, 460건 |
+| 성분정보 | [dur-ingr/usjnt_itraconazole](../backend/tests/fixtures/api/dur-ingr/usjnt_itraconazole.json) | `getUsjntTabooInfoList02`, `ingrCode=D000762` | `{"item": …}` 한 겹, 성분 쌍, 19건 |
+| 성분정보 | [dur-ingr/pwnm_grade](../backend/tests/fixtures/api/dur-ingr/pwnm_grade.json) | `getPwnmTabooInfoList02` | 임부 등급 `GRADE`, 1,459건 |
+| 성분정보 | [dur-ingr/age_base](../backend/tests/fixtures/api/dur-ingr/age_base.json) | `getSpcifyAgrdeTabooInfoList02` | 연령 기준 `AGE_BASE`, 233건 |
+| 허가정보 | [drug-prmsn/list_tylenol](../backend/tests/fixtures/api/drug-prmsn/list_tylenol.json) | `getDrugPrdtPrmsnInq08`, `item_name=타이레놀` | 타이레놀 7개 품목(어린이 타이레놀 2개 포함) |
+| 허가정보 | [drug-prmsn/detail_children_tylenol_suspension](../backend/tests/fixtures/api/drug-prmsn/detail_children_tylenol_suspension.json) | `getDrugPrdtPrmsnDtlInq08`, `item_seq=202200525` | 본문 XML 3개와 연령·체중별 용량 표 |
+| 허가정보 | [drug-prmsn/ingredients_cold_s](../backend/tests/fixtures/api/drug-prmsn/ingredients_cold_s.json) | `getDrugPrdtMcpnDtlInq08`, `Prduct=타이레놀콜드-에스정` | 제품 → 성분 4개와 M-코드 |
 
 W1에서 클라이언트 단위 테스트는 이 파일들을 입력으로 쓰고, 개발 중에는 FastAPI `/mock`으로 API 호출 없이 돌릴 수 있다. 평가는 파일 기준이라 API를 끈다는 원칙(RFP 5.1절 (7))과도 맞는다.
 
