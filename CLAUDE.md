@@ -111,7 +111,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 - 내려받은 원본 데이터는 `data/`에 둔다. `data/`는 `.gitignore` 대상이며 커밋하지 않는다. 용량이 크고(병용금기 JSON 약 540MB), 라이선스가 "공공저작물 제2유형(출처표시, 상업적 이용금지)"이라 저장소로 재배포하지 않는다.
 - 현재 파일(`data/`, 2026-11-05 기준)은 한국의약품안전관리원의 [임부금기약물](https://www.data.go.kr/data/15089735/fileData.do) CSV, [병용금기약물(AI 학습용)](https://www.data.go.kr/data/15161282/fileData.do) JSON, 연령금기·용량주의·수유부주의 CSV, 임부금기 항목정의서 xlsx, 건강보험심사평가원 DUR 품목리스트 CSV 5종, 고시·별표 PDF와 추출 텍스트, 약사법 시행규칙 제18조 발췌 PDF(보건복지부령 제1181호, 시행 2026-06-21)와 약사법 제28조 제2항 발췌 PDF(`약사법_제2항.pdf`, 시행 2026-10-08)와 추출본(`약사법_*_추출.txt`, 2026-11-06 사용자 제공), API 샘플(`data/api_samples/`), 평가 후보 풀(`data/credit_use/`)이다. 두 데이터의 최신 고시일이 2026-07-21이라 이날을 기준일로 본다.
 - 읽을 때 주의한다. 임부금기 CSV는 **CP949** 인코딩이고, 병용금기 JSON은 크므로 한 번에 읽지 말고 스트리밍으로 처리한다. 임부금기의 `금기등급` 1·2는 고시 「의약품 병용금기 성분 등의 지정에 관한 규정」 제3조 제3호의 정의를 따른다. `M`은 고시에 없고 건강보험심사평가원 「기능과 역할」(2021~2026년판 여섯 판)만 "상병에 따른 1등급 또는 2등급"이라고 설명한다. 모델은 이 설명만 인용하고 등급은 상세정보 문구를 그대로 전달하며, 처방·조제 사유 코드의 M(유·조산 치료)과 혼동하지 않는다(RFP-17의 "M 처리 규칙").
-- 고시 전문 PDF는 `P2-doc/`에 두고 커밋한다. 정부 고시는 일반적으로 저작권 보호 대상이 아니라고 보지만 법률 검토는 거치지 않았다. PDF 텍스트 추출은 `scripts/pdf_to_text.swift`(macOS PDFKit)로 한다.
+- 고시 전문 PDF는 `data/`에 둔다(로컬 전용, 커밋하지 않는다). 추출 텍스트 정리본(`P2-doc/MFDS_병용금기_지정규정_고시.md` 등 마크다운)은 `P2-doc/`에 커밋한다. 정부 고시의 저작권·재배포 문제는 법률 검토를 거치지 않았으므로 PDF 원본은 저장소에 올리지 않는다(2026-11-09 사용자 결정). PDF 텍스트 추출은 `scripts/pdf_to_text.swift`(macOS PDFKit)로 한다.
 - 이 데이터를 쓴 답변과 문서에는 출처(한국의약품안전관리원)와 기준일을 표시한다.
 - **`data/mock/`는 로컬 전용이다**(`.gitignore` 대상, RFP-31). W1 개발·테스트용으로 LLM 결과를 미리 만들어 둔 합성·가상 데이터이며, 생성 비용은 **누적 20 USD 상한**을 `evaluation/mock_gen/_common.py`가 코드로 강제한다. 생성 스크립트(`evaluation/mock_gen/`)는 커밋하고 결과(`data/mock/`)는 커밋하지 않는다. 평가 측정 값으로 쓰지 않는다.
 
@@ -190,8 +190,9 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 ```
 P2-Medi/
 ├── CLAUDE.md, schedule.md, schedule-done.md, schedule-changelog.md   일정·지침 (커밋)
-├── tickets/            티켓 (doc/ backend/ frontend/ agent/ issues/)       (커밋)
-├── P2-doc/             RFP·PRD·설계 문서·고시 PDF                           (커밋)
+├── tickets/            티켓 (doc/ backend/ frontend/ agent/)                (커밋)
+│   └── issues/         화면 이슈 이미지 ISSUE-nnn.png                      (로컬 전용, 커밋 안 함)
+├── P2-doc/             RFP·PRD·설계 문서·고시 추출 정리 md                  (커밋)
 │   └── report/         스프린트 보고서 등 리포트 md+PDF 한 쌍               (로컬 전용, 커밋 안 함)
 ├── backend/            런타임 서버 (FastAPI)                                (커밋)
 │   ├── app/{api,db,tools,agent}/   BE 티켓(api·db·tools), AG 티켓(agent)
@@ -211,5 +212,6 @@ P2-Medi/
 
 - **성격 구분**: `scripts/`는 일정·문서·PDF를 다루는 **거버넌스 도구**만 둔다. 서비스가 도는 코드는 `backend/`(런타임), 측정·평가·mock 생성은 `evaluation/`, 화면은 `frontend/`에 둔다.
 - **코드 위치 규칙**: `backend/app/agent` = AG 티켓(그래프·노드·Router·Validator·Guardrail), `backend/app/{api,db,tools}` = BE 티켓(엔드포인트·DB·공공 API 도구), `evaluation/` = 평가·mock 생성(AG-04·AG-11~14·BE-08 계열), `frontend/` = FE 티켓.
-- **로컬 전용(`.gitignore` 대상)**: `data/`(원본 데이터와 `data/mock/`), `P2-doc/report/`, `logs/`. `.env`와 함께 커밋하지 않는다. `.gitignore` 수정은 `git-actor`가 한다.
+- **로컬 전용(`.gitignore` 대상)**: `data/`(원본 데이터와 `data/mock/`), `P2-doc/report/`, `logs/`, `tickets/issues/`. `.env`와 함께 커밋하지 않는다. `.gitignore` 수정은 `git-actor`가 한다.
+- **`tickets/issues/`(화면 이슈 이미지)는 로컬 전용이다**(2026-11-09 사용자 결정, 이유: git 용량 때문에 이미지 파일을 제어). PNG 15개(약 4.9MB)는 로컬에 남기고 추적을 해제하며 `.gitignore` 추가는 `git-actor`가 한다. 티켓(PRD-09~PRD-15)의 `tickets/issues/ISSUE-nnn.png` 링크는 로컬 전용 파일이라 저장소에서 클론하면 열리지 않는다. 디자인 세션 등에 공유할 때는 로컬 파일을 첨부한다.
 - 새 폴더를 만들거나 위 규칙과 다른 곳에 코드를 두려면 먼저 결정 번호를 올린다.
