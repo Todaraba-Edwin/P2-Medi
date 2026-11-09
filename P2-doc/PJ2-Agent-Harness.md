@@ -205,9 +205,16 @@ def post_tool_use(call, result, ctx) -> tuple[ToolMessage, dict]:
 | `UNIDENTIFIED` | "약을 찾지 못해 확인하지 못함" + 다시 쓸 이름 안내 |
 | `NO_EVIDENCE` | "근거 문장을 찾지 못함" |
 | `NO_PRODUCT_INFO` | "제품 단위 정보(제품 연령 문장·허가 라벨·제형) 없음. 봉투의 제품명을 알려 주시면 더 확인할 수 있어요" |
-| `EASY_TEXT_MISSING` | "쉬운 설명 없음(허가사항 원문)" |
+| `EASY_TEXT_MISSING` | "{약 이름}은 전문의약품이라 쉬운 설명(e약은요)이 없어서 허가사항 원문을 그대로 보여 드려요"(PRD-10-04, `EASY_TEXT_MISSING_NOTE`). 허가 상세 원문이 있을 때의 안내 한 줄이다 |
+| 미확보 `OUT_OF_SCOPE` | `MISSING_OUT_OF_SCOPE`: "{약 이름}은 전문의약품이라 이 서비스가 쓰는 공공 자료로는 설명을 확인할 수 없어요(서비스의 한계예요)" + 약사 확인 권고 |
+| 미확보 `ABSENT` | `MISSING_ABSENT`: "{약 이름} 허가사항에는 이 항목이 따로 적혀 있지 않아요" + 약사 확인 권고 |
+| 미확보 `FETCH_FAIL` | `MISSING_FETCH_FAIL`: "지금은 허가사항을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요" + 약사 확인 권고 |
+| 미확보 `SEARCH_MISS`(`NO_EVIDENCE`) | `MISSING_SEARCH_MISS`: "허가사항에서 관련 문장을 찾지 못했어요" + 약사 확인 권고 |
+| `source_kind` 표지 | `API_DIRECT` "공식 자료에서 직접 가져왔어요", `FILE` "공식 파일 기준이에요", `CORPUS_QUOTE` "공식 문서에서 찾은 문장이에요"(쉬운 말, 내부 용어 없음, 후보) |
 | `FILE_ONLY`·`API_ONLY`·`API_SAME` | PJ2-RFP.md 5.1절 (7)의 문구 |
 | `API_FAIL`·`API_PAIR_INCOMPLETE` | "실시간 확인을 하지 못함"(파일 기준 답은 그대로) |
+
+- **미확보 사유 코드와 권고 필수 규칙(PRD-11, 2026-11-09, H26·H27)**: 허가사항 원문 미확보는 `missing_reason` 4종(`ABSENT`·`FETCH_FAIL`·`SEARCH_MISS`·`OUT_OF_SCOPE`)으로 구분해 도구가 돌려주고(`SEARCH_MISS`는 `NO_EVIDENCE`와 함께), `finalize`가 위 표의 상수를 렌더한다. **화면·mock·프로토타입의 문구도 이 상수에서만 나온다**(상수에 없는 일반 실패 문구 "원문을 가져오지 못했어요"는 폐기, 사용자 지적). 미확보 항목마다 **약국·약사 확인 권고를 코드가 필수로 붙이고**(접히지 않음, 강조 색 박스) 어느 경우에도 "상호작용 없음·안전"을 암시하지 않는다. 권고 문구 존재와 암시 부재는 `validator`가 코드로 검사한다. 화면 대응표는 `tickets/doc/PRD-11.md` §6.6·§6.7이다.
 
 ### 3.5 상태 필드 추가안
 RFP-23 §4.4 상태 필드에 더하는 안이다(기존 필드는 그대로). LangGraph에서 reducer가 없는 키는 마지막 값으로 덮어쓴다고 알고 있지만 문서로 확인하지 못했다(10장). 그래서 새 키는 모두 갱신 방식을 적는다. 하네스 상태는 **요청 범위**다(PRD-07-01 A, RFP-35 점검 2026-11-07): 서버는 요청마다 상태를 새로 만들고 요청이 끝나면 버린다. 대화 상태는 브라우저 메모리에만 있고, 되묻기 카드 다음 턴에는 브라우저가 필요한 값(되묻기 선택값, 이미 말한 나이·임신 여부)을 요청 입력 묶음에 실어 보낸다. 앞 턴의 `known_ids`·`harness_events`는 다음 요청으로 넘어가지 않는다. LangGraph의 `thread_id`·메모리 checkpointer를 쓴다면 한 요청 안의 그래프 실행에만 쓴다(RFP-22 §8, 대화 비저장).
