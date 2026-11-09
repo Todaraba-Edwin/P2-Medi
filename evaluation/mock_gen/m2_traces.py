@@ -321,6 +321,6 @@ vc = Counter(c["expected_verdict"]["verdict"] for c in cases)
     "L1:...": "고시 조문(search_notice)", "L2:{종류}:{코드|고시번호}": "금기 사유(search_reason)", "L3:{품목기준코드}:{atpn|intrc|use|efcy}": "라벨 청크(search_label/get_label_section)"},
     "assumption": "청크 ID 형식은 이 mock이 정한 가정이다. 실제 형식은 BE-04·05 구현에서 정해진다."}, ensure_ascii=False, indent=2), encoding="utf-8")
 meta.write_manifest(d, SET, VER, ["code"], {"generator": meta.sha(open(__file__).read())}, {"total": len(cases), "by_case_type": dict(cnt), "by_verdict": dict(vc)}, 0.0,
-                    notes={"schema": "tickets/doc/RFP-26.md §7.6", "scorer": "scripts/mock/trajectory.py", "source_pool": "data/credit_use/pool_dev.jsonl (개발셋, 읽기 전용)",
+                    notes={"schema": "tickets/doc/RFP-26.md §7.6", "scorer": "evaluation/mock_gen/trajectory.py", "source_pool": "data/credit_use/pool_dev.jsonl (개발셋, 읽기 전용)",
                            "verification": "각 사례의 의도한 판정과 독립 채점기 판정이 일치하는지 생성 시 assert로 확인함"})
 print(len(cases), dict(vc), dict(cnt))

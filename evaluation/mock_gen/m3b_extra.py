@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import _common as C, meta, judge_schema as S  # noqa: E402
 import m3_judge as M  # noqa: E402
-assert Path(C.__file__).parent.name == "mock" and C.CAP_USD == 20.0
+assert Path(C.__file__).parent.name == "mock_gen" and C.CAP_USD == 20.0
 
 VER, SET = "m3-v1", "judge_outputs"
 d = meta.OUT / SET

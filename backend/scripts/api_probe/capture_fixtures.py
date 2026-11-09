@@ -2,7 +2,7 @@
 
 저장 위치: tests/fixtures/api/<service>/<case>.json (응답 본문 그대로, 인증키 없음)
           tests/fixtures/api/manifest.json (사례 목록), tests/fixtures/api/field_survey.json (오퍼레이션별 필드 조사)
-사용: .venv/bin/python scripts/api_probe/capture_fixtures.py
+사용: .venv/bin/python backend/backend/scripts/api_probe/capture_fixtures.py
 키는 .env의 환경변수로만 읽고 어디에도 쓰지 않는다. 저장 뒤 키 문자열이 파일에 없는지 스스로 검사한다.
 """
 import json

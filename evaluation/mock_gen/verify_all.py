@@ -1,5 +1,5 @@
 """mock 5개 세트(M1~M5)를 처음부터 다시 검증하고, 세트별 비용을 호출 기록(mock/calls.jsonl)에서 집계해 manifest에 반영한다. API 호출 없음.
-사용법: python scripts/mock/verify_all.py   → mock/verify_report.json
+사용법: python evaluation/mock_gen/verify_all.py   → mock/verify_report.json
 """
 import collections, json, re, subprocess, sys
 from pathlib import Path
@@ -93,7 +93,7 @@ for sdir, key in (("chat_responses", "M1"), ("judge_outputs", "M3"), ("question_
     m["cost_note"] = "mock/calls.jsonl의 태그(m1-/m3-/m4-/m5-) 합계. 디버그 호출과 재생성 비용 포함"
     if key == "M3":
         m["counts"].update(total=len(j), valid_main=len(valid) - len(extra), valid_extra=len(extra), label_mismatch_vs_construction=rep["M3"]["label_mismatch_vs_construction"], extra_mismatch=rep["M3"]["extra_mismatch"])
-        m["extra_file"] = "judge_outputs_extra.jsonl (scripts/mock/m3b_extra.py: J4 경계 사례(RFP-28-01)·J1(M1 요약/M5 결함 답변)·J5(M1 근거 없음))"
+        m["extra_file"] = "judge_outputs_extra.jsonl (evaluation/mock_gen/m3b_extra.py: J4 경계 사례(RFP-28-01)·J1(M1 요약/M5 결함 답변)·J5(M1 근거 없음))"
         m["rubric_wording_note"] = ("본 파일(dry 시험 기반)은 사전 시험의 dry1 문구로 채점했다. RFP-26 §7.5 J1 경계 사례 ③(조회 결과의 부정도 근거로 센다)이 프롬프트에 없어 "
                                     "extra의 J1 중 '목록에 없음' 주장이 unsupported로 판정된 사례가 있다 → judge 보정(RFP-26-03) 때 확인할 것")
     mf.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -316,9 +316,9 @@ for src, text, own in [("schedule.md", s, None)] + [(m_["path"], m_["text"], i) 
                 errors.append(f"{src}:{n}: '{m_.group(0)}' != 실제 대기 {exp}건")
         off += len(line) + 1
 
-# 리포트(report/): md와 pdf는 한 쌍(CLAUDE.md 6장)
+# 리포트(P2-doc/report/): md와 pdf는 한 쌍(CLAUDE.md 6장)
 import pathlib
-rep = pathlib.Path("report")
+rep = pathlib.Path("P2-doc/report")
 if rep.is_dir():
     for md in sorted(rep.glob("*.md")):
         pdf = md.with_suffix(".pdf")

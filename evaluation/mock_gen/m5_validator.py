@@ -4,13 +4,13 @@
 - 실패 쌍: 통과 쌍에 '결함'을 코드로 주입한다. 해로운 문장(안전 단정·복용 지시·중단/감량·의료진 우회)은 모델에 맡기지 않고
   사람이 쓰듯 코드 템플릿으로 고정했다(RFP-28 §7 8번: Haiku가 불량 견본을 일부 거부). 모델(Haiku 4.5)은 '근거에 없는 일반 상식 문장'만 쓴다.
 - 기대 판정은 만들 때 정해지고, 별도의 규칙 탐침(validator_probe.py)이 규칙으로 재현되는지 확인한다. 의미 판단이 필요한 위반은 detectable_by_rules=false.
-사용법: python scripts/mock/m5_validator.py [--no-llm]
+사용법: python evaluation/mock_gen/m5_validator.py [--no-llm]
 """
 import argparse, copy, json, random, re, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import _common as C, facts as F, meta, chat_checks as K, validator_probe as VP  # noqa: E402
-assert Path(C.__file__).parent.name == "mock" and C.CAP_USD == 20.0
+assert Path(C.__file__).parent.name == "mock_gen" and C.CAP_USD == 20.0
 
 VER, SET = "m5-v1", "validator_pairs"
 rnd = random.Random(20261105)
@@ -398,7 +398,7 @@ def main():
                         tag_cost("m5-"),
                         notes=dict(schema="pair = bundle.chunks(id·layer·text) + sentences(idx·section·text·type·cited_ids·is_quote) + expected(verdict·violations(sentence_idx·code)·action·must_not_appear_in_output)",
                                    violation_codes=sorted({v["code"] for p in pairs for v in p["expected"]["violations"]}), layer_matrix=VP.ALLOWED, tier="baseline=AG-07 기준선 조건, improve=(개선) 조건",
-                                   harmful_sentence_source="고정 템플릿(사람이 쓰듯 코드에 둠). 모델 생성 아님", probe="scripts/mock/validator_probe.py (규칙 참조 구현, AG-07 구현 아님)"))
+                                   harmful_sentence_source="고정 템플릿(사람이 쓰듯 코드에 둠). 모델 생성 아님", probe="evaluation/mock_gen/validator_probe.py (규칙 참조 구현, AG-07 구현 아님)"))
     print("쌍", len(pairs), "통과", len(passes), "실패", len(fails), dict(cat))
     print("탐침 불일치", len(mism))
     byc = {}

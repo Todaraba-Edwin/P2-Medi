@@ -1,13 +1,13 @@
 """약봉투 사진 약 이름 추출 작은 시험(PRD-08-02 A 후보: Claude Haiku 4.5 비전).
 
 사용:
-    .venv/bin/python scripts/mock/vision_pouch_test.py run      # API 호출(이미지 4장 x 3회), results.json 저장
-    .venv/bin/python scripts/mock/vision_pouch_test.py run --upscale  # 보조 조건: 메모리에서 긴 변 1400px로 확대해 보냄
-    .venv/bin/python scripts/mock/vision_pouch_test.py grade [--upscale]  # 호출 없이 채점만 다시
-    .venv/bin/python scripts/mock/vision_pouch_test.py lookup   # 호출 없이 로컬 DUR CSV·허가정보 스냅샷에서 이름 포함 일치
-    .venv/bin/python scripts/mock/vision_pouch_test.py suggest  # 호출 없이 추출 이름별 사전 후보 top-5에 정답이 드는지
-    .venv/bin/python scripts/mock/vision_pouch_test.py probe --provider openai   # gpt-6-luna 이미지 입력 지원 확인(1회)
-    .venv/bin/python scripts/mock/vision_pouch_test.py run [--upscale] --provider openai  # gpt-6-luna로 같은 시험
+    .venv/bin/python evaluation/mock_gen/vision_pouch_test.py run      # API 호출(이미지 4장 x 3회), results.json 저장
+    .venv/bin/python evaluation/mock_gen/vision_pouch_test.py run --upscale  # 보조 조건: 메모리에서 긴 변 1400px로 확대해 보냄
+    .venv/bin/python evaluation/mock_gen/vision_pouch_test.py grade [--upscale]  # 호출 없이 채점만 다시
+    .venv/bin/python evaluation/mock_gen/vision_pouch_test.py lookup   # 호출 없이 로컬 DUR CSV·허가정보 스냅샷에서 이름 포함 일치
+    .venv/bin/python evaluation/mock_gen/vision_pouch_test.py suggest  # 호출 없이 추출 이름별 사전 후보 top-5에 정답이 드는지
+    .venv/bin/python evaluation/mock_gen/vision_pouch_test.py probe --provider openai   # gpt-6-luna 이미지 입력 지원 확인(1회)
+    .venv/bin/python evaluation/mock_gen/vision_pouch_test.py run [--upscale] --provider openai  # gpt-6-luna로 같은 시험
     공통 옵션 --provider openai: gpt-6-luna(OPENAI_API_KEY). 결과·채점·원장 파일에 _luna/_openai가 붙어 Haiku 파일과 섞이지 않는다.
     공통 옵션 --labels <경로>: 정답 파일을 고른다(기본 labels_draft.json). labels_<이름>.json이면
     결과는 grade_<이름>[_upscaled].json·lookup_<이름>.json·suggest_<이름>.json으로 따로 쓴다(기존 결과를 덮어쓰지 않음).

@@ -4,17 +4,17 @@
 - LLM(Haiku 4.5)은 '쉬운 요약'의 점(point) 문장만 쓴다. 문장은 chat_checks.check_sentence로 검증하고, 위반하면 위반 사유를 알려 다시 쓰게 한다(최대 3회).
   3회 모두 실패하면 코드가 만든 대체 문장(fallback)을 쓰고 summary_source에 기록한다.
 - 도입 문장, 고정 문구, 119, 면책, 인용, 근거 상세, 후보 표는 모두 코드가 만든다.
-사용법: python scripts/mock/m1_chat.py [--only S1-core,S2] [--dry]   (--dry: LLM 없이 대체 문장만으로 구조 확인)
+사용법: python evaluation/mock_gen/m1_chat.py [--only S1-core,S2] [--dry]   (--dry: LLM 없이 대체 문장만으로 구조 확인)
 """
 import argparse, json, re, sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))  # scripts/mock 의 _common(상한 20 USD)만 쓴다. credit_use/_common 과 섞이면 안 된다.
+sys.path.insert(0, str(Path(__file__).parent))  # evaluation/mock_gen 의 _common(상한 20 USD)만 쓴다. credit_use/_common 과 섞이면 안 된다.
 import _common as C, facts as F, meta, chat_checks as K  # noqa: E402
 import importlib.util  # noqa: E402
 _sp = importlib.util.spec_from_file_location("credit_variants", Path(__file__).parent.parent / "credit_use" / "variants.py")
-V = importlib.util.module_from_spec(_sp)  # scripts/credit_use/variants.py — 오탈자 변형을 코드로(경로를 sys.path에 넣지 않고 파일로 직접 읽음)
+V = importlib.util.module_from_spec(_sp)  # evaluation/credit_use/variants.py — 오탈자 변형을 코드로(경로를 sys.path에 넣지 않고 파일로 직접 읽음)
 _sp.loader.exec_module(V)
-assert Path(C.__file__).parent.name == "mock" and C.OUT.name == "mock" and C.CAP_USD == 20.0, "잘못된 _common을 불러옴"
+assert Path(C.__file__).parent.name == "mock_gen" and C.OUT.name == "mock" and C.CAP_USD == 20.0, "잘못된 _common을 불러옴"
 
 VER, SET = "m1-v1", "chat_responses"
 MODEL = C.HAIKU
@@ -314,7 +314,7 @@ scenario(
 
 # ===== S6 오탈자·미식별·근거 없음 =====
 orig = "미프론정4mg"
-typo = V.typo(orig)  # 코드가 만든 오탈자(scripts/credit_use/variants.py)
+typo = V.typo(orig)  # 코드가 만든 오탈자(evaluation/credit_use/variants.py)
 assert typo != orig and not any(typo in n for n in F.all_names()), f"오탈자 변형 실패 또는 실제 제품명과 겹침: {typo}"
 scenario(
     id="S6a", s="S6", persona="P2", route="answer", kind="preg", question=f"{typo} 임신 중에 먹어도 돼요?", profile={"pregnant": True},

@@ -8,14 +8,14 @@
 - 키 = sha256(제공자, 모델, messages, 호출 인자, 프롬프트 파일 내용 해시). 프롬프트를 고치면 키가 달라져 캐시가 무효가 된다.
 - 저장 위치: mock/llm_cache/<키>.json (로컬 전용, .gitignore의 mock/). 환경변수 LLM_CACHE_DIR로 바꿀 수 있다(시험용).
 - 비용: 캐시 적중은 비용 0이라 원장(mock/ledger.json)·호출 기록(mock/calls.jsonl)에 쓰지 않는다.
-  실제 호출은 반드시 scripts/mock/_common.py의 call()을 거치므로 누적 20 USD 상한은 그대로 지켜진다(캐시를 끼워도 우회 불가).
+  실제 호출은 반드시 evaluation/mock_gen/_common.py의 call()을 거치므로 누적 20 USD 상한은 그대로 지켜진다(캐시를 끼워도 우회 불가).
 - 실패한 호출은 저장하지 않는다. 키·연결 문자열은 저장하지 않는다(messages와 응답 텍스트만).
 
 사용 예:
     from scripts.mock import llm_cache
     text = llm_cache.claude_call(llm_cache.HAIKU, system, user, max_tokens=300, tag="dev", prompt_files=["prompts/x.md"])
     # OpenAI 등 다른 제공자: llm_cache.cached_call("openai", "gpt-6-luna", messages, {"temperature": 0}, fetch=lambda: ..., prompt_files=[...])
-시험: .venv/bin/python scripts/mock/llm_cache.py selftest      (Haiku 2건: 첫 호출은 기록, 둘째는 적중해야 한다)
+시험: .venv/bin/python evaluation/mock_gen/llm_cache.py selftest      (Haiku 2건: 첫 호출은 기록, 둘째는 적중해야 한다)
 """
 import hashlib
 import json
