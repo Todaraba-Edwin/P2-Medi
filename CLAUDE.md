@@ -176,6 +176,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 
 - **리포트는 항상 md와 PDF 한 쌍**이다. 같은 폴더·같은 이름(`.md`, `.pdf`)으로 두고, md가 원본이며 PDF는 md에서 만든다. md만 있거나 PDF만 있으면 안 된다(`scripts/check_schedule.py`가 로컬 `P2-doc/report/`의 짝을 검사한다).
 - **`P2-doc/report/`는 로컬 전용이다**(2026-11-04 사용자 결정). `.gitignore`에 `P2-doc/report/`를 넣어 **커밋하지 않는다.** 리포트에는 내부 평가 문항·파일 제품명·비용 등 저장소에 올리지 않을 내용이 섞이기 때문이다. 로컬 파일이라 지워지면 되살릴 수 없으니 필요하면 별도로 백업한다.
+- **`P2-doc/report/presentation/`**: md 짝이 없는 산출물 PDF(발표 자료 `MediAgent 포트폴리오 발표.pdf` 등)의 위치다. 로컬 전용이며 `scripts/check_schedule.py`가 검사하지 않는 하위 폴더다(2026-11-09 사용자 결정). 발표 PDF가 저장소에 보이지 않으므로 최종본을 저장소에 올릴지는 최종본 때 정한다(PRD-05).
 - **파일 이름**: `P2-doc/report/{SCH-nn}-{주제}-{기준일 YYYY-MM-DD}.md`. 예: `P2-doc/report/SCH-00-pre-week-2026-11-04.md`. 같은 스프린트의 중간·마감 보고서는 기준일로 구분하고 이전 파일을 덮어쓰지 않는다.
 - **PDF 만들기**: `python3 scripts/make_report_pdf.py P2-doc/report/<이름>.md`(pandoc → Chrome headless, 한글 글꼴 Apple SD Gothic Neo, 필요: pandoc·Google Chrome). md를 고치면 PDF를 다시 만든다. 만든 PDF는 첫 쪽 이상을 직접 열어 글꼴·표가 깨지지 않았는지 확인한다.
 - **스프린트 보고서의 근거**는 `schedule.md`(Recap·Top 5·진행 현황), `schedule-done.md`, `schedule-changelog.md`, 각 티켓이다. 숫자는 이 파일과 `python3 scripts/check_schedule.py`, `git log`에서 직접 세고 출처를 적는다. **측정하지 않은 값은 "측정 전·잠정"으로 쓰고** 사실과 제 추정을 구분한다. 소표본은 k/n과 구간으로만 보고하며 유의성을 주장하지 않는다(5장 평가 기준 유지 규칙).
@@ -193,7 +194,7 @@ P2-Medi/
 ├── tickets/            티켓 (doc/ backend/ frontend/ agent/)                (커밋)
 │   └── issues/         화면 이슈 이미지 ISSUE-nnn.png                      (로컬 전용, 커밋 안 함)
 ├── P2-doc/             RFP·PRD·설계 문서·고시 추출 정리 md                  (커밋)
-│   └── report/         스프린트 보고서 등 리포트 md+PDF 한 쌍               (로컬 전용, 커밋 안 함)
+│   └── report/         스프린트 보고서 등 리포트 md+PDF 한 쌍, presentation/(발표 PDF) (로컬 전용, 커밋 안 함)
 ├── backend/            런타임 서버 (FastAPI)                                (커밋)
 │   ├── app/{api,db,tools,agent}/   BE 티켓(api·db·tools), AG 티켓(agent)
 │   ├── scripts/api_probe/          공공 API 응답 확인·fixture 수집

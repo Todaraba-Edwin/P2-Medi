@@ -32,7 +32,8 @@ RFP 11장 산출물 5종이 모두 준비됐는지 최종 확인한다: GitHub �
 
 ## 4. 관련
 - 선행: PRD-02, PRD-03, PRD-04, PRD-05, FE-03
-- 관련 문서: `P2-doc/PJ2-RFP.md` 11장, `P2-doc/MediAgent 포트폴리오 발표.pdf`
+- 관련 문서: `P2-doc/PJ2-RFP.md` 11장, `P2-doc/report/presentation/MediAgent 포트폴리오 발표.pdf`(로컬 전용)
 
 ## 5. 메모
+- 사용자 확인 사항(2026-11-09): 발표 PDF가 로컬 전용(`P2-doc/report/presentation/`)이라 GitHub 저장소에서 보이지 않는다. 최종 발표 PDF를 저장소에 올릴지(제출 방식)는 최종본 때 정한다.
 - 가정: `P2-doc/PJ2-RFP.md`는 이 에이전트의 쓰기 범위 밖이므로 11장 체크박스 수정은 사용자 또는 메인 세션이 한다.

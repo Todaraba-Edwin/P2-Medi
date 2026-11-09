@@ -57,7 +57,7 @@ RFP 4장 범위의 "검진 대상·주기 안내"가 기대는 비정형 문서(
 ## 6. 관련
 - 선행: 없음
 - 후속: BE-04, BE-05, AG-03, RFP-15
-- 관련 문서: `tickets/doc/RFP-01.md`의 "종결 판단" 섹션, `P2-doc/MediAgent 포트폴리오 발표.pdf` 3·4·6·7쪽, `P2-doc/PJ2-RFP.md` 4·5장
+- 관련 문서: `tickets/doc/RFP-01.md`의 "종결 판단" 섹션, `P2-doc/report/presentation/MediAgent 포트폴리오 발표.pdf`(로컬 전용) 3·4·6·7쪽, `P2-doc/PJ2-RFP.md` 4·5장
 
 ## 7. 메모
 - 시점은 SCH-01 첫머리이며 BE-04의 선행이다(2026-10-31 사용자가 RFP-01 종결 판단의 권고를 따름).
