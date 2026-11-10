@@ -575,6 +575,14 @@ API 코드는 수집 스크립트와 Tool 래퍼로 한정한다. RAG 개발·�
 
 **9.7절 3차 정정(2026-11-09, 측정 시작 전, RFP-35-09 A)**: 신뢰성 반복 3회 중 1회차를 본 측정(시험셋 150문항 × 조건) 결과로 쓰고 안전 핵심 40문항은 추가 2회만 실행한다. 그래서 에이전트 실행 수를 약 1,530회(안전 40 × 3회 × 4조건 = 480을 따로 셈)에서 약 1,370회(40 × 추가 2회 × 4조건 = 320)로, 에이전트 어림을 약 $4.8에서 약 $4.3으로, 합계를 약 $23~34에서 약 $23~33으로 고쳤다(같은 가정식, 제 추정). judge 반복분 320답은 이미 공유 기준이라 그대로다. 이유: 2차 정정까지 실행 수(반복 3회 별도)와 judge 반복분(첫 회 공유)의 기준이 달랐고(독립 재점검 V4), 공유가 비용이 덜 든다. 전제: 안전 핵심 40문항이 시험셋 150문항 안에 포함되고(AG-04 표시), 평가 모드(`MEDIAGENT_EVAL=1`)에서 LLM 캐시가 꺼져 회차가 서로 다른 실행이어야 한다(BE-08 검사). 지표 정의·목표·평가 세트·비교 조건은 바꾸지 않았고 반복의 실행 기준 표현과 예산 어림만 고쳤다.
 
+**gpt-6-luna 호출 확인 결과(2026-11-10, BE-15, 사용자 승인 하에 실호출 7회, 합계 약 $0.0003)**: 본 측정 값이 아니라 호출 확인 값이며, 9.7절의 위 어림(실행당 모델 호출 6번·토큰 가정)과 지표 정의·목표·평가 세트·비교 조건을 바꾸지 않는다.
+
+- 구조화 출력(Chat Completions `response_format` json_schema strict, AG-06 `AnswerDraft` 스키마를 strict 규칙으로 변환): 성공했다. 문장 3개, `evidence_ids`·`claim_type` 준수, finish_reason `stop`, 추론 토큰 0. 1회 측정은 입력 460토큰·출력 171토큰, 지연 약 3.4초, $0.000131이다. `AnswerDraft.model_json_schema()`는 그대로는 strict에 맞지 않아 변환과 응답 후 검증이 필요하다.
+- 병렬 도구 호출: 기본(추론 켬)은 HTTP 400이다("Function tools with reasoning_effort are not supported for gpt-6-luna in /v1/chat/completions… use /v1/responses or set reasoning_effort to 'none'"). `reasoning_effort="none"`과 `parallel_tool_calls=true`는 도구 호출 2개 성공(지연 약 2.2초, $0.000064), `false`는 1개(옵션 준수, $0.000039), 옵션 생략은 2개였다. `/v1/responses`는 시험하지 않았다.
+- 임베딩: gpt-6-luna는 임베딩 엔드포인트를 지원하지 않는다(OpenAI 모델 페이지, 2026-11-10 웹 확인). 임베딩은 `text-embedding-3-small`($0.02/100만 토큰, 1536차원)·`text-embedding-3-large`($0.13/100만 토큰)로 따로 쓴다(BE-10 비교 시험, 실호출 각 26회, small $0.0263·large $0.1711).
+- 사용자 결정(2026-11-10): 도구를 쓰는 ReAct 노드는 `reasoning_effort='none'`(Chat Completions) 방향으로 한다. 이 값이 도구 선택 품질에 미치는 영향은 AG-19에서 기준선 측정 전에 점검한다(미측정).
+- 근거 파일(로컬 전용): `data/mock/dict/luna_feature_check.json`·`_run1.json`, 스크립트 `backend/scripts/luna_feature_check.py`.
+
 
 ## 10. 일정
 
