@@ -39,7 +39,7 @@ def test_ngram_tokens_match_current_implementation() -> None:
 def test_spacing_variant_word_fails_ngram_succeeds() -> None:
     q = "게 보린정"  # 띄어쓰기 변형: 단어 토큰 [게, 보린정]은 사전 토큰 [게보린정]과 하나도 겹치지 않는다
     bm_w, qw = _index("word")
-    bm_n, qn = _index("char23")
+    bm_n, qn = _index("char2")
     assert V.rank(bm_w, qw(q)) == []
     top = V.rank(bm_n, qn(q))
     assert top and top[0] == PRODUCTS.index("게보린정")
@@ -48,7 +48,7 @@ def test_spacing_variant_word_fails_ngram_succeeds() -> None:
 def test_typo_variant_word_fails_ngram_succeeds() -> None:
     q = "판콜에이내복엑"  # 받침 치환 오탈자
     bm_w, qw = _index("word")
-    bm_n, qn = _index("char23")
+    bm_n, qn = _index("char2")
     assert V.rank(bm_w, qw(q)) == []
     assert V.rank(bm_n, qn(q))[0] == PRODUCTS.index("판콜에이내복액")
 

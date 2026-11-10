@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -25,15 +26,25 @@ from typing import Any
 
 MATCHED_BY_PRODUCT = "product_name"
 MATCHED_BY_INGREDIENT = "ingredient_name"
+MATCHED_BY_COMPONENT = "ingredient_component"  # 제품에 든 성분 하나가 KIDS 단일 성분 코드와 맞음(제품 단위 판정 아님, BE-10-06 B)
+
+# 후보의 코드 연결 상태(BE-10-06). `none`이면 조회 도구는 `NOT_LISTED`가 아니라 `UNIDENTIFIED`로 처리해야 한다.
+# (상태 변환·화면 문구는 AG-02 몫이며 이 모듈은 상태 값만 돌려준다. 코드를 못 찾은 것은 "목록에 없음"이 아니라 "확인 못 함"이다.)
+CODE_LINKED = "linked"  # 제품 단위(EDI·제품명·성분 집합 일치)로 KIDS 코드가 연결됨
+CODE_COMPONENT_ONLY = "component_only"  # 집합 일치는 아니지만 성분 단위로는 KIDS 단일 성분 코드와 연결됨
+CODE_NONE = "none"  # KIDS 코드 연결 없음 → UNIDENTIFIED(NOT_LISTED 금지)
 
 MATCH_EXACT = "exact"  # 입력 원문이 사전 이름과 같음
 MATCH_NORMALIZED = "normalized"  # 정규화 키가 같음
 MATCH_PREFIX = "prefix"  # 정규화 키가 제품명의 앞부분과 같음(브랜드명만 입력)
 MATCH_CONTAINS = "contains"  # 정규화 키가 제품명 중간에 들어 있음(3자 이상)
+MATCH_COMPONENT = "component"  # 제품 성분 하나가 KIDS 단일 성분과 일치(성분 단위 보조 조회)
 MATCH_BM25 = "bm25"  # 문자 n-gram BM25 후보(되묻기용, 자동 확정 금지)
 
 DEFAULT_DICT_PATH = Path(__file__).resolve().parents[3] / "data" / "mock" / "dict" / "drug_dict.json"
 SCHEMA_VERSION = 1
+BM25_NGRAM_SIZES = (2,)  # 문자 2-gram 단독(BE-10-07 A, 3-gram 제거). 바꾸면 사전 버전 해시가 바뀌도록 빌더가 이 값을 쓴다
+BM25_TOKENIZER = "char-ngram-" + "+".join(str(n) for n in BM25_NGRAM_SIZES)
 BM25_MIN_NORM = 0.15  # 정규화 점수가 이보다 낮은 BM25 후보는 버린다(없는 이름은 빈 결과)
 CONTAINS_MIN_LEN = 3
 
@@ -81,12 +92,49 @@ _EN_SALT_WORDS = {
     "hydrochloride", "hcl", "sulfate", "sulphate", "maleate", "fumarate", "tartrate", "citrate", "mesylate", "besylate", "tosylate",
     "succinate", "phosphate", "acetate", "nitrate", "hydrobromide", "bromide", "sodium", "potassium", "calcium", "magnesium",
     "strontium", "dihydrate", "monohydrate", "trihydrate", "tetrahydrate", "hydrate", "anhydrous", "lactate", "oxalate", "dihydrochloride",
+    "mesilate", "besilate",  # mesylate·besylate의 다른 철자(API는 mesilate도 쓴다)
 }
 _EN_BARE = {"calcium carbonate", "magnesium sulfate", "sodium sulfate", "potassium sulfate", "calcium sulfate", "calcium phosphate", "sodium phosphate",
             "potassium phosphate", "calcium acetate", "sodium acetate", "calcium citrate", "sodium citrate", "potassium citrate", "magnesium citrate"}
 _AS_RE = re.compile(r"\(\s*as\s+([^)]+)\)", re.IGNORECASE)
 _EN_STRENGTH_RE = re.compile(r"\s+[\d.,]+\s*(?:mg|g|ug|mcg|ml|i\.?u\.?|%|units?)(?![a-z]).*$", re.IGNORECASE)  # `ibuprofen 10g(20mg/mL)`의 함량 꼬리
 _EN_PAREN_RE = re.compile(r"\s*\([^)]*\)")  # `acetaminophen(encapsulated)` 같은 가공 설명
+# 원료 표기 꼬리: `X Montan Glycol Wax Mixture 40%`처럼 `Mixture nn%`와 그 앞의 담체(wax·lactose·starch 등, 수식어 2개 이내)를 뗀다.
+# 담체 단어가 없으면 `Mixture nn%`만 뗀다(`Clonixin Lysinate Mixture 50%` → `Clonixin Lysinate`, 성분 이름은 건드리지 않는다).
+_EN_MIXTURE_RE = re.compile(
+    r"\s+(?:(?:\S+\s+){0,2}(?:wax|lactose|starch|mannitol|dextrin|cellulose)\s+)?mixture\s*[\d.,]+\s*%.*$", re.IGNORECASE)
+_EN_LOCANT_RE = re.compile(r"(?<=[a-z])-\d+-(?=[a-z])", re.IGNORECASE)  # `isosorbide-5-mononitrate`의 위치 번호
+_EN_EXT_RE = re.compile(r"\bext\b\.?", re.IGNORECASE)  # `ext.` → `extract`
+_EN_SPECIES_RE = re.compile(r"\bbiloba\b\s*", re.IGNORECASE)  # `ginkgo biloba leaf` = `ginkgo leaf`(종소명 표기 차이)
+
+
+def _en_tidy(text: str) -> str:
+    """영문 원료 표기 차이를 줄인다(일반 규칙. 특정 제품명에 맞추지 않는다)."""
+    t = _EN_MIXTURE_RE.sub("", text)
+    t = _EN_LOCANT_RE.sub("-", t)
+    t = _EN_EXT_RE.sub("extract", t)
+    return " ".join(_EN_SPECIES_RE.sub("", t).split())
+
+
+_API_SPLIT_RE = re.compile(r"[/;·]")  # 허가·e약은요 영문 성분 구분자(`/`·`;`·`·`)
+
+
+def split_api_components(raw: str) -> list[str]:
+    """허가정보 영문 성분 문자열을 성분 단위로 나눈다(`Streptokinase·Streptodornase` 포함)."""
+    return [x.strip() for x in _API_SPLIT_RE.split(raw or "") if x.strip()]
+
+
+def component_keys(raw: str, sep: str = "api", kids_split: Callable[[str], list[str]] | None = None) -> list[str]:
+    """성분 문자열 → 정렬된 고유 성분 키 목록. `sep="kids"`면 `kids_split`(KIDS는 `+`·`,` 구분)으로 나눈다."""
+    parts = (kids_split(raw) if sep == "kids" and kids_split else split_api_components(raw))
+    return sorted({k for k in (ingredient_key(c) for c in parts) if k})
+
+
+def normalize_rules_signature() -> str:
+    """정규화 규칙(염 단어·정규식·구분자)의 해시. 규칙이 바뀌면 사전 버전이 바뀌게 빌더가 해시에 넣는다."""
+    parts = [sorted(_EN_SALT_WORDS), sorted(_EN_BARE), sorted(_KO_SALTS), sorted(_KO_BARE),
+             [r.pattern for r in (_EN_STRENGTH_RE, _EN_PAREN_RE, _EN_MIXTURE_RE, _EN_LOCANT_RE, _EN_EXT_RE, _EN_SPECIES_RE, _API_SPLIT_RE, _AS_RE, _STRIP_RE)]]
+    return hashlib.sha256(json.dumps(parts, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
 
 
 def split_ko_salt(name: str) -> tuple[str, str]:
@@ -112,7 +160,7 @@ def split_ko_salt(name: str) -> tuple[str, str]:
 
 def split_en_salt(name: str) -> tuple[str, str]:
     """영문 성분명 줄이기. `(as xxx)`가 있으면 그 안 이름이 본체다. 끝 토큰의 염·수화물 단어를 뗀다."""
-    text = unicodedata.normalize("NFKC", name or "").strip()
+    text = _en_tidy(unicodedata.normalize("NFKC", name or "").strip())
     m = _AS_RE.search(text)
     if m:
         return m.group(1).strip().lower(), _AS_RE.sub("", text).strip().lower()
@@ -135,7 +183,7 @@ def ingredient_key(name: str) -> str:
 
 # --------------------------------------------------------------------------- BM25(문자 n-gram)
 
-def char_ngrams(text: str, sizes: Sequence[int] = (2, 3)) -> list[str]:
+def char_ngrams(text: str, sizes: Sequence[int] = BM25_NGRAM_SIZES) -> list[str]:
     """정규화 키의 문자 n-gram. 길이가 n보다 짧으면 키 전체를 하나의 토큰으로 쓴다."""
     out: list[str] = []
     for n in sizes:
@@ -195,6 +243,25 @@ class IngredientRef:
 
 
 @dataclass(frozen=True)
+class ComponentMatch:
+    """제품에 든 성분 하나가 맞은 KIDS 단일 성분 항목. `kids_codes`는 그 성분의 모든 제형 코드(성분 단위, 제품 단위 아님)."""
+
+    component: str  # 제품 쪽 성분 비교 키(염 이름을 뗀 정규화 키)
+    ingredient_id: int
+    display: str
+    kids_codes: tuple[str, ...] = ()
+    api_codes: tuple[str, ...] = ()
+    name_en: str = ""  # 표시명이 한글명 투표 오류일 때(예: 소아용)를 대비해 영문 성분명을 함께 둔다
+
+    @property
+    def label(self) -> str:
+        return f"{self.display}({self.name_en})" if self.name_en and self.name_en != self.display else self.display
+
+
+COMPONENT_NOTE = "이 제품에 든 {names} 성분이 목록에 있음. 제품 단위 판정 아님(성분 단위 연결)"
+
+
+@dataclass(frozen=True)
 class Candidate:
     matched_by: str  # product_name | ingredient_name
     name: str
@@ -206,10 +273,14 @@ class Candidate:
     ingredients: tuple[IngredientRef, ...] = ()
     kids_codes: tuple[str, ...] = ()
     api_codes: tuple[str, ...] = ()
-    code_link: str = "none"  # edi_code | product_name | ingredient_name | kids_source | none
+    code_link: str = "none"  # edi_code | product_name | ingredient_name | kids_source | component_only | none
     code_scope: str | None = None  # product(그 제품의 코드) | all_forms(성분의 모든 제형 코드를 모음)
     cancelled: bool = False
     sources: tuple[str, ...] = ()
+    # linked | component_only | none. none이면 조회 도구는 NOT_LISTED를 돌려주지 않고 UNIDENTIFIED로 처리한다(AG-02가 변환).
+    code_status: str = CODE_NONE
+    component_matches: tuple[ComponentMatch, ...] = ()  # component_only일 때 어느 성분이 어느 KIDS 코드와 맞았는지
+    note: str | None = None  # 성분 단위 표시 노트(제품 단위 판정 아님)
 
 
 @dataclass(frozen=True)
@@ -258,6 +329,11 @@ class DrugDict:
             if base:
                 self._by_base[base].append(i)
                 self._base_keys.append((base, i))
+        self._by_seq: dict[str, int] = {p["item_seq"]: i for i, p in enumerate(self.products) if p.get("item_seq")}
+        # KIDS 단일 성분 항목(성분 집합 키 = 성분 하나의 키). 성분 단위 보조 조회가 쓴다.
+        self._single_by_key: dict[str, int] = {
+            ing["set_key"]: j for j, ing in enumerate(self.ingredients) if len(ing.get("components", [])) == 1 and ing.get("set_key")
+        }
         self._ing_by_key: dict[str, list[int]] = defaultdict(list)
         for j, ing in enumerate(self.ingredients):
             for nm in ing["names"]:
@@ -296,8 +372,47 @@ class DrugDict:
             refs.extend(IngredientRef(x["en"], x.get("ko"), x["display"], x["raw"], x.get("salt", "")) for x in c)
         return tuple(refs)
 
+    def _component_matches(self, i: int) -> tuple[ComponentMatch, ...]:
+        """제품의 각 성분 키를 KIDS 단일 성분 항목과 대조한다(정확 일치만. 비슷한 이름으로 넓히지 않는다)."""
+        out = []
+        for k in self.products[i].get("ingr_keys", []):
+            j = self._single_by_key.get(k)
+            if j is not None:
+                ing = self.ingredients[j]
+                out.append(ComponentMatch(k, j, ing["display"], tuple(ing.get("kids_codes", [])), tuple(ing.get("api_codes", [])),
+                                          ing["components"][0].get("en", "")))
+        return tuple(out)
+
+    def _code_status(self, p: dict[str, Any]) -> str:
+        if p.get("kids_codes"):
+            return CODE_LINKED
+        return CODE_COMPONENT_ONLY if p.get("code_link") == CODE_COMPONENT_ONLY else CODE_NONE
+
+    def component_candidates(self, item_seq: str) -> tuple[Candidate, ...]:
+        """성분 단위 보조 조회(BE-10-06 B). 제품에 든 성분마다 KIDS 단일 성분 코드와 맞은 후보를 돌려준다.
+
+        제품 단위(EDI·제품명·성분 집합) 연결이 없을 때 쓴다. 후보는 `matched_by="ingredient_component"`이고
+        "이 제품에 든 ○○ 성분이 목록에 있음, 제품 단위 판정 아님" 노트를 단다. 맞는 성분이 없으면 빈 튜플이다.
+        빈 튜플은 "금기 없음"이 아니다(`NOT_LISTED` 금지, 조회 도구는 `UNIDENTIFIED`로 처리, 변환은 AG-02).
+        """
+        i = self._by_seq.get(item_seq)
+        if i is None:
+            return ()
+        p = self.products[i]
+        cands = []
+        for m in self._component_matches(i):
+            cands.append(Candidate(
+                matched_by=MATCHED_BY_COMPONENT, name=m.display, score=0.95, match_type=MATCH_COMPONENT, item_seq=p.get("item_seq"),
+                entp_name=p.get("entp"), prescription=p.get("prescription"), ingredients=self._ingredient_refs([m.ingredient_id]),
+                kids_codes=m.kids_codes, api_codes=m.api_codes, code_link=CODE_COMPONENT_ONLY, code_scope="all_forms",
+                cancelled=bool(p.get("cancelled", False)), sources=tuple(self.ingredients[m.ingredient_id].get("sources", [])),
+                code_status=CODE_COMPONENT_ONLY, component_matches=(m,), note=COMPONENT_NOTE.format(names=m.label)))
+        return tuple(cands)
+
     def _product_candidate(self, i: int, score: float, match_type: str) -> Candidate:
         p = self.products[i]
+        status = self._code_status(p)
+        cm = self._component_matches(i) if status == CODE_COMPONENT_ONLY else ()
         return Candidate(
             matched_by=MATCHED_BY_PRODUCT,
             name=p["name"],
@@ -313,6 +428,9 @@ class DrugDict:
             code_scope=p.get("code_scope"),
             cancelled=bool(p.get("cancelled", False)),
             sources=tuple(p.get("sources", [])),
+            code_status=status,
+            component_matches=cm,
+            note=COMPONENT_NOTE.format(names=", ".join(m.label for m in cm)) if cm else None,
         )
 
     def _ingredient_candidate(self, j: int, score: float, match_type: str) -> Candidate:
@@ -328,6 +446,7 @@ class DrugDict:
             code_link="ingredient_name",
             code_scope="all_forms",
             sources=tuple(ing.get("sources", [])),
+            code_status=CODE_LINKED,
         )
 
     def _rank_products(self, ids: list[int]) -> list[int]:
