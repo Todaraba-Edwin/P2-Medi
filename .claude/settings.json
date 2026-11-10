@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(sed -n:*)",
+      "Bash(cut:*)",
+      "Bash(tr:*)",
+      "Bash(md5 -q:*)",
+      "Bash(git log:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git count-objects:*)",
+      "Bash(git rev-list:*)",
+      "Bash(git cat-file:*)",
+      "Bash(python3 scripts/check_schedule.py:*)",
+      "Bash(herdr pane list:*)",
+      "Bash(herdr agent get:*)",
+      "Bash(herdr agent list:*)",
+      "Bash(herdr agent read:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Bash(* .env)",
+      "Bash(* .env *)",
+      "Bash(* .env.*)",
+      "Bash(* ./.env)",
+      "Bash(* ./.env.*)"
+    ]
+  }
+}
