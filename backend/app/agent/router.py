@@ -39,7 +39,11 @@ from app.tools.drug_dict import (
 
 MAX_DRUGS = 6  # 한 질문에서 다루는 약 상한. 6개 = 15쌍(AG-02 쌍 조합 가정). 도구 쪽 상한 8개(schemas.MAX_DRUGS)보다 보수적으로 둔다
 MAX_CLARIFY_OPTIONS = 5  # 되묻기 후보 상한
-TYPO_SCORE_MAX = 0.6  # 잠정: BM25 1위 점수가 이 이하면 "오탈자 의심" 라벨. 기준값은 AG-04 정상·오탈자 세트로 정한다(AG-05 §2 역할 A)
+# BM25 1위 점수가 이 이하면 "오탈자 의심" 라벨(AG-05 §2 역할 A, AG-05-01 A).
+# 보정(2026-11-11, AG-04 개발셋 dev_set.jsonl, `backend/scripts/calibrate_router.py`): 격자 0.30~0.90 중 0.55~0.90에서 오탈자 TYPO 재현율이
+# 14/17(82%, Wilson 95% 59~94%)로 같고 0.50 이하는 하락(12/17 이하), 음성 중 TYPO 오분류 0/22. 값 사이 차이가 구간에 묻혀 현 값 유지(근거 불충분).
+# 개발셋은 합성이고 BM25 일치가 26건뿐이라 소표본이다. 시험셋은 쓰지 않았다.
+TYPO_SCORE_MAX = 0.6
 
 # Router가 상태에 쓸 수 있는 키(PostToolUse의 `POST_WRITABLE_KEYS`와 같은 방식의 제한). emergency·route·messages·evidence·answer는 못 쓴다.
 # `profile`·`drug_mentions`·`intent`는 RFP-23 §4.4 문서 필드, 나머지는 제안.
@@ -160,9 +164,12 @@ _PARTICLES = tuple(sorted((
 ), key=len, reverse=True))
 
 _CONNECTORS = ("이랑", "하고", "이나", "랑", "과", "와", "및", "나")  # 붙여 쓴 입력("타이레놀이랑이부프로펜") 분리용
-_SPLIT_RE = re.compile(r"[,，/+·&、;]|\s+")
+_SPLIT_RE = re.compile(r"[,，+·&、;]|(?<!\d)/|/(?!\d)|\s+")  # 숫자 사이 "/"(5/850밀리그램)는 약 이름의 일부라 나누지 않는다
 _PUNCT_RE = re.compile(r"^[\s\"'`(\[{<]+|[\s?!.…~\"'`)\]}>]+$")
-_NUM_UNIT_RE = re.compile(r"^\d+(\.\d+)?\s*(살|세|개월|주|주차|일|시간|번|회|kg|키로)$")
+_NUM_UNIT_RE = re.compile(
+    r"^\d+(\.\d+)?\s*(살|세|개월|주|주차|일|시간|번|회|kg|키로|밀리그램|밀리그람|밀리리터|mg|mcg|μg|ug|ml|g|l|알|정|포|캡슐|병|방울)$", re.IGNORECASE
+)
+_UNIT_ONLY_RE = re.compile(r"^(밀리그램|밀리그람|밀리리터|mg|mcg|μg|ug|ml|g|l)$", re.IGNORECASE)  # 용량 단위만 떨어져 나온 토큰
 _AGE_YEAR_RE = re.compile(r"(\d{1,3})\s*(?:살|세)")
 _AGE_MONTH_RE = re.compile(r"(\d{1,3})\s*개월")
 _PREG_NEG_RE = re.compile(r"임신\s*(?:은\s*)?(?:하지\s*않|안\s*했|안\s*한|아니|중이\s*아니|가능성\s*없)")
@@ -181,6 +188,9 @@ _STOP_WORDS = frozenset("""
 상호작용 병용 금기 병용금기 연령금기 임부금기 주의 부작용 효능 효과 용법 용량 용법용량 설명 알려줘 알려주세요 알려 확인 확인해줘 확인해주세요
 피해야 피해야할 해야 할 하는 하나요 않나요 좋나요 좋아요 뭐예요 뭐에요 뭔지 뭔가 무엇인가요 문의 질문 궁금 궁금해요 궁금합니다 괜찮은지 되는지 되는가 인지 인가 인가요 맞나요 맞아요
 같은 같은데 이런 저런 이것 저것 이거 저거 그거 그것 이약 그약 이 그 저
+어머니 어머님 아버지 아버님 남편 아내 형 누나 동생 언니 오빠 손주 손자 손녀 가족 친구 환자 본인 병원 의사 약사 약국 의원 응급실
+지금 방금 아까 계속 이미 아직 바로 너무 정말 진짜 실수 갑자기 먼저 나중 오늘 어제 내일 아침 저녁 밤 낮 하루 한꺼번 한번 가끔 자주 처음 다시 또 더 덜
+등급 이유 쌍마다 쌍 정도 때문 경우 중에 후에 전에 사이 동안 매일
 """.split())
 _STOP_SUFFIX_RE = re.compile(
     r"(어도|아도|해도|해요|나요|까요|할까|될까|인가요|인가|인지|입니다|예요|이에요|어요|아요|돼요|되나|됩니까|합니까|있나|있어|없나|줘|주세요|하세요|"
@@ -192,12 +202,22 @@ def _clean_token(tok: str) -> str:
     return _PUNCT_RE.sub("", tok)
 
 
-def _is_noise(tok: str) -> bool:
-    if len(tok) < 2 or _NUM_UNIT_RE.match(tok) or any(v in _STOP_WORDS for v in _variants(tok)):
+# 용언·부사 어미(일반 규칙, AG-05-01 보정). 사전에 이름으로 정확히 있으면 적용하지 않는다(`_is_noise`의 `dd`).
+_VERB_END_RE = re.compile(r"(해서|돼서|되서|네요|어야|아야|여야|려고|는지|은지|냐|죠|자|다|까|어|아|여|야|서|면|지|도|게|라|래)$")
+_SYMPTOM_END_RE = re.compile(r"(염|통|증|감기|병|질환|장애)$")  # 증상·질환 명사(약 이름이 아님). 사전에 정확히 있으면 제외하지 않는다
+
+
+def _is_noise(tok: str, dd: DrugDict | None = None) -> bool:
+    vs = _variants(tok)
+    if len(tok) < 2 or any(_NUM_UNIT_RE.match(v) or _UNIT_ONLY_RE.match(v) or v in _STOP_WORDS for v in vs):
         return True
     if re.fullmatch(r"[\d.,%/\-]+", tok):
         return True
-    return bool(_STOP_SUFFIX_RE.search(tok))
+    if _STOP_SUFFIX_RE.search(tok):
+        return True
+    if dd is not None and (_VERB_END_RE.search(tok) or _SYMPTOM_END_RE.search(tok)):
+        return not any(_strong(dd, v) for v in vs)
+    return False
 
 
 def _strip_particle(tok: str) -> str:
@@ -256,11 +276,11 @@ def extract_mentions(text: str, dd: DrugDict) -> list[str]:
     seen: set[str] = set()
     for raw in _SPLIT_RE.split(text or ""):
         tok = _clean_token(raw)
-        if not tok or _is_noise(tok):
+        if not tok or _is_noise(tok, dd):
             continue
         for piece in _split_joined(dd, tok):
             piece = _clean_token(piece)
-            if not piece or _is_noise(piece):
+            if not piece or _is_noise(piece, dd):
                 continue
             key = re.sub(r"\s+", "", piece).lower()
             if key not in seen:
