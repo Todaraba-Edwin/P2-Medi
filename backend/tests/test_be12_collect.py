@@ -337,28 +337,33 @@ class TestPageCollection:
 class TestProbeOption:
     """--probe 옵션 테스트."""
 
-    def test_probe_calls_first_page_only(self) -> None:
-        """--probe 옵션으로 첫 페이지만 호출(개념)."""
-        # --probe 옵션이 있으면:
-        # 1. 첫 페이지 호출 (호출 1)
-        # 2. totalCount 출력
-        # 3. 수집 중단 (파일 저장 안 함)
+    def test_probe_calls_first_page_only(self, monkeypatch, capsys) -> None:
+        """--probe는 첫 페이지 1회만 호출하고 totalCount를 출력한다(가짜 클라이언트, 실호출 없음).
 
-        # 이는 실제 스크립트 실행으로 검증하는 것이 맞음
-        subprocess.run(
-            [
-                sys.executable,
-                "backend/scripts/collect_snapshots.py",
-                "eyak-all",
-                "--probe",
-            ],
-            cwd=Path(__file__).resolve().parents[2],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        # --probe 실행 시 API를 호출하므로, 성공 또는 에러가 있어야 함
-        # 지침: 실제 API 호출은 사용자가 실행하도록
+        2026-11-10: 이전 버전은 스크립트를 subprocess로 실행해 pytest를 돌릴 때마다 실제 e약은요 API를 호출했다.
+        """
+        import sys
+        from pathlib import Path as PathlibPath
+        from types import SimpleNamespace
+
+        sys.path.insert(0, str(PathlibPath(__file__).resolve().parents[1]))
+        import scripts.collect_snapshots as cs
+
+        calls: list[int] = []
+
+        def list_page(page_no: int, num_of_rows: int):
+            calls.append(page_no)
+            return SimpleNamespace(ok=True, error=None, total_count=4749)
+
+        fake = SimpleNamespace(list_page=list_page)
+        monkeypatch.setattr(cs, "_live_settings", lambda: object())
+        monkeypatch.setattr(cs.EyakClient, "from_settings", classmethod(lambda cls, settings=None: fake))
+        monkeypatch.setattr(cs.time, "sleep", lambda s: None)
+        collector = cs.Collector(dry_run=True, probe=True)
+        collector.collect_eyak_all()
+        assert calls == [1]
+        out = capsys.readouterr().out
+        assert "totalCount=4749" in out and "[PROBE]" in out
 
 
 class TestAssumeTotal:
