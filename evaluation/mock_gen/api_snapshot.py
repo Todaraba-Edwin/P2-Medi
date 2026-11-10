@@ -4,10 +4,10 @@
 - 요청 해시(서비스·오퍼레이션·파라미터)가 같은 응답 파일이 이미 있으면 다시 호출하지 않는다.
 - 호출 간 지연 0.3초 이상, 재시도 2회 이하, **한 번 실행 호출 상한 600**(재시도 포함), HTTP 403/429이거나
   오류율이 20%를 넘으면(표본 5건 이상) 즉시 멈춘다. 멈추면 지금까지 저장한 것은 남고 사유를 출력한다.
-- 응답 원문을 mock/api_snapshots/<서비스>/<오퍼레이션>/<요청해시>.json|xml 로 그대로 저장한다(0건 응답도 저장).
+- 응답 원문을 data/mock/api_snapshots/<서비스>/<오퍼레이션>/<요청해시>.json|xml 로 그대로 저장한다(0건 응답도 저장).
   오류 응답은 <요청해시>.error.json|xml|txt 로 따로 저장하고 캐시로 보지 않는다.
-- 조회 시각·파라미터(키 제외)·HTTP 상태·건수는 mock/api_snapshots/manifest.jsonl 에 호출마다 한 줄. 실행 요약은 runs.jsonl.
-- 로컬 전용(mock/은 .gitignore). 공공 API 응답 원문의 재배포·이용 조건은 확인하지 못했다(법률 검토 보류).
+- 조회 시각·파라미터(키 제외)·HTTP 상태·건수는 data/mock/api_snapshots/manifest.jsonl 에 호출마다 한 줄. 실행 요약은 runs.jsonl.
+- 로컬 전용(data/mock/은 .gitignore). 공공 API 응답 원문의 재배포·이용 조건은 확인하지 못했다(법률 검토 보류).
 
 사용: .venv/bin/python evaluation/mock_gen/api_snapshot.py {identify|items|ingr|permit|all} [--dry]
 """
@@ -24,7 +24,7 @@ import httpx
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[2]
-SNAP = ROOT / "mock" / "api_snapshots"
+SNAP = ROOT / "data" / "mock" / "api_snapshots"
 MANIFEST = SNAP / "manifest.jsonl"
 RUNS = SNAP / "runs.jsonl"
 load_dotenv(ROOT / ".env")

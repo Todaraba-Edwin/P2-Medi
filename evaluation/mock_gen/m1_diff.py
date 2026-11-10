@@ -1,4 +1,4 @@
-"""RFP-31 M1(mock/chat_responses)의 사실 값을 RFP-32 스냅샷과 대조해 mock/api_snapshots/M1_DIFF.md 를 만든다(RFP-32 6단계).
+"""RFP-31 M1(data/mock/chat_responses)의 사실 값을 RFP-32 스냅샷과 대조해 data/mock/api_snapshots/M1_DIFF.md 를 만든다(RFP-32 6단계).
 M1은 고치지 않는다. 차이가 있으면 제안만 적는다. 네트워크·LLM 호출 없음.
 
 대조 대상: 인용(citations) 중 API·e약은요(L3) 층 전부, 파일(L0) 층의 등급·고시일자 중 API와 비교할 수 있는 것, 본문에 나온 성분코드.
@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import api_snapshot as A  # noqa: E402
 
 ROOT, SNAP = A.ROOT, A.SNAP
-RESP = ROOT / "mock" / "chat_responses" / "responses"
+RESP = ROOT / "data" / "mock" / "chat_responses" / "responses"
 TARGETS = json.loads((SNAP / "targets.json").read_text(encoding="utf-8"))["resolved"]
 SEQ2KEY = {v["items"][0]["item_seq"]: k for k, v in TARGETS.items()}
 rows = []   # (구분, 응답 id, 인용 id, M1 값, 스냅샷 값, 판정, 제안)
@@ -136,7 +136,7 @@ def main():
 
     n = {k: sum(1 for r in rows if r[5] == k) for k in sorted({r[5] for r in rows})}
     out = ["# M1 값 ↔ 스냅샷 대조 (RFP-32 6단계)", "",
-           "> `evaluation/mock_gen/m1_diff.py`가 `mock/chat_responses/responses/*.json`의 사실 값을 `mock/api_snapshots/`와 대조한 결과다. **M1은 고치지 않았다**(제안만). 로컬 전용.",
+           "> `evaluation/mock_gen/m1_diff.py`가 `data/mock/chat_responses/responses/*.json`의 사실 값을 `data/mock/api_snapshots/`와 대조한 결과다. **M1은 고치지 않았다**(제안만). 로컬 전용.",
            f"> 응답 {len(resp)}개(서버 오류 응답 제외), 대조 행 {len(rows)}개. 판정별: " + ", ".join(f"{k} {v}" for k, v in n.items()), "",
            "| 구분 | 응답 | 인용 id | M1 값 | 스냅샷 값 | 판정 | 제안/비고 |", "|---|---|---|---|---|---|---|"]
     for r in rows:

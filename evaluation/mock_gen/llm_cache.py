@@ -31,7 +31,7 @@ except ImportError:  # 스크립트로 직접 실행
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import _common as C
 
-assert C.CAP_USD == 20.0 and C.OUT.name == "mock", "mock/_common의 상한 20 USD 규칙이 바뀌었다"
+assert C.CAP_USD == 20.0 and C.OUT.name == "mock", "evaluation/mock_gen/_common의 상한 20 USD 규칙이 바뀌었다"
 
 HAIKU, SONNET = C.HAIKU, C.SONNET
 MODES = ("off", "record", "replay")
