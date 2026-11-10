@@ -165,3 +165,44 @@ def test_to_dict_is_json_serializable(conn):
 
     res = lookup.check_contraindications(conn, [FLU, TSONE], pregnancy=True, age=Age(10, "세"))
     json.dumps(res.to_dict(), ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------------------------
+# be-fix: 행 키·행 단위 근거 ID·자료 키
+# ---------------------------------------------------------------------------------------------
+def test_matches_carry_row_key_and_row_evidence_id(conn):
+    cases = [
+        (_one(lookup.check_contraindications(conn, [FLU, TSONE]), "contra_pair"), f"contra_pair:{FLU}:{TSONE}"),
+        (_one(lookup.check_contraindications(conn, [ACAM], pregnancy=True), "pregnancy"), f"pregnancy:{ACAM}"),
+        (_one(lookup.check_contraindications(conn, [LEVO], age=Age(10, "세")), "age"), f"age:{LEVO}"),
+        (lookup.lookup_caution(conn, ACAM, "lactation"), f"lactation:{ACAM}"),
+    ]
+    for item, evidence_id in cases:
+        assert item.status == FOUND and item.evidence_id == evidence_id
+        for m in item.matches:
+            assert len(m["row_key"]) == 40
+            assert m["row_evidence_id"] == f"{evidence_id}#{m['row_key'][:12]}"
+
+
+def test_row_evidence_ids_are_distinct_per_row(conn):
+    item = lookup.lookup_age(conn, LEVO, Age(3, "개월"))      # 25세 미만 + 6개월 이하 두 행
+    ids = [m["row_evidence_id"] for m in item.matches]
+    assert len(ids) == 2 and len(set(ids)) == 2
+
+
+def test_dataset_key_is_key_only_and_identify_has_none(conn):
+    res = lookup.check_contraindications(conn, [FLU, TSONE, ACAM, "bad"], pregnancy=True, age=Age(10, "세"), include_cautions=True)
+    for i in res.items:
+        if i.kind == "identify":
+            assert i.dataset_key is None
+        else:
+            assert i.dataset_key == i.kind and i.dataset_key in lookup.DATASET_KEYS
+    assert lookup.DATASET_KEYS == {"contra_pair", "pregnancy", "age", "dose", "lactation", "elderly"}
+    assert "dataset_key" in res.to_dict()["items"][0]
+
+
+def test_invalid_code_and_pair_not_checked_behaviour_unchanged(conn):
+    res = lookup.check_contraindications(conn, [FLU, "bad"])
+    flags = {i.kind: (i.status, i.flags) for i in res.items}
+    assert flags["identify"] == (UNIDENTIFIED, ["INVALID_CODE"])
+    assert flags["contra_pair"] == (UNIDENTIFIED, ["PAIR_NOT_CHECKED"])

@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     durirdntinfoservice03_api_key: str | None = None
 
     # 식약처 의약품 제품 허가정보 OpenAPI
-    drugprdtprmsninfservice08_end_point: str | None = None
-    drugprdtprmsninfservice08_api_key: str | None = None
+    drugprdtprmsninfoservice08_end_point: str | None = None
+    drugprdtprmsninfoservice08_api_key: str | None = None
 
     # OpenAI
     openai_api_key: str | None = None

@@ -4,7 +4,6 @@
 """
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 
 from .config import get_settings
 

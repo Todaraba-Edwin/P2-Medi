@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.27.0",
     "pydantic-settings>=2.1.0",
     "httpx>=0.25.0",
+    "psycopg[binary]>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -19,6 +20,9 @@ dev = [
     "ruff>=0.6.0",
     "pre-commit>=3.7.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -36,6 +40,14 @@ extend-exclude = [".venv", "mediagent_backend.egg-info"]
 select = ["E", "F", "I", "B", "UP", "S"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["app", "scripts"]  # 저장소 루트(pre-commit)와 backend/ 어디서 돌려도 import 정렬이 같도록 고정
+
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106"]
-"scripts/**" = ["S101"]
+"**/tests/**" = ["S101", "S105", "S106", "E702", "B017"]  # 시험: assert 허용, 한 줄 호출 나열(E702)·광범위 예외 단언(B017)은 의도
+"**/scripts/**" = ["S101"]
+"**/app/db/loaders.py" = ["S324", "S608"]  # sha1은 행 중복 키용 해시(보안 용도 아님), SQL은 값을 파라미터로 바인딩하고 테이블·컬럼 이름만 코드 상수(TABLE_COLUMNS)로 끼움
+"**/app/tools/_http.py" = ["S324", "B904", "S101"]  # sha1은 캐시 키 이름용, raise e/ApiError는 의도된 재분류(예외 체인 불필요), assert는 재시도 루프 불변식
+"**/app/tools/dur.py" = ["S101"]  # assert는 첫 호출 결과 존재 불변식
+"**/app/tools/lookup.py" = ["B905"]  # zip(names, row) 길이는 같은 커서 결과라 같음. strict 추가는 unsafe fix라 동작 보존을 위해 적용하지 않음
+"**/app/logging/spans.py" = ["S101"]  # assert는 경로 존재 불변식(타입 좁히기)

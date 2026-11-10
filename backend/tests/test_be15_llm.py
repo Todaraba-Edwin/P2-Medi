@@ -152,3 +152,41 @@ def test_ledger_rejects_bad_input(tmp_path):
         ledger.add(-1)
     with pytest.raises(ValueError):
         ledger.add(1, bucket="x")
+
+
+def _load_probe():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("luna_probe", Path(__file__).resolve().parents[1] / "scripts" / "luna_probe.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_probe_key_missing_returns_none_without_printing(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    empty = tmp_path / "empty.env"
+    empty.write_text("")
+    assert _load_probe().resolve_openai_key([str(empty)]) is None
+    assert capsys.readouterr().out == ""
+
+
+def test_probe_key_from_env_file_and_environ_precedence(monkeypatch, tmp_path, capsys):
+    fake = "test-" + "k" * 12
+    envf = tmp_path / "x.env"
+    envf.write_text("OPENAI_API_KEY=" + fake + "\n")
+    mod = _load_probe()
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert mod.resolve_openai_key([str(envf)]) == fake
+    monkeypatch.setenv("OPENAI_API_KEY", "from-environ")
+    assert mod.resolve_openai_key([str(envf)]) == "from-environ"
+    assert capsys.readouterr().out == ""
+
+
+def test_probe_ignores_unrelated_env_vars_and_never_prints_values(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    envf = tmp_path / "y.env"
+    envf.write_text("SOME_UNKNOWN_VAR=secret-looking-value\nOPENAI_API_KEY=test-key-123456\n")
+    assert _load_probe().resolve_openai_key([str(envf)]) == "test-key-123456"
+    assert "secret-looking-value" not in capsys.readouterr().out

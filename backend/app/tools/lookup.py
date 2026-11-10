@@ -40,6 +40,10 @@ _KIND_SOURCE = {
     "elderly": (SRC_HIRA, AS_OF_HIRA),
 }
 _CAUTION_KINDS = ("dose", "lactation", "elderly")
+# 자료 키: contra_pair=병용금기 파일, pregnancy=임부금기 파일, age=연령금기 파일, dose·lactation=각 파일, elderly=심평원 노인주의.
+# 화면 문자열(약칭)은 AG-02의 공통 상수 모듈이 이 키로 찾는다. 여기서는 키만 둔다.
+DATASET_KEYS = frozenset(_KIND_SOURCE)
+ROW_ID_LEN = 12
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,12 @@ class Item:
     source: str
     as_of: str
     flags: list[str] = field(default_factory=list)
-    matches: list[dict[str, Any]] = field(default_factory=list)  # FOUND일 때 원문 행(등급·사유·상세정보·고시번호)
+    matches: list[dict[str, Any]] = field(default_factory=list)  # FOUND일 때 원문 행(`row_key`·`row_evidence_id`·등급·사유·상세정보·고시번호)
+    dataset_key: str | None = None  # 자료 키(화면 문자열이 아니다). 식별 실패(`identify`)는 None
+
+    def __post_init__(self) -> None:
+        if self.dataset_key is None and self.kind in DATASET_KEYS:
+            self.dataset_key = self.kind
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -97,6 +106,15 @@ def _query(conn: Any, sql: str, params: Sequence[Any], paramstyle: str) -> list[
     return [dict(zip(names, row)) for row in cur.fetchall()]
 
 
+def _match(row: dict[str, Any], keys: Sequence[str], evidence_id: str) -> dict[str, Any]:
+    """원문 행 + 행 키(`row_key`)와 행 단위 근거 ID(`{evidence_id}#{row_key 앞 12자}`)."""
+    out = _plain(row, keys)
+    rk = str(row["row_key"])
+    out["row_key"] = rk
+    out["row_evidence_id"] = f"{evidence_id}#{rk[:ROW_ID_LEN]}"
+    return out
+
+
 def _plain(row: dict[str, Any], keys: Sequence[str]) -> dict[str, Any]:
     out = {}
     for k in keys:
@@ -112,7 +130,7 @@ def lookup_pair(conn: Any, code_a: str, code_b: str, paramstyle: str = "qmark") 
     lo, hi = sorted((code_a, code_b))
     rows = _query(
         conn,
-        "SELECT code_a, code_b, name_a, name_b, notice_no, notice_date, reason, remark, source, as_of "
+        "SELECT row_key, code_a, code_b, name_a, name_b, notice_no, notice_date, reason, remark, source, as_of "
         "FROM contra_pair WHERE code_lo = {ph} AND code_hi = {ph} ORDER BY notice_no, row_key",
         (lo, hi), paramstyle,
     )
@@ -122,14 +140,14 @@ def lookup_pair(conn: Any, code_a: str, code_b: str, paramstyle: str = "qmark") 
         return Item("contra_pair", NOT_LISTED, (code_a, code_b), evidence_id, src, as_of)
     keys = ("code_a", "code_b", "name_a", "name_b", "notice_no", "notice_date", "reason", "remark")
     return Item("contra_pair", FOUND, (code_a, code_b), evidence_id, rows[0]["source"], str(rows[0]["as_of"]),
-                matches=[_plain(r, keys) for r in rows])
+                matches=[_match(r, keys, evidence_id) for r in rows])
 
 
 def lookup_pregnancy(conn: Any, code: str, paramstyle: str = "qmark") -> Item:
     """성분코드 하나의 임부금기. 등급은 '1'·'2'·'M' 그대로, 상세정보는 원문 그대로 돌려준다(환산 없음)."""
     rows = _query(
         conn,
-        "SELECT ingr_code, ingr_name, grade, detail, notice_no, notice_date, source, as_of "
+        "SELECT row_key, ingr_code, ingr_name, grade, detail, notice_no, notice_date, source, as_of "
         "FROM pregnancy_contra WHERE ingr_code = {ph} ORDER BY grade, notice_no, row_key",
         (code,), paramstyle,
     )
@@ -139,7 +157,7 @@ def lookup_pregnancy(conn: Any, code: str, paramstyle: str = "qmark") -> Item:
         return Item("pregnancy", NOT_LISTED, (code,), evidence_id, src, as_of)
     keys = ("ingr_code", "ingr_name", "grade", "detail", "notice_no", "notice_date")
     return Item("pregnancy", FOUND, (code,), evidence_id, rows[0]["source"], str(rows[0]["as_of"]),
-                matches=[_plain(r, keys) for r in rows])
+                matches=[_match(r, keys, evidence_id) for r in rows])
 
 
 def _age_hit(age_days: int, cond: str, threshold_days: int) -> bool:
@@ -156,7 +174,7 @@ def lookup_age(conn: Any, code: str, age: Age, paramstyle: str = "qmark") -> Ite
     """성분코드 + 나이의 연령금기. 키는 성분코드 + 특정연령·단위·처리조건이고 비교는 일 환산으로 한다."""
     rows = _query(
         conn,
-        "SELECT ingr_code, ingr_name, age_value, age_unit, age_cond, age_days, detail, notice_no, "
+        "SELECT row_key, ingr_code, ingr_name, age_value, age_unit, age_cond, age_days, detail, notice_no, "
         "notice_date, source, as_of FROM age_contra WHERE ingr_code = {ph} ORDER BY age_days, row_key",
         (code,), paramstyle,
     )
@@ -167,7 +185,7 @@ def lookup_age(conn: Any, code: str, age: Age, paramstyle: str = "qmark") -> Ite
         return Item("age", NOT_LISTED, (code,), evidence_id, src, as_of)
     keys = ("ingr_code", "ingr_name", "age_value", "age_unit", "age_cond", "detail", "notice_no", "notice_date")
     return Item("age", FOUND, (code,), evidence_id, hits[0]["source"], str(hits[0]["as_of"]),
-                matches=[_plain(r, keys) for r in hits])
+                matches=[_match(r, keys, evidence_id) for r in hits])
 
 
 def lookup_caution(conn: Any, code: str, kind: str, paramstyle: str = "qmark") -> Item:
@@ -176,7 +194,7 @@ def lookup_caution(conn: Any, code: str, kind: str, paramstyle: str = "qmark") -
         raise ValueError(f"알 수 없는 주의 종류: {kind}")
     rows = _query(
         conn,
-        "SELECT ingr_code, ingr_name, kind, detail, notice_no, notice_date, source, as_of "
+        "SELECT row_key, ingr_code, ingr_name, kind, detail, notice_no, notice_date, source, as_of "
         "FROM caution WHERE kind = {ph} AND ingr_code = {ph} ORDER BY notice_no, row_key",
         (kind, code), paramstyle,
     )
@@ -186,7 +204,7 @@ def lookup_caution(conn: Any, code: str, kind: str, paramstyle: str = "qmark") -
         return Item(kind, NOT_LISTED, (code,), evidence_id, src, as_of)
     keys = ("ingr_code", "ingr_name", "detail", "notice_no", "notice_date")
     return Item(kind, FOUND, (code,), evidence_id, rows[0]["source"], str(rows[0]["as_of"]),
-                matches=[_plain(r, keys) for r in rows])
+                matches=[_match(r, keys, evidence_id) for r in rows])
 
 
 # --------------------------------------------------------------------------- 도구 함수

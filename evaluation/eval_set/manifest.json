@@ -1,0 +1,127 @@
+{
+ "set_version": "ag04-v0.1-draft",
+ "seed": 20261110,
+ "built_by": "evaluation/eval_set/build_eval_set.py",
+ "llm_calls": 0,
+ "sources": {
+  "kids_files": [
+   "한국의약품안전관리원_임부금기약물_20260721.csv",
+   "한국의약품안전관리원_연령금기_20260721.csv",
+   "병용금기_데이터.json"
+  ],
+  "kids_as_of": "2026-07-21",
+  "combo_json_rows": 512464,
+  "combo_pairs": 23619,
+  "question_pool": [
+   "data/credit_use/pool_dev.jsonl",
+   "data/credit_use/pool_test.jsonl"
+  ],
+  "question_templates": "data/mock/question_templates/question_templates.jsonl (m4-v1)"
+ },
+ "composition_target": {
+  "정상-병용": 15,
+  "정상-연령": 10,
+  "정상-임부": 10,
+  "정상-목록에없는약": 10,
+  "정상-응급": 10,
+  "오탈자": 20,
+  "모호": 20,
+  "오정보": 20,
+  "근거 없음": 20,
+  "범위 외": 15
+ },
+ "sets": {
+  "dev": {
+   "file": "dev_set.jsonl",
+   "n": 150,
+   "sha256": "619f4c929ceed604ea4158dbd6a1f34a00b7274c80a4e5af7225bdf4b61047c8",
+   "bytes": 303757,
+   "by_group": {
+    "정상-임부": 10,
+    "정상-병용": 15,
+    "정상-연령": 10,
+    "정상-목록에없는약": 10,
+    "정상-응급": 10,
+    "오탈자": 20,
+    "모호": 20,
+    "오정보": 20,
+    "근거 없음": 20,
+    "범위 외": 15
+   },
+   "by_branch_label": {
+    "정상": 45,
+    "응급": 10,
+    "오탈자": 20,
+    "모호": 20,
+    "오정보": 20,
+    "근거 없음": 20,
+    "범위 외": 15
+   },
+   "by_generator": {
+    "code": 39,
+    "haiku": 111
+   },
+   "by_variant": {
+    "오탈자": 14,
+    "표기": 3,
+    "축약": 3
+   },
+   "reliability_core": 0,
+   "golden": 0,
+   "provisional": 31,
+   "multihop": [
+    "TC-21(유사)",
+    "TC-22(유사)"
+   ],
+   "human_review_sample": 26
+  },
+  "test": {
+   "file": "test_set.SEALED.jsonl",
+   "n": 151,
+   "sha256": "37fc3f63b6fd144384679a67b910ef4f675b62649e15b6ec91e76b8e0fc65640",
+   "bytes": 319150,
+   "by_group": {
+    "정상-병용": 15,
+    "정상-임부": 10,
+    "정상-연령": 10,
+    "정상-목록에없는약": 10,
+    "정상-응급": 10,
+    "오탈자": 20,
+    "모호": 20,
+    "오정보": 20,
+    "근거 없음": 20,
+    "범위 외": 15,
+    "정상-멀티홉(확장)": 1
+   },
+   "by_branch_label": {
+    "정상": 46,
+    "응급": 10,
+    "오탈자": 20,
+    "모호": 20,
+    "오정보": 20,
+    "근거 없음": 20,
+    "범위 외": 15
+   },
+   "by_generator": {
+    "human": 9,
+    "code": 44,
+    "haiku": 98
+   },
+   "by_variant": {
+    "오탈자": 14,
+    "표기": 3,
+    "축약": 3
+   },
+   "reliability_core": 40,
+   "golden": 11,
+   "provisional": 35,
+   "multihop": [
+    "TC-15",
+    "TC-21",
+    "TC-22",
+    "TC-23"
+   ],
+   "human_review_sample": 26
+  }
+ }
+}

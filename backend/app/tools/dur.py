@@ -76,7 +76,28 @@ class DurRow(BaseModel):
     remark: str | None = None
     notification_date_raw: str | None = None  # NOTIFICATION_DATE 원문
     notification_date: str | None = None      # `YYYY-MM-DD`
+    grade_norm: Literal["1", "2", "M"] | None = None   # 파일(BE-09)과 같은 형식. 원문 `grade`는 그대로 둔다
+    flags: list[str] = Field(default_factory=list)     # 예: `GRADE_UNPARSED`
+    evidence_id: str | None = None            # 행 단위 근거 ID(출처를 식별하는 값만, 표시 문구 아님)
     raw: dict[str, Any] = Field(default_factory=dict, repr=False)
+
+
+GRADE_UNPARSED = "GRADE_UNPARSED"
+_GRADE_RE = re.compile(r"^\s*([12]|M)\s*(?:등급)?\s*$", re.IGNORECASE)
+
+
+def normalize_grade(grade: Any) -> tuple[Literal["1", "2", "M"] | None, bool]:
+    """임부금기 등급 원문(`1등급`·`2등급`·`M`…) → (`'1'`·`'2'`·`'M'` 또는 None, 해석 실패 여부).
+
+    값이 없으면 (None, False). 값이 있는데 해석할 수 없으면 (None, True)이며 추측하지 않는다.
+    """
+    text = str(grade or "").strip()
+    if not text:
+        return None, False
+    m = _GRADE_RE.match(text)
+    if not m:
+        return None, True
+    return m.group(1).upper(), False  # type: ignore[return-value]
 
 
 def _clean(raw: dict[str, Any]) -> dict[str, Any]:
@@ -87,7 +108,10 @@ def _row(level: Level, kind: Kind, raw: dict[str, Any]) -> DurRow:
     r = _clean(raw)
     pair = kind == "usjnt"
     date_raw = r.get("NOTIFICATION_DATE")
+    grade_norm, unparsed = normalize_grade(r.get("GRADE"))
     return DurRow(
+        grade_norm=grade_norm,
+        flags=[GRADE_UNPARSED] if unparsed else [],
         kind=kind,
         level=level,
         ingr_code=r.get("INGR_CODE"),
@@ -116,6 +140,9 @@ class DurResult(BaseModel):
     total_count: int = 0                      # 서버가 알려 준 전체 건수(쌍 조회는 필터 전 합계)
     truncated: bool = False                   # 쪽 수 상한으로 다 읽지 못했으면 True
     query: dict[str, str] = Field(default_factory=dict)
+    request_hash: str | None = None           # 첫 조회의 응답 해시(= request_hashes[0])
+    request_hashes: list[str] = Field(default_factory=list)   # 조회마다 첫 쪽 해시(단일 1개, 쌍 2개)
+    partial: Literal["A", "B"] | None = None  # 쌍 조회에서 **한쪽만 실패**했을 때 실패한 쪽(A=첫째 인자). 둘 다 실패면 None
     source_name: str
     queried_at_utc: str | None = Field(None, description="공공 API에서 데이터를 받은 시각(UTC ISO 8601, 캐시면 처음 받은 시각)")
     queried_at_display: str | None = None
@@ -147,7 +174,7 @@ class DurClient:
         self.max_pages = max(1, int(max_pages))
 
     @classmethod
-    def from_settings(cls, settings: Any | None = None) -> "DurClient":
+    def from_settings(cls, settings: Any | None = None) -> DurClient:
         """환경변수 이름(`DURPrdlstInfoService03_*`, `DURIrdntInfoService03_*`)은 설정 모듈로만 읽는다."""
         if settings is None:
             from app.config import get_settings
@@ -190,10 +217,15 @@ class DurClient:
             return _fail("usjnt", level, ApiError("invalid_request", "서로 다른 올바른 코드 두 개가 필요합니다."))
         first = self._collect("usjnt", level, {param: x})
         second = self._collect("usjnt", level, {param: y})
-        for res in (first, second):
-            if not res.ok:           # 한쪽이라도 실패하면 '없음'이라고 말할 수 없다
-                return DurResult(ok=False, kind="usjnt", level=level, query={"a": x, "b": y},
-                                 source_name=res.source_name, error=res.error)
+        if not first.ok or not second.ok:   # 한쪽이라도 실패하면 '없음'이라고 말할 수 없다
+            bad = first if not first.ok else second
+            partial: Literal["A", "B"] | None = None
+            if first.ok != second.ok:
+                partial = "B" if first.ok else "A"
+            return DurResult(ok=False, kind="usjnt", level=level, query={"a": x, "b": y},
+                             source_name=bad.source_name, error=bad.error, partial=partial,
+                             request_hashes=[h for h in (first.request_hash, second.request_hash) if h],
+                             request_hash=first.request_hash or second.request_hash)
         rows: list[DurRow] = []
         seen: set[tuple[Any, ...]] = set()
         for res, mine, other in ((first, x, y), (second, y, x)):
@@ -210,6 +242,7 @@ class DurClient:
             total_count=first.total_count + second.total_count,
             truncated=first.truncated or second.truncated,
             query={"a": x, "b": y}, source_name=first.source_name,
+            request_hash=first.request_hash, request_hashes=[first.request_hash or "", second.request_hash or ""],
             queried_at_utc=older.queried_at_utc, queried_at_display=older.queried_at_display,
             from_cache=first.from_cache and second.from_cache,
             source=first.source if first.source == second.source else ("cache" if first.from_cache or second.from_cache else "live"),
@@ -241,9 +274,16 @@ class DurClient:
         except ApiError as err:
             return _fail(kind, level, err, filters)
         assert first is not None
+        alias = ITEM_ALIAS if level == "item" else INGR_ALIAS
+        subject = next(iter(filters.values()), "")
+        for n, row in enumerate(rows):
+            seq = str(row.raw.get("DUR_SEQ") or "").strip() or f"r{n}"
+            other = row.pair_ingr_code or row.pair_item_seq
+            row.evidence_id = f"{alias}:{kind}:{subject}{':' + other if other else ''}:{seq}"
         return DurResult(
             ok=True, kind=kind, level=level, rows=rows, total_count=total, truncated=truncated,
             query=dict(filters), source_name=source_name,
+            request_hash=first.request_hash, request_hashes=[first.request_hash],
             queried_at_utc=format_utc(first.fetched_at), queried_at_display=format_display(first.fetched_at),
             from_cache=first.from_cache, source=first.source,
         )
@@ -255,10 +295,38 @@ class DurClient:
 CrossOutcome = Literal["BOTH_FOUND", "BOTH_NOT_LISTED", "FILE_ONLY", "API_ONLY", "API_UNAVAILABLE", "FILE_UNIDENTIFIED"]
 
 
+HarnessFlag = Literal["API_SAME", "FILE_ONLY", "API_ONLY", "API_FAIL", "API_PAIR_INCOMPLETE"]
+
+# `CrossCheck.outcome` → 하네스 꼬리표(PJ2-Agent-Harness.md 3장 `api_flag`). 한 곳에서만 정의한다.
+# BOTH_NOT_LISTED는 "양쪽 모두 목록에 없음"이라 API_SAME으로 본다(후보). FILE_UNIDENTIFIED는 API 병기 대상이 아니라 꼬리표 없음.
+OUTCOME_TO_HARNESS_FLAG: dict[str, HarnessFlag | None] = {
+    "BOTH_FOUND": "API_SAME",
+    "BOTH_NOT_LISTED": "API_SAME",
+    "FILE_ONLY": "FILE_ONLY",
+    "API_ONLY": "API_ONLY",
+    "API_UNAVAILABLE": "API_FAIL",
+    "FILE_UNIDENTIFIED": None,
+}
+
+
+def harness_flag(outcome: str, *, truncated: bool = False, partial: str | None = None) -> HarnessFlag | None:
+    """교차 결과를 하네스 꼬리표로 바꾼다. 쌍 조회 한쪽 실패는 `API_PAIR_INCOMPLETE`,
+    쪽 수 상한으로 다 읽지 못한 경우(`truncated`)는 "실시간 확인을 하지 못함"이라 `API_FAIL`로 다룬다."""
+    flag = OUTCOME_TO_HARNESS_FLAG[outcome]
+    if flag is None:
+        return None
+    if outcome == "API_UNAVAILABLE":
+        return "API_PAIR_INCOMPLETE" if partial else "API_FAIL"
+    if truncated:
+        return "API_FAIL"
+    return flag
+
+
 class CrossCheck(BaseModel):
     """파일 1차 판정과 API 병기 결과. 판정은 파일이 하고 API는 병기·교차용이다(AG-02가 4경우를 처리)."""
 
     outcome: CrossOutcome
+    api_flag: HarnessFlag | None = None
     file_status: str
     api_ok: bool
     file_notice_dates: list[str] = Field(default_factory=list)   # `YYYY-MM-DD`
@@ -279,9 +347,9 @@ def cross_check(file_item: Any, api_result: DurResult) -> CrossCheck:
     api_dates = sorted({r.notification_date for r in api_result.rows if r.notification_date})
     base = dict(file_status=status, api_ok=api_result.ok, file_notice_dates=file_dates, api_notice_dates=api_dates)
     if status == "UNIDENTIFIED":
-        return CrossCheck(outcome="FILE_UNIDENTIFIED", **base)
+        return CrossCheck(outcome="FILE_UNIDENTIFIED", api_flag=None, **base)
     if not api_result.ok:
-        return CrossCheck(outcome="API_UNAVAILABLE", **base)
+        return CrossCheck(outcome="API_UNAVAILABLE", api_flag=harness_flag("API_UNAVAILABLE", partial=api_result.partial), **base)
     api_found = bool(api_result.rows)
     file_found = status == "FOUND"
     outcome: CrossOutcome = (
@@ -290,4 +358,4 @@ def cross_check(file_item: Any, api_result: DurResult) -> CrossCheck:
         "API_ONLY" if api_found else
         "BOTH_NOT_LISTED"
     )
-    return CrossCheck(outcome=outcome, dates_differ=bool(file_dates and api_dates and file_dates != api_dates), **base)
+    return CrossCheck(outcome=outcome, api_flag=harness_flag(outcome, truncated=api_result.truncated), dates_differ=bool(file_dates and api_dates and file_dates != api_dates), **base)

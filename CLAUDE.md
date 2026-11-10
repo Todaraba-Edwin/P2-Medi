@@ -215,6 +215,6 @@ P2-Medi/
 
 - **성격 구분**: `scripts/`는 일정·문서·PDF를 다루는 **거버넌스 도구**만 둔다. 서비스가 도는 코드는 `backend/`(런타임), 측정·평가·mock 생성은 `evaluation/`, 화면은 `frontend/`에 둔다.
 - **코드 위치 규칙**: `backend/app/agent` = AG 티켓(그래프·노드·Router·Validator·Guardrail), `backend/app/{api,db,tools}` = BE 티켓(엔드포인트·DB·공공 API 도구), `evaluation/` = 평가·mock 생성(AG-04·AG-11~14·BE-08 계열), `frontend/` = FE 티켓.
-- **로컬 전용(`.gitignore` 대상)**: `data/`(원본 데이터와 `data/mock/`), `P2-doc/report/`, `logs/`, `tickets/issues/`. `.env`와 함께 커밋하지 않는다. `.gitignore` 수정은 `git-actor`가 한다.
+- **로컬 전용(`.gitignore` 대상)**: `data/`(원본 데이터와 `data/mock/`), `P2-doc/report/`, `logs/`, `tickets/issues/`, `evaluation/eval_set/*.SEALED.jsonl`(시험셋 파일, 개선 중 열람 금지이므로 저장소에 올리지 않고 `manifest.json`의 sha256만 커밋, 2026-11-10 사용자 결정). `.env`와 함께 커밋하지 않는다. `.gitignore` 수정은 `git-actor`가 한다.
 - **`tickets/issues/`(화면 이슈 이미지)는 로컬 전용이다**(2026-11-09 사용자 결정, 이유: git 용량 때문에 이미지 파일을 제어). PNG 15개(약 4.9MB)는 로컬에 남기고 추적을 해제하며 `.gitignore` 추가는 `git-actor`가 한다. 티켓(PRD-09~PRD-15)의 `tickets/issues/ISSUE-nnn.png` 링크는 로컬 전용 파일이라 저장소에서 클론하면 열리지 않는다. 디자인 세션 등에 공유할 때는 로컬 파일을 첨부한다.
 - 새 폴더를 만들거나 위 규칙과 다른 곳에 코드를 두려면 먼저 결정 번호를 올린다.

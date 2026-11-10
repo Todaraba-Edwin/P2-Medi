@@ -30,3 +30,14 @@ def test_blocks_secret_patterns(tmp_path):
 def test_blocks_big_files(tmp_path):
     (tmp_path / "big.bin").write_bytes(b"0" * (guard.MAX_BYTES + 1))
     assert guard.check("big.bin", tmp_path)
+
+
+def test_db_url_placeholders_pass_but_real_looking_values_block(tmp_path):
+    f = tmp_path / "a.md"
+    scheme = "postgres" + "://"
+    for placeholder in ("[비밀번호]", "<password>", "***", "${DB_PASSWORD}", "$DB_PASSWORD", "{pw}", "xxxx", "PASSWORD", "your-password"):
+        f.write_text(f"{scheme}postgres.[프로젝트ref]:{placeholder}@host:5432/db\n")
+        assert not guard.check("a.md", tmp_path), placeholder
+    for real in ("Abc123def", "pw", "p4ss.w0rd!x"):
+        f.write_text(f"{scheme}postgres.abcdefgh:{real}@host:5432/db\n")
+        assert guard.check("a.md", tmp_path), real
