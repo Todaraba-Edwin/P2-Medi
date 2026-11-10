@@ -223,6 +223,9 @@ def check_contraindications(
     - 입력이 비어 있으면 항목이 없다(`items == []`).
     - 형식이 맞지 않는 코드(None·빈 문자열·KIDS 형식 아님)는 `UNIDENTIFIED`(꼬리표 `INVALID_CODE`)이고,
       그 코드가 든 쌍은 판정하지 못했으므로 `NOT_LISTED`가 아니라 `UNIDENTIFIED`다(H2).
+    - 사전(`DrugDict`) 후보의 `code_status`가 `none`(KIDS 코드 연결 없음)이면 호출자는 코드 없이 이 함수에 `None`을 넘기거나
+      호출하지 않고, 결과를 `NOT_LISTED`가 아니라 `UNIDENTIFIED`로 다뤄야 한다(코드 없음 ≠ 금기 없음, BE-10-06).
+      `component_only`는 성분 단위 연결이라 제품 단위 판정이 아니다. 상태 변환·문구는 AG-02 몫이며 여기서는 구현하지 않는다.
     - 같은 코드가 반복되면 한 번만 본다(성분 중복 표시는 AG-02 확장 몫).
     - 임부(`pregnancy=True`)·연령(`age` 지정)은 호출자가 프로필에서 정한다.
     """
@@ -248,8 +251,8 @@ def check_contraindications(
     # 식별 못 한 약이 든 쌍은 판정하지 못했다고 표시한다.
     for bad in invalid_positions:
         for good in valid:
-            src, as_of = _KIND_SOURCE["contra_pair"]
-            items.append(Item("contra_pair", UNIDENTIFIED, (good, bad), f"contra_pair:{good}:{bad}", src, as_of,
+            # 조회하지 않았으므로 출처·기준일을 달지 않는다(INVALID_CODE와 같다, BE-09-04 A).
+            items.append(Item("contra_pair", UNIDENTIFIED, (good, bad), f"contra_pair:{good}:{bad}", None, None,
                               ["PAIR_NOT_CHECKED"]))
 
     for c in valid:
