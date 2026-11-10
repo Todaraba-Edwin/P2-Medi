@@ -195,6 +195,7 @@ def post_tool_use(call, result, ctx) -> tuple[ToolMessage, dict]:
 ```
 - **상태 4종**: `FOUND`(해당 있음, 또는 찾음), `NOT_LISTED`(조회는 성공했고 금기 목록에 없음), `UNIDENTIFIED`(약을 식별하지 못해 판정하지 못함), `NO_EVIDENCE`(검색 도구가 맞는 근거를 찾지 못함)다. 도구별로 쓸 수 있는 상태는 위 `STATUS_BY_TOOL`과 같다. 검색 도구의 `NO_EVIDENCE`는 RFP-22-02 A의 코드 검사(청크의 약·성분 ID 일치)로 정한다. 의미 검색은 0건이 잘 나오지 않으므로 건수로 정하지 않는다. `search_label`의 `NO_PRODUCT`는 성분코드로 불렀을 때의 결과이며, 상태가 아니라 거부 응답이다(4.1 (a)).
 - **API 쪽 사정은 상태가 아니라 꼬리표다.** API 실패나 양방향 누락은 파일 판정을 바꾸지 않는다(PJ2-RFP.md 5.1절 (7)). 그래서 초안의 `INCOMPLETE` 상태는 없앴다. 평가에서는 API를 끄므로 이 꼬리표가 나오지 않는다.
+- **입력 코드 형식 꼬리표 2개(2026-11-10 사용자 승인, 어휘 표 등록)**: `INVALID_CODE`는 `identify`가 형식이 맞지 않는 코드를 받아 `UNIDENTIFIED`로 돌려줄 때 항목에 붙고(`backend/app/tools/lookup.py` 224·243행), `PAIR_NOT_CHECKED`는 코드 쌍 중 하나가 `INVALID_CODE`여서 그 쌍을 조회하지 못했을 때 붙는다(같은 파일 253행). 둘 다 상태는 `UNIDENTIFIED`이고 `NOT_LISTED`가 아니다(H2). 회귀 시험은 `backend/tests/test_be09_lookup.py`다. 문구는 아래 표에 있다.
 - PostToolUse는 **판정을 바꾸지 않는다.** 판정은 도구 안의 코드가 이미 했고(H9), Post는 결과가 계약을 지켰는지 본다. 모델·`validator`·`finalize`가 같은 사실을 보게 하는 것이 목적이다.
 - `finalize`는 항목별 상태와 꼬리표를 읽어 **항목마다** 고정 문구를 코드로 붙인다. 순서는 `FOUND`(금기 발견) 항목이 먼저다. 그래야 한 결과 안에서 발견한 금기가 다른 항목의 "확인하지 못함"에 묻히지 않는다(PRD 화면의 "제품별 줄", PJ2-PRD.md 15장).
 
@@ -203,6 +204,8 @@ def post_tool_use(call, result, ctx) -> tuple[ToolMessage, dict]:
 | `FOUND` | 금기 종류·등급 원문·고시번호(등급은 상세정보 문구 그대로) |
 | `NOT_LISTED` | "금기 목록에 없음(안전하다는 뜻이 아님)" |
 | `UNIDENTIFIED` | "약을 찾지 못해 확인하지 못함" + 다시 쓸 이름 안내. 항목에 `input_name`(입력 이름 그대로)·`searched[{dataset, count}]`·`retried`를 달고 화면 문구는 기관 표기 `식약처·한국의약품안전관리원 자료에서 찾지 못했어요`(내부 단계명·`약 이름 사전` 없음). 다중 약 질문의 식별된 약은 요약 한 줄 항목으로 함께 나간다(PRD-14-01·02·04) |
+| `INVALID_CODE` | (초안, AG-06 구현 때 확정) "입력한 약을 식약처·한국의약품안전관리원 자료에서 찾지 못했어요. 약 이름을 다시 알려 주세요." 형식이 맞지 않는 코드(None·빈 문자열·KIDS 성분코드 형식 아님)가 `UNIDENTIFIED`로 돌아온 항목에 붙는다. 판정한 출처가 아니므로 `source=None`·`as_of=None`·`dataset_key=None`이다(BE-09 §2, 2026-11-10). 코드명은 화면에 노출하지 않는다 |
+| `PAIR_NOT_CHECKED` | (초안, AG-06 구현 때 확정) "이 약과 함께 먹어도 되는지는 식약처·한국의약품안전관리원 자료에서 확인하지 못했어요. 안전하다는 뜻이 아니에요." 코드 쌍 중 하나가 `INVALID_CODE`여서 그 쌍을 조회하지 못한 항목에 붙는다. `NOT_LISTED`가 아니라 `UNIDENTIFIED`이며 "확인하지 못함"으로 렌더한다. 판정한 출처가 아니므로 `INVALID_CODE`와 같이 `source=None`·`as_of=None`·`dataset_key=None`이다(2026-11-10 사용자 결정). 코드명은 화면에 노출하지 않는다 |
 | `NO_EVIDENCE` | "근거 문장을 찾지 못함" |
 | `NO_PRODUCT_INFO` | "제품 단위 정보(제품 연령 문장·허가 라벨·제형) 없음. 봉투의 제품명을 알려 주시면 더 확인할 수 있어요" |
 | `EASY_TEXT_MISSING` | "{약 이름}은 전문의약품이라 쉬운 설명(e약은요)이 없어서 허가사항 원문을 그대로 보여 드려요"(PRD-10-04, `EASY_TEXT_MISSING_NOTE`). 허가 상세 원문이 있을 때의 안내 한 줄이다 |
