@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     drdeasydrug_end_point: str | None = None
     drdeasydrug_api_key: str | None = None
 
+    # 공공 API 클라이언트 공통(BE-02, 비밀 아님). mode: live | snapshot(평가·오프라인, 스냅샷만 읽음)
+    mediagent_api_mode: str = "live"
+    mediagent_api_cache_dir: str | None = None  # 없으면 메모리 캐시만
+    mediagent_api_cache_ttl_seconds: float = 86400.0
+    mediagent_api_max_calls: int = 1000
+
     # 식약처 DUR 품목정보 OpenAPI
     durprdlstinfoservice03_end_point: str | None = None
     durprdlstinfoservice03_api_key: str | None = None
