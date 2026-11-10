@@ -3,6 +3,9 @@
 import sys
 
 from app.logging.spans import DEV_RETENTION_DAYS, cleanup_dev_logs
+from app.security.redact import install_excepthook
+
+install_excepthook()  # 처리되지 않은 예외 출력에서 비밀 값을 가린다
 
 
 def main(argv: list[str]) -> int:

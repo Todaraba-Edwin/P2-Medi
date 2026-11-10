@@ -3,7 +3,7 @@
 CLAUDE.md §3의 변수 이름을 필드로 선언. 값은 기본값 없이 선택(없어도 기동 가능).
 """
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -47,9 +47,8 @@ class Settings(BaseSettings):
     supabase_secret_key: str | None = None
     supabase_jwks_url: str | None = None
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # hide_input_in_errors: 검증 오류(ValidationError)에 .env 입력 값(input_value=…)을 담지 않는다(sec-guard)
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, hide_input_in_errors=True)
 
 
 def get_settings() -> Settings:
