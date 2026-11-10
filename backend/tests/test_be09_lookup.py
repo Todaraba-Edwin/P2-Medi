@@ -208,6 +208,17 @@ def test_invalid_code_and_pair_not_checked_behaviour_unchanged(conn):
     assert flags["contra_pair"] == (UNIDENTIFIED, ["PAIR_NOT_CHECKED"])
 
 
+def test_pair_not_checked_source_and_as_of_are_none(conn):
+    """조회하지 않은 쌍은 INVALID_CODE처럼 출처·기준일이 없다(BE-09-04 A)."""
+    res = lookup.check_contraindications(conn, [FLU, "bad"])
+    pairs = [i for i in res.items if i.kind == "contra_pair"]
+    assert pairs
+    for item in pairs:
+        assert item.status == UNIDENTIFIED
+        assert item.source is None and item.as_of is None
+        assert item.flags == ["PAIR_NOT_CHECKED"]
+
+
 # =============================================================================================
 # BE-09 identify 항목 source=None 검증 (2026-11-10)
 # =============================================================================================
