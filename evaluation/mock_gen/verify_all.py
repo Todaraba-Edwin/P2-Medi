@@ -90,7 +90,7 @@ for sdir, key in (("chat_responses", "M1"), ("judge_outputs", "M3"), ("question_
     mf = OUT / sdir / "manifest.json"
     m = json.loads(mf.read_text(encoding="utf-8"))
     m["cost_usd"] = round(byset[key], 4)
-    m["cost_note"] = "mock/calls.jsonl의 태그(m1-/m3-/m4-/m5-) 합계. 디버그 호출과 재생성 비용 포함"
+    m["cost_note"] = "data/mock/calls.jsonl의 태그(m1-/m3-/m4-/m5-) 합계. 디버그 호출과 재생성 비용 포함"
     if key == "M3":
         m["counts"].update(total=len(j), valid_main=len(valid) - len(extra), valid_extra=len(extra), label_mismatch_vs_construction=rep["M3"]["label_mismatch_vs_construction"], extra_mismatch=rep["M3"]["extra_mismatch"])
         m["extra_file"] = "judge_outputs_extra.jsonl (evaluation/mock_gen/m3b_extra.py: J4 경계 사례(RFP-28-01)·J1(M1 요약/M5 결함 답변)·J5(M1 근거 없음))"

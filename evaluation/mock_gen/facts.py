@@ -3,14 +3,14 @@
 - 임부금기·연령금기·병용금기: data/ CSV(CP949, 병용금기는 87만 줄이라 스트리밍).
 - e약은요 라벨 문장: data/api_samples/eyak__*.json에서 원문 부분 문자열을 찾아 확인(없으면 예외).
   샘플에 없는 제품(어린이타이레놀현탁액 등)은 RFP-21 §4.3~4.4의 2026-11-01 API 확인값을 '출처 표시'와 함께 쓴다.
-- 결과는 mock/_facts.json에 캐시한다(로컬 전용).
+- 결과는 data/mock/_facts.json에 캐시한다(로컬 전용).
 """
 import csv, glob, json, re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
-CACHE = ROOT / "mock" / "_facts.json"
+CACHE = ROOT / "data" / "mock" / "_facts.json"
 
 F_PREG = DATA / "한국의약품안전관리원_임부금기약물_20260721.csv"
 F_AGE = DATA / "한국의약품안전관리원_연령금기_20260721.csv"

@@ -14,9 +14,9 @@
 
 원칙
 - 키는 환경변수 ANTHROPIC_API_KEY로만 읽는다(_common과 같이 dotenv). 키 값과 이미지 base64는 출력·기록하지 않는다.
-- 입력 이미지는 mock/medi-packet/(git 제외)에만 있고, 결과도 mock/vision_test/(git 제외)에만 쓴다.
+- 입력 이미지는 data/mock/medi-packet/(git 제외)에만 있고, 결과도 data/mock/vision_test/(git 제외)에만 쓴다.
   이 스크립트에는 이미지 내용·약 이름 정답·개인정보가 들어 있지 않다.
-- 비용 상한 1 USD를 별도 원장 mock/vision_test/ledger.json으로 강제한다(호출 전 최악 비용을 더해 넘으면 중단).
+- 비용 상한 1 USD를 별도 원장 data/mock/vision_test/ledger.json으로 강제한다(호출 전 최악 비용을 더해 넘으면 중단).
 - 출력은 JSON 스키마(structured outputs)로 받고, 코드가 다시 허용 필드만 남긴다(PRD-08-04: 약 이름 외 필드는 버린다).
 - Haiku 4.5는 temperature를 거부하므로 지정하지 않는다(_common.py 주석, 2026-11-04 확인).
 - 소표본(4장)이라 k/n만 기록한다. 정확도 일반화·유의성을 주장하지 않는다(CLAUDE.md 5장).
@@ -39,8 +39,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import HAIKU, PRICES  # noqa: E402  (가격표 공유, 원장은 따로 쓴다)
 
-IMG_DIR = ROOT / "mock" / "medi-packet"
-OUT = ROOT / "mock" / "vision_test"
+IMG_DIR = ROOT / "data" / "mock" / "medi-packet"
+OUT = ROOT / "data" / "mock" / "vision_test"
 LEDGER = OUT / "ledger.json"
 CALLS = OUT / "calls.jsonl"
 RESULTS = OUT / "results.json"
@@ -516,7 +516,7 @@ def load_catalogs() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
                         base = row[nk].split("_")[0]
                         catalog.setdefault(norm_name(base), set()).add(row.get(ck, ""))
     snap_names: dict[str, set[str]] = {}
-    for f in (ROOT / "mock" / "api_snapshots" / "drug-prmsn").rglob("*.json"):
+    for f in (ROOT / "data" / "mock" / "api_snapshots" / "drug-prmsn").rglob("*.json"):
         try:
             txt = f.read_text()
         except Exception:  # noqa: BLE001
