@@ -24,7 +24,16 @@ from app.agent.answer_schema import AnswerDraft, Citation
 from app.agent.patterns import has_code
 from app.agent.quote_check import build_text_index, resolve_citation
 from app.agent.renderer import W_BAD_QUOTE, W_NO_SOURCE_KIND, render
-from app.agent.sentence_filter import CODE_IN_TEXT, NO_EVIDENCE, UNKNOWN_EVIDENCE, filter_sentences, known_evidence_ids
+from app.agent.sentence_filter import (
+    CODE_IN_TEXT,
+    DIAGNOSIS_CLAIM,
+    DOSE_NUMBER,
+    NO_EVIDENCE,
+    PRESCRIPTION_OR_DOSE_DECISION,
+    UNKNOWN_EVIDENCE,
+    filter_sentences,
+    known_evidence_ids,
+)
 from app.agent.tools.contract import check_items, known_ids
 from app.agent.tools.schemas import API_FLAGS, STATUS_BY_TOOL
 
@@ -225,11 +234,14 @@ def test_filter_pipeline_label_dose_in_detail_not_summary():
     assert not re.search(r"\d", f.kept[0].text) and DOSE_TEXT not in repr(f.kept)
 
 
-@pytest.mark.xfail(strict=True, reason="문장 필터에 진단·처방·복용량 금지·용량 숫자 검사가 없다(AG-08 guardrail/validator 몫). 구현되면 이 xfail을 풀 것")
-@pytest.mark.parametrize("text", ["하루 3회 500mg씩 드세요.", "이 증상은 위염으로 진단돼요.", "이 약을 처방해 드릴게요."])
-def test_filter_should_drop_dose_diagnosis_prescription(text, checked):
+@pytest.mark.parametrize(("text", "reason"), [
+    ("하루 3회 500mg씩 드세요.", DOSE_NUMBER),
+    ("이 증상은 위염으로 진단돼요.", DIAGNOSIS_CLAIM),
+    ("이 약을 처방해 드릴게요.", PRESCRIPTION_OR_DOSE_DECISION),
+])
+def test_filter_should_drop_dose_diagnosis_prescription(text, reason, checked):
     f = filter_sentences(AnswerDraft(sentences=[S(text, [PREG_ID], "conclusion")]), checked)
-    assert f.dropped_count == 1
+    assert f.dropped_count == 1 and f.dropped[0].reason == reason
 
 
 # ------------------------------------------------------------------ 7. 계약 대조
