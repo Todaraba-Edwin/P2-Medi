@@ -1,4 +1,4 @@
-"""BE-10 BM25 변형 비교 시험(개발용, 오프라인). 단어 단위 vs 문자 2-gram·3-gram·2+3-gram(현재 구현).
+"""BE-10 BM25 변형 비교 시험(개발용, 오프라인). 단어 단위 vs 문자 2-gram(현재 구현)·3-gram·2+3-gram(이전 구현).
 
 작업 위치 `backend/`:  python scripts/bm25_variants.py [--cases 5]
 
@@ -75,12 +75,12 @@ def _variants() -> dict[str, tuple[Tokenizer, Tokenizer, Callable[[list[str]], l
         return lambda names: char_ngrams(" ".join(normalize_name(n) for n in names), sizes)
 
     out: dict[str, tuple[Tokenizer, Tokenizer, Callable[[list[str]], list[str]]]] = {"word": (word_tokens, word_tokens, ing_words)}
-    for name, sizes in (("char2", (2,)), ("char3", (3,)), ("char23", (2, 3))):
+    for name, sizes in (("char2", (2,)), ("char3", (3,)), ("char2_3", (2, 3))):
         out[name] = (ngram_tokens(sizes), ngram_tokens(sizes), ing_ngrams(sizes))
     return out
 
 
-VARIANT_LABELS = {"word": "단어 단위(공백·구두점 분리)", "char2": "문자 2-gram", "char3": "문자 3-gram", "char23": "문자 2+3-gram(현재 구현)"}
+VARIANT_LABELS = {"word": "단어 단위(공백·구두점 분리)", "char2": "문자 2-gram(현재 구현, BE-10-07 A)", "char3": "문자 3-gram", "char2_3": "문자 2+3-gram(이전 구현)"}
 
 
 # --------------------------------------------------------------------------- 색인
@@ -186,11 +186,11 @@ def run(n_cases: int) -> dict[str, Any]:
         "dict_version": dd.version, "queries": len(queries), "queries_fingerprint": fp, "fingerprint_expected": EXPECTED_FINGERPRINT,
         "fingerprint_ok": fp == EXPECTED_FINGERPRINT, "bm25": {"k1": 1.5, "b": 0.75}, "purpose": "개발용 비교. 평가 수치로 쓰지 않는다",
         "variants": results,
-        "cases_word_fail_ngram_ok": pick_cases(dd, queries, golds, rankings, "char23", "word", n_cases),
-        "cases_ngram_fail_word_ok": pick_cases(dd, queries, golds, rankings, "word", "char23", n_cases),
+        "cases_word_fail_ngram_ok": pick_cases(dd, queries, golds, rankings, "char2", "word", n_cases),
+        "cases_ngram_fail_word_ok": pick_cases(dd, queries, golds, rankings, "word", "char2", n_cases),
         "case_counts": {
-            "word_fail_ngram_ok": sum(1 for i in range(len(queries)) if rankings["char23"][i][:1] and rankings["char23"][i][0] in golds[i] and not (rankings["word"][i][:1] and rankings["word"][i][0] in golds[i])),
-            "ngram_fail_word_ok": sum(1 for i in range(len(queries)) if rankings["word"][i][:1] and rankings["word"][i][0] in golds[i] and not (rankings["char23"][i][:1] and rankings["char23"][i][0] in golds[i])),
+            "word_fail_ngram_ok": sum(1 for i in range(len(queries)) if rankings["char2"][i][:1] and rankings["char2"][i][0] in golds[i] and not (rankings["word"][i][:1] and rankings["word"][i][0] in golds[i])),
+            "ngram_fail_word_ok": sum(1 for i in range(len(queries)) if rankings["word"][i][:1] and rankings["word"][i][0] in golds[i] and not (rankings["char2"][i][:1] and rankings["char2"][i][0] in golds[i])),
         },
     }
 
@@ -228,10 +228,10 @@ def render_md(rep: dict[str, Any]) -> str:
     cc = rep["case_counts"]
     L += [f"## 사례: 단어 단위 top-1 실패 · 2+3-gram 성공 (전체 {cc['word_fail_ngram_ok']}건 중 유형 순환 표본)", "", "| id | 유형 | 질의 | 정답(최대 3) | 2+3-gram 1위 | 단어 단위 상위 3 |", "|---|---|---|---|---|---|"]
     for c in rep["cases_word_fail_ngram_ok"]:
-        L.append(f"| {c['id']} | {c['type']} | {c['query']} | {', '.join(c['gold'])} | {c['char23_top1']} | {' / '.join(c['word_top3'])} |")
+        L.append(f"| {c['id']} | {c['type']} | {c['query']} | {', '.join(c['gold'])} | {c['char2_top1']} | {' / '.join(c['word_top3'])} |")
     L += ["", f"## 사례: 2+3-gram top-1 실패 · 단어 단위 성공 (전체 {cc['ngram_fail_word_ok']}건 중 유형 순환 표본)", "", "| id | 유형 | 질의 | 정답(최대 3) | 단어 단위 1위 | 2+3-gram 상위 3 |", "|---|---|---|---|---|---|"]
     for c in rep["cases_ngram_fail_word_ok"]:
-        L.append(f"| {c['id']} | {c['type']} | {c['query']} | {', '.join(c['gold'])} | {c['word_top1']} | {' / '.join(c['char23_top3'])} |")
+        L.append(f"| {c['id']} | {c['type']} | {c['query']} | {', '.join(c['gold'])} | {c['word_top1']} | {' / '.join(c['char2_top3'])} |")
     return "\n".join(L) + "\n"
 
 

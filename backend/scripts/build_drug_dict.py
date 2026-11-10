@@ -30,10 +30,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db.loaders import iter_csv, iter_json_array
 from app.tools.drug_dict import (
+    BM25_TOKENIZER,
+    CODE_COMPONENT_ONLY,
     SCHEMA_VERSION,
     DrugDict,
+    component_keys,
     ingredient_key,
     normalize_name,
+    normalize_rules_signature,
     split_en_salt,
     split_ko_salt,
 )
@@ -47,7 +51,14 @@ SRC_KIDS_CSV = "KIDS 금기·주의 CSV(한국의약품안전관리원)"
 SRC_PRMSN = "허가정보(식약처)"
 SRC_EYAK = "e약은요(식약처)"
 SRC_DUR = "DUR 성분정보(식약처)"
-BUILDER_REV = 3 # 빌드 규칙을 바꾸면 올린다(버전 문자열에 들어간다)
+BUILDER_REV = 4  # 빌드 규칙을 바꾸면 올린다(버전 문자열에 들어간다). 4: 정규화(·, mesilate, 원료 꼬리)·성분 단위 연결·2-gram
+
+# 사전이 다루지 않는 범위(메타에 명시, 보고·AG-02가 읽는다). 코드 없음 ≠ 금기 없음이다.
+BOUNDARIES = {
+    "dose_caution_csv": "용량주의 CSV는 복합제가 1성분만 표시되어 코드를 신뢰할 수 없고 용량 확인은 확장 범위라 사전에 넣지 않는다. "
+                        "용량주의 목록에만 있는 성분은 사전에서 연결되지 않으며, 이때 코드 없음은 NOT_LISTED가 아니라 UNIDENTIFIED로 다룬다",
+    "elderly_csv": "심평원 노인주의 품목리스트는 쓰지 않는다(PRD-14-02)",
+}
 
 # 별칭 목록(흔한 줄임말·이명). 키는 영문 성분 키(`ingredient_key`)이고, (한글 표시명, 별칭들)을 붙인다.
 # 평가 세트 문항에서 가져오지 않았다. 일반에 알려진 성분 이명만 둔다.
@@ -188,8 +199,7 @@ def _ko_candidates(product_name: str) -> list[str]:
 
 
 def _set_key(raw_en: str, sep: str) -> str:
-    comps = [ingredient_key(c) for c in (_split_components(raw_en) if sep == "kids" else [x for x in re.split(r"[/;]", raw_en) if x.strip()])]
-    return "+".join(sorted({c for c in comps if c}))
+    return "+".join(component_keys(raw_en, sep, _split_components))
 
 
 def build_dictionary(
@@ -308,7 +318,7 @@ def build_dictionary(
     def prod(seq: str, name: str) -> dict[str, Any]:
         return products.setdefault(seq, {"name": name, "item_seq": seq, "entp": None, "prescription": None, "kids_product_codes": [], "edi_codes": [],
                                          "kids_codes": [], "api_codes": [], "ingredient_ids": [], "code_link": "none", "code_scope": None,
-                                         "cancelled": False, "sources": [], "ingr_en": None, "ingr_ko_main": None})
+                                         "cancelled": False, "sources": [], "ingr_en": None, "ingr_ko_main": None, "ingr_keys": []})
 
     def label(v: str | None) -> str | None:
         return "전문" if v and "전문" in v else ("일반" if v and "일반" in v else None)
@@ -399,6 +409,14 @@ def build_dictionary(
                 add_codes(p, allc, "ingredient_name", "all_forms")
                 break
 
+    # 성분 단위 보조 연결(BE-10-06 B): 제품 단위로 연결되지 않은 제품의 각 성분을 KIDS 단일 성분 항목과 정확 대조한다.
+    # 코드는 제품 `kids_codes`에 넣지 않는다(제품 단위 판정으로 오인 방지). 후보 조립은 `DrugDict.component_candidates`가 한다.
+    single_by_key = {ing["set_key"]: ing["id"] for ing in ingredients if len(ing["components"]) == 1}
+    for p in products.values():
+        p["ingr_keys"] = component_keys(p["ingr_en"] or "", "kids" if str(p["item_seq"] or "").startswith("kids:") or p["item_seq"] is None else "api", _split_components)
+        if not p["kids_codes"] and any(k in single_by_key for k in p["ingr_keys"]):
+            p["code_link"], p["code_scope"] = CODE_COMPONENT_ONLY, "all_forms"
+
     out_products = []
     for p in products.values():
         p["api_codes"] = sorted({d for i in p["ingredient_ids"] for d in ingredients[i]["api_codes"]})
@@ -409,12 +427,14 @@ def build_dictionary(
         i["components"] = [{k: v for k, v in c.items() if k != "key"} for c in i["components"]]
 
     stats = compute_stats(out_products, out_ingredients)
-    blob = json.dumps({"rev": BUILDER_REV, **(hashes or {})}, sort_keys=True)
+    blob = json.dumps({"rev": BUILDER_REV, "bm25_tokenizer": BM25_TOKENIZER, "rules": normalize_rules_signature(), **(hashes or {})}, sort_keys=True)
     version = f"be10-dict-s{SCHEMA_VERSION}-{hashlib.sha256(blob.encode()).hexdigest()[:12]}"
     data = {"meta": {"schema": SCHEMA_VERSION, "version": version, "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
-                     "material_sha256": hashes or {}, "counts": stats["counts"],
+                     "material_sha256": hashes or {}, "counts": stats["counts"], "bm25_tokenizer": BM25_TOKENIZER,
+                     "boundaries": BOUNDARIES,
                      "materials": {SRC_KIDS_JSON: "한국의약품안전관리원", SRC_KIDS_CSV: "한국의약품안전관리원", SRC_PRMSN: "식약처", SRC_EYAK: "식약처",
-                                   SRC_DUR: "식약처", "DUR 품목리스트 CSV(심평원)": "쓰지 않음(PRD-14-02)"}},
+                                   SRC_DUR: "식약처", "DUR 품목리스트 CSV(심평원)": "쓰지 않음(PRD-14-02)",
+                                   "KIDS 용량주의 CSV(한국의약품안전관리원)": "쓰지 않음(" + BOUNDARIES["dose_caution_csv"] + ")"}},
             "products": out_products, "ingredients": out_ingredients}
     return data, stats
 
@@ -423,7 +443,7 @@ def compute_stats(products: list[dict[str, Any]], ingredients: list[dict[str, An
     names_raw = {p["name"] for p in products}
     names_base = {normalize_name(p["name"], keep_paren=False) for p in products}
     kids_codes = {c for i in ingredients for c in i["kids_codes"]}
-    by_src: dict[str, dict[str, int]] = defaultdict(lambda: {"n": 0, "with_code": 0, "exact_code": 0, "has_ingredient_info": 0})
+    by_src: dict[str, dict[str, int]] = defaultdict(lambda: {"n": 0, "with_code": 0, "component_only": 0, "exact_code": 0, "has_ingredient_info": 0})
     link = Counter()
     for p in products:
         link[p["code_link"]] += 1
@@ -431,6 +451,7 @@ def compute_stats(products: list[dict[str, Any]], ingredients: list[dict[str, An
             b = by_src[s]
             b["n"] += 1
             b["with_code"] += bool(p["kids_codes"])
+            b["component_only"] += p["code_link"] == CODE_COMPONENT_ONLY
             b["exact_code"] += p["code_scope"] == "product"
             b["has_ingredient_info"] += bool(p.get("ingr_en") or p["kids_codes"])
     return {
@@ -440,6 +461,7 @@ def compute_stats(products: list[dict[str, Any]], ingredients: list[dict[str, An
                    "ingredients_with_ko_name": sum(1 for i in ingredients if all(c["ko"] for c in i["components"]))},
         "link_by_method": dict(link),
         "link_by_source": {s: {**v, "rate_with_code": round(v["with_code"] / v["n"], 4) if v["n"] else 0.0,
+                                  "rate_with_code_or_component": round((v["with_code"] + v["component_only"]) / v["n"], 4) if v["n"] else 0.0,
                                   "rate_among_has_ingredient_info": round(v["with_code"] / v["has_ingredient_info"], 4) if v["has_ingredient_info"] else 0.0} for s, v in by_src.items()},
     }
 
