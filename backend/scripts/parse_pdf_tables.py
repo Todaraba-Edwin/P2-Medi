@@ -102,6 +102,115 @@ def parse_bupyo2(pdf_path: Path = GOSI_PDF, pages: range = BUPYO2_PAGES) -> list
     return rows
 
 
+# 별표 1(병용금기, 9~44쪽)·별표 3(임부금기, 51~76쪽): 연번 + 나머지 칸 N개 표.
+BUPYO1_PAGES = range(9, 45)
+BUPYO3_PAGES = range(51, 77)
+BUPYO1_HEADER = ("연번", "유효성분 1", "유효성분 2", "비고")
+BUPYO3_HEADER = ("연번", "유효성분", "등급", "비고")
+
+
+@dataclass
+class WideRow:
+    no: int
+    cells: list[str]
+
+
+def merge_wide_rows(raw_rows: list[list[str | None]], ncols: int, rows: list[WideRow] | None = None) -> list[WideRow]:
+    """연번 + (ncols-1)칸 표를 연번 단위로 합친다. 연번이 비면 앞 행의 이어지는 줄이다. 쪽을 넘어 `rows`를 이어받는다."""
+    out = rows if rows is not None else []
+    for cells in raw_rows:
+        cells = (list(cells) + [None] * ncols)[:ncols]
+        no_s = _clean(cells[0])
+        if no_s == HEADER[0]:
+            continue
+        rest = [join_wrapped(c) for c in cells[1:]]
+        if no_s.isdigit():
+            out.append(WideRow(int(no_s), rest))
+        elif out:
+            prev = out[-1].cells
+            for i, c in enumerate(rest):
+                if c:
+                    prev[i] = join_wrapped(f"{prev[i]}\n{c}")
+    return out
+
+
+def parse_wide(pdf_path: Path, pages: range, ncols: int = 4) -> list[WideRow]:
+    import pdfplumber
+
+    rows: list[WideRow] = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for p in pages:
+            for table in pdf.pages[p - 1].extract_tables():
+                merge_wide_rows(table, ncols, rows)
+    return rows
+
+
+def wide_markdown(rows: list[WideRow], header: tuple[str, ...]) -> str:
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    lines += [f"| {r.no} | " + " | ".join(_esc(c) for c in r.cells) + " |" for r in rows]
+    return "\n".join(lines) + "\n"
+
+
+def check_wide_sequence(rows: list[WideRow]) -> list[str]:
+    nums = [r.no for r in rows]
+    if nums != list(range(1, len(nums) + 1)):
+        dup = sorted({n for n in nums if nums.count(n) > 1})
+        missing = sorted(set(range(1, max(nums) + 1)) - set(nums)) if nums else []
+        return [f"연번 불연속 또는 중복. 누락={missing[:20]} 중복={dup[:20]}"]
+    return []
+
+
+def squash(s: str) -> str:
+    """공백·줄바꿈을 모두 없애고 NFC로 맞춘다(독립 추출본과 대조용)."""
+    return re.sub(r"\s+", "", unicodedata.normalize("NFC", s))
+
+
+def split_pdfkit_pages(text: str) -> dict[int, str]:
+    """scripts/pdf_to_text.swift 출력(`=====PAGE n=====` 구분)을 쪽 번호별 squash 텍스트로 나눈다."""
+    pages: dict[int, str] = {}
+    for m in re.finditer(r"=====PAGE (\d+)=====\n(.*?)(?=\n=====PAGE \d+=====|\Z)", text, flags=re.S):
+        pages[int(m.group(1))] = squash(m.group(2))
+    return pages
+
+
+def verify_wide(rows: list[WideRow], pages_text: dict[int, str], pages: range) -> dict[str, Any]:
+    """각 행의 칸 토큰(비어 있지 않은 칸)이 독립 추출본(쪽 범위 합본, 공백 무시)에 있는지 전수 대조한다.
+
+    strict: `연번+칸1+칸2…`가 이어서 있는 행 수(행 단위 추출 쪽). loose: 모든 칸이 따로라도 있는 행 수.
+    """
+    blob = "".join(pages_text.get(p, "") for p in pages)
+    strict = loose = 0
+    miss: list[tuple[int, list[str]]] = []
+    for r in rows:
+        toks = [squash(c) for c in r.cells if c]
+        if (str(r.no) + "".join(toks)) in blob:
+            strict += 1
+        absent = [c for c in r.cells if c and squash(c) not in blob]
+        if not absent:
+            loose += 1
+        else:
+            miss.append((r.no, absent))
+    return {"n": len(rows), "strict": strict, "loose": loose, "missing": miss}
+
+
+def max_leading_int(raw_page_text: str) -> int | None:
+    """독립 추출본 한 쪽(원문)에서 줄 머리의 정수(열 단위 추출이면 `연번 41 42 …` 줄의 정수들) 중 가장 큰 값.
+
+    표 마지막 쪽의 마지막 연번(기대 행 수) 근거로 쓴다. 쪽 번호 줄(`- 44 -`)은 정수가 줄 머리에 없어 제외된다.
+    """
+    nums: list[int] = []
+    for line in raw_page_text.splitlines():
+        m = re.match(r"^(?:연번\s+)?((?:\d+\s+)*\d+)(?=\s|$)", line)
+        if m:
+            nums += [int(t) for t in m.group(1).split()]
+    return max(nums) if nums else None
+
+
+def pdfkit_raw_page(text: str, page: int) -> str:
+    m = re.search(rf"=====PAGE {page}=====\n(.*?)(?=\n=====PAGE \d+=====|\Z)", text, flags=re.S)
+    return m.group(1) if m else ""
+
+
 def _esc(s: str) -> str:
     return s.replace("|", "\\|").replace("\n", " ")
 
@@ -203,11 +312,83 @@ def safe_items_markdown(items: list[tuple[int, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+PDFKIT_TXT = DATA / "mock" / "parsed" / "gosi_full_pdfkit.txt"  # swift scripts/pdf_to_text.swift 출력(로컬 전용)
+
+
+def _pdfkit() -> str:
+    return PDFKIT_TXT.read_text(encoding="utf-8")
+
+
+def run_wide(cmd: str, out: Path) -> int:
+    """별표 1·3 변환 + 합격 검사(연번 연속·기대 행 수=독립 추출본 마지막 연번·무작위 20행 대조)."""
+    import pdfplumber
+
+    pages, header, name, label = (BUPYO1_PAGES, BUPYO1_HEADER, "gosi_bupyo1_pdfplumber.md", "별표 1 (9~44쪽)") if cmd == "bupyo1" else (BUPYO3_PAGES, BUPYO3_HEADER, "gosi_bupyo3_pdfplumber.md", "별표 3 (51~76쪽)")
+    rows = parse_wide(GOSI_PDF, pages)
+    with pdfplumber.open(GOSI_PDF) as doc:
+        head = "\n".join((doc.pages[i].extract_text() or "") for i in range(min(2, len(doc.pages))))
+    notice = latest_notice(head)
+    src = f"{notice[1]} (고시 {notice[0]}, PDF 1~2쪽 개정 이력의 마지막 줄)" if notice else "미확인(PDF에서 읽지 못함)"
+    out.mkdir(parents=True, exist_ok=True)
+    dest = out / name
+    dest.write_text(meta_block(GOSI_PDF.name, src, len(rows), extra={"table": label}) + wide_markdown(rows, header), encoding="utf-8")
+    raw = _pdfkit()
+    expected = max_leading_int(pdfkit_raw_page(raw, pages[-1]))
+    texts = split_pdfkit_pages(raw)
+    seq = check_wide_sequence(rows)
+    sample = random.Random(20261110).sample(rows, min(20, len(rows)))  # noqa: S311
+    v = verify_wide(sample, texts, pages)
+    print(f"{cmd}: rows={len(rows)} expected(독립 추출본 마지막 연번)={expected} seq_errors={seq} -> {dest}")
+    print(f"  sample20 strict={v['strict']}/{v['n']} loose={v['loose']}/{v['n']} missing={v['missing']}")
+    full = verify_wide(rows, texts, pages)
+    print(f"  full strict={full['strict']}/{full['n']} loose={full['loose']}/{full['n']} missing(처음 15)={full['missing'][:15]}")
+    return 0 if len(rows) == expected and not seq and v["loose"] == v["n"] else 1
+
+
+def run_verify2() -> int:
+    """별표 2 211행 전수 자동 대조(성분·연령기준·제형 토큰이 독립 추출본 45~50쪽에 있는지, 공백 무시)."""
+    rows = parse_bupyo2()
+    texts = split_pdfkit_pages(_pdfkit())
+    blob = "".join(texts.get(p, "") for p in BUPYO2_PAGES)
+    bad: list[tuple[int, str, str]] = []
+    for r in rows:
+        toks = [("성분", r.ingredient)] + [(k, v) for a, f in r.parts for k, v in (("연령", a), ("제형", f)) if v]
+        for kind, tok in toks:
+            if squash(tok) not in blob:
+                bad.append((r.no, kind, tok))
+    bad_rows = {n for n, _, _ in bad}
+    print(f"verify2: rows={len(rows)} 전부 일치 행={len(rows) - len(bad_rows)}/{len(rows)} 불일치 토큰={len(bad)}")
+    for n, k, t in bad:
+        print(f"  MISS no={n} {k}: {t!r}")
+    # 영문 줄바꿈 복원 오복원 후보: 원본 셀에서 줄 사이를 공백 없이 이은 지점이 독립 추출본에서 `앞 + 공백 + 뒤`로만 나타나는지.
+    import pdfplumber
+
+    cand: list[tuple[int, str]] = []
+    with pdfplumber.open(GOSI_PDF) as pdf:
+        for p in BUPYO2_PAGES:
+            for table in pdf.pages[p - 1].extract_tables():
+                for cells in table:
+                    lines = [ln.strip() for ln in (cells[1] or "").split("\n") if ln.strip()]
+                    for a, b in zip(lines, lines[1:], strict=False):
+                        first = re.match(r"[a-z]+", b)
+                        if a[-1].isascii() and a[-1].isalpha() and first:
+                            joined = first.group(0) not in _WHOLE_WORDS
+                            cand.append((int(_clean(cells[0]) or 0), f"{'잇기' if joined else '띄우기'}: {a} | {b}"))
+    print(f"줄바꿈 경계 후보 {len(cand)}건 (잇기/띄우기):")
+    for n, t in cand:
+        print(f"  no={n} {t}")
+    return 0 if not bad else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("cmd", choices=["bupyo2", "survey"])
+    ap.add_argument("cmd", choices=["bupyo2", "bupyo1", "bupyo3", "verify2", "survey"])
     ap.add_argument("--out", type=Path, default=DATA / "mock" / "parsed")
     args = ap.parse_args(argv)
+    if args.cmd in ("bupyo1", "bupyo3"):
+        return run_wide(args.cmd, args.out)
+    if args.cmd == "verify2":
+        return run_verify2()
     if args.cmd == "bupyo2":
         t0 = time.perf_counter()
         rows = parse_bupyo2()
