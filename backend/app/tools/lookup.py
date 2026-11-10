@@ -69,8 +69,8 @@ class Item:
     status: str                     # FOUND | NOT_LISTED | UNIDENTIFIED
     subject: tuple[str, ...]        # 성분코드(쌍이면 2개). 식별 실패면 입력 원문
     evidence_id: str
-    source: str
-    as_of: str
+    source: str | None
+    as_of: str | None
     flags: list[str] = field(default_factory=list)
     matches: list[dict[str, Any]] = field(default_factory=list)  # FOUND일 때 원문 행(`row_key`·`row_evidence_id`·등급·사유·상세정보·고시번호)
     dataset_key: str | None = None  # 자료 키(화면 문자열이 아니다). 식별 실패(`identify`)는 None
@@ -240,8 +240,7 @@ def check_contraindications(
             valid.append(c)
         else:
             raw = "" if c is None else str(c)
-            src, as_of = _KIND_SOURCE["contra_pair"]
-            items.append(Item("identify", UNIDENTIFIED, (raw,), f"identify:{raw}", src, as_of, ["INVALID_CODE"]))
+            items.append(Item("identify", UNIDENTIFIED, (raw,), f"identify:{raw}", None, None, ["INVALID_CODE"]))
             invalid_positions.append(raw)
 
     for a, b in combinations(valid, 2):
