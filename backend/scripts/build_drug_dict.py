@@ -41,6 +41,7 @@ from app.tools.drug_dict import (
     split_en_salt,
     split_ko_salt,
 )
+from app.tools.drug_form import classify_product_form, forms_rules_signature, infer_code_forms
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
@@ -51,7 +52,7 @@ SRC_KIDS_CSV = "KIDS 금기·주의 CSV(한국의약품안전관리원)"
 SRC_PRMSN = "허가정보(식약처)"
 SRC_EYAK = "e약은요(식약처)"
 SRC_DUR = "DUR 성분정보(식약처)"
-BUILDER_REV = 4  # 빌드 규칙을 바꾸면 올린다(버전 문자열에 들어간다). 4: 정규화(·, mesilate, 원료 꼬리)·성분 단위 연결·2-gram
+BUILDER_REV = 5  # 빌드 규칙을 바꾸면 올린다(버전 문자열에 들어간다). 4: 정규화(·, mesilate, 원료 꼬리)·성분 단위 연결·2-gram. 5: 제형 분류·form_match(BE-10-08 A)·용도 괄호 제외
 
 # 사전이 다루지 않는 범위(메타에 명시, 보고·AG-02가 읽는다). 코드 없음 ≠ 금기 없음이다.
 BOUNDARIES = {
@@ -84,6 +85,8 @@ CURATED_ALIASES: dict[str, tuple[str | None, tuple[str, ...]]] = {
 _KO_ONLY = re.compile(r"^[가-힣]{2,}$")
 _FORM_SUFFIX = ("정", "캅셀", "캡슐", "주", "액", "시럽", "크림", "겔", "패취", "연고", "산", "환", "과립", "필름", "현탁액", "주사", "내복액", "점안", "스프레이")
 _PAREN_NAME_RE = re.compile(r"\(([^()_]+)\)")
+# 제품명 괄호가 성분이 아니라 용도·수출·대상 표기인 패턴(BE-10-08 A, 일반 규칙): `(소아용)`, `(수출용)`, `(성인용)`, `(병원용)` …
+_USAGE_PAREN_TAGS = ("소아", "성인", "어린이", "영유아", "유아", "영아", "신생아", "노인", "수출", "내수", "시판", "병원", "의료기관", "가정", "임상", "일반", "전문")
 
 
 # --------------------------------------------------------------------------- 재료 읽기
@@ -187,13 +190,19 @@ def material_hashes(data_dir: Path, snap: Path) -> dict[str, str]:
 
 # --------------------------------------------------------------------------- 사전 조립
 
+def is_usage_paren(text: str) -> bool:
+    """괄호 안 한글이 성분이 아니라 용도·대상 표기인가(`소아용`, `수출용`, `성인용`). 끝이 `용`이거나 용도 단어 목록과 같으면 그렇다."""
+    t = text.strip()
+    return t.endswith("용") or t in _USAGE_PAREN_TAGS
+
+
 def _ko_candidates(product_name: str) -> list[str]:
     """제품명 괄호 안의 한글 성분명 후보(용량 꼬리 `_(…)`·형태 단어 제외)."""
     base = re.sub(r"_\([^)]*\)\s*$", "", product_name)
     out = []
     for m in _PAREN_NAME_RE.finditer(base):
         t = m.group(1).strip()
-        if _KO_ONLY.match(t) and not t.endswith(_FORM_SUFFIX) and not t.startswith(("수출", "주")):
+        if _KO_ONLY.match(t) and not t.endswith(_FORM_SUFFIX) and not t.startswith(("수출", "주")) and not is_usage_paren(t):
             out.append(t)
     return out
 
@@ -318,7 +327,7 @@ def build_dictionary(
     def prod(seq: str, name: str) -> dict[str, Any]:
         return products.setdefault(seq, {"name": name, "item_seq": seq, "entp": None, "prescription": None, "kids_product_codes": [], "edi_codes": [],
                                          "kids_codes": [], "api_codes": [], "ingredient_ids": [], "code_link": "none", "code_scope": None,
-                                         "cancelled": False, "sources": [], "ingr_en": None, "ingr_ko_main": None, "ingr_keys": []})
+                                         "cancelled": False, "sources": [], "ingr_en": None, "ingr_ko_main": None, "ingr_keys": [], "product_type": None, "form": None})
 
     def label(v: str | None) -> str | None:
         return "전문" if v and "전문" in v else ("일반" if v and "일반" in v else None)
@@ -328,6 +337,7 @@ def build_dictionary(
         p.update(entp=it.get("entp_name"), prescription=label(it.get("spclty_pblc")), ingr_en=it.get("item_ingr_name"),
                  cancelled=(it.get("cancel_name") not in (None, "", "정상")))
         p["edi_codes"] = sorted({c.strip() for c in (it.get("edi_code") or "").split(",") if c.strip()})
+        p["product_type"] = it.get("prduct_type")
         p["sources"].append(SRC_PRMSN)
     for it in snaps.get("eyak", []):
         p = prod(it["item_seq"], it["item_name"])
@@ -417,6 +427,10 @@ def build_dictionary(
         if not p["kids_codes"] and any(k in single_by_key for k in p["ingr_keys"]):
             p["code_link"], p["code_scope"] = CODE_COMPONENT_ONLY, "all_forms"
 
+    for p in products.values():  # 제품 제형(BE-10-08 A): 제품명 접미 → 효능군 힌트
+        p["form"] = classify_product_form(p["name"], p.get("product_type"))
+    form_map = infer_code_forms((r["ingr_code"], r["name"]) for r in kids_all)
+
     out_products = []
     for p in products.values():
         p["api_codes"] = sorted({d for i in p["ingredient_ids"] for d in ingredients[i]["api_codes"]})
@@ -427,11 +441,12 @@ def build_dictionary(
         i["components"] = [{k: v for k, v in c.items() if k != "key"} for c in i["components"]]
 
     stats = compute_stats(out_products, out_ingredients)
-    blob = json.dumps({"rev": BUILDER_REV, "bm25_tokenizer": BM25_TOKENIZER, "rules": normalize_rules_signature(), **(hashes or {})}, sort_keys=True)
+    blob = json.dumps({"rev": BUILDER_REV, "bm25_tokenizer": BM25_TOKENIZER, "rules": normalize_rules_signature(), "form_rules": forms_rules_signature(), **(hashes or {})}, sort_keys=True)
     version = f"be10-dict-s{SCHEMA_VERSION}-{hashlib.sha256(blob.encode()).hexdigest()[:12]}"
     data = {"meta": {"schema": SCHEMA_VERSION, "version": version, "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
                      "material_sha256": hashes or {}, "counts": stats["counts"], "bm25_tokenizer": BM25_TOKENIZER,
-                     "boundaries": BOUNDARIES,
+                     "boundaries": BOUNDARIES, "form_map": form_map,
+                     "form_map_note": "코드 접미(성분코드 뒤 3자리)의 제형은 공식 코드표가 아니라 KIDS 제품명 접미 분포로 추정(measured). confidence는 경로·제형군 우세 비율 기준",
                      "materials": {SRC_KIDS_JSON: "한국의약품안전관리원", SRC_KIDS_CSV: "한국의약품안전관리원", SRC_PRMSN: "식약처", SRC_EYAK: "식약처",
                                    SRC_DUR: "식약처", "DUR 품목리스트 CSV(심평원)": "쓰지 않음(PRD-14-02)",
                                    "KIDS 용량주의 CSV(한국의약품안전관리원)": "쓰지 않음(" + BOUNDARIES["dose_caution_csv"] + ")"}},

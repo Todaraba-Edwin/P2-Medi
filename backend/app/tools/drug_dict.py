@@ -24,6 +24,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.tools import drug_form as DF
+
 MATCHED_BY_PRODUCT = "product_name"
 MATCHED_BY_INGREDIENT = "ingredient_name"
 MATCHED_BY_COMPONENT = "ingredient_component"  # 제품에 든 성분 하나가 KIDS 단일 성분 코드와 맞음(제품 단위 판정 아님, BE-10-06 B)
@@ -252,6 +254,15 @@ class ComponentMatch:
     kids_codes: tuple[str, ...] = ()
     api_codes: tuple[str, ...] = ()
     name_en: str = ""  # 표시명이 한글명 투표 오류일 때(예: 소아용)를 대비해 영문 성분명을 함께 둔다
+    # BE-10-08 A: 제품 제형과 KIDS 코드 제형(접미, 측정 추정)의 비교. `match`일 때만 판정에 쓴다(`usable_codes`).
+    form_match: str = DF.FM_UNKNOWN  # match | route_only | mismatch | unknown
+    product_form: str = "?"  # 제품 제형 이름(예: 경구/정제). 모르면 `?`
+    code_form: str = "?"  # 가장 강하게 맞은 코드들의 제형 이름(여럿이면 `·`로 잇는다)
+    usable_codes: tuple[str, ...] = ()  # 제형이 맞아(match) 판정에 쓸 수 있는 코드. match가 아니면 비어 있다
+
+    @property
+    def usable_for_judgment(self) -> bool:
+        return self.form_match in DF.USABLE
 
     @property
     def label(self) -> str:
@@ -259,6 +270,24 @@ class ComponentMatch:
 
 
 COMPONENT_NOTE = "이 제품에 든 {names} 성분이 목록에 있음. 제품 단위 판정 아님(성분 단위 연결)"
+
+
+def form_note(matches: Sequence[ComponentMatch]) -> str | None:
+    """제형이 맞지 않는 성분 단위 일치에 붙일 참고 문구. 전부 `match`이면 None."""
+    notes = []
+    for m in matches:
+        if m.form_match == DF.FM_MISMATCH:
+            notes.append(DF.NOTE_MISMATCH.format(forms=m.code_form))
+        elif m.form_match == DF.FM_ROUTE_ONLY:
+            notes.append(DF.NOTE_ROUTE_ONLY.format(forms=m.code_form))
+        elif m.form_match == DF.FM_UNKNOWN:
+            notes.append(DF.NOTE_UNKNOWN)
+    return " / ".join(dict.fromkeys(notes)) or None
+
+
+def _with_form_note(note: str, matches: Sequence[ComponentMatch]) -> str:
+    extra = form_note(matches)
+    return f"{note}. {extra}" if extra else note
 
 
 @dataclass(frozen=True)
@@ -281,6 +310,10 @@ class Candidate:
     code_status: str = CODE_NONE
     component_matches: tuple[ComponentMatch, ...] = ()  # component_only일 때 어느 성분이 어느 KIDS 코드와 맞았는지
     note: str | None = None  # 성분 단위 표시 노트(제품 단위 판정 아님)
+    # BE-10-08 A: 성분 단위 후보의 제형 비교. 제품 단위(linked) 후보와 이름·성분 후보는 이 검사를 받지 않아 기본값(판정 가능)이다.
+    form_match: str | None = None  # 성분 단위 후보만 match | route_only | mismatch | unknown
+    usable_for_judgment: bool = True  # False면 금기 판정에 쓰지 않고 참고로만 보인다(mismatch·route_only·unknown)
+    usable_kids_codes: tuple[str, ...] = ()  # 성분 단위 후보에서 제형이 맞아 판정에 쓸 코드(`kids_codes`는 모든 제형 코드, 참고용)
 
 
 @dataclass(frozen=True)
@@ -312,6 +345,7 @@ class DrugDict:
 
     def __init__(self, data: dict[str, Any], embed_fn: EmbedFn | None = None) -> None:
         self.meta: dict[str, Any] = data.get("meta", {})
+        self.form_map: dict[str, dict[str, Any]] = self.meta.get("form_map", {})  # 코드 접미 → 제형(측정 추정, drug_form.infer_code_forms)
         self.products: list[dict[str, Any]] = data["products"]
         self.ingredients: list[dict[str, Any]] = data["ingredients"]
         self.embed_fn = embed_fn  # 주입점만. 이 모듈은 호출하지 않는다(BE-10 임베딩 시험은 별도 지시서).
@@ -373,14 +407,24 @@ class DrugDict:
         return tuple(refs)
 
     def _component_matches(self, i: int) -> tuple[ComponentMatch, ...]:
-        """제품의 각 성분 키를 KIDS 단일 성분 항목과 대조한다(정확 일치만. 비슷한 이름으로 넓히지 않는다)."""
+        """제품의 각 성분 키를 KIDS 단일 성분 항목과 대조한다(정확 일치만. 비슷한 이름으로 넓히지 않는다).
+
+        각 일치에 제품 제형과 코드 제형을 비교한 `form_match`를 붙인다(BE-10-08 A).
+        """
+        pform = self.products[i].get("form") or {}
         out = []
         for k in self.products[i].get("ingr_keys", []):
             j = self._single_by_key.get(k)
             if j is not None:
                 ing = self.ingredients[j]
-                out.append(ComponentMatch(k, j, ing["display"], tuple(ing.get("kids_codes", [])), tuple(ing.get("api_codes", [])),
-                                          ing["components"][0].get("en", "")))
+                codes = tuple(ing.get("kids_codes", []))
+                per = {c: DF.compare_forms(pform, DF.code_form(c, self.form_map)) for c in codes}
+                best = DF.best_match(per.values())
+                top = [c for c, r in per.items() if r == best]
+                code_label = ", ".join(dict.fromkeys(DF.label(DF.code_form(c, self.form_map)) for c in top)) if top else "?"
+                out.append(ComponentMatch(k, j, ing["display"], codes, tuple(ing.get("api_codes", [])), ing["components"][0].get("en", ""),
+                                          form_match=best, product_form=DF.label(pform), code_form=code_label,
+                                          usable_codes=tuple(top) if best in DF.USABLE else ()))
         return tuple(out)
 
     def _code_status(self, p: dict[str, Any]) -> str:
@@ -406,7 +450,8 @@ class DrugDict:
                 entp_name=p.get("entp"), prescription=p.get("prescription"), ingredients=self._ingredient_refs([m.ingredient_id]),
                 kids_codes=m.kids_codes, api_codes=m.api_codes, code_link=CODE_COMPONENT_ONLY, code_scope="all_forms",
                 cancelled=bool(p.get("cancelled", False)), sources=tuple(self.ingredients[m.ingredient_id].get("sources", [])),
-                code_status=CODE_COMPONENT_ONLY, component_matches=(m,), note=COMPONENT_NOTE.format(names=m.label)))
+                code_status=CODE_COMPONENT_ONLY, component_matches=(m,), note=_with_form_note(COMPONENT_NOTE.format(names=m.label), (m,)),
+                form_match=m.form_match, usable_for_judgment=m.usable_for_judgment, usable_kids_codes=m.usable_codes))
         return tuple(cands)
 
     def _product_candidate(self, i: int, score: float, match_type: str) -> Candidate:
@@ -430,7 +475,10 @@ class DrugDict:
             sources=tuple(p.get("sources", [])),
             code_status=status,
             component_matches=cm,
-            note=COMPONENT_NOTE.format(names=", ".join(m.label for m in cm)) if cm else None,
+            note=_with_form_note(COMPONENT_NOTE.format(names=", ".join(m.label for m in cm)), cm) if cm else None,
+            form_match=DF.best_match(m.form_match for m in cm) if cm else None,
+            usable_for_judgment=any(m.usable_for_judgment for m in cm) if cm else True,  # 성분별 판정 가능 여부는 component_matches·usable_kids_codes
+            usable_kids_codes=tuple(c for m in cm for c in m.usable_codes),
         )
 
     def _ingredient_candidate(self, j: int, score: float, match_type: str) -> Candidate:
