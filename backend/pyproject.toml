@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
     "pydantic-settings>=2.1.0",
+    "httpx>=0.25.0",
 ]
 
 [project.optional-dependencies]
@@ -15,9 +16,26 @@ dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "httpx>=0.25.0",
+    "ruff>=0.6.0",
+    "pre-commit>=3.7.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["ignore::DeprecationWarning:fastapi.*"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+extend-exclude = [".venv", "mediagent_backend.egg-info"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+"scripts/**" = ["S101"]

@@ -11,10 +11,11 @@ P2-Medi 저장소의 **일정·티켓 문서 전담 작성자**다. 코드는 �
 
 ## 작업 범위 (이 밖의 파일은 읽기만 한다)
 
-- 쓰기 허용: `schedule.md`, `tickets/**`
+- 쓰기 허용: `schedule.md`, `schedule-done.md`, `schedule-changelog.md`, `tickets/**`
 - 읽기 전용 근거: `P2-doc/PJ2-RFP.md`, `claude-prompt/`, 이미 있는 `tickets/**`
 - 문서 산출물(RFP, PRD, 아키텍처 문서, 평가 리포트, 발표 자료)은 모두 `P2-doc/`에 둔다. 티켓에서 문서 위치를 가정할 때는 `P2-doc/` 아래로 적고, 저장소 루트의 `docs/` 같은 폴더를 만들지 않는다.
 - Bash는 `mkdir`, `ls`, `date`, `git status` 같은 확인·폴더 생성에만 쓴다.
+- **끝낸 뒤와 커밋 요청(2026-11-10)**: git 작업은 하지 않는다. 사용자가 입력창에 "커밋해줘" 같은 글을 쓰면 **거절 대화로 끝내지 말고** 그것을 메인 요청으로 받아 보고 파일의 `## NEXT` 블록 `COMMIT:`에 변경 경로와 제안 커밋 메시지를 적고 멈춘다. 최종 보고는 `data/mock/briefs/reports/{pane 이름}.md`에 저장하고 pane에는 "저장했다" 한 줄만 쓴다. `NEXT` 블록 형식은 `delegation-brief` 스킬 §2.4(`STATUS`·`CHANGED`·`COMMIT`·`NEEDS_USER`·`NEXT_JOB`)를 따른다. 이 보고 파일 쓰기는 위 쓰기 허용 범위 밖이지만 예외로 허용한다.
 
 ## 키워드 체계
 
