@@ -1,6 +1,6 @@
 """gpt-6-luna 호출 확인 스크립트(BE-15). **사용자가 승인한 뒤에만 `--yes`로 실행한다. 자동·시험에서는 실행하지 않는다.**
 
-한 번의 호출로 지연·토큰·(단가를 주면) 비용을 잰다. 키는 환경변수 OPENAI_API_KEY로만 읽고 출력하지 않는다.
+한 번의 호출로 지연·토큰·(단가를 주면) 비용을 잰다. 키는 OPENAI_API_KEY(환경변수, 없으면 app.config Settings의 .env)로만 읽고 출력하지 않는다.
 호출 전 개발 원장 guard를 거치고, 호출 뒤 비용을 원장(dev 몫)에 더한다.
 
 실행(1회): cd backend && .venv/bin/python scripts/luna_probe.py --yes --price-in <USD/1M입력> --price-out <USD/1M출력>
@@ -16,10 +16,33 @@ import time
 import httpx
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from pydantic_settings import SettingsConfigDict  # noqa: E402
+
+from app.config import Settings  # noqa: E402
 from app.llm.ledger import CostLedger  # noqa: E402
 
 MODEL = "gpt-6-luna"
 ENDPOINT = "https://api.openai.com/v1/chat/completions"
+
+
+class _ProbeSettings(Settings):
+    """프로브는 OPENAI_API_KEY만 필요하다. 다른 .env 변수(이름이 Settings와 다른 것 포함)는 무시한다."""
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+
+def resolve_openai_key(env_files=None) -> str | None:
+    """환경변수 우선, 없으면 Settings(pydantic-settings env_file)로 읽는다. 값은 호출자만 쓰고 출력하지 않는다."""
+    key = os.environ.get("OPENAI_API_KEY")
+    if key:
+        return key
+    root = os.path.join(os.path.dirname(__file__), "..", "..")
+    files = env_files if env_files is not None else (".env", os.path.join(root, ".env"))
+    try:
+        return _ProbeSettings(_env_file=files).openai_api_key or None
+    except Exception as exc:  # noqa: BLE001 - 검증 오류 메시지에 .env 값이 섞일 수 있어 종류만 알린다
+        print(f"설정(.env)을 읽지 못했다: {type(exc).__name__}")
+        return None
 
 
 def main() -> int:
@@ -32,9 +55,9 @@ def main() -> int:
     if not args.yes:
         print("실호출 1회가 필요하다. 승인 뒤 --yes로 다시 실행한다.")
         return 2
-    key = os.environ.get("OPENAI_API_KEY")
+    key = resolve_openai_key()
     if not key:
-        print("OPENAI_API_KEY 환경변수가 없다.")
+        print("OPENAI_API_KEY를 환경변수나 .env 설정에서 찾지 못했다.")
         return 2
     ledger = CostLedger()
     ledger.guard(args.max_tokens * args.price_out / 1e6 + 0.001)

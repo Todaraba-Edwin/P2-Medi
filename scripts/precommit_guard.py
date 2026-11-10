@@ -15,7 +15,10 @@ MAX_BYTES = 5 * 1024 * 1024
 PATTERNS = {
     "OpenAI형 키(sk-)": re.compile(rb"sk-[A-Za-z0-9_\-]{20,}"),
     "serviceKey 값": re.compile(rb"(?i)servicekey=[A-Za-z0-9%+/=_\-]{12,}"),
-    "DB 연결 문자열": re.compile(rb"postgres(?:ql)?://[^\s:@/]+:[^\s@]+@"),
+    "DB 연결 문자열": re.compile(
+        # 비밀번호 자리가 자리표시([…]·<…>·{…}·${…}·$VAR·***·password·비밀번호·xxx·your…)이면 통과, 실제 값 모양이면 차단
+        rb"(?i)postgres(?:ql)?://[^\s:@/]+:(?![\[<{$*]|x{3,}|your|password|\xeb\xb9\x84\xeb\xb0\x80\xeb\xb2\x88\xed\x98\xb8)[^\s@]+@"
+    ),
     "JWT": re.compile(rb"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),
 }
 SELF = "scripts/precommit_guard.py"

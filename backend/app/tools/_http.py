@@ -19,10 +19,11 @@ import re
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 from urllib.parse import quote, urlencode
 
 import httpx
@@ -85,12 +86,12 @@ class ApiError(Exception):
 # 시간·비밀·요청 키
 # ---------------------------------------------------------------------------------------------
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def format_utc(dt: datetime) -> str:
     """UTC ISO 8601(초 단위, `Z`). 예: 2026-11-10T05:03:21Z"""
-    return dt.astimezone(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dt.astimezone(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def format_display(dt: datetime) -> str:
@@ -99,7 +100,7 @@ def format_display(dt: datetime) -> str:
 
 
 def parse_utc(text: str) -> datetime:
-    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
 
 
 def mask_secret(text: str, secret: str | None) -> str:
@@ -332,7 +333,7 @@ class ApiHttpClient:
         if not path.exists():
             raise ApiError("snapshot_miss", "저장된 응답 스냅샷에 없는 요청입니다(평가 모드에서는 실호출하지 않습니다).")
         text = path.read_text(encoding="utf-8")
-        fetched = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        fetched = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
         return ApiResponse(parse_response(text), text, "snapshot", fetched, key)
 
     def _client(self) -> httpx.Client:
