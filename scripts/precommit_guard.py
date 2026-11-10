@@ -23,6 +23,18 @@ PATTERNS = {
 }
 SELF = "scripts/precommit_guard.py"
 
+# 설정 객체·환경 전체를 통째로 출력하는 코드(sec-guard). 앱·스크립트 소스(.py)에만 적용한다. 문서(.md)·시험·redact 모듈은 제외.
+OUTPUT_SCOPE = ("backend/app/", "backend/scripts/", "scripts/")
+OUTPUT_ALLOW = frozenset({SELF, "backend/app/security/redact.py"})
+OUTPUT_PATTERNS = {
+    "설정 객체 출력(print(settings…))": re.compile(rb"\bprint\(\s*f?[\"']?[^\n)]*?(?<![\w.])(?:settings|get_settings\(\))\s*[,)}]"),
+    "settings repr": re.compile(rb"\brepr\(\s*(?:self\.)?(?:settings|get_settings\(\))"),
+    "os.environ 전체 출력": re.compile(rb"\bprint\(\s*(?:dict\(\s*)?os\.environ\s*\)"),
+    "f-string에 os.environ·settings 전체": re.compile(rb"\bprint\(f[\"'][^\n]*\{\s*(?:os\.environ|settings|get_settings\(\))\s*[}!:]"),
+    "model_dump 출력·로그": re.compile(rb"\b(?:print|log\w*\.\w+|logging\.\w+)\([^\n]*\.model_dump\("),
+    "redact 없는 트레이스백 출력": re.compile(rb"(?<![\w.])traceback\.print_exc\(|\btraceback\.print_exception\("),
+}
+
 
 def check(path_str: str, root: Path) -> list[str]:
     rel = path_str.replace("\\", "/")
@@ -41,6 +53,10 @@ def check(path_str: str, root: Path) -> list[str]:
             for label, pat in PATTERNS.items():
                 if pat.search(data):
                     problems.append(f"비밀 패턴 감지: {label}")
+            if rel.endswith(".py") and rel.startswith(OUTPUT_SCOPE) and rel not in OUTPUT_ALLOW:
+                for label, pat in OUTPUT_PATTERNS.items():
+                    if pat.search(data):
+                        problems.append(f"설정·환경 통째 출력 패턴: {label}")
     return problems
 
 

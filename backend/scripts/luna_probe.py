@@ -20,6 +20,9 @@ from pydantic_settings import SettingsConfigDict  # noqa: E402
 
 from app.config import Settings  # noqa: E402
 from app.llm.ledger import CostLedger  # noqa: E402
+from app.security.redact import install_excepthook, safe_exc  # noqa: E402
+
+install_excepthook()  # 처리되지 않은 예외의 메시지·트레이스백에서 비밀 값을 가린다
 
 MODEL = "gpt-6-luna"
 ENDPOINT = "https://api.openai.com/v1/chat/completions"
@@ -41,7 +44,7 @@ def resolve_openai_key(env_files=None) -> str | None:
     try:
         return _ProbeSettings(_env_file=files).openai_api_key or None
     except Exception as exc:  # noqa: BLE001 - 검증 오류 메시지에 .env 값이 섞일 수 있어 종류만 알린다
-        print(f"설정(.env)을 읽지 못했다: {type(exc).__name__}")
+        print(f"설정(.env)을 읽지 못했다: {safe_exc(exc)}")
         return None
 
 

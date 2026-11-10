@@ -192,6 +192,12 @@ def report(results: list[dict]) -> str:
 
 
 if __name__ == "__main__":
+    import sys
+
+    sys.path.insert(0, str(ROOT))
+    from app.security.redact import install_excepthook
+
+    install_excepthook()  # 처리되지 않은 예외 출력에서 비밀 값을 가린다
     res = battery()
     print(report(res))
     for r in res:

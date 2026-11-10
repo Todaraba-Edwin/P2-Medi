@@ -88,7 +88,7 @@ done: 2026-11-10
 ## 7. 메모
 - 2026-11-10 종료: 문서가 완성됐고 결정 01~03이 모두 A로 끝났으며 남은 일은 프롬프트 작성 시점(AG-01·AG-06, SCH-02)의 이관뿐이라 done으로 종료한다.
 - **시험셋 보관(사용자 답, 결정 번호 없음, 2026-11-10 A)**: `evaluation/eval_set/test_set.SEALED.jsonl`(시험셋 151문항, 약 0.3MB)은 KIDS 원문이 들어 있어 **저장소에 올리지 않고 로컬 전용**으로 두고, 개발셋·빌더·`manifest.json`(sha256)·README만 커밋한다. `.gitignore`(`evaluation/eval_set/*.SEALED.jsonl`)와 CLAUDE.md 7장 로컬 전용 목록은 git-actor·메인이 처리한다(이 작업에서는 고치지 않음). AG-04 완료 조건에 사실만 적었다.
-- **문서 간 불일치 2건(결정 번호 없음, 고치지 않고 사용자 확인으로 올림, Recap 15번)**: ① H28 인용 글자 일치 검사 단계: `tickets/agent/AG-06.md:41`은 코드(기준선 포함)이고 `tickets/doc/RFP-29.md:144`는 "검사는 개선"이다. ② `tickets/doc/RFP-26.md:240` 문항 생성기는 "Haiku 4.5"인데 `P2-doc/PJ2-RFP.md` 9.2절은 Upstage 주 + Haiku 보조다(이 설계 문서는 9.2절을 따름).
+- **문서 간 불일치 2건(결정 번호 없음, 고치지 않고 사용자 확인으로 올림, Recap 21번, 2026-11-10 번호 갱신)**: ① H28 인용 글자 일치 검사 단계: `tickets/agent/AG-06.md:41`은 코드(기준선 포함)이고 `tickets/doc/RFP-29.md:144`는 "검사는 개선"이다. ② `tickets/doc/RFP-26.md:240` 문항 생성기는 "Haiku 4.5"인데 `P2-doc/PJ2-RFP.md` 9.2절은 Upstage 주 + Haiku 보조다(이 설계 문서는 9.2절을 따름).
 - 가정: SCH-02 배정(첫 프롬프트가 SCH-02 AG-01). priority 필수(프롬프트·평가 설계는 포트폴리오 핵심). rfp 칸은 FR-05(Validator)·FR-06(Guardrail)·재현성으로 적었다.
 - 가정: 개발 골든 약 20문항과 L2 1회 약 $0.2는 설계 문서의 제 추정이고 측정 전이다.
 - 확인하지 못한 것: 개발셋에 골든·`reliability_core`를 표시한 뒤의 칸당 n(개발 골든 20문항을 유형으로 나누면 n ≤ 8이라 L2는 회귀 경보로만 읽음, 설계 문서 5장 (4)).

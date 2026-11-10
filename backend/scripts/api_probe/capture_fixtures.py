@@ -15,7 +15,10 @@ from urllib.parse import quote, urlencode
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from app.security.redact import install_excepthook  # noqa: E402
 from scripts.api_probe import probe  # noqa: E402
+
+install_excepthook()  # 처리되지 않은 예외 출력에서 비밀 값을 가린다
 
 OUT = probe.ROOT / "tests" / "fixtures" / "api"
 
