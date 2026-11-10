@@ -52,7 +52,7 @@ CONTENT_FREE_FIELDS = frozenset(
         "model", "provider", "cache", "cache_key12", "retry", "error_type",
         "model_calls_so_far", "rollbacks_so_far", "harness_event",
         "verdict", "violations", "source", "file_api_match", "data_as_of",
-        "end_reason", "prompt_version", "tool_schema_version", "graph_version",
+        "end_reason", "prompt_version", "prompt_set", "tool_schema_version", "graph_version",
         "input_source",
     }
 )  # fmt: skip
@@ -60,8 +60,12 @@ ALLOWED_FIELDS = CONTENT_FREE_FIELDS | CONTENT_FIELDS
 
 # service 집계에 남기는 필드(숫자·열거형 이름뿐). 자유 문자열이 실릴 수 있는 필드는 넣지 않는다.
 SERVICE_FIELDS = frozenset(
-    {"node", "tool", "latency_ms", "tokens_in", "tokens_out", "cost_usd", "model", "provider", "cache", "retry", "error_type", "end_reason"}
+    {"node", "tool", "latency_ms", "tokens_in", "tokens_out", "cost_usd", "model", "provider", "cache", "retry", "error_type", "end_reason", "prompt_set"}
 )
+
+# `prompt_set`은 버전 문자열(`prompt_set@v1`)이라 서비스 모드에도 남는다(RFP-34 충돌 없음, 설계 문서 6장). 자유 문자열이 새지 않게 형식이 맞을 때만 기록한다.
+# `prompt_version`은 개별 프롬프트 파일 하나(`agent_system@v1`)를 가리키는 기존 필드로 dev·eval에서만 남고, 실행 한 번의 프롬프트 묶음은 `prompt_set`이다.
+PROMPT_SET_RE = re.compile(r"^prompt_set@v[0-9]{1,4}$")
 
 LABEL_MISSING_REASONS = ("ABSENT", "FETCH_FAIL", "SEARCH_MISS", "OUT_OF_SCOPE")  # PRD-11-04
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,127}$")  # 경로 이탈 방지
@@ -96,7 +100,9 @@ def build_record(mode: str, fields: dict[str, Any]) -> dict[str, Any]:
     record: dict[str, Any] = {}
     dropped = []
     for key, value in fields.items():
-        if key in allowed:
+        if key == "prompt_set" and not (isinstance(value, str) and PROMPT_SET_RE.match(value)):
+            dropped.append(key)  # 형식이 다르면 기록하지 않는다(내용이 섞이지 않게)
+        elif key in allowed:
             record[key] = value
         else:
             dropped.append(key)
@@ -127,7 +133,7 @@ class Aggregator:
         with self._lock:
             self._roll()
             self._inc("spans")
-            for key in ("node", "tool", "error_type", "end_reason", "harness_rule", "cache", "model"):
+            for key in ("node", "tool", "error_type", "end_reason", "harness_rule", "cache", "model", "prompt_set"):
                 if record.get(key) is not None:
                     self._inc(f"{key}={record[key]}")
             for key in ("latency_ms", "tokens_in", "tokens_out", "cost_usd"):
