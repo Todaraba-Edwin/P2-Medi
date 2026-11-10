@@ -199,6 +199,8 @@ P2-Medi/
 │   └── report/         스프린트 보고서 등 리포트 md+PDF 한 쌍, presentation/(발표 PDF, 원본은 data/ 원칙의 예외 규정) (로컬 전용, 커밋 안 함)
 ├── backend/            런타임 서버 (FastAPI)                                (커밋)
 │   ├── app/{api,db,tools,agent}/   BE 티켓(api·db·tools), AG 티켓(agent)
+│   ├── app/{logging,llm,security}/ BE-15: 로깅 L1, LLM 캐시·비용 원장, 비밀값 비노출 가드(BE-15-02 A, 2026-11-10)
+│   ├── prompts/                    프롬프트 파일 `<ID>@vN.md`(PRD-16-01 A, 첫 파일은 AG-01 기준선)
 │   ├── scripts/api_probe/          공공 API 응답 확인·fixture 수집
 │   └── tests/                      pytest, tests/fixtures/api 응답 스냅샷
 ├── evaluation/         평가 코드와 mock 생성기                              (커밋)
@@ -214,7 +216,7 @@ P2-Medi/
 ```
 
 - **성격 구분**: `scripts/`는 일정·문서·PDF를 다루는 **거버넌스 도구**만 둔다. 서비스가 도는 코드는 `backend/`(런타임), 측정·평가·mock 생성은 `evaluation/`, 화면은 `frontend/`에 둔다.
-- **코드 위치 규칙**: `backend/app/agent` = AG 티켓(그래프·노드·Router·Validator·Guardrail), `backend/app/{api,db,tools}` = BE 티켓(엔드포인트·DB·공공 API 도구), `evaluation/` = 평가·mock 생성(AG-04·AG-11~14·BE-08 계열), `frontend/` = FE 티켓.
+- **코드 위치 규칙**: `backend/app/agent` = AG 티켓(그래프·노드·Router·Validator·Guardrail), `backend/app/{api,db,tools}` = BE 티켓(엔드포인트·DB·공공 API 도구), `backend/app/{logging,llm,security}`·`backend/prompts` = BE-15 개발 하네스(로깅·캐시·원장·비밀값 가드·프롬프트 파일), `evaluation/` = 평가·mock 생성(AG-04·AG-11~14·BE-08 계열), `frontend/` = FE 티켓.
 - **로컬 전용(`.gitignore` 대상)**: `data/`(원본 데이터와 `data/mock/`), `P2-doc/report/`, `logs/`, `tickets/issues/`, `evaluation/eval_set/*.SEALED.jsonl`(시험셋 파일, 개선 중 열람 금지이므로 저장소에 올리지 않고 `manifest.json`의 sha256만 커밋, 2026-11-10 사용자 결정). `.env`와 함께 커밋하지 않는다. `.gitignore` 수정은 `git-actor`가 한다.
-- **`tickets/issues/`(화면 이슈 이미지)는 로컬 전용이다**(2026-11-09 사용자 결정, 이유: git 용량 때문에 이미지 파일을 제어). PNG 15개(약 4.9MB)는 로컬에 남기고 추적을 해제하며 `.gitignore` 추가는 `git-actor`가 한다. 티켓(PRD-09~PRD-15)의 `tickets/issues/ISSUE-nnn.png` 링크는 로컬 전용 파일이라 저장소에서 클론하면 열리지 않는다. 디자인 세션 등에 공유할 때는 로컬 파일을 첨부한다.
+- **`tickets/issues/`(화면 이슈 이미지)는 로컬 전용이다**(2026-11-09 사용자 결정, 이유: git 용량 때문에 이미지 파일을 제어). PNG는 로컬에 남기고(2026-11-09 15개 약 4.9MB, 이후 이슈가 생길 때마다 늘어남) 추적을 해제하며 `.gitignore` 추가는 `git-actor`가 한다. 티켓(PRD-09~PRD-15)의 `tickets/issues/ISSUE-nnn.png` 링크는 로컬 전용 파일이라 저장소에서 클론하면 열리지 않는다. 디자인 세션 등에 공유할 때는 로컬 파일을 첨부한다.
 - 새 폴더를 만들거나 위 규칙과 다른 곳에 코드를 두려면 먼저 결정 번호를 올린다.
