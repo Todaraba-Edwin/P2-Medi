@@ -55,6 +55,10 @@ def check_items(tool: str, items: list[dict[str, Any]]) -> list[str]:
         api = [f for f in flags if f in API_FLAGS]
         if len(api) > 1:
             bad.append(f"{tag} API 꼬리표가 둘 이상: {api}")
+        if "API_PAIR_INCOMPLETE" in api and it.get("kind") != "contra_pair":
+            bad.append(f"{tag} API_PAIR_INCOMPLETE는 병용 쌍 항목에만 쓴다(성분 단위 연령·임부는 API_FAIL)")  # H20
+        if it.get("source_kind") == "API_DIRECT" and it.get("dataset_key") == "dur_ingr" and not it.get("queried_at_utc"):
+            bad.append(f"{tag} API 항목에 조회 시각 없음")
         if it.get("missing_reason") is not None and it["missing_reason"] not in MISSING_REASONS:
             bad.append(f"{tag} missing_reason 값 이상: {it['missing_reason']}")
         if it.get("missing_reason") and (it.get("text") or it.get("matches")):

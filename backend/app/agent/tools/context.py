@@ -11,6 +11,13 @@ from app.tools.dur import DurResult
 
 # (api 성분코드 A, api 성분코드 B) → 병용금기 조회 결과(BE-03 `DurClient.usjnt_pair_by_ingredient` 형식)
 ApiPairFn = Callable[[str, str], DurResult]
+# api 성분코드 → 그 성분의 연령·임부 금기 조회 결과(BE-03 `DurClient.by_ingredient("age"|"pregnancy", code)` 형식)
+ApiIngredientFn = Callable[[str], DurResult]
+
+
+def ingredient_api_fns(client: Any) -> tuple[ApiIngredientFn, ApiIngredientFn]:
+    """`DurClient`(또는 같은 `by_ingredient(kind, code)`를 가진 객체)를 (연령 함수, 임부 함수)로 감싸는 어댑터. 호출 자체는 클라이언트가 한다."""
+    return (lambda code: client.by_ingredient("age", code)), (lambda code: client.by_ingredient("pregnancy", code))
 
 
 class LabelProvider(Protocol):
@@ -28,5 +35,7 @@ class ToolContext:
     paramstyle: str = "qmark"
     api_enabled: bool = True                      # 평가 모드에서는 False(RFP 5.1절 (7), BE-08): API 호출 없음, 꼬리표 없음
     api_pair_fn: ApiPairFn | None = None
+    api_age_fn: ApiIngredientFn | None = None            # 성분 단위 연령금기 API 병기(AG-02 후속). None이면 API_FAIL 꼬리표
+    api_pregnancy_fn: ApiIngredientFn | None = None     # 성분 단위 임부금기 API 병기
     label_provider: LabelProvider | None = None
     remaining_calls: int = 6                      # ARG_SCHEMA 메시지에 알릴 남은 도구 호출 수(H21, 그래프가 갱신)

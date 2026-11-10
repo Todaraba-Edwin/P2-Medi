@@ -62,11 +62,32 @@ def test_false_positive_trio_never_reaches_found(real_ctx, name):
 
 @pytest.mark.parametrize("name", ["래피콜에이캡슐", "휴펜정"])
 def test_common_cold_capsule_type_is_unconfirmed_not_not_listed(real_ctx, name):
-    """BE-10-09 후속: 아세트아미노펜 복합 상비약(제형이 코드와 다른 route_only)은 '확인하지 못함'이다. NOT_LISTED가 아니다."""
+    """BE-10-09 후속·BE-10-10 C: 아세트아미노펜 복합 상비약은 '확인하지 못함'이다. NOT_LISTED가 아니다.
+
+    BE-10-10 C 이후 이유가 바뀌었다: 아세트아미노펜 성분은 이제 같은 제형(정제·캡슐)의 KIDS 코드와 맞지만(REFERENCE_ONLY 아님),
+    나머지 성분은 KIDS 단일 성분 항목이 없어 일부 성분만 조회할 수 있으므로 `CODE_NOT_LINKED`로 '목록에 없음'을 말하지 않는다.
+    """
     out = check(real_ctx, name)
     assert {i["status"] for i in out["items"]} == {"UNIDENTIFIED"}
-    assert any("REFERENCE_ONLY" in i["flags"] for i in out["items"])
-    assert any("이 제품 판정 아님" in n for i in out["items"] for n in i["notes"])
+    assert all("CODE_NOT_LINKED" in i["flags"] for i in out["items"])
+    assert any("일부 성분만" in n for i in out["items"] for n in i["notes"])
+
+
+def test_acetaminophen_component_matches_tablet_and_capsule_codes(real_ctx):
+    """BE-10-10 C: 아세트아미노펜이 든 정제·캡슐 복합 상비약에서 아세트아미노펜 성분은 같은 제형 KIDS 코드와 맞는다(`match`).
+
+    KIDS 연령금기 목록에는 아세트아미노펜 산제(101305APD)·서방정(101430ATR) 코드만 있고 정제·캡슐 단일 코드는 용량주의 CSV에만 있다.
+    사전이 그 코드를 알아 이전에는 `route_only`(REFERENCE_ONLY)였던 정제·캡슐이 `match`가 된다(연령 목록에 없는 제형이므로 이 성분은 NOT_LISTED 쪽).
+    """
+    d = real_ctx.drug_dict
+    pop = [p for p in d.products if p.get("code_link") == "component_only" and "acetaminophen" in p.get("ingr_keys", []) and not p.get("cancelled")
+           and (p.get("form") or {}).get("group") in ("정제", "캡슐")]
+    assert len(pop) > 50
+    for p in pop:
+        cands = d.component_candidates(p["item_seq"])
+        apap = [m for c in cands for m in c.component_matches if "acetaminophen" in m.label.lower()]
+        assert apap and all(m.form_match == "match" and m.usable_codes for m in apap), p["name"]
+        assert not any(x in ("101305APD", "101430ATR") for m in apap for x in m.usable_codes)  # 산제·서방정 코드가 정제·캡슐 판정에 쓰이지 않는다
 
 
 def test_partial_component_coverage_never_not_listed(real_ctx):
@@ -80,7 +101,10 @@ def test_partial_component_coverage_never_not_listed(real_ctx):
 def test_otc_acetaminophen_population_coverage_is_recorded(real_ctx):
     """상비약 점검 표본: 아세트아미노펜 포함 일반의약품 전체(취소 제외)에서 연령 질문(5세)이 '확인하지 못함'이 되는 비율을 센다.
 
-    측정 시점(2026-11-10, 사전 be10-dict-s1-b79de8c2755b): 233/712. 값이 크게 달라지면(사전 갱신) 이 시험이 알려 준다.
+    측정: 2026-11-10 사전 be10-dict-s1-b79de8c2755b 233/712 → BE-10-10 C 후 사전 be10-dict-s1-8fd48b13a657 225/712(0.316)
+    → BE-10-12 A 후 사전 be10-dict-s1-c55339208584 234/712(0.329. 복합제 9건이 다른 제형 코드에만 연결돼 NOT_LISTED → UNIDENTIFIED). FOUND 113→45, NOT_LISTED 374→433.
+    남은 225개는 모두 복합제로, 아세트아미노펜 외 성분(클로르페니라민·한약 추출물 등)에 KIDS 단일 성분 항목이 없어 일부 성분만 조회되는 경우다.
+    값이 크게 달라지면(사전 갱신) 이 시험이 알려 준다.
     """
     d = real_ctx.drug_dict
     pop = [p for p in d.products if "acetaminophen" in p.get("ingr_keys", []) and p.get("prescription") == "일반" and not p.get("cancelled")]
@@ -94,4 +118,39 @@ def test_otc_acetaminophen_population_coverage_is_recorded(real_ctx):
         unconfirmed += statuses == {"UNIDENTIFIED"}
     n = len(pop)
     assert n > 100
-    assert 0.2 <= unconfirmed / n <= 0.45, f"{unconfirmed}/{n}"  # 기대 구간(측정 0.327): 벗어나면 사전·규칙이 바뀐 것
+    assert 0.22 <= unconfirmed / n <= 0.40, f"{unconfirmed}/{n}"  # 기대 구간(측정 0.316): 벗어나면 사전·규칙이 바뀐 것
+
+
+def test_single_acetaminophen_all_forms_products_use_matching_form_codes_only(real_ctx):
+    """BE-10-12 A: 성분 이름으로 이은 단일 아세트아미노펜 정제·시럽·캡슐은 서방정·산제 규칙을 끌어오지 않는다.
+
+    측정(2026-11-11, 사전 be10-dict-s1-c55339208584, 연령 5세, n=100 단일 성분 일반의약품): 정제 40·시럽 19·캡슐 8·현탁액 1이 FOUND → NOT_LISTED.
+    근거 코드는 용량주의 CSV의 같은 제형 단일 코드(정제 ATB 6개·시럽 ASY 5개·캡슐 ACS 1개·현탁액 ASS 3개)이며 연령금기 목록에는 없다.
+    """
+    d = real_ctx.drug_dict
+    single = [p for p in d.products if p.get("ingr_keys") == ["acetaminophen"] and p.get("prescription") == "일반" and not p.get("cancelled")]
+    assert len(single) == 100
+    seen = 0
+    for p in single:
+        if p.get("code_link") != "ingredient_name":
+            continue
+        grp = (p.get("form") or {}).get("group")
+        out = invoke("check_contraindications", {"drugs": [{"item_seq": p["item_seq"]}], "age": {"value": 5, "unit": "세"}}, real_ctx)
+        st = {i["status"] for i in out["items"] if i["kind"] == "age"}
+        if grp in ("정제", "시럽", "캡슐", "현탁액"):
+            assert st == {"NOT_LISTED"}, p["name"]
+            seen += 1
+        elif grp in ("산제·분말", "서방정"):
+            assert st == {"FOUND"}, p["name"]  # 제형이 맞는 코드가 있어 유지
+    assert seen == 68
+
+
+def test_product_code_linked_acetaminophen_unchanged(real_ctx):
+    """BE-10-12 A: 제품 코드 연결(edi_code·product_name) 단일 아세트아미노펜 서방정·산제 23건은 결과가 그대로 FOUND다."""
+    d = real_ctx.drug_dict
+    pop = [p for p in d.products if p.get("ingr_keys") == ["acetaminophen"] and p.get("prescription") == "일반" and not p.get("cancelled")
+           and p.get("code_link") in ("edi_code", "product_name")]
+    assert len(pop) == 23
+    for p in pop:
+        out = invoke("check_contraindications", {"drugs": [{"item_seq": p["item_seq"]}], "age": {"value": 5, "unit": "세"}}, real_ctx)
+        assert {i["status"] for i in out["items"] if i["kind"] == "age"} == {"FOUND"}, p["name"]

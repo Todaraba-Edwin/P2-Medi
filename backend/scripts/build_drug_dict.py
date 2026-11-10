@@ -2,7 +2,8 @@
 
 재료(모두 `data/` 로컬):
   - KIDS 병용금기 JSON(`data/병용금기_데이터.json`, 스트리밍): 제품코드·제품명·성분코드(KIDS형식)·성분명 A/B
-  - KIDS 임부·연령·수유부 CSV: 제품코드·제품명·성분코드. 용량주의 CSV는 복합제가 1성분만 표시되어 코드 신뢰가 안 돼 쓰지 않는다
+  - KIDS 임부·연령·수유부 CSV: 제품코드·제품명·성분코드. 용량주의 CSV는 복합제가 1성분만 표시되어 제품·복합제 연결에는 쓰지 않고,
+    **단일 성분 코드 목록으로만** 쓴다(BE-10-10 C: 연령·임부 목록에 없는 제형의 단일 성분 코드를 사전이 알도록. `dose_single_codes` 참조)
   - 수집 스냅샷 `data/mock/api_snapshots/`: eyak-all(e약은요), prmsn-names(허가정보 전체 목록), prmsn-detail(상세 212개),
     dur-ingr(`D######` 성분코드·한글/영문 성분명), ingr_codes.json
   - DUR 품목리스트 CSV(심평원)는 쓰지 않는다(PRD-14-02).
@@ -49,15 +50,18 @@ SNAP = DATA / "mock" / "api_snapshots"
 
 SRC_KIDS_JSON = "KIDS 병용금기(한국의약품안전관리원)"
 SRC_KIDS_CSV = "KIDS 금기·주의 CSV(한국의약품안전관리원)"
+SRC_KIDS_DOSE = "KIDS 용량주의 CSV(한국의약품안전관리원, 단일 성분 코드 목록만)"
 SRC_PRMSN = "허가정보(식약처)"
 SRC_EYAK = "e약은요(식약처)"
 SRC_DUR = "DUR 성분정보(식약처)"
-BUILDER_REV = 5  # 빌드 규칙을 바꾸면 올린다(버전 문자열에 들어간다). 4: 정규화(·, mesilate, 원료 꼬리)·성분 단위 연결·2-gram. 5: 제형 분류·form_match(BE-10-08 A)·용도 괄호 제외
+BUILDER_REV = 7  # 빌드 규칙을 바꾸면 올린다(버전 문자열에 들어간다). 4: 정규화(·, mesilate, 원료 꼬리)·성분 단위 연결·2-gram. 5: 제형 분류·form_match(BE-10-08 A)·용도 괄호 제외. 6: 용량주의 CSV의 단일 성분 코드를 코드 목록에 추가(BE-10-10 C). 7: 성분 이름 연결(all_forms) 제품에도 제형 비교 적용(BE-10-12 A, 사전 내용 불변·런타임 규칙 변경 기록용)
 
 # 사전이 다루지 않는 범위(메타에 명시, 보고·AG-02가 읽는다). 코드 없음 ≠ 금기 없음이다.
 BOUNDARIES = {
-    "dose_caution_csv": "용량주의 CSV는 복합제가 1성분만 표시되어 코드를 신뢰할 수 없고 용량 확인은 확장 범위라 사전에 넣지 않는다. "
-                        "용량주의 목록에만 있는 성분은 사전에서 연결되지 않으며, 이때 코드 없음은 NOT_LISTED가 아니라 UNIDENTIFIED로 다룬다",
+    "dose_caution_csv": "용량주의 CSV는 복합제가 1성분만 표시되어 제품·복합제 연결에는 쓰지 않는다(용량 확인은 확장 범위). "
+                        "단 이미 사전에 있는 단일 성분에 대해, 제품명이 그 성분 하나만 가리키는 코드(`dose_single_codes` 규칙)는 코드 목록에만 더한다"
+                        "(제형별 코드를 알아야 연령·임부 목록에 없는 제형을 NOT_LISTED로 말할 수 있다). 용량주의 목록에만 있는 성분은 사전에서 연결되지 않으며, "
+                        "이때 코드 없음은 NOT_LISTED가 아니라 UNIDENTIFIED로 다룬다",
     "elderly_csv": "심평원 노인주의 품목리스트는 쓰지 않는다(PRD-14-02)",
 }
 
@@ -134,6 +138,70 @@ def kids_csv_records(data_dir: Path) -> Iterator[dict[str, str]]:
                        "ingr_name": r.get("성분명", ""), "entp": r.get("업체명", "")}
 
 
+def kids_dose_records(data_dir: Path) -> Iterator[dict[str, str]]:
+    """용량주의 CSV의 (성분코드, 영문 성분명, 제품명) 행. 복합제는 1성분만 적혀 있으므로 `dose_single_codes`로 거른 뒤에만 쓴다."""
+    p = data_dir / "한국의약품안전관리원_용량주의약물_20260721.csv"
+    if not p.exists():
+        return
+    for r in iter_csv(p):
+        code = (r.get("일반명코드") or "").strip()
+        if code:
+            yield {"ingr_code": code, "ingr_name": r.get("일반명(복합제의 경우 1성분만 표시됨)", ""), "name": r.get("약품명", "")}
+
+
+_MULTI_SEP_RE = re.compile(r"[,·/+&]|\s및\s")
+
+
+def _top_level_parens(text: str) -> list[str]:
+    """가장 바깥 괄호의 안쪽 문자열들. 중첩 `(아세트아미노펜(미분화))`은 바깥 것 하나로 본다."""
+    out, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            if depth == 0:
+                start = i + 1
+            depth += 1
+        elif ch == ")" and depth:
+            depth -= 1
+            if depth == 0:
+                out.append(text[start:i])
+    return out
+
+
+def _name_points_to_single(product_name: str, ko_names: set[str]) -> bool:
+    """KIDS 제품명이 성분 하나만 가리키는가(일반 규칙). 괄호가 있으면 그 안이 이 성분 한글명을 담고 구분자(`, · / +`)가 없어야 하고,
+    괄호가 없으면 제품명 본문에 이 성분 한글명이 들어 있어야 한다. 성분을 알 수 없는 상표명(예: `게보린정`)은 단일 근거가 아니므로 거른다."""
+    base = re.sub(r"_\([^)]*\)(?:\([^)]*\))?\s*$", "", product_name)  # KIDS 함량 꼬리 `_(0.5g/1정)` (뒤에 `(무색소)` 같은 꼬리가 붙기도 함)
+    inner = _top_level_parens(base)
+    if inner:
+        cand = [t for t in inner if any(k in t for k in ko_names)]
+        return bool(cand) and not any(_MULTI_SEP_RE.search(t) for t in cand)
+    return any(k in base for k in ko_names)
+
+
+def dose_single_codes(rows: Iterable[dict[str, str]], single_ko: dict[str, set[str]], known_codes: set[str]) -> dict[str, tuple[str, list[str]]]:
+    """용량주의 행 → {성분코드: (단일 성분 set_key, 제품명들)}. 아래를 모두 만족한 코드만 단일 성분 코드로 본다.
+
+    ① 영문 성분명이 사전에 이미 있는 **단일** 성분 키와 같다. ② 다른 KIDS 파일에 없던 새 코드다(이미 있는 코드는 그쪽 성분이 우선).
+    ③ 이 코드의 모든 제품명이 `_name_points_to_single`을 통과한다(복합제는 용량주의 CSV에 1성분만 적혀서 걸러야 한다). 성분별 튜닝 없음.
+    """
+    by_code: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for r in rows:
+        by_code[r["ingr_code"].strip()].append(r)
+    out: dict[str, tuple[str, list[str]]] = {}
+    for code, rs in by_code.items():
+        if len(code) != 9 or code in known_codes:
+            continue
+        keys = {_set_key(r["ingr_name"], "kids") for r in rs if r["ingr_name"].strip()}
+        if len(keys) != 1:
+            continue
+        key = next(iter(keys))
+        if key not in single_ko or "+" in key:
+            continue
+        if all(_name_points_to_single(r["name"], single_ko[key]) for r in rs):
+            out[code] = (key, [r["name"] for r in rs])
+    return out
+
+
 def _read_pages(directory: Path) -> Iterator[dict[str, Any]]:
     for f in sorted(directory.glob("page-*.json"), key=lambda x: int(x.stem.split("-")[1])):
         yield from json.loads(f.read_text(encoding="utf-8")).get("items", [])
@@ -177,7 +245,7 @@ def material_hashes(data_dir: Path, snap: Path) -> dict[str, str]:
     if kj.exists():
         out["kids_contra_json"] = _file_hash([kj])
     for fn in ("한국의약품안전관리원_임부금기약물_20260721.csv", "한국의약품안전관리원_연령금기_20260721.csv",
-               "한국의약품안전관리원_수유부주의_20251127.csv"):
+               "한국의약품안전관리원_수유부주의_20251127.csv", "한국의약품안전관리원_용량주의약물_20260721.csv"):
         if (data_dir / fn).exists():
             out[fn] = _file_hash([data_dir / fn])
     for d in ("eyak-all", "prmsn-names", "prmsn-detail"):
@@ -216,6 +284,7 @@ def build_dictionary(
     kids_csv: Iterable[dict[str, str]],
     snaps: dict[str, Any],
     hashes: dict[str, str] | None = None,
+    dose_rows: Iterable[dict[str, str]] = (),
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """재료 → (사전 dict, 통계 dict). 입출력은 모두 메모리 구조라 합성 입력으로 시험할 수 있다."""
     # 1) 성분 레지스트리: KIDS 코드 앞 6자리 = 성분(복합제는 조합 단위). 뒤 3자리는 제형.
@@ -237,6 +306,28 @@ def build_dictionary(
         if len(_split_components(r["ingr_name"])) == 1:  # 한글 성분명 투표(단일 성분 제품의 괄호명)
             for k in _ko_candidates(r["name"]):
                 ko_votes[key][k] += 1
+
+    # 용량주의 CSV의 단일 성분 코드(BE-10-10 C): 이미 사전에 있는 단일 성분에만 코드를 더한다(새 성분·제품은 만들지 않는다).
+    single_ko: dict[str, set[str]] = {}
+    for k in reg:
+        if "+" in k:
+            continue
+        names = {n for n, _c in ko_votes.get(k, Counter()).items()}
+        cur = CURATED_ALIASES.get(k)
+        if cur and cur[0]:
+            names.add(cur[0])
+        names = {split_ko_salt(n)[0] for n in names if n}
+        if names:
+            single_ko[k] = names
+    dose_added = dose_single_codes(dose_rows, single_ko, set(code_key))
+    dose_added_by_key: dict[str, list[str]] = defaultdict(list)
+    dose_form_pairs: list[tuple[str, str]] = []
+    for code, (key, pnames) in sorted(dose_added.items()):
+        reg[key]["codes"].add(code)
+        reg[key]["sources"].add(SRC_KIDS_DOSE)
+        code_key.setdefault(code, key)
+        dose_added_by_key[key].append(code)
+        dose_form_pairs.extend((code, nm) for nm in pnames)  # 제형 접미 추정에만 쓴다(제품·연결은 만들지 않는다)
 
     keys = sorted(reg)
     ing_id = {k: i for i, k in enumerate(keys)}
@@ -429,7 +520,7 @@ def build_dictionary(
 
     for p in products.values():  # 제품 제형(BE-10-08 A): 제품명 접미 → 효능군 힌트
         p["form"] = classify_product_form(p["name"], p.get("product_type"))
-    form_map = infer_code_forms((r["ingr_code"], r["name"]) for r in kids_all)
+    form_map = infer_code_forms([(r["ingr_code"], r["name"]) for r in kids_all] + dose_form_pairs)
 
     out_products = []
     for p in products.values():
@@ -441,6 +532,7 @@ def build_dictionary(
         i["components"] = [{k: v for k, v in c.items() if k != "key"} for c in i["components"]]
 
     stats = compute_stats(out_products, out_ingredients)
+    stats["dose_single_codes_added"] = {"codes": len(dose_added), "ingredients": len(dose_added_by_key)}
     blob = json.dumps({"rev": BUILDER_REV, "bm25_tokenizer": BM25_TOKENIZER, "rules": normalize_rules_signature(), "form_rules": forms_rules_signature(), **(hashes or {})}, sort_keys=True)
     version = f"be10-dict-s{SCHEMA_VERSION}-{hashlib.sha256(blob.encode()).hexdigest()[:12]}"
     data = {"meta": {"schema": SCHEMA_VERSION, "version": version, "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -449,7 +541,7 @@ def build_dictionary(
                      "form_map_note": "코드 접미(성분코드 뒤 3자리)의 제형은 공식 코드표가 아니라 KIDS 제품명 접미 분포로 추정(measured). confidence는 경로·제형군 우세 비율 기준",
                      "materials": {SRC_KIDS_JSON: "한국의약품안전관리원", SRC_KIDS_CSV: "한국의약품안전관리원", SRC_PRMSN: "식약처", SRC_EYAK: "식약처",
                                    SRC_DUR: "식약처", "DUR 품목리스트 CSV(심평원)": "쓰지 않음(PRD-14-02)",
-                                   "KIDS 용량주의 CSV(한국의약품안전관리원)": "쓰지 않음(" + BOUNDARIES["dose_caution_csv"] + ")"}},
+                                   SRC_KIDS_DOSE: BOUNDARIES["dose_caution_csv"]}},
             "products": out_products, "ingredients": out_ingredients}
     return data, stats
 
@@ -538,7 +630,7 @@ def main(argv: list[str] | None = None) -> int:
     snaps = snapshot_sets(SNAP)
     hashes = material_hashes(DATA, SNAP)
     kids = list(kids_json_records(DATA / "병용금기_데이터.json", args.limit_kids))
-    data, stats = build_dictionary(kids, list(kids_csv_records(DATA)), snaps, hashes)
+    data, stats = build_dictionary(kids, list(kids_csv_records(DATA)), snaps, hashes, list(kids_dose_records(DATA)))
     (out / "drug_dict.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
     dd = DrugDict(data)

@@ -173,12 +173,13 @@ def test_lookup_candidate_carries_form(dd):
     assert d["component_matches"][0]["form_match"] == "mismatch" and d["usable_for_judgment"] is False
 
 
-def test_linked_products_not_affected():
-    # 제품 단위(EDI·이름·집합) 연결은 제형 검사를 받지 않는다: 결과(kids_codes·상태)가 그대로이고 form_match는 None
+def test_linked_products_form_rules():
+    # 제품 코드 연결(edi_code·product_name)은 제형 검사를 받지 않는다. 성분 이름 연결(ingredient_name·all_forms)은 BE-10-12 A부터 받는다.
     snaps = {"prmsn": [P("9", "아이엠주", "Ilmax")], "eyak": [], "detail": [], "dur_ingr": [], "ingr_codes": {}}
     d = DrugDict(B.build_dictionary(KIDS, [], snaps, {"x": "y"})[0])
-    c = d.lookup_name("아이엠주").candidates[0]  # 경구 정제 코드뿐인 성분에 주사제 이름이 연결됨(집합 일치)
-    assert c.code_status == CODE_LINKED and c.kids_codes and c.form_match is None and c.usable_for_judgment is True
+    c = d.lookup_name("아이엠주").candidates[0]  # 경구 정제 코드뿐인 성분에 주사제 이름이 연결됨(성분 이름·all_forms)
+    assert c.code_status == CODE_LINKED and c.kids_codes and c.code_link == "ingredient_name"
+    assert (c.form_match, c.usable_for_judgment, c.usable_kids_codes) == ("mismatch", False, ())  # BE-10-12 A: 다른 제형 코드는 판정에 쓰지 않는다
     assert c.component_matches == ()
 
 
