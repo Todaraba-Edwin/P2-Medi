@@ -364,3 +364,28 @@ class TestRealDict:
         for e in r.entities:
             if e.n_candidates > 1:
                 assert not e.resolved
+
+
+# --------------------------------------------------------------------------- AG-05-01 일반 규칙 보강(개발셋 문항과 무관한 합성 문장)
+
+class TestGeneralRules051:
+    def test_slash_between_digits_kept_but_slash_between_words_splits(self, dd):
+        assert extract_mentions("가나다정5/850밀리그램 먹어도 되나요", dd) == ["가나다정5/850밀리그램"]
+        assert extract_mentions("게보린정/와파린정 같이", dd) == ["게보린정", "와파린정"]
+
+    @pytest.mark.parametrize("q", ["게보린정 500mg 먹어도 돼요", "게보린정 2알 먹었어요", "게보린정 5밀리그램 괜찮나요", "게보린정 10mL 정도"])
+    def test_dose_tokens_are_not_drugs(self, dd, q):
+        assert extract_mentions(q, dd) == ["게보린정"]
+
+    @pytest.mark.parametrize("q", ["아버지가 게보린정 계속 드셔도 되나요", "남편이 방금 게보린정 먹었어요", "병원에서 게보린정 처방했어요"])
+    def test_kinship_time_place_words_are_not_drugs(self, dd, q):
+        assert extract_mentions(q, dd) == ["게보린정"]
+
+    @pytest.mark.parametrize("q", ["게보린정 먹어도 되냐", "게보린정 먹어야 해", "게보린정 괜찮을까", "게보린정 먹자"])
+    def test_verb_endings_are_not_drugs(self, dd, q):
+        assert extract_mentions(q, dd) == ["게보린정"]
+
+    def test_symptom_noun_is_not_drug_but_dictionary_exact_is_kept(self, dd):
+        assert extract_mentions("방광염 때문에 게보린정 먹어도 되나요", dd) == ["게보린정"]
+        # 사전에 정확히 있는 이름은 어미·접미 규칙으로 버리지 않는다(와파린정 → 끝이 '정'이라 해당 없음, 동명약은 '약' 규칙 점검)
+        assert extract_mentions("동명약 먹어도 되나요", dd) == ["동명약"]
