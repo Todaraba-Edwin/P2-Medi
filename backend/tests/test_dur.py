@@ -343,3 +343,79 @@ def test_snapshot_empty_and_miss():
     assert empty.ok and empty.empty and empty.note
     miss = c.by_ingredient("pregnancy", "D999999")
     assert not miss.ok and miss.error.kind == "snapshot_miss"
+
+
+# ---------------------------------------------------------------------------------------------
+# be-fix: 출처 식별값(등급 정규화·요청 해시·행 근거 ID·부분 실패·꼬리표 대응)
+# ---------------------------------------------------------------------------------------------
+from app.tools.dur import GRADE_UNPARSED, OUTCOME_TO_HARNESS_FLAG, harness_flag, normalize_grade  # noqa: E402
+
+
+@pytest.mark.parametrize("raw,norm,unparsed", [
+    ("1등급", "1", False), ("2등급", "2", False), ("M", "M", False), ("m등급", "M", False), (" 1 ", "1", False),
+    (None, None, False), ("", None, False), ("3등급", None, True), ("해당없음", None, True),
+])
+def test_normalize_grade(raw, norm, unparsed):
+    assert normalize_grade(raw) == (norm, unparsed)
+
+
+def _pwnm_page(grades):
+    rows = [{"INGR_CODE": "D000100", "GRADE": g, "PROHBT_CONTENT": "x", "DUR_SEQ": str(i)} for i, g in enumerate(grades, 1)]
+    return _usjnt_page(rows)
+
+
+def test_pregnancy_grade_norm_keeps_raw_and_flags_unparsed():
+    res = make(ingr_server=FakeServer(_pwnm_page(["1등급", "2등급", "M", "알수없음"]))).by_ingredient("pregnancy", "D000100")
+    assert [r.grade for r in res.rows] == ["1등급", "2등급", "M", "알수없음"]          # 원문 그대로
+    assert [r.grade_norm for r in res.rows] == ["1", "2", "M", None]
+    assert [r.flags for r in res.rows] == [[], [], [], [GRADE_UNPARSED]]
+
+
+def test_single_lookup_carries_request_hash_and_row_evidence_id():
+    res = make(ingr_server=FakeServer(_pwnm_page(["1등급", "2등급"]))).by_ingredient("pregnancy", "D000100")
+    assert res.request_hash and res.request_hashes == [res.request_hash]
+    assert [r.evidence_id for r in res.rows] == ["dur-ingr:pregnancy:D000100:1", "dur-ingr:pregnancy:D000100:2"]
+
+
+def test_row_evidence_id_falls_back_to_index_without_dur_seq():
+    res = make(ingr_server=FakeServer(_usjnt_page([_pair_row("D000200", "D000698")]))).by_ingredient("usjnt", "D000200")
+    assert res.rows[0].evidence_id == "dur-ingr:usjnt:D000200:D000698:r0"
+
+
+def test_pair_carries_two_hashes():
+    res = make(ingr_server=FakeServer(_usjnt_page([_pair_row("D000200", "D000698")]))).usjnt_pair_by_ingredient("D000200", "D000698")
+    assert res.ok and len(res.request_hashes) == 2 and res.request_hash == res.request_hashes[0]
+    assert all(r.evidence_id for r in res.rows)
+
+
+@pytest.mark.parametrize("bad,side", [("D000698", "A"), ("D000200", "B")])
+def test_pair_partial_failure_marks_failed_side(bad, side):
+    def handler(request):
+        return ok(ERR_XML_RATE) if f"ingrCode={bad}" in str(request.url) else _usjnt_page([])
+
+    res = make(ingr_server=FnServer(handler)).usjnt_pair_by_ingredient("D000698", "D000200")
+    assert not res.ok and res.partial == side and res.error is not None and not res.empty
+    assert cross_check(_file_item(FOUND, ["2017-11-06"]), res).api_flag == "API_PAIR_INCOMPLETE"
+
+
+def test_pair_both_fail_is_api_fail_not_partial():
+    res = make(ingr_server=FakeServer(ok(ERR_XML_RATE))).usjnt_pair_by_ingredient("D000698", "D000200")
+    assert not res.ok and res.partial is None
+    assert cross_check(_file_item(FOUND, ["2017-11-06"]), res).api_flag == "API_FAIL"
+
+
+def test_outcome_to_harness_flag_table_and_cross_check_field():
+    assert OUTCOME_TO_HARNESS_FLAG == {
+        "BOTH_FOUND": "API_SAME", "BOTH_NOT_LISTED": "API_SAME", "FILE_ONLY": "FILE_ONLY",
+        "API_ONLY": "API_ONLY", "API_UNAVAILABLE": "API_FAIL", "FILE_UNIDENTIFIED": None,
+    }
+    assert cross_check(_file_item(FOUND, ["2017-11-06"]), _api(["20171106"])).api_flag == "API_SAME"
+    assert cross_check(_file_item(FOUND, ["2017-11-06"]), _api([])).api_flag == "FILE_ONLY"
+    assert cross_check(_file_item(NOT_LISTED), _api(["20171106"])).api_flag == "API_ONLY"
+    assert cross_check(_file_item(NOT_LISTED), _api([])).api_flag == "API_SAME"
+    assert cross_check(_file_item(UNIDENTIFIED), _api([])).api_flag is None
+
+
+def test_truncated_counts_as_api_fail():
+    assert harness_flag("BOTH_FOUND", truncated=True) == "API_FAIL"
+    assert harness_flag("FILE_UNIDENTIFIED", truncated=True) is None

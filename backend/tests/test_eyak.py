@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -129,7 +129,7 @@ def test_single_item_dict_is_wrapped():
 def test_queried_at_is_utc_iso_and_display():
     res = make_client(FakeServer(ok("hit_tylenol"))).search_by_name("타이레놀")
     parsed = datetime.strptime(res.queried_at_utc, "%Y-%m-%dT%H:%M:%SZ")
-    assert abs((datetime.now(timezone.utc).replace(tzinfo=None) - parsed).total_seconds()) < 30
+    assert abs((datetime.now(UTC).replace(tzinfo=None) - parsed).total_seconds()) < 30
     assert res.queried_at_display.endswith("(KST)") and res.source == "live" and not res.from_cache
 
 
@@ -327,3 +327,45 @@ def test_from_settings_uses_config_without_env_file(tmp_path):
     client = EyakClient.from_settings(s)
     assert client._http.mode == "snapshot" and client._http.base_url == BASE
     assert FAKE_KEY not in repr(client._http)
+
+
+# ---------------------------------------------------------------------------------------------
+# be-fix: 요청 해시·절 단위 항목·스냅샷 시각 구분
+# ---------------------------------------------------------------------------------------------
+def test_result_carries_request_hash_and_not_on_failure():
+    server = FakeServer(ok("hit_tylenol"))
+    res = make_client(server).search_by_name("타이레놀", num_of_rows=3)
+    assert res.request_hash and len(res.request_hash) >= 16
+    bad = make_client(FakeServer()).search_by_name("")
+    assert not bad.ok and bad.request_hash is None
+
+
+def test_label_section_items_keep_empty_sections_and_evidence_ids():
+    body = {"header": {"resultCode": "00"},
+            "body": {"pageNo": 1, "totalCount": 1, "numOfRows": 100,
+                     "items": [{"itemSeq": "202106954", "itemName": "가짜정", "efcyQesitm": " 효능 원문\n",
+                                "intrcQesitm": None, "seQesitm": "   "}]}}
+    item = make_client(FakeServer(httpx.Response(200, json=body))).get_by_item_seq("202106954").items[0]
+    secs = item.label_section_items()
+    assert [s.key for s in secs] == ["efcy", "use_method", "atpn_warn", "atpn", "intrc", "se"]
+    assert [s.label for s in secs] == ["효능", "사용법", "경고", "주의사항", "상호작용", "부작용"]
+    by = {s.key: s for s in secs}
+    assert by["efcy"].text == " 효능 원문\n" and not by["efcy"].empty              # 원문 그대로
+    assert by["intrc"].empty and by["intrc"].text is None                         # 빈 절도 남김
+    assert by["se"].empty and by["se"].text == "   "
+    assert by["intrc"].evidence_id == "eyak:202106954:intrc"
+    assert len({s.evidence_id for s in secs}) == 6
+    assert set(item.label_sections()) == {"효능", "부작용"}                         # 기존 함수는 그대로(None만 뺀다, 공백뿐인 절은 남는다)
+
+
+def test_snapshot_time_is_distinguished_from_fetch_time():
+    from app.tools.eyak import EyakResult
+
+    snap = EyakResult(ok=True, source="snapshot", queried_at_utc="2026-11-05T00:00:00Z")
+    live = EyakResult(ok=True, source="live")
+    cached = EyakResult(ok=True, source="cache", from_cache=True)
+    assert (snap.queried_at_kind, snap.flags) == ("SNAPSHOT_COLLECTED", ["SNAPSHOT_TIME"])
+    assert (live.queried_at_kind, live.flags) == ("FETCHED", [])
+    assert cached.queried_at_kind == "FETCHED"
+    assert EyakResult(ok=False).queried_at_kind is None
+    assert snap.model_dump()["queried_at_kind"] == "SNAPSHOT_COLLECTED"

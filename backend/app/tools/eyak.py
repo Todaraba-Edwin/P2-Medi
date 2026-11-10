@@ -95,6 +95,33 @@ class EasyDrugInfo(BaseModel):
         """값이 있는 문장형 필드를 `{한글 이름: 원문}`으로 돌려준다(근거 상세·인용용)."""
         return {label: getattr(self, name) for name, label in LABEL_FIELDS.items() if getattr(self, name)}
 
+    def label_section_items(self) -> list[LabelSection]:
+        """절 단위 항목 6개를 **빈 절도 빼지 않고** 돌려준다(`label_sections()`는 빈 절을 뺀다).
+
+        비어 있는 절(`empty=True`)은 "허가사항에 그 항목이 적혀 있지 않음"의 재료이며 안전하다는 뜻이 아니다.
+        표시 문구·미확보 사유 코드는 만들지 않는다(AG-02 몫)."""
+        return [
+            LabelSection(
+                key=name, label=label, text=getattr(self, name),
+                empty=not (getattr(self, name) or "").strip(),
+                evidence_id=section_evidence_id(self.item_seq, name),
+            )
+            for name, label in LABEL_FIELDS.items()
+        ]
+
+
+def section_evidence_id(item_seq: str, key: str) -> str:
+    """절 단위 근거 ID `eyak:{item_seq}:{절 키}`(절 키는 `LABEL_FIELDS`의 키)."""
+    return f"eyak:{item_seq}:{key}"
+
+
+class LabelSection(BaseModel):
+    key: str                        # efcy | use_method | atpn_warn | atpn | intrc | se
+    label: str                      # 한글 이름(효능·사용법·…)
+    text: str | None = None         # 원문 그대로(앞뒤 공백·개행 포함). 비어 있으면 None 또는 공백뿐
+    empty: bool
+    evidence_id: str
+
 
 class ToolError(BaseModel):
     """도구가 돌려주는 오류 객체. 인증키·URL은 들어가지 않는다."""
@@ -106,7 +133,7 @@ class ToolError(BaseModel):
     retryable: bool = False
 
     @classmethod
-    def from_api_error(cls, err: ApiError) -> "ToolError":
+    def from_api_error(cls, err: ApiError) -> ToolError:
         return cls(**err.as_dict())
 
 
@@ -119,12 +146,26 @@ class EyakResult(BaseModel):
     page_no: int = 1
     num_of_rows: int = MAX_ROWS
     query: dict[str, str] = Field(default_factory=dict)
+    request_hash: str | None = None           # 응답 해시(근거 ID·trace 연결용, 호출 실패면 None)
     source_name: str = SOURCE_NAME
     queried_at_utc: str | None = Field(None, description="공공 API에서 이 데이터를 받은 시각(UTC ISO 8601, 캐시면 처음 받은 시각)")
     queried_at_display: str | None = None
     from_cache: bool = False
     source: Literal["live", "cache", "snapshot"] | None = None
     error: ToolError | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def queried_at_kind(self) -> Literal["FETCHED", "SNAPSHOT_COLLECTED"] | None:
+        """`queried_at_*`의 뜻. 스냅샷 모드는 실제 조회가 아니라 **스냅샷 파일 수집 시각**이다(`_http.py` mtime)."""
+        if self.source is None:
+            return None
+        return "SNAPSHOT_COLLECTED" if self.source == "snapshot" else "FETCHED"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def flags(self) -> list[str]:
+        return ["SNAPSHOT_TIME"] if self.source == "snapshot" else []
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -154,7 +195,7 @@ class EyakClient:
         self._http = http
 
     @classmethod
-    def from_settings(cls, settings: Any | None = None) -> "EyakClient":
+    def from_settings(cls, settings: Any | None = None) -> EyakClient:
         """환경변수(`app.config`)로 만든다. `DRDEASYDRUG_END_POINT`·`DRDEASYDRUG_API_KEY`는 설정 모듈로만 읽는다."""
         if settings is None:
             from app.config import get_settings
@@ -220,6 +261,7 @@ class EyakClient:
             page_no=_to_int(body.get("pageNo"), int(query["pageNo"])),
             num_of_rows=_to_int(body.get("numOfRows"), int(query["numOfRows"])),
             query=query,
+            request_hash=resp.request_hash,
             queried_at_utc=format_utc(resp.fetched_at),
             queried_at_display=format_display(resp.fetched_at),
             from_cache=resp.from_cache,
