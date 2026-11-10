@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from itertools import combinations, product
 from typing import Any
@@ -23,7 +24,7 @@ from app.agent.tools.schemas import (
     CheckContraArgs,
     DrugArg,
 )
-from app.db.loaders import AS_OF_KIDS, SRC_KIDS
+from app.db.loaders import AS_OF_KIDS, SRC_KIDS, age_to_days
 from app.tools import lookup
 from app.tools.drug_dict import MATCHED_BY_INGREDIENT, Candidate
 from app.tools.dur import SOURCE_INGR, DurResult, cross_check
@@ -56,7 +57,7 @@ def _usable_codes(c: Candidate) -> list[str]:
     if c.matched_by == MATCHED_BY_INGREDIENT:
         return list(c.kids_codes)  # 성분 단위 입력은 성분코드를 그대로 판정한다(H17)
     if c.code_status == "linked":
-        return list(c.kids_codes)
+        return list(c.usable_kids_codes) if c.form_match is not None else list(c.kids_codes)  # 성분 이름 연결 제품은 제형 맞는 코드만(BE-10-12)
     if c.code_status == "component_only":
         return list(c.usable_kids_codes)  # form_match=match 코드만(BE-10-08·09)
     return []
@@ -81,7 +82,7 @@ def _from_candidate(label: str, c: Candidate, n_components: int = 0) -> Drug:
                 d.notes.append(PARTIAL_NOTE)
         return d
     d.flags.append(FLAG_CODE_NOT_LINKED)
-    if c.code_status == "component_only":
+    if c.code_status == "component_only" or c.form_match is not None:
         d.flags.append(FLAG_REFERENCE_ONLY)  # 다른 제형에서 목록에 있음, 이 제품 판정 아님
         if c.note:
             d.notes.append(c.note)
@@ -230,6 +231,71 @@ def _attach_api(ctx: ToolContext, a: Drug, b: Drug, file_items: list[dict[str, A
         })
 
 
+# --------------------------------------------------------------------------- API 병기: 성분 단위 연령·임부
+
+_AGE_BASE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(주|개월|세)\s*(미만|이하|이상)")
+
+
+def _api_age_applies(base: str | None, age: Age) -> bool:
+    """API `AGE_BASE`(예 `12세 미만`)가 사용자 나이에 해당하는지. 해석할 수 없으면 해당하는 것으로 본다(놓치지 않는 쪽)."""
+    m = _AGE_BASE_RE.search(base or "")
+    if not m:
+        return True
+    return lookup._age_hit(age.days, m.group(3), age_to_days(float(m.group(1)), m.group(2)))
+
+
+def _api_single_call(fn: Any, codes: list[str]) -> DurResult | None:
+    """성분코드마다 호출해 한 결과로 합친다. 코드가 없거나 하나라도 실패하면 실패 결과(rows 비움)다."""
+    codes = [c for c in codes[:MAX_API_CODES_PER_DRUG] if DUR_CODE_RE.match(c)]
+    if fn is None or not codes:
+        return None
+    results: list[DurResult] = []
+    for c in codes:
+        try:
+            results.append(fn(c))
+        except Exception:  # noqa: BLE001 - API 실패는 예외가 아니라 꼬리표다
+            results.append(DurResult(ok=False, kind="age", level="ingr", source_name=SOURCE_INGR))
+    if any(not r.ok for r in results):
+        return DurResult(ok=False, kind=results[0].kind, level="ingr", source_name=SOURCE_INGR)
+    return DurResult(ok=True, kind=results[0].kind, level="ingr", rows=[x for r in results for x in r.rows], source_name=SOURCE_INGR,
+                     truncated=any(r.truncated for r in results), queried_at_utc=next((r.queried_at_utc for r in results if r.queried_at_utc), None),
+                     request_hashes=[h for r in results for h in r.request_hashes])
+
+
+def _attach_api_single(ctx: ToolContext, d: Drug, kind: str, age: Age | None, file_items: list[dict[str, Any]], out: list[dict[str, Any]]) -> None:
+    """성분 하나의 연령·임부 파일 항목에 API 결과를 병기한다. 파일 판정은 바꾸지 않는다(RFP 5.1절 (7))."""
+    if all(i["status"] == UNIDENTIFIED for i in file_items):
+        return  # 파일이 판정하지 못한 항목은 병기 대상이 아니다(꼬리표 없음)
+    fn = ctx.api_age_fn if kind == "age" else ctx.api_pregnancy_fn
+    result = _api_single_call(fn, d.api_codes)
+    if result is not None and result.ok and kind == "age" and age is not None:
+        result = result.model_copy(update={"rows": [r for r in result.rows if _api_age_applies(r.age_base, age)]})
+    if result is None or (not result.ok):
+        flag, api_info = "API_FAIL", {"outcome": "API_UNAVAILABLE"}
+    else:
+        status = FOUND if any(i["status"] == FOUND for i in file_items) else NOT_LISTED
+        cc = cross_check({"status": status, "matches": [m for i in file_items for m in i.get("matches", [])]}, result)
+        flag = cc.api_flag
+        api_info = {"outcome": cc.outcome, "dates_differ": cc.dates_differ, "file_notice_dates": cc.file_notice_dates,
+                    "api_notice_dates": cc.api_notice_dates, "queried_at_utc": result.queried_at_utc, "request_hashes": result.request_hashes}
+    for it in file_items:
+        it["api"] = api_info
+        if flag:
+            it["flags"] = [*it["flags"], flag]
+            it["notes"] = [*it.get("notes", []), FLAG_NOTES[flag]]
+    if result is not None and result.ok and result.rows:
+        code = sorted(d.api_codes[:MAX_API_CODES_PER_DRUG])[0]
+        eid = f"dur_ingr:{kind}:{code}"
+        rows = [{"row_key": r.evidence_id or f"{n}", "row_evidence_id": f"{eid}#{(r.evidence_id or str(n))[:12]}", "content": r.content, "remark": r.remark,
+                 "notice_date": r.notification_date, "ingr_code": r.ingr_code, "grade": r.grade, "age_base": r.age_base} for n, r in enumerate(result.rows)]
+        out.append({
+            "kind": kind, "status": FOUND, "subject": [d.label], "evidence_id": eid, "source": SOURCE_INGR, "as_of": None,
+            "queried_at_utc": result.queried_at_utc or "unknown", "flags": [flag] if flag else [], "matches": rows, "dataset_key": "dur_ingr",
+            "source_kind": SK_API_DIRECT, "drugs": [d.label], "drug_keys": [d.key], "cause_codes": list(d.api_codes[:MAX_API_CODES_PER_DRUG]),
+            "notes": [FLAG_NOTES[flag]] if flag else [],
+        })
+
+
 # --------------------------------------------------------------------------- 도구
 
 def check_contraindications(args: CheckContraArgs, ctx: ToolContext) -> dict[str, Any]:
@@ -249,6 +315,7 @@ def check_contraindications(args: CheckContraArgs, ctx: ToolContext) -> dict[str
     ok_drugs = [d for d in drugs if d.ok]
     conn = ctx.conn_factory()
     api_pairs: list[tuple[Drug, Drug, list[dict[str, Any]]]] = []
+    single_api: list[tuple[Drug, str, list[dict[str, Any]]]] = []  # 성분 단위 연령·임부 API 병기 대상
     try:
         for a, b in combinations(drugs, 2):  # 모든 쌍
             if not (a.ok and b.ok):
@@ -263,9 +330,15 @@ def check_contraindications(args: CheckContraArgs, ctx: ToolContext) -> dict[str
                 api_pairs.append((a, b, pair_items))
         for d in ok_drugs:
             if args.pregnancy:
-                items.extend(_merged("pregnancy", [lookup.lookup_pregnancy(conn, c, ctx.paramstyle) for c in d.kids_codes], f"pregnancy:{d.key}", [d]))
+                preg = _merged("pregnancy", [lookup.lookup_pregnancy(conn, c, ctx.paramstyle) for c in d.kids_codes], f"pregnancy:{d.key}", [d])
+                items.extend(preg)
+                if ctx.api_enabled:
+                    single_api.append((d, "pregnancy", preg))
             if age is not None:
-                items.extend(_merged("age", [lookup.lookup_age(conn, c, age, ctx.paramstyle) for c in d.kids_codes], f"age:{d.key}", [d]))
+                aged = _merged("age", [lookup.lookup_age(conn, c, age, ctx.paramstyle) for c in d.kids_codes], f"age:{d.key}", [d])
+                items.extend(aged)
+                if ctx.api_enabled:
+                    single_api.append((d, "age", aged))
             if args.include_cautions:
                 for kind in lookup._CAUTION_KINDS:
                     items.extend(_merged(kind, [lookup.lookup_caution(conn, c, kind, ctx.paramstyle) for c in d.kids_codes], f"{kind}:{d.key}", [d]))
@@ -284,6 +357,8 @@ def check_contraindications(args: CheckContraArgs, ctx: ToolContext) -> dict[str
     api_extra: list[dict[str, Any]] = []
     for a, b, pair_items in api_pairs:
         _attach_api(ctx, a, b, pair_items, api_extra)
+    for d, kind, file_items in single_api:
+        _attach_api_single(ctx, d, kind, age, file_items, api_extra)
     items.extend(api_extra)
 
     # 성분 중복(확장, 마지막 순서): 두 약이 같은 성분코드를 가지면 기록

@@ -310,8 +310,8 @@ class Candidate:
     code_status: str = CODE_NONE
     component_matches: tuple[ComponentMatch, ...] = ()  # component_only일 때 어느 성분이 어느 KIDS 코드와 맞았는지
     note: str | None = None  # 성분 단위 표시 노트(제품 단위 판정 아님)
-    # BE-10-08 A: 성분 단위 후보의 제형 비교. 제품 단위(linked) 후보와 이름·성분 후보는 이 검사를 받지 않아 기본값(판정 가능)이다.
-    form_match: str | None = None  # 성분 단위 후보만 match | route_only | mismatch | unknown
+    # BE-10-08 A·BE-10-12 A: 성분 단위(component_only)·성분 이름 연결(all_forms) 제품 후보의 제형 비교. 제품 코드 연결·성분명 입력 후보는 이 검사를 받지 않아 기본값(판정 가능)이다.
+    form_match: str | None = None  # 위 후보만 match | route_only | mismatch | unknown
     usable_for_judgment: bool = True  # False면 금기 판정에 쓰지 않고 참고로만 보인다(mismatch·route_only·unknown)
     usable_kids_codes: tuple[str, ...] = ()  # 성분 단위 후보에서 제형이 맞아 판정에 쓸 코드(`kids_codes`는 모든 제형 코드, 참고용)
 
@@ -454,10 +454,30 @@ class DrugDict:
                 form_match=m.form_match, usable_for_judgment=m.usable_for_judgment, usable_kids_codes=m.usable_codes))
         return tuple(cands)
 
+    def _all_forms_form(self, p: dict[str, Any]) -> tuple[str | None, tuple[str, ...], str | None]:
+        """성분 이름으로 이은(`ingredient_name`·`all_forms`) 제품의 코드에 제형 비교를 적용한다(BE-10-12 A).
+
+        모든 제형 코드를 붙여 둔 연결이라 제품 제형과 맞는 코드(`match`)만 판정에 쓴다. 제품 코드 연결(edi_code·product_name 등)은 대상이 아니다.
+        반환: (form_match 또는 None, 판정에 쓸 코드, 참고 노트).
+        """
+        if p.get("code_link") != "ingredient_name" or not p.get("kids_codes"):
+            return None, (), None
+        pform = p.get("form") or {}
+        per = {c: DF.compare_forms(pform, DF.code_form(c, self.form_map)) for c in p["kids_codes"]}
+        best = DF.best_match(per.values())
+        usable = tuple(c for c, r in per.items() if r in DF.USABLE)
+        if best in DF.USABLE:
+            return best, usable, None
+        top = [c for c, r in per.items() if r == best]
+        labels = ", ".join(dict.fromkeys(DF.label(DF.code_form(c, self.form_map)) for c in top)) or "?"
+        note = {DF.FM_MISMATCH: DF.NOTE_MISMATCH.format(forms=labels), DF.FM_ROUTE_ONLY: DF.NOTE_ROUTE_ONLY.format(forms=labels)}.get(best, DF.NOTE_UNKNOWN)
+        return best, usable, note
+
     def _product_candidate(self, i: int, score: float, match_type: str) -> Candidate:
         p = self.products[i]
         status = self._code_status(p)
         cm = self._component_matches(i) if status == CODE_COMPONENT_ONLY else ()
+        af_match, af_usable, af_note = self._all_forms_form(p) if status == CODE_LINKED else (None, (), None)
         return Candidate(
             matched_by=MATCHED_BY_PRODUCT,
             name=p["name"],
@@ -475,10 +495,10 @@ class DrugDict:
             sources=tuple(p.get("sources", [])),
             code_status=status,
             component_matches=cm,
-            note=_with_form_note(COMPONENT_NOTE.format(names=", ".join(m.label for m in cm)), cm) if cm else None,
-            form_match=DF.best_match(m.form_match for m in cm) if cm else None,
-            usable_for_judgment=any(m.usable_for_judgment for m in cm) if cm else True,  # 성분별 판정 가능 여부는 component_matches·usable_kids_codes
-            usable_kids_codes=tuple(c for m in cm for c in m.usable_codes),
+            note=_with_form_note(COMPONENT_NOTE.format(names=", ".join(m.label for m in cm)), cm) if cm else af_note,
+            form_match=DF.best_match(m.form_match for m in cm) if cm else af_match,
+            usable_for_judgment=any(m.usable_for_judgment for m in cm) if cm else (af_match in DF.USABLE if af_match else True),  # 성분별 판정 가능 여부는 component_matches·usable_kids_codes
+            usable_kids_codes=tuple(c for m in cm for c in m.usable_codes) if cm else af_usable,
         )
 
     def _ingredient_candidate(self, j: int, score: float, match_type: str) -> Candidate:
