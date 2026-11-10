@@ -32,7 +32,8 @@ def build_text_index(items: list[dict[str, Any]]) -> dict[str, str]:
             rid = m.get("row_evidence_id")
             if rid:
                 index[rid] = t
-        own = _row_text(it)
+        # 행이 있으면 항목 원문은 행 원문의 이음이다(라벨 항목은 `text`가 행에도 있어 또 붙이면 두 번 들어간다).
+        own = "" if row_texts else _row_text(it)
         joined = "\n".join(t for t in [own, *row_texts] if t)
         if it.get("evidence_id"):
             index[it["evidence_id"]] = joined
