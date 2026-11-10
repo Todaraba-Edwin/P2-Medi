@@ -1,0 +1,21 @@
+# BE-15 개발 하네스(RFP-29-01 A). 설치: `pre-commit install`(사용자 승인 뒤). CI(GitHub Actions)는 만들지 않는다.
+repos:
+  - repo: local
+    hooks:
+      - id: guard-secrets-and-local-only
+        name: 비밀·.env·로컬 전용 폴더(data/ P2-doc/report/ tickets/issues/ logs/) 커밋 차단
+        entry: python3 scripts/precommit_guard.py
+        language: system
+        pass_filenames: true
+        require_serial: true
+      - id: check-schedule
+        name: 일정·티켓 정합성(check_schedule.py)
+        entry: python3 scripts/check_schedule.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: ruff
+        name: ruff (backend)
+        entry: backend/.venv/bin/ruff check --config backend/pyproject.toml
+        language: system
+        files: ^backend/.*\.py$
