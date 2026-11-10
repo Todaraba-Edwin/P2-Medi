@@ -67,23 +67,35 @@ def apply() -> None:
         if not csv_path.exists():
             continue
         with open(csv_path, encoding="utf-8-sig", newline="") as f:
-            filled = {r["id"]: r for r in csv.DictReader(f) if (r.get("판정") or "").strip()}
+            all_rows = list(csv.DictReader(f))
         rows = read(path)
+        golden_ids = {x["id"] for x in rows if x.get("golden")}
+        # 판정이 있는 행, 또는 골든 행의 골든확인(Y/N)만 있는 행을 반영한다.
+        filled = {r["id"]: r for r in all_rows
+                  if (r.get("판정") or "").strip()
+                  or (r["id"] in golden_ids and (r.get("골든확인") or "").strip().upper() in ("Y", "N"))}
         n = 0
         for x in rows:
             r = filled.get(x["id"])
             if not r:
                 continue
-            verdict = r["판정"].strip().upper()
-            if verdict not in ("OK", "ERROR"):
+            verdict = (r.get("판정") or "").strip().upper()
+            if verdict not in ("", "OK", "ERROR"):
                 raise SystemExit(f"{x['id']}: 판정은 OK 또는 ERROR (입력값: {r['판정']!r})")
             hr = x["human_review"]
-            hr["status"] = "검수 완료"
-            hr["error_found"] = verdict == "ERROR"
-            if verdict == "ERROR":
-                hr["error_note"] = (r.get("오류내용") or "").strip()
-            if x.get("golden") and (r.get("골든확인") or "").strip().upper() == "Y":
-                x["golden_verified"] = True
+            if verdict:
+                hr["status"] = "검수 완료"
+                hr["error_found"] = verdict == "ERROR"
+                if verdict == "ERROR":
+                    hr["error_note"] = (r.get("오류내용") or "").strip()
+            if x.get("golden"):
+                ok = (r.get("골든확인") or "").strip().upper() == "Y"
+                x["golden_verified"] = ok
+                if not ok:  # AG-18-01 B: 골든에서 제외하되 일반 문항으로 유지
+                    x["golden"] = False
+                    x["golden_excluded"] = {"reason": (r.get("오류내용") or "").strip(),
+                                            "decision": "AG-18-01 B (2026-11-10)",
+                                            "golden_source": x.get("golden_source")}
             fix = (r.get("불량답수정") or "").strip()
             if x.get("bad_answer_sample"):
                 if fix:
@@ -97,7 +109,9 @@ def apply() -> None:
         done = [x for x in rows if x["human_review"]["status"] == "검수 완료"]
         m["human_review_done"] = len(done)
         m["human_review_errors"] = sum(bool(x["human_review"]["error_found"]) for x in done)
+        m["golden"] = sum(bool(x.get("golden")) for x in rows)
         m["golden_verified"] = sum(bool(x.get("golden_verified")) for x in rows)
+        m["golden_excluded"] = sum(bool(x.get("golden_excluded")) for x in rows)
         print(f"{name}: {n}행 반영, 검수 완료 {len(done)}, 오류 {m['human_review_errors']}, 골든 확인 {m['golden_verified']}")
     MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 

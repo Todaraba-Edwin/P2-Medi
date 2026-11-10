@@ -117,7 +117,7 @@ def test_reliability_core():
 
 
 def test_golden():
-    src = [x["golden_source"] or "" for x in TEST if x["golden"]]
+    src = [x["golden_source"] or "" for x in TEST if x["golden"] or x.get("golden_excluded")]
     want = [f"RFP-21 §4.8 #{i}" for i in range(1, 6)]
     ok = sum(any(s.startswith(w) for s in src) for w in want) + (not any(x["golden"] for x in DEV))
     record("골든: RFP-21 §4.8 5문항 모두 시험셋, 개발셋 0", ok, 6)
@@ -182,7 +182,7 @@ def test_expected_path_schema():
 
 def test_provisional_marks():
     for s, items in SETS.items():
-        amb = [x for x in items if x["composition_group"] == "모호" and not x["golden"]]
+        amb = [x for x in items if x["composition_group"] == "모호" and not (x["golden"] or x.get("golden_excluded"))]
         abbr = [x for x in items if x["variant"] == "축약"]
         record(f"[{s}] 모호(골든 제외)·축약 문항 provisional 표시(BE-10 전)",
                sum(bool(x["provisional"] and x["provisional_reason"]) for x in amb + abbr), len(amb + abbr))
