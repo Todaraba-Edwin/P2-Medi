@@ -19,3 +19,9 @@ repos:
         entry: backend/.venv/bin/ruff check --config backend/pyproject.toml
         language: system
         files: ^backend/.*\.py$
+      - id: check-prompts
+        name: 프롬프트 묶음·L0 검사(last_eval·비밀값·실제 질문·개발셋 문항)
+        entry: bash -c 'cd backend && .venv/bin/python -m app.llm.prompts'
+        language: system
+        files: ^(backend/prompts/|evaluation/eval_set/dev_set\.jsonl$)
+        pass_filenames: false
