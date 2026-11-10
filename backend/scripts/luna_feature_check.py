@@ -116,6 +116,11 @@ def build_requests() -> list[dict[str, Any]]:
         {"label": "parallel_true", "body": {**base, "parallel_tool_calls": True}},
         {"label": "parallel_false", "body": {**base, "parallel_tool_calls": False}},
         {"label": "parallel_default", "body": dict(base)},
+        # 2026-11-10 1차 실행에서 400: gpt-6-luna는 Chat Completions에서 reasoning_effort가 켜져 있으면 함수 도구를 거절한다
+        # ("set reasoning_effort to 'none'"). 아래 3종은 reasoning_effort='none'으로 다시 확인한다.
+        {"label": "parallel_true_noreason", "body": {**base, "reasoning_effort": "none", "parallel_tool_calls": True}},
+        {"label": "parallel_false_noreason", "body": {**base, "reasoning_effort": "none", "parallel_tool_calls": False}},
+        {"label": "parallel_default_noreason", "body": {**base, "reasoning_effort": "none"}},
     ]
 
 
@@ -194,7 +199,8 @@ def judge_parallel(body: Any, parallel_option: bool | None) -> dict[str, Any]:
 def judge(label: str, body: Any) -> dict[str, Any]:
     if label == "structured":
         return judge_structured(body)
-    return judge_parallel(body, {"parallel_true": True, "parallel_false": False}.get(label))
+    option = {"parallel_true": True, "parallel_false": False, "parallel_true_noreason": True, "parallel_false_noreason": False}.get(label)
+    return judge_parallel(body, option)
 
 
 # --------------------------------------------------------------------------- 실행

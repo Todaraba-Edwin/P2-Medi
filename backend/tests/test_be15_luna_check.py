@@ -54,7 +54,7 @@ def test_plan_makes_no_call_and_prints_cost(capsys: pytest.CaptureFixture[str], 
     monkeypatch.setattr(L, "http_post_factory", lambda key: (_ for _ in ()).throw(AssertionError("plan은 호출하지 않는다")))
     assert L.main(["plan"]) == 0
     out = capsys.readouterr().out
-    assert "최대 4회" in out and "호출 0" in out and "$" in out
+    assert "최대 7회" in out and "호출 0" in out and "$" in out
 
 
 def test_run_requires_yes_and_cap(capsys: pytest.CaptureFixture[str]) -> None:
@@ -94,13 +94,13 @@ def test_judge_parallel_variants() -> None:
     assert L.judge_parallel("???", True)["verdict"] == "format_mismatch"
 
 
-def test_execute_runs_four_calls_records_cost_and_hides_key(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_execute_runs_all_calls_records_cost_and_hides_key(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     calls: list[dict[str, Any]] = []
     ledger = CostLedger()
     out = tmp_path / "out.json"
     report, _ = L.execute(_fake_post(calls), [r["label"] for r in L.build_requests()], 0.05, ledger, out)
-    assert len(calls) == 4
-    assert [r["judgement"]["verdict"] for r in report["results"]] == ["ok", "parallel", "off_honored", "parallel"]
+    assert len(calls) == 7
+    assert [r["judgement"]["verdict"] for r in report["results"]] == ["ok", "parallel", "off_honored", "parallel", "parallel", "off_honored", "parallel"]
     assert ledger.spent() == pytest.approx(report["spent_usd"])
     assert SECRET not in out.read_text(encoding="utf-8")
     assert "parallel_tool_calls" not in json.dumps(calls[3])  # 기본(옵션 생략) 호출
