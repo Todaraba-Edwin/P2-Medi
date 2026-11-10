@@ -20,6 +20,7 @@ dev = [
     "ruff>=0.6.0",
     "pre-commit>=3.7.0",
     "pdfplumber>=0.11.10",
+    "numpy>=1.26",  # BE-10 embed_compare 코사인 검색(없으면 느린 순수 파이썬 경로)
 ]
 
 [tool.setuptools.packages.find]
