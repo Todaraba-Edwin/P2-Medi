@@ -206,3 +206,34 @@ def test_invalid_code_and_pair_not_checked_behaviour_unchanged(conn):
     flags = {i.kind: (i.status, i.flags) for i in res.items}
     assert flags["identify"] == (UNIDENTIFIED, ["INVALID_CODE"])
     assert flags["contra_pair"] == (UNIDENTIFIED, ["PAIR_NOT_CHECKED"])
+
+
+# =============================================================================================
+# BE-09 identify 항목 source=None 검증 (2026-11-10)
+# =============================================================================================
+def test_identify_source_and_as_of_are_none(conn):
+    """identify 항목의 source와 as_of가 None인지 확인."""
+    res = lookup.check_contraindications(conn, [None, "bad"])
+    identify_items = [i for i in res.items if i.kind == "identify"]
+    assert len(identify_items) == 2
+    for item in identify_items:
+        assert item.status == UNIDENTIFIED
+        assert item.source is None
+        assert item.as_of is None
+        assert "INVALID_CODE" in item.flags
+
+
+def test_identify_renders_without_error_with_source_none(conn):
+    """identify 항목의 source=None일 때 렌더러가 깨지지 않는지 확인."""
+    from app.agent.renderer import render
+
+    res = lookup.check_contraindications(conn, [None])
+    items_dict = [i.to_dict() for i in res.items]
+
+    # 렌더러는 .get("source")를 쓰므로 None 안전함
+    result = render(items_dict, [])
+    assert result.detail  # 에러 없이 처리됨
+    for detail in result.detail:
+        if detail["kind"] == "identify":
+            assert detail["publisher"] is None  # source=None이면 publisher도 None
+            assert detail["as_of"] is None
