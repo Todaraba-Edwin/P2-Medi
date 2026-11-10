@@ -4,8 +4,9 @@
     backend/.venv/bin/python backend/scripts/parse_pdf_tables.py bupyo2 [--out DIR]
     backend/.venv/bin/python backend/scripts/parse_pdf_tables.py survey
 
-pdfplumber는 pyproject에 넣지 않았다(.venv에만 설치, BE-04 보고 참조).
+pdfplumber는 pyproject의 dev 의존성이다(런타임 아님, BE-04-01 A).
 PDF 원본과 파싱 결과는 data/(로컬 전용)에 있으며 커밋하지 않는다.
+산출 마크다운 맨 위에 메타 블록(원본 파일명, 원본 고시일, 사용자 최신 배포 확인일, 파서·버전, 행 수, 생성 시각)을 자동으로 쓴다.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ import sys
 import time
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,9 @@ DATA = ROOT / "data"
 GOSI_PDF = DATA / "「의약품 병용금기 성분 등의 지정에 관한 규정」 개정고시 전문.pdf"
 BUPYO2_PAGES = range(45, 51)  # 1-based, 45~50쪽 (연번 1~40은 45쪽)
 EXPECTED_ROWS = 211
+CONFIRMED_LATEST = "2026-11-10"  # 사용자가 최신 배포본임을 확인한 날(BE-04-01 A)
+PARSER = "parse_pdf_tables.py"
+PARSER_REV = "1.1"
 HEADER = ("연번", "유효성분", "연령기준", "해당 제형")
 
 
@@ -123,6 +129,46 @@ def sample_rows(rows: list[Row], n: int = 20, seed: int = 20261110) -> list[Row]
     return random.Random(seed).sample(rows, min(n, len(rows)))  # noqa: S311 (재현용 표본)
 
 
+_NOTICE_RE = re.compile(r"고시\s*제\s*(\d{4})-\s*(\d+)호\((\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2}),\s*(제정|개정)\)")
+_FILENAME_DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
+
+def latest_notice(text: str) -> tuple[str, str] | None:
+    """개정 이력 줄(`고시 제2026- 52호(2026. 7. 21, 개정)`)에서 날짜가 가장 늦은 (고시번호, ISO 날짜). 없으면 None."""
+    best: tuple[str, str] | None = None
+    for m in _NOTICE_RE.finditer(text):
+        y, n, yy, mm, dd, _ = m.groups()
+        iso = f"{int(yy):04d}-{int(mm):02d}-{int(dd):02d}"
+        if best is None or iso > best[1]:
+            best = (f"제{y}-{int(n)}호", iso)
+    return best
+
+
+def filename_date(name: str) -> str | None:
+    """파일 이름에 적힌 날짜(YYYY-MM-DD). 없으면 None."""
+    m = _FILENAME_DATE_RE.search(name)
+    return m.group(0) if m else None
+
+
+def meta_block(pdf_name: str, source_date: str, rows: int, *, now: datetime | None = None, extra: dict[str, str] | None = None) -> str:
+    """산출 마크다운 맨 위에 붙이는 front matter. 값은 호출자가 PDF·파일명에서 읽은 것만 넣는다(추측 금지)."""
+    try:
+        ver = metadata.version("pdfplumber")
+    except metadata.PackageNotFoundError:
+        ver = "unknown"
+    stamp = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    fields = {
+        "source_pdf": pdf_name,
+        "source_date": source_date,
+        "latest_distribution_confirmed": CONFIRMED_LATEST,
+        "parser": f"{PARSER} {PARSER_REV} (pdfplumber {ver})",
+        "rows": str(rows),
+        "generated_at": stamp,
+        **(extra or {}),
+    }
+    return "---\n" + "\n".join(f"{k}: {v}" for k, v in fields.items()) + "\n---\n\n"
+
+
 def survey(pdf_path: Path) -> dict[str, Any]:
     """PDF 한 개의 쪽별 텍스트 레이어·표 유무를 요약한다(OCR은 하지 않는다)."""
     import pdfplumber
@@ -168,7 +214,13 @@ def main(argv: list[str] | None = None) -> int:
         dt = time.perf_counter() - t0
         args.out.mkdir(parents=True, exist_ok=True)
         dest = args.out / "gosi_bupyo2_pdfplumber.md"
-        dest.write_text(to_markdown(rows), encoding="utf-8")
+        import pdfplumber
+
+        with pdfplumber.open(GOSI_PDF) as doc:
+            head = "\n".join((doc.pages[i].extract_text() or "") for i in range(min(2, len(doc.pages))))
+        notice = latest_notice(head)
+        src = f"{notice[1]} (고시 {notice[0]}, PDF 1~2쪽 개정 이력의 마지막 줄)" if notice else "미확인(PDF에서 읽지 못함)"
+        dest.write_text(meta_block(GOSI_PDF.name, src, len(rows), extra={"table": "별표 2 (45~50쪽)"}) + to_markdown(rows), encoding="utf-8")
         print(f"rows={len(rows)} expected={EXPECTED_ROWS} sec={dt:.2f} -> {dest}")
         for e in check_sequence(rows):
             print("ERR", e)
@@ -183,7 +235,10 @@ def main(argv: list[str] | None = None) -> int:
             with pdfplumber.open(pdf) as doc:
                 items = parse_numbered_items(doc.pages[0].extract_text() or "")
             args.out.mkdir(parents=True, exist_ok=True)
-            (args.out / "safe_med_bupyo_pdfplumber.md").write_text(safe_items_markdown(items), encoding="utf-8")
+            fdate = filename_date(pdf.name)
+            src = f"{fdate} (파일명에 적힌 날짜)" if fdate else "미확인(파일명에 날짜 없음)"
+            body = meta_block(pdf.name, src, len(items)) + safe_items_markdown(items)
+            (args.out / "safe_med_bupyo_pdfplumber.md").write_text(body, encoding="utf-8")
             print("  items:", len(items))
     return 0
 
