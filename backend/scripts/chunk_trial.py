@@ -41,6 +41,7 @@ import embed_compare as E  # noqa: E402
 from app.db.source_files import AGE_CSV_NAME, COMBO_JSON_NAME, PREG_CSV_NAME  # noqa: E402
 from app.llm.cache import cache_mode  # noqa: E402
 from app.llm.ledger import BudgetExceeded  # noqa: E402
+from app.security.redact import install_excepthook  # noqa: E402
 from app.tools.drug_dict import BM25, char_ngrams, normalize_name  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1204,4 +1205,5 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    install_excepthook()  # S-05: 키를 쓰는 스크립트의 예외·logging 출력 가리기
     raise SystemExit(main())

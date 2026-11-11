@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from app.agent.tools import corpus_remote as cr  # noqa: E402
 from app.agent.tools.corpus import ChunkFilter  # noqa: E402
+from app.security.redact import install_excepthook  # noqa: E402
 
 MAX_EMBED_CALLS = 10
 
@@ -74,4 +75,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    install_excepthook()  # S-05: 처리되지 않은 예외·logging 출력에서 DSN·키 가리기(가져오기만 할 때는 설치하지 않음)
     raise SystemExit(main())

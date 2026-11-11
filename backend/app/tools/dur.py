@@ -180,12 +180,14 @@ class DurClient:
             from app.config import get_settings
 
             settings = get_settings()
+        from app.config import reveal
+
         mode = "snapshot" if settings.mediagent_api_mode == "snapshot" else "live"
         cache = cache_from_settings(settings)
         common = dict(mode=mode, cache=cache, max_calls=settings.mediagent_api_max_calls)
         return cls(
-            ApiHttpClient(ITEM_ALIAS, settings.durprdlstinfoservice03_end_point, settings.durprdlstinfoservice03_api_key, **common),
-            ApiHttpClient(INGR_ALIAS, settings.durirdntinfoservice03_end_point, settings.durirdntinfoservice03_api_key, **common),
+            ApiHttpClient(ITEM_ALIAS, settings.durprdlstinfoservice03_end_point, reveal(settings.durprdlstinfoservice03_api_key), **common),
+            ApiHttpClient(INGR_ALIAS, settings.durirdntinfoservice03_end_point, reveal(settings.durirdntinfoservice03_api_key), **common),
         )
 
     # ---- 단일 조회(품목 또는 성분 하나) ----

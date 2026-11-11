@@ -23,8 +23,10 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from app.agent.tools.context import ToolContext, ingredient_api_fns  # noqa: E402
 from app.agent.tools.registry import invoke  # noqa: E402
+from app.config import reveal  # noqa: E402
 from app.db import loaders  # noqa: E402
 from app.db.source_files import COMBO_JSON_NAME  # noqa: E402
+from app.security.redact import install_excepthook  # noqa: E402
 from app.tools import _http  # noqa: E402
 from app.tools.drug_dict import DrugDict  # noqa: E402
 from app.tools.dur import INGR_ALIAS, ITEM_ALIAS, DurClient  # noqa: E402
@@ -82,10 +84,10 @@ def _http_clients(settings: Any, budget: dict[str, int] | None = None) -> dict[s
     budget = budget or BUDGET
     cache = _http.cache_from_settings(settings)
     spec = {
-        EYAK_ALIAS: (settings.drdeasydrug_end_point, settings.drdeasydrug_api_key),
-        PRMSN_ALIAS: (settings.drugprdtprmsninfoservice08_end_point, settings.drugprdtprmsninfoservice08_api_key),
-        ITEM_ALIAS: (settings.durprdlstinfoservice03_end_point, settings.durprdlstinfoservice03_api_key),
-        INGR_ALIAS: (settings.durirdntinfoservice03_end_point, settings.durirdntinfoservice03_api_key),
+        EYAK_ALIAS: (settings.drdeasydrug_end_point, reveal(settings.drdeasydrug_api_key)),
+        PRMSN_ALIAS: (settings.drugprdtprmsninfoservice08_end_point, reveal(settings.drugprdtprmsninfoservice08_api_key)),
+        ITEM_ALIAS: (settings.durprdlstinfoservice03_end_point, reveal(settings.durprdlstinfoservice03_api_key)),
+        INGR_ALIAS: (settings.durirdntinfoservice03_end_point, reveal(settings.durirdntinfoservice03_api_key)),
     }
     return {
         a: _http.ApiHttpClient(a, url, key, mode="live", cache=cache, max_retries=0, max_calls=budget[a])
@@ -243,4 +245,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    install_excepthook()  # S-05: 키를 쓰는 스크립트의 예외·logging 출력 가리기
     raise SystemExit(main())

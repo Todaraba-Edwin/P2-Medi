@@ -20,7 +20,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from app.agent.answer_schema import AnswerDraft
-from app.config import Settings
+from app.config import Settings, reveal
 from app.llm.ledger import CostLedger
 
 MODEL = "gpt-6-luna"
@@ -108,7 +108,7 @@ def make_chat_model(
     """
     if purpose not in ("tools", "summary"):
         raise ValueError(f"purpose는 tools|summary: {purpose!r}")
-    key = settings.openai_api_key
+    key = reveal(settings.openai_api_key)  # S-04: Settings 키는 SecretStr(평문 str도 허용)
     kwargs: dict[str, Any] = {}
     if http_client is not None:
         kwargs["http_client"] = http_client

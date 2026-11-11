@@ -26,6 +26,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from build_corpus_l2 import CHUNKS_PATH, EXTRA_FIELDS, OUT_DIR, read_chunks  # noqa: E402
 from build_corpus_l2 import FIELDS as BASE_FIELDS  # noqa: E402
 
+from app.security.redact import install_excepthook, redact  # noqa: E402
+
 FIELDS = BASE_FIELDS + EXTRA_FIELDS  # L3 선택 열(L2 청크에는 없으므로 빈 문자열)
 ALL_FILES = ("l2_chunks.jsonl", "l3_eyak.jsonl", "l3_prmsn.jsonl", "l1_notice.jsonl")
 
@@ -134,14 +136,14 @@ def resolve_dsn(dsn_env: str) -> str:
     try:
         from pydantic_settings import SettingsConfigDict  # noqa: PLC0415
 
-        from app.config import Settings  # noqa: PLC0415
+        from app.config import Settings, reveal  # noqa: PLC0415
 
         class _S(Settings):
             model_config = SettingsConfigDict(extra="ignore")
 
         root = Path(__file__).resolve().parents[2]
         val = getattr(_S(_env_file=(".env", str(root / ".env"))), dsn_env.lower(), None)
-        return str(val) if val else ""
+        return reveal(val) or ""
     except Exception as exc:  # noqa: BLE001 - 검증 오류 문구에 .env 값이 섞일 수 있어 종류만 알린다
         raise RemoteLoadRefused(f"설정(.env)을 읽지 못했다: {type(exc).__name__}") from None
 
@@ -277,7 +279,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             print(remote_drop(args.dsn_env, args.yes))
         except RemoteLoadRefused as e:
-            print(f"거부: {e}", file=sys.stderr)
+            print(f"거부: {redact(str(e))}", file=sys.stderr)
             return 2
         return 0
     chunks = [c for p in paths for c in read_chunks(p)]
@@ -285,7 +287,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             print(remote_load(chunks, args.dsn_env, args.yes, args.dim, vectors=None if args.no_vectors else load_vectors()))
         except RemoteLoadRefused as e:
-            print(f"거부: {e}", file=sys.stderr)
+            print(f"거부: {redact(str(e))}", file=sys.stderr)
             return 2
         return 0
     if args.sqlite:
@@ -303,4 +305,5 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    install_excepthook()  # S-05: 처리되지 않은 예외·logging 출력에서 DSN·키 가리기(가져오기만 할 때는 설치하지 않음)
     raise SystemExit(main())

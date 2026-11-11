@@ -3,18 +3,18 @@
 - `redact(text)`: `app.logging.masking.mask_text`(전체 값·패턴)에 더해, 환경·`.env`에 로드된 비밀 값의
   **앞 4자·뒤 4자 조각**도 `***`로 가린다(키가 잘려 출력돼도 노출되지 않게).
 - `install_excepthook()`: 처리되지 않은 예외의 메시지·트레이스백 전체를 redact한 뒤 stderr에 출력한다.
+  표준 `logging` 레코드 가리기(`app.logging.redact_filter`)도 함께 설치한다(S-05·S-06, 2026-11-11).
 - `safe_exc(exc)`: 예외 한 줄 요약(종류 + redact된 메시지).
 비밀 값 목록은 호출 시점에 모으며 값 자체를 로그·반환 문자열에 넣지 않는다.
 """
 
 from __future__ import annotations
 
-import os
 import sys
 import traceback
 from types import TracebackType
 
-from app.logging.masking import _MIN_SECRET_LEN, _SECRET_ENV_SUFFIXES, MASK, mask_text
+from app.logging.masking import _MIN_SECRET_LEN, MASK, mask_text, secret_values, settings_secret_values
 
 _FRAGMENT_LEN = 4
 # 조각이 일반 단어·URL 접두라 본문을 망가뜨리는 것은 제외한다(전체 값·패턴 마스킹은 그대로 적용된다)
@@ -22,36 +22,12 @@ _COMMON_FRAGMENTS = frozenset({"http", "post", "ostg", "tgre", "tps:", "ttp:", "
 
 
 def _settings_secret_values() -> list[str]:
-    """`Settings`(.env 포함)에서 비밀 이름 필드의 값을 모은다. 읽지 못하면 조용히 건너뛴다(값은 출력하지 않는다)."""
-    try:
-        from pydantic_settings import SettingsConfigDict
-
-        from app.config import Settings
-
-        class _Reader(Settings):
-            model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
-
-        cfg = _Reader()
-        root_env = os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")
-        try:
-            cfg2 = _Reader(_env_file=(".env", root_env))
-        except Exception:  # noqa: BLE001 - 읽기 실패 시 메시지에 값이 섞일 수 있어 삼킨다
-            cfg2 = cfg
-    except Exception:  # noqa: BLE001
-        return []
-    values: list[str] = []
-    for obj in (cfg, cfg2):
-        for name in type(obj).model_fields:
-            val = getattr(obj, name, None)
-            if isinstance(val, str) and name.upper().endswith(_SECRET_ENV_SUFFIXES):
-                values.append(val)
-    return values
+    """`.env`(Settings 출처)의 비밀 값. 출처는 `masking.settings_secret_values`와 같다(S-03: span 로그·redact 공통)."""
+    return settings_secret_values()
 
 
 def _secret_values() -> list[str]:
-    values = [v for n, v in os.environ.items() if n.upper().endswith(_SECRET_ENV_SUFFIXES)]
-    values += _settings_secret_values()
-    return sorted({v for v in values if len(v) >= _MIN_SECRET_LEN}, key=len, reverse=True)
+    return [v for v in secret_values() if len(v) >= _MIN_SECRET_LEN]
 
 
 def _fragments(values: list[str]) -> list[str]:
@@ -94,6 +70,14 @@ def _hook(exc_type: type[BaseException], exc: BaseException, tb: TracebackType |
     sys.stderr.write(text)
 
 
-def install_excepthook() -> None:
-    """처리되지 않은 예외 출력을 redact하도록 `sys.excepthook`을 설치한다(스크립트 진입점 첫 줄에서 호출)."""
+def install_excepthook(*, logs: bool = True) -> None:
+    """처리되지 않은 예외 출력을 redact하도록 `sys.excepthook`을 설치한다(스크립트 진입점 첫 줄에서 호출).
+
+    `logs=True`(기본)면 표준 `logging` 레코드 가리기와 `httpx`·`httpcore` WARNING 고정도 함께 설치한다(S-05·S-06).
+    excepthook은 처리되지 않은 예외만 맡으므로 `logging.exception` 경로는 이쪽이 맡는다.
+    """
     sys.excepthook = _hook
+    if logs:
+        from app.logging.redact_filter import install_log_redaction  # noqa: PLC0415
+
+        install_log_redaction()

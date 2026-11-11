@@ -6,6 +6,9 @@
 from fastapi import FastAPI
 
 from .config import get_settings
+from .logging.redact_filter import install_log_redaction
+
+install_log_redaction()  # 서버 로그(uvicorn·httpx 포함)의 비밀값 가리기, httpx INFO URL 차단(S-05·S-06)
 
 app = FastAPI(title="MediAgent")
 settings = get_settings()

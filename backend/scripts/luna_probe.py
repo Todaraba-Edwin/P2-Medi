@@ -18,7 +18,7 @@ import httpx
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from pydantic_settings import SettingsConfigDict  # noqa: E402
 
-from app.config import Settings  # noqa: E402
+from app.config import Settings, reveal  # noqa: E402
 from app.llm.ledger import CostLedger  # noqa: E402
 from app.security.redact import install_excepthook, safe_exc  # noqa: E402
 
@@ -42,7 +42,7 @@ def resolve_openai_key(env_files=None) -> str | None:
     root = os.path.join(os.path.dirname(__file__), "..", "..")
     files = env_files if env_files is not None else (".env", os.path.join(root, ".env"))
     try:
-        return _ProbeSettings(_env_file=files).openai_api_key or None
+        return reveal(_ProbeSettings(_env_file=files).openai_api_key)
     except Exception as exc:  # noqa: BLE001 - 검증 오류 메시지에 .env 값이 섞일 수 있어 종류만 알린다
         print(f"설정(.env)을 읽지 못했다: {safe_exc(exc)}")
         return None

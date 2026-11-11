@@ -33,6 +33,7 @@ from build_corpus_l2 import OUT_DIR, read_chunks  # noqa: E402
 from load_corpus import ALL_FILES, RemoteLoadRefused, _insert_sql, load_vectors, resolve_dsn  # noqa: E402
 
 from app.db import loaders  # noqa: E402
+from app.security.redact import install_excepthook, redact  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 DSN_ENV = "SUPABASE_DB_URL"
@@ -94,7 +95,7 @@ def transaction(conn: Any, name: str, fn: Callable[[Any], dict[str, Any]], log: 
         conn.commit()
     except Exception as exc:
         conn.rollback()
-        log(f"[{name}] 롤백: {type(exc).__name__}: {str(exc)[:200]}")
+        log(f"[{name}] 롤백: {type(exc).__name__}: {redact(str(exc))[:200]}")  # S-07: psycopg DETAIL의 행·접속 조각 가리기
         raise StageAbort(f"{name}: {type(exc).__name__}") from exc
     log(f"[{name}] 커밋: {json.dumps(res, ensure_ascii=False, default=str)}")
     return res
@@ -493,9 +494,10 @@ def main(argv: list[str] | None = None) -> int:
             conn.close()
         return 0
     except (RemoteLoadRefused, StageAbort) as e:
-        print(f"중단: {e}", file=sys.stderr)
+        print(f"중단: {redact(str(e))}", file=sys.stderr)
         return 3
 
 
 if __name__ == "__main__":
+    install_excepthook()  # S-05: 처리되지 않은 예외·logging 출력에서 DSN·키 가리기(가져오기만 할 때는 설치하지 않음)
     raise SystemExit(main())
