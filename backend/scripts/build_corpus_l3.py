@@ -13,7 +13,14 @@
   5) rowspan/colspan 등으로 칸 수가 열 수와 다른 행이 30% 이상인 표는 열·값 짝을 만들지 않고 칸을 ` | `로 잇는다(표 열 줄에 짝 확인 필요 표시).
   4) 행 묶음(6행·1,500자 이하)마다 열 이름을 반복하고, 한 청크는 3,000자를 넘지 않게 쪼갠다.
 
-사용(작업 위치 `backend/`): `.venv/bin/python scripts/build_corpus_l3.py build [--label-filter all|selected] [--check]` / `verify` / `capacity` / `samples`
+BE-05-04 C 표 전개(`--spans expand`, 2026-11-11, 기본값은 아직 기존 규칙 `keep`): `expand_table_spans`가 HTML 표를 열 좌표 격자로
+펼쳐 rowspan·colspan 셀을 해당하는 모든 칸에 채운 뒤(`table_chunks_v2`) 위 1)~4) 규칙을 적용한다. 머리글이 rowspan·colspan으로
+여러 줄이면 열마다 위에서 아래 머리글 글자를 이어 열 이름을 만든다. 전개 뒤에도 칸이 비거나 넘치는 행이 30% 이상이면 5) 폴백.
+전체 폭 한 칸 행은 짧으면 소제목, 길거나 각주 표지(*, †, ※ 등)로 시작하면 `[표 주석]` 줄, 첫 행이면 `[표 제목]` 줄로 내고(원문 문단을 잃지 않음),
+3)은 이 행에서 시작한 두 칸 이상이 같은 개수로 쌓였을 때만 푼다. 칸마다 쌓인 개수가 다른 행이 있으면 열 짝은 지키되 표에 짝 확인 필요를 표시한다.
+결과는 `prmsn-v2` 명령이 새 파일 `l3_prmsn.v2.jsonl`과 변경 목록 `l3_prmsn.v2.changes.json`으로 쓴다(기존 `l3_prmsn.jsonl`은 덮어쓰지 않음).
+
+사용(작업 위치 `backend/`): `.venv/bin/python scripts/build_corpus_l3.py build [--label-filter all|selected] [--check]` / `verify` / `capacity` / `samples` / `prmsn-v2`
 """
 
 from __future__ import annotations
@@ -27,7 +34,9 @@ import random
 import re
 import sys
 import xml.etree.ElementTree as ET
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -233,6 +242,243 @@ def group_rows(header: list[str], rows: list[str], room: int, aligned: bool = Tr
     return out
 
 
+# --------------------------------------------------------------------------- BE-05-04 C rowspan·colspan 전개
+
+MAX_SPAN = 50  # 잘못된 큰 span 값(예 colspan="999")이 격자를 터뜨리지 않게 자른다
+SUBHEAD_MAX = 60  # 표 전체 폭 한 칸 행이 이보다 길면 소제목이 아니라 표 주석으로 본다
+NOTE_RE = re.compile(r"^\s*(?:[*†‡※§¶#]|\(?주\)|주:)")  # 각주 표지
+
+
+@dataclass
+class SpanCell:
+    texts: list[str]
+    rowspan: int = 1  # 0 = 표 끝까지(HTML 규칙)
+    colspan: int = 1
+
+
+def _span(v: str | None, *, allow_zero: bool) -> int:
+    try:
+        n = int(str(v).strip())
+    except (TypeError, ValueError):
+        return 1
+    if n == 0 and allow_zero:
+        return 0
+    return max(1, min(n, MAX_SPAN))
+
+
+class _SpanTableParser(HTMLParser):
+    """`chunk_trial._TableParser`와 같은 글자 처리(`<p>`·`<br>`마다 칸 안 문단을 나눈다)에 rowspan·colspan을 더한다.
+    셀 안에 들어 있는 표(중첩 표)는 구조로 보지 않고 바깥 셀의 글자로 둔다."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[list[SpanCell]] = []
+        self._row: list[SpanCell] | None = None
+        self._cell: SpanCell | None = None
+        self._buf: list[str] = []
+        self._nest = 0  # 셀 안 중첩 표 깊이
+
+    def _flush(self) -> None:
+        t = " ".join("".join(self._buf).replace("\xa0", " ").split())
+        self._buf = []
+        if t and self._cell is not None:
+            self._cell.texts.append(t)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._cell is not None and tag == "table":
+            self._nest += 1
+        if self._nest:
+            if tag in ("p", "br", "tr", "td", "th"):
+                self._buf.append(" ")
+            return
+        if tag == "tr":
+            self._row = []
+        elif tag in ("td", "th"):
+            if self._cell is not None:  # 닫히지 않은 셀
+                self._close_cell()
+            a = dict(attrs)
+            self._cell = SpanCell([], _span(a.get("rowspan"), allow_zero=True), _span(a.get("colspan"), allow_zero=False))
+            self._buf = []
+        elif tag in ("p", "br"):
+            self._flush()
+
+    def _close_cell(self) -> None:
+        self._flush()
+        if self._cell is not None:
+            if self._row is None:
+                self._row = []
+            self._row.append(self._cell)
+        self._cell = None
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._nest:
+            if tag == "table":
+                self._nest -= 1
+            return
+        if tag in ("td", "th"):
+            self._close_cell()
+        elif tag == "p":
+            self._flush()
+        elif tag == "tr":
+            if self._cell is not None:
+                self._close_cell()
+            if self._row is not None:
+                self.rows.append(self._row)
+            self._row = None
+
+    def handle_data(self, data: str) -> None:
+        self._buf.append(data)
+
+
+@dataclass
+class ExpandedTable:
+    """열 좌표 격자. `cells[r][c]`는 그 칸을 덮는 셀의 문단들(rowspan·colspan 칸에는 같은 값이 복사됨)."""
+
+    cells: list[list[list[str]]]
+    origin: list[list[int]]  # 칸을 덮는 셀 번호, 빈 칸(행이 짧아 채운 칸)은 -1
+    top: list[list[bool]] = field(default_factory=list)  # 셀이 시작한 행인지(아래로 복사된 칸이면 False)
+    width: int = 0
+
+    def padded(self, r: int) -> int:
+        return sum(o < 0 for o in self.origin[r])
+
+
+def expand_table_spans(html_text: str) -> ExpandedTable:
+    """HTML 표를 열 좌표로 펼친다(HTML 표 배치 규칙): 각 셀을 아직 차지되지 않은 가장 왼쪽 칸에 놓고 rowspan×colspan 영역을
+    모두 같은 셀로 채운다. rowspan은 표 끝을 넘지 않게 자르고(0은 표 끝까지), 겹치면 먼저 놓인 셀을 남긴다."""
+    p = _SpanTableParser()
+    p.feed(html_text)
+    p.close()
+    if p._cell is not None:  # 닫히지 않은 마지막 셀
+        p._close_cell()
+    if p._row:  # 닫히지 않은 마지막 행
+        p.rows.append(p._row)
+    rows = p.rows
+    n = len(rows)
+    occ: dict[tuple[int, int], tuple[int, list[str], bool]] = {}
+    cid = 0
+    for r, row in enumerate(rows):
+        c = 0
+        for cell in row:
+            while (r, c) in occ:
+                c += 1
+            rs = n - r if cell.rowspan == 0 else min(cell.rowspan, n - r)
+            for dr in range(rs):
+                for dc in range(cell.colspan):
+                    occ.setdefault((r + dr, c + dc), (cid, cell.texts, dr == 0))
+            cid += 1
+            c += cell.colspan
+    width = max((c + 1 for (_, c) in occ), default=0)
+    cells = [[list(occ[(r, c)][1]) if (r, c) in occ else [] for c in range(width)] for r in range(n)]
+    origin = [[occ[(r, c)][0] if (r, c) in occ else -1 for c in range(width)] for r in range(n)]
+    top = [[occ[(r, c)][2] if (r, c) in occ else True for c in range(width)] for r in range(n)]
+    return ExpandedTable(cells, origin, top, width)
+
+
+def _groups(ex: ExpandedTable, r: int) -> list[tuple[list[int], list[str], bool]]:
+    """한 행의 칸을 같은 셀(colspan)끼리 묶는다: (열 번호들, 문단들, 이 행에서 시작한 셀인지)."""
+    out: list[tuple[list[int], list[str], bool]] = []
+    for c in range(ex.width):
+        o = ex.origin[r][c]
+        if out and o >= 0 and ex.origin[r][out[-1][0][-1]] == o:
+            out[-1][0].append(c)
+        else:
+            out.append(([c], ex.cells[r][c], ex.top[r][c]))
+    return out
+
+
+def table_chunks_v2(html_text: str) -> tuple[list[str], list[str], bool]:
+    """`table_chunks`와 같은 반환형. rowspan·colspan을 전개한 격자에 폴백 규칙 1)~4)를 적용하고, 전개 뒤에도 빈 칸으로 채운 행이
+    30% 이상이면 5) 폴백(짝 확인 필요)."""
+    ex = expand_table_spans(html_text)
+    keep = [r for r in range(len(ex.cells)) if any(ex.cells[r])]
+    if not keep:
+        return [], [], True
+    title = ""
+    g0 = _groups(ex, keep[0])
+    if ex.width > 1 and len(g0) == 1 and len(keep) > 1:  # 첫 행이 표 전체 폭의 한 칸: 표 제목으로 보고 머리말로 쓴다
+        title = " ".join(g0[0][1])
+        keep = keep[1:]
+    r0 = keep[0]
+    # 머리글 높이: 첫 행 셀이 아래로 몇 행을 덮는지(rowspan). 그 행들이 모두 머리글이다
+    h = 1
+    for c in range(ex.width):
+        o = ex.origin[r0][c]
+        k = 1
+        while o >= 0 and k < len(keep) and ex.origin[keep[k]][c] == o:
+            k += 1
+        h = max(h, k)
+    hdr_rows = [[ex.cells[r][c] for c in range(ex.width)] for r in keep[:h]]
+    has_colspan = len(_groups(ex, r0)) < ex.width
+    if h == 1 and len(keep) > 1 and (has_colspan or any(not x for x in hdr_rows[0])):
+        nxt = [ex.cells[keep[1]][c] for c in range(ex.width)]
+        if _is_header_like(nxt):  # 1) 빈 머리글 칸·colspan 머리글 아래 짧은 하위 머리글 행
+            hdr_rows.append(nxt)
+            h = 2
+    header: list[str] = []
+    for c in range(ex.width):
+        parts: list[str] = []
+        for hr in hdr_rows:
+            t = " ".join(hr[c])
+            if t and (not parts or parts[-1] != t):
+                parts.append(t)
+        header.append(" ".join(parts) or f"열{c + 1}")
+    body = keep[h:]
+    ragged = sum(ex.padded(r) > 0 for r in body)
+    if body and ragged / len(body) >= RAGGED_RATIO:
+        return header, [" | ".join(" / ".join(g[1]) for g in _groups(ex, r)) for r in body], False
+    out: list[str] = []
+    if title:
+        out.append(f"[표 제목] {title}")  # 제목 줄은 따로 남기고, 짧으면 첫 소제목이 나오기 전까지 행 머리말로도 쓴다
+    sub = top_sub = title if len(title) <= SUBHEAD_MAX else ""
+    unsure = False
+    pending = ""  # 아직 어느 행에도 붙지 않은 하위 제목(뒤따르는 행 없이 끝나면 내용을 잃지 않게 그대로 낸다)
+    for r in body:
+        gs = _groups(ex, r)
+        filled = [i for i, g in enumerate(gs) if g[1]]
+        if ex.width > 1 and len(gs) == 1 and gs[0][1]:
+            txt = " ".join(gs[0][1])  # 표 전체 폭 한 칸 행
+            if len(txt) > SUBHEAD_MAX or NOTE_RE.match(txt):  # 각주·설명 문단: 소제목이 아니라 그대로 한 줄
+                if pending:
+                    out.append(pending)
+                pending = ""
+                out.append(f"[표 주석] {txt}")
+                continue
+        if ex.width > 1 and filled == [0] and gs[0][2] and (len(gs) == 1 or len(gs[0][1]) == 1):
+            txt = " ".join(gs[0][1])  # 2) 하위 제목 행(첫 칸만, 또는 표 전체 폭 한 칸)
+            if pending:
+                out.append(pending)
+            pending = txt
+            if txt.startswith("·") and top_sub:
+                sub = f"{top_sub} {txt}"
+            else:
+                sub = top_sub = txt
+            continue
+        pending = ""
+        pre = f"[{sub}] " if sub else ""
+        names = [" / ".join(dict.fromkeys(header[c] for c in g[0])) for g in gs]
+        vals_g = [g[1] for g in gs]
+        if len(gs) > 1 and len(vals_g[0]) == 1 and vals_g[0][0].startswith("·") and len(filled) > 1 and gs[0][2]:
+            pre = f"[{top_sub} {vals_g[0][0]}] " if top_sub else f"[{vals_g[0][0]}] "
+            vals_g = [[], *vals_g[1:]]
+        stacked = [len(v) for v, g in zip(vals_g, gs, strict=True) if len(v) > 1 and g[2]]
+        if len(set(stacked)) > 1:
+            unsure = True  # 칸마다 쌓인 문단 개수가 달라 한 물리 행 안의 논리 행 경계를 알 수 없다(열 짝은 지키고 표에 확인 필요 표시)
+        if len(stacked) >= 2 and len(set(stacked)) == 1:  # 3) 이 행에서 시작한 두 칸 이상에 같은 개수로 쌓인 <p>: 문단 단위로 행을 푼다
+            k = stacked[0]
+            for i in range(k):
+                vals = [v[i] if len(v) == k else (v[0] if len(v) == 1 else " / ".join(v)) for v in vals_g]
+                out.append(pre + "; ".join(f"{nm}={v}" for nm, v in zip(names, vals, strict=True) if v))
+        else:
+            out.append(pre + "; ".join(f"{nm}={' / '.join(v)}" for nm, v in zip(names, vals_g, strict=True) if v))
+    if pending:
+        out.append(pending)
+    return header, out, not unsure
+
+
+TABLE_FNS: dict[str, Callable[[str], tuple[list[str], list[str], bool]]] = {"keep": table_chunks, "expand": table_chunks_v2}
+
+
 # --------------------------------------------------------------------------- L3 허가 상세
 
 def _para_items(art: ET.Element) -> list[tuple[str, str]]:
@@ -252,7 +498,8 @@ def prmsn_selected(doc: str, title: str) -> bool:
     return doc == "UD" or (doc == "NB" and any(k in title for k in KEEP_NB_TITLE))
 
 
-def build_prmsn_chunks(snap_dir: Path | None = None, codes: dict[str, tuple[list[str], str]] | None = None) -> list[dict[str, Any]]:
+def build_prmsn_chunks(snap_dir: Path | None = None, codes: dict[str, tuple[list[str], str]] | None = None,
+                       table_fn: Callable[[str], tuple[list[str], list[str], bool]] = table_chunks) -> list[dict[str, Any]]:
     codes = {} if codes is None else codes
     out: list[dict[str, Any]] = []
     for fp in sorted(glob.glob(str((snap_dir or PRMSN_DIR) / "item-*.json"))):
@@ -290,7 +537,7 @@ def build_prmsn_chunks(snap_dir: Path | None = None, codes: dict[str, tuple[list
                         buf.append(t)
                         continue
                     flush()
-                    header, rows, aligned = table_chunks(t)
+                    header, rows, aligned = table_fn(t)
                     if header and rows:
                         bodies.extend(("table", g) for g in group_rows(header, rows, room, aligned))
                     elif header:
@@ -599,6 +846,146 @@ def cmd_samples(args: argparse.Namespace) -> int:
     return 0
 
 
+V2_FILE = "l3_prmsn.v2.jsonl"
+V2_CHANGES = "l3_prmsn.v2.changes.json"
+V2_AUDIT = "l3_prmsn.v2.audit.md"
+TOKENS_PER_CHAR = 1.7  # BE-05-01과 같은 보수적 근사(실측은 어림보다 약 15% 적었음)
+EMB_USD_PER_1M = 0.02  # text-embedding-3-small
+
+
+def iter_prmsn_tables(snap_dir: Path | None = None) -> list[tuple[str, str, str, int, str]]:
+    """(item_seq, 제품명, doc, 조항 번호, 표 HTML). 허가 상세 스냅샷의 모든 표."""
+    out: list[tuple[str, str, str, int, str]] = []
+    for fp in sorted(glob.glob(str((snap_dir or PRMSN_DIR) / "item-*.json"))):
+        r = (json.loads(Path(fp).read_text(encoding="utf-8")).get("response") or [{}])[0]
+        seq, name = clean_field(r.get("ITEM_SEQ")), clean_field(r.get("ITEM_NAME"))
+        if not seq or not name:
+            continue
+        for doc in ("EE", "UD", "NB"):
+            xml = clean_field(r.get(f"{doc}_DOC_DATA"))
+            if not xml:
+                continue
+            try:
+                root = ET.fromstring(xml)  # noqa: S314 - 로컬 공공 API 스냅샷(신뢰 입력)
+            except ET.ParseError:
+                continue
+            for ai, art in enumerate(root.iter("ARTICLE")):
+                out.extend((seq, name, doc, ai, t) for k, t in _para_items(art) if k == "table")
+    return out
+
+
+def change_list(old: Sequence[dict[str, Any]], new: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """본문 해시(chunk_id)가 바뀐 청크. 같은 locator끼리 `old → new`로 짝짓고, 짝이 없으면 removed/added."""
+    oi, ni = {c["chunk_id"] for c in old}, {c["chunk_id"] for c in new}
+    gone = {c["locator"]: c["chunk_id"] for c in old if c["chunk_id"] not in ni}
+    came = {c["locator"]: c["chunk_id"] for c in new if c["chunk_id"] not in oi}
+    replaced = [{"locator": loc, "old_chunk_id": gone[loc], "new_chunk_id": came[loc]} for loc in sorted(gone.keys() & came.keys())]
+    return {"replaced": replaced,
+            "removed": [{"locator": loc, "old_chunk_id": gone[loc]} for loc in sorted(gone.keys() - came.keys())],
+            "added": [{"locator": loc, "new_chunk_id": came[loc]} for loc in sorted(came.keys() - gone.keys())],
+            "unchanged": len(oi & ni)}
+
+
+def audit_table(html_text: str) -> tuple[int, int, list[str]]:
+    """원문 셀 대조(전개 코드와 따로 센다): 원문 `<td>`마다 rowspan만큼의 출력 행에 그 셀 첫 문단이 들어 있는지.
+    (확인한 셀 수, 맞은 셀 수, 어긋난 셀 설명). 머리글·하위 제목 행의 셀과 `<p>`가 여러 개 쌓인 셀은 빼고 센다."""
+    header, rows, aligned = table_chunks_v2(html_text)
+    hdr_text = " ".join(header)
+    p = _SpanTableParser()
+    p.feed(html_text)
+    p.close()
+    raw = [r for r in p.rows if any(c.texts for c in r)]
+    n = len(raw)
+    checked = ok = 0
+    bad: list[str] = []
+    for ri, row in enumerate(raw[1:], start=1):
+        filled = [c for c in row if c.texts]
+        if len(filled) == 1 and len(row) == 1:
+            continue  # 표 전체 폭 한 칸(제목·하위 제목)
+        for c in row:
+            if len(c.texts) != 1 or c.texts[0] in hdr_text:
+                continue  # 쌓인 셀, 머리글(하위 머리글 행 포함) 셀
+            want = n - ri if c.rowspan == 0 else min(c.rowspan, n - ri)
+            hit = sum(c.texts[0] in r for r in rows)
+            checked += 1
+            if hit >= want:
+                ok += 1
+            else:
+                bad.append(f"행{ri} '{c.texts[0][:30]}' rowspan={c.rowspan} 기대 {want}행, 출력 {hit}행")
+    return checked, ok, bad if aligned else [*bad, "(짝 확인 필요 폴백 표)"]
+
+
+def cmd_prmsn_v2(args: argparse.Namespace) -> int:
+    old_path = OUT_DIR / FILES["prmsn"]
+    v2_path = OUT_DIR / V2_FILE
+    if v2_path.resolve() == old_path.resolve():  # pragma: no cover - 경로 상수가 바뀌어도 기존 파일은 덮어쓰지 않는다
+        raise SystemExit("v2 출력이 기존 l3_prmsn.jsonl을 가리킨다")
+    codes = load_product_codes()
+    old = [json.loads(ln) for ln in old_path.read_text(encoding="utf-8").splitlines() if ln]
+    new = build_prmsn_chunks(codes=codes, table_fn=table_chunks_v2)
+    new.sort(key=lambda c: (c["chunk_kind"], c["chunk_id"]))
+    # 1) 표 단위 짝 확인 필요 수(전후)
+    tables = iter_prmsn_tables()
+    tstat: dict[str, dict[str, int]] = {}
+    still: list[tuple[str, str, str, int, str]] = []
+    fixed: list[tuple[str, str, str, int, str]] = []
+    for t in tables:
+        s = tstat.setdefault(t[2], {"tables": 0, "flag_before": 0, "flag_after": 0, "with_span": 0})
+        s["tables"] += 1
+        b, a = table_chunks(t[4])[2], table_chunks_v2(t[4])[2]
+        s["flag_before"] += not b
+        s["flag_after"] += not a
+        s["with_span"] += bool(re.search(r"(row|col)span\s*=\s*\"?\s*(0|[2-9]|\d\d)", t[4], re.I))
+        if not a:
+            still.append(t)
+        elif not b:
+            fixed.append(t)
+    flag = "짝은 확인 필요"
+    cstat = {doc: {"before": sum(flag in c["text"] for c in old if c["section"].startswith(doc)),
+                   "after": sum(flag in c["text"] for c in new if c["section"].startswith(doc))} for doc in ("EE", "UD", "NB")}
+    ch = change_list(old, new)
+    by_id = {c["chunk_id"]: c for c in new}
+    old_texts = {c["text"] for c in old}
+    for x in ch["replaced"] + ch["added"]:  # chunk_id는 조항 안 순번을 담으므로 본문이 같아도 바뀔 수 있다(벡터는 본문 해시 캐시로 재사용)
+        x["text_changed"] = by_id[x["new_chunk_id"]]["text"] not in old_texts
+    emb = [by_id[x["new_chunk_id"]] for x in ch["replaced"] + ch["added"] if x["text_changed"]]
+    ch["id_only"] = sum(not x["text_changed"] for x in ch["replaced"] + ch["added"])
+    chars = sum(len(c["text"]) for c in emb)
+    tokens = round(chars * TOKENS_PER_CHAR)
+    # 2) 무작위 20표 원문 셀 대조(전개로 짝이 생긴 표 중)
+    rng = random.Random(20261111)  # noqa: S311 - 점검 표본(시드 고정)
+    sample = rng.sample(fixed, min(20, len(fixed)))
+    audit_lines = ["# l3_prmsn v2 표 전개 원문 대조 (BE-05-04 C, 무작위 20표, 시드 20261111)", ""]
+    a_ok = 0
+    for seq, name, doc, ai, html_text in sample:
+        checked, ok, bad = audit_table(html_text)
+        a_ok += checked == ok
+        h, rows, _ = table_chunks_v2(html_text)
+        audit_lines += [f"## {name} ({seq}) {doc} 조항#{ai}: 셀 {ok}/{checked}", "", "표 열: " + " | ".join(h), "", *[f"- {r}" for r in rows[:12]],
+                        *(["- …"] if len(rows) > 12 else []), *[f"- **어긋남** {b}" for b in bad], ""]
+    still_lines = ["", "# 전개 뒤에도 짝 확인 필요인 표", ""]
+    for seq, name, doc, ai, html_text in still:
+        ex = expand_table_spans(html_text)
+        body = [r for r in range(1, len(ex.cells)) if any(ex.cells[r])]
+        short = sum(ex.padded(r) > 0 for r in body)
+        still_lines.append(f"- {name} ({seq}) {doc} 조항#{ai}: 폭 {ex.width}, 본문 {len(body)}행 중 빈 칸 채운 행 {short}")
+    (OUT_DIR / V2_AUDIT).write_text("\n".join(audit_lines + still_lines) + "\n", encoding="utf-8")
+    report = {
+        "old_file": old_path.name, "new_file": V2_FILE, "chunks_before": len(old), "chunks_after": len(new),
+        "table_chunks_before": sum(c["chunk_kind"] == "l3_prmsn_table" for c in old), "table_chunks_after": sum(c["chunk_kind"] == "l3_prmsn_table" for c in new),
+        "tables_by_doc": tstat, "flag_chunks_by_doc": cstat, "audit_tables_all_ok": f"{a_ok}/{len(sample)}",
+        "reembed": {"chunks": len(emb), "selected_label_chunks": sum(is_selected(c) for c in emb), "chars": chars, "tokens_approx": tokens, "usd_approx": round(tokens / 1e6 * EMB_USD_PER_1M, 4),
+                    "note": f"토큰 = 글자×{TOKENS_PER_CHAR} 근사, text-embedding-3-small ${EMB_USD_PER_1M}/1M, 호출하지 않음"},
+        "changes": ch,
+    }
+    v2_path.write_text("\n".join(jsonl_lines(new)) + "\n", encoding="utf-8")
+    (OUT_DIR / V2_CHANGES).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({k: v for k, v in report.items() if k != "changes"} | {"changes": {k: (len(v) if isinstance(v, list) else v) for k, v in ch.items()}},
+                     ensure_ascii=False, indent=1))
+    print(f"→ {v2_path}, {OUT_DIR / V2_CHANGES}, {OUT_DIR / V2_AUDIT}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -612,6 +999,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     s.add_argument("names", nargs="+")
     s.add_argument("--limit", type=int, default=2)
     s.set_defaults(fn=cmd_samples)
+    sub.add_parser("prmsn-v2", help="BE-05-04 C 표 전개본을 새 파일로(기존 l3_prmsn.jsonl 무변경)").set_defaults(fn=cmd_prmsn_v2)
     args = ap.parse_args(argv)
     return int(args.fn(args))
 

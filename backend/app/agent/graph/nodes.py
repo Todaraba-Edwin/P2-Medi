@@ -7,7 +7,8 @@ LLM이 하는 것: `model` 노드의 도구 선택과 최종 요약 문장(구�
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,7 +28,7 @@ from app.agent.graph.state import (
     AgentState,
     restrict_update,
 )
-from app.agent.router import route_input
+from app.agent.router import note_entities, route_input
 from app.agent.sentence_filter import filter_sentences
 from app.agent.tools.context import ToolContext
 from app.agent.tools.registry import REGISTRY, ToolSpec, invoke
@@ -57,6 +58,7 @@ class GraphDeps:
     registry: dict[str, ToolSpec] = field(default_factory=lambda: REGISTRY)
     max_calls: int = MAX_MODEL_CALLS
     max_rewind: int = MAX_REWIND
+    tracer: Any = None              # L2 계측(`graph.trace.GraphTracer`). None이면 계측하지 않는다(RFP-34-02)
 
 
 # --------------------------------------------------------------------------- 보조
@@ -66,7 +68,7 @@ def _question_of(state: AgentState) -> str:
 
 def _router_note(state: AgentState) -> str:
     """router가 정리한 입력을 모델에 주는 데이터 블록(약 후보·상태·연령·임신). 판정이 아니다."""
-    ents = [{"raw": e.get("raw"), "status": e.get("status"), "item_seq": e.get("item_seq")} for e in state.get("entities") or []]
+    ents = note_entities(state.get("entities"))  # 키 고정·중복 제거(AG-05 후속): raw·strength·status·item_seq·matched_by·code_status
     prof = state.get("profile") or {}
     note = {"drug_candidates": ents, "age_years": prof.get("age_years"), "pregnant": prof.get("pregnant"), "intent": state.get("intent") or []}
     return "<<<ROUTER_NOTE\n" + json.dumps(note, ensure_ascii=False) + "\nROUTER_NOTE>>>"
@@ -125,18 +127,24 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
             deps.tool_ctx.remaining_calls = max(deps.max_calls - state.get("call_count", 0), 0)
             name, args = tc.get("name", ""), tc.get("args") or {}
             out: dict[str, Any]
-            try:
-                if name in tools_by_name:
-                    msg = tools_by_name[name].invoke(tc)  # ToolCall dict → ToolMessage(content=데이터 블록, artifact=out)
-                    out = msg.artifact if isinstance(msg.artifact, dict) else {}
-                    content = msg.content
-                else:  # 등록되지 않은 도구: 하드 차단(UNKNOWN_TOOL)
-                    out = invoke(name, args, deps.tool_ctx, deps.registry)
-                    err = out.get("error") or {}
-                    content = f"[HARNESS] {err.get('code')}: {err.get('reason')} / 다음 행동: {err.get('next_action')}"
-            except Exception as exc:  # noqa: BLE001 — 도구 본문 예외가 그래프를 죽이지 않게(내용은 남기지 않고 종류만)
-                out, content = {}, "[HARNESS] TOOL_ERROR: 도구 실행에 실패했다. 다른 방법을 쓰거나 확인하지 못했다고 답한다"
-                upd["events"].append({"rule": "H21", "event": "TOOL_ERROR", "tool": name, "type": type(exc).__name__})
+            with _tool_span(deps, name, args, state.get("call_count", 0)) as rec:
+                try:
+                    if name in tools_by_name:
+                        msg = tools_by_name[name].invoke(tc)  # ToolCall dict → ToolMessage(content=데이터 블록, artifact=out)
+                        out = msg.artifact if isinstance(msg.artifact, dict) else {}
+                        content = msg.content
+                    else:  # 등록되지 않은 도구: 하드 차단(UNKNOWN_TOOL)
+                        out = invoke(name, args, deps.tool_ctx, deps.registry)
+                        err = out.get("error") or {}
+                        content = f"[HARNESS] {err.get('code')}: {err.get('reason')} / 다음 행동: {err.get('next_action')}"
+                except Exception as exc:  # noqa: BLE001 — 도구 본문 예외가 그래프를 죽이지 않게(내용은 남기지 않고 종류만)
+                    out, content = {}, "[HARNESS] TOOL_ERROR: 도구 실행에 실패했다. 다른 방법을 쓰거나 확인하지 못했다고 답한다"
+                    upd["events"].append({"rule": "H21", "event": "TOOL_ERROR", "tool": name, "type": type(exc).__name__})
+                    rec["error_type"] = type(exc).__name__
+                rec["out"] = out
+            code = (out.get("error") or {}).get("code") if isinstance(out.get("error"), dict) else None
+            if code in ("ARG_SCHEMA", "UNKNOWN_TOOL"):  # 하드 차단도 상태 이벤트로 남긴다(정상 경로 회귀의 "차단 0건" 판정, L2 하네스 span)
+                upd["events"].append({"rule": "H21", "event": code, "tool": name})
             out_msgs.append(ToolMessage(content=content, tool_call_id=tc.get("id") or name, name=name))
             # 상태에는 POST_WRITABLE_KEYS만 쓴다(emergency·route·profile·confirmed_mentions는 못 쓴다, H8)
             new, dropped = guardrail.apply_tool_update({}, out.get("writable") or {})
@@ -203,9 +211,22 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
     raw = {"guardrail_in": guardrail_in, "router": router, "model": model, "tools": tools, "validator": validator, "finalize": finalize_node}
 
     def guarded(name: str, fn: Callable[[AgentState], dict[str, Any]]) -> Callable[[AgentState], dict[str, Any]]:
-        return lambda state: restrict_update(name, fn(state))
+        def run(state: AgentState) -> dict[str, Any]:
+            return restrict_update(name, fn(state))
+
+        return deps.tracer.wrap_node(name, run) if deps.tracer is not None else run  # 계측은 쓰기 제한 뒤의 갱신만 본다
 
     return {name: guarded(name, fn) for name, fn in raw.items()}
+
+
+@contextmanager
+def _tool_span(deps: GraphDeps, name: str, args: dict[str, Any], step: int) -> Iterator[dict[str, Any]]:
+    """도구 자식 span(L2). 계측이 꺼져 있으면 기록 없이 빈 dict만 준다."""
+    if deps.tracer is None:
+        yield {}
+        return
+    with deps.tracer.tool_span(name, args, step) as rec:
+        yield rec
 
 
 # --------------------------------------------------------------------------- 간선 함수

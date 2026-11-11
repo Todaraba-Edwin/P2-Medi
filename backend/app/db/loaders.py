@@ -41,7 +41,7 @@ AS_OF_COMBO = parse_base_date(COMBO_JSON_NAME) or ""  # 병용금기 JSON 파일
 AS_OF_LACTATION = "2025-11-27"
 AS_OF_HIRA = "2026-06-01"
 # 노인주의약물(KIDS) CSV는 파일명 제공일을 포털 수정일 2026-10-01로 고친 파일이라 이름 끝 날짜가 곧 수정일이다(2026-11-11 사용자 결정).
-# 이 한 파일에 한해 as_of에 수정일을 쓴다(나머지 파일의 AS_OF_*는 BE-16-02 결정 전까지 그대로).
+# 이 한 파일에 한해 as_of에 수정일을 쓴다(나머지 파일의 AS_OF_*는 BE-16-02 A: 화면·판정 날짜는 파일 날짜 유지, 수정일은 doc_meta에만 기록).
 AS_OF_ELDERLY_KIDS = parse_base_date(ELDERLY_KIDS_CSV_NAME) or ""
 KIND_ELDERLY_KIDS = "elderly_kids"  # 심평원 노인주의(`elderly`)와 분리: lookup._CAUTION_KINDS에 없어 판정 경로(check_contraindications)에 섞이지 않는다
 

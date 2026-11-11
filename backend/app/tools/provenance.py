@@ -46,6 +46,15 @@ DATE_LABELS = {
     "snapshot_collected_at": "스냅샷 수집 시각",
 }
 
+# 출처 표 날짜 줄 라벨(PRD-12 §5.1: 고시일·기준일·조회일, 화면은 "조회"로 줄여 씀. 날짜 없음은 §5.6 가정). BE-06 `citations[].dates[].label` 값.
+# 위 `DATE_LABELS`(내부 설명용 이름)와 별개이며, 응답·화면에 나가는 라벨은 이 표만 쓴다. 새 라벨은 여기에 먼저 더한다.
+CITATION_DATE_LABELS = {
+    "notice": "고시일",
+    "as_of": "기준일",
+    "queried": "조회",
+    "none": "날짜 없음",
+}
+
 # 자료 키 → 기준일(파일 자료만)
 DATASET_AS_OF = {
     "contra_pair": AS_OF_COMBO, "pregnancy": AS_OF_KIDS, "age": AS_OF_KIDS, "dose": AS_OF_KIDS,
