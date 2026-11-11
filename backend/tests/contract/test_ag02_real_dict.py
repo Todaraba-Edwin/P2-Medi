@@ -154,3 +154,26 @@ def test_product_code_linked_acetaminophen_unchanged(real_ctx):
     for p in pop:
         out = invoke("check_contraindications", {"drugs": [{"item_seq": p["item_seq"]}], "age": {"value": 5, "unit": "세"}}, real_ctx)
         assert {i["status"] for i in out["items"] if i["kind"] == "age"} == {"FOUND"}, p["name"]
+
+
+def test_kids_row_fold_preserves_code_union_on_real_dict(real_ctx):
+    """BE-10-13 A: 허가 행 1개로 접힌 KIDS 함량 행의 코드는 합집합으로 모두 남는다(접기 전 코드 집합과 비교). 오탐 3건은 접기와 무관하게 UNIDENTIFIED."""
+    from app.tools.drug_dict import normalize_name
+
+    d = real_ctx.drug_dict
+    groups: dict[str, list[dict]] = {}
+    for p in d.products:
+        groups.setdefault(normalize_name(p["name"]), []).append(p)
+    checked = folded = 0
+    for rows in groups.values():
+        permits = [p for p in rows if p.get("item_seq")]
+        kids = [p for p in rows if not p.get("item_seq") and p["name"].rstrip().endswith(")") and "_(" in p["name"]]
+        if len(permits) != 1 or not kids:
+            continue
+        before = set(permits[0].get("kids_codes", [])).union(*(set(k.get("kids_codes", [])) for k in kids))
+        r = d.lookup_name(permits[0]["name"])
+        reps = [c for c in r.candidates if c.item_seq == permits[0]["item_seq"]]
+        assert reps and before <= set(reps[0].kids_codes), permits[0]["name"]
+        checked += 1
+        folded += r.resolved
+    assert checked > 3000 and folded / checked > 0.9

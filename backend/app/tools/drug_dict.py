@@ -53,6 +53,7 @@ CONTAINS_MIN_LEN = 3
 # --------------------------------------------------------------------------- 이름 정규화
 
 _PAREN_EXPORT_RE = re.compile(r"\((?:수출명|수출용)[^)]*\)")
+_EXPORT_NAME_RE = re.compile(r"수출용|수출명")  # 순위만 뒤로 보낸다(BE-10-13 A). 정규화 키는 `_PAREN_EXPORT_RE`가 따로 지운다
 _KIDS_SUFFIX_RE = re.compile(r"_\([^)]*\)\s*$")  # KIDS 제품명 끝의 `_(0.25g/5mL)`
 _PAREN_RE = re.compile(r"[(（\[][^)）\]]*[)）\]]")
 _STRIP_RE = re.compile(r"[\s\-_·.,/:;'\"`~!@#$^&*+=|<>?{}\[\]()（）]+")
@@ -473,8 +474,8 @@ class DrugDict:
         note = {DF.FM_MISMATCH: DF.NOTE_MISMATCH.format(forms=labels), DF.FM_ROUTE_ONLY: DF.NOTE_ROUTE_ONLY.format(forms=labels)}.get(best, DF.NOTE_UNKNOWN)
         return best, usable, note
 
-    def _product_candidate(self, i: int, score: float, match_type: str) -> Candidate:
-        p = self.products[i]
+    def _product_candidate(self, i: int, score: float, match_type: str, folded: Sequence[int] = ()) -> Candidate:
+        p = self._merged_product(i, folded) if folded else self.products[i]
         status = self._code_status(p)
         cm = self._component_matches(i) if status == CODE_COMPONENT_ONLY else ()
         af_match, af_usable, af_note = self._all_forms_form(p) if status == CODE_LINKED else (None, (), None)
@@ -518,8 +519,69 @@ class DrugDict:
         )
 
     def _rank_products(self, ids: list[int]) -> list[int]:
-        # 판매 중인 제품, 이름이 짧은(기본형에 가까운) 제품, item_seq 순. 결정적 순서를 위해 마지막에 인덱스.
-        return sorted(ids, key=lambda i: (bool(self.products[i].get("cancelled")), len(self.products[i]["name"]), self.products[i].get("item_seq") or "", i))
+        # 판매 중인 제품, (수출용·수출명 이름은 뒤로: 내수 행이 앞, BE-10-13 A), 이름이 짧은(기본형에 가까운) 제품, item_seq 순. 결정적 순서를 위해 마지막에 인덱스.
+        return sorted(ids, key=lambda i: (bool(self.products[i].get("cancelled")), bool(_EXPORT_NAME_RE.search(self.products[i]["name"])),
+                                          len(self.products[i]["name"]), self.products[i].get("item_seq") or "", i))
+
+    # -- KIDS 함량 행 접기(BE-10-13 A)
+    def _is_kids_strength_row(self, i: int) -> bool:
+        """`이름_(함량)` 꼬리만 다른 KIDS 행인가: 허가번호가 없고 이름 끝이 `_(…)` 형식이다."""
+        p = self.products[i]
+        return not p.get("item_seq") and bool(_KIDS_SUFFIX_RE.search(p["name"]))
+
+    def _permit_rep(self, i: int) -> int | None:
+        """KIDS 함량 행 `i`가 접힐 허가 행의 인덱스. 같은 정규화 키의 허가번호 행이 사전 전체에서 **정확히 1개**일 때만 돌려준다.
+
+        2개 이상(별도 허가번호 쌍둥이, `(수출용)` 포함)이면 자동 확정하지 않고 None(되묻기 유지). 이름 안의 함량은 정규화 키에 그대로
+        들어 있어 함량이 다른 제품은 키가 달라 접히지 않는다. 구조(꼬리 형식·item_seq 유무·정규화 키)만 쓰고 제품명을 보지 않는다.
+        """
+        permits = [j for j in self._by_key.get(normalize_name(self.products[i]["name"]), ()) if self.products[j].get("item_seq")]
+        return permits[0] if len(permits) == 1 else None
+
+    def _fold_kids_rows(self, ranked: list[int]) -> list[tuple[int, list[int]]]:
+        """순위가 매겨진 제품 인덱스에서 KIDS 함량 행을 대표(허가) 행으로 접는다. [(대표 인덱스, 접힌 인덱스들)]을 순서대로 돌려준다.
+
+        대표 행이 후보 집합에 없어도(KIDS 행 이름을 그대로 입력) 같은 키의 허가 행이 하나뿐이면 그 행이 대표가 된다. 대표가 없으면 접지 않는다.
+        """
+        out: list[tuple[int, list[int]]] = []
+        pos: dict[int, int] = {}
+        for i in ranked:
+            rep = self._permit_rep(i) if self._is_kids_strength_row(i) else None
+            if rep is None:
+                rep, merged = i, False
+            else:
+                merged = True
+            if rep in pos:
+                if merged:
+                    out[pos[rep]][1].append(i)
+                continue
+            pos[rep] = len(out)
+            out.append((rep, [i] if merged else []))
+        # 같은 허가 행이 어떤 입력 경로(원문 정확·정규화·접두)로 나와도 합친 코드가 같도록, 후보 집합에 없던 같은 키의 KIDS 행도 모은다.
+        for rep, folded in out:
+            if self.products[rep].get("item_seq") and self._sole_permit(rep):
+                folded.extend(j for j in self._by_key.get(normalize_name(self.products[rep]["name"]), ()) if self._is_kids_strength_row(j) and j not in folded)
+        return out
+
+    def _sole_permit(self, rep: int) -> bool:
+        permits = [j for j in self._by_key.get(normalize_name(self.products[rep]["name"]), ()) if self.products[j].get("item_seq")]
+        return permits == [rep]
+
+    def _merged_product(self, i: int, folded: Sequence[int]) -> dict[str, Any]:
+        """대표 행 `i`에 접힌 KIDS 행의 코드·성분·출처를 합집합으로 합친 사본(원본 사전은 바꾸지 않는다). 대표 행의 이름·허가번호·제형은 유지한다."""
+        p = dict(self.products[i])
+        rows = [self.products[j] for j in folded]
+        for key in ("kids_codes", "api_codes", "kids_product_codes", "edi_codes", "ingredient_ids", "ingr_keys", "sources"):
+            vals = [*(p.get(key) or []), *(v for r in rows for v in (r.get(key) or []))]
+            if vals:
+                p[key] = list(dict.fromkeys(vals))
+        if not self.products[i].get("kids_codes"):  # 대표 행에 코드 연결이 없으면 접힌 KIDS 행의 연결을 이어받는다
+            donor = next((r for r in rows if r.get("kids_codes")), None)
+            if donor is not None:
+                p["code_link"], p["code_scope"] = donor.get("code_link", "none"), donor.get("code_scope")
+        if not p.get("form"):
+            p["form"] = next((r["form"] for r in rows if r.get("form")), p.get("form"))
+        return p
 
     # -- 조회
     def lookup_name(self, query: str, top_k: int = 5) -> LookupResult:
@@ -547,9 +609,13 @@ class DrugDict:
         ):
             if ids:
                 ranked = self._rank_products(list(dict.fromkeys(ids)))
-                cands = [self._product_candidate(i, 1.0 if stage == "raw" else 0.98, mtype) for i in ranked]
+                groups = self._fold_kids_rows(ranked)
+                cands = [self._product_candidate(i, 1.0 if stage == "raw" else 0.98, mtype, folded) for i, folded in groups]
                 notes = []
-                distinct = {self.products[i].get("item_seq") or f"p{i}" for i in ranked}
+                n_folded = sum(len(f) for _, f in groups)
+                if n_folded:
+                    notes.append(f"KIDS 함량 행 {n_folded}개를 같은 이름의 허가 제품에 합쳤다(코드는 합집합)")
+                distinct = {self.products[i].get("item_seq") or f"p{i}" for i, _ in groups}
                 if len(distinct) > 1:
                     notes.append("같은 이름의 제품이 여러 개라 후보 목록을 돌려준다(임의 선택 금지)")
                 # 제품 일치가 우선이나, 같은 이름이 성분 이름이기도 하면 알려 준다(성분 후보는 뒤에 붙인다).
