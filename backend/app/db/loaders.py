@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.db.source_files import COMBO_JSON_NAME
+
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 SRC_KIDS = "한국의약품안전관리원"
@@ -292,7 +294,7 @@ def collect(
 
 # 파일 → (테이블, 정규화 함수, 파서) 대응. 파일 이름은 `data/` 안의 원본 이름이다.
 CORE_SOURCES = {
-    "병용금기_데이터.json": ("contra_pair", normalize_contra_json, AS_OF_KIDS),
+    COMBO_JSON_NAME: ("contra_pair", normalize_contra_json, AS_OF_KIDS),
     "한국의약품안전관리원_임부금기약물_20260721.csv": ("pregnancy_contra", normalize_pregnancy, AS_OF_KIDS),
     "한국의약품안전관리원_연령금기_20260721.csv": ("age_contra", normalize_age, AS_OF_KIDS),
 }

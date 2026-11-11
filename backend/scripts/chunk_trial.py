@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import embed_compare as E  # noqa: E402
 
+from app.db.source_files import AGE_CSV_NAME, COMBO_JSON_NAME, PREG_CSV_NAME  # noqa: E402
 from app.llm.cache import cache_mode  # noqa: E402
 from app.llm.ledger import BudgetExceeded  # noqa: E402
 from app.tools.drug_dict import BM25, char_ngrams, normalize_name  # noqa: E402
@@ -47,9 +48,9 @@ DATA = ROOT / "data"
 OUT_DIR = DATA / "mock" / "chunk_trial"
 SNAP = DATA / "mock" / "api_snapshots"
 BUPYO2 = DATA / "mock" / "parsed" / "gosi_bupyo2_pdfplumber.md"
-L2_JSON = DATA / "병용금기_데이터.json"
-PREG_CSV = DATA / "한국의약품안전관리원_임부금기약물_20260721.csv"
-AGE_CSV = DATA / "한국의약품안전관리원_연령금기_20260721.csv"
+L2_JSON = DATA / COMBO_JSON_NAME
+PREG_CSV = DATA / PREG_CSV_NAME
+AGE_CSV = DATA / AGE_CSV_NAME
 BUPYO2_TITLE = "별표 2 특정연령대 금기 성분 (제5조 관련)"
 
 SEED = 20261110

@@ -41,6 +41,9 @@ from chunk_trial import (  # noqa: E402
     load_bupyo2,
 )
 
+from app.db.doc_meta import chunk_meta  # noqa: E402
+from app.db.source_files import COMBO_JSON_NAME, GOSI_PDF_NAME  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "data" / "mock" / "corpus"
 CHUNKS_PATH = OUT_DIR / "l2_chunks.jsonl"
@@ -59,6 +62,7 @@ NOTICE_RE = re.compile(r"^\d{8}$")
 FIELDS = (
     "chunk_id", "chunk_kind", "parent_id", "refs", "pair_id", "layer", "issuer", "doc_type", "notice_no", "base_date",
     "locator", "ingr_codes", "ingr_names", "license", "text", "source_ref",
+    "year", "source_file", "effective_date",  # 문서 메타 표(doc_meta.py)에서 채운다. 알 수 없으면 None/빈 문자열
 )
 
 # L3 청크에만 채우는 선택 열(L2 청크는 이 열 없이 저장되고, 적재 때 빈 문자열로 채운다)
@@ -94,9 +98,18 @@ def _chunk(kind: str, key: str, text: str, **kw: Any) -> dict[str, Any]:
         "chunk_id": make_chunk_id(kind, key, text), "chunk_kind": kind, "parent_id": None, "refs": [], "pair_id": None,
         "layer": "", "issuer": "", "doc_type": "", "notice_no": "", "base_date": BASE_DATE, "locator": "",
         "ingr_codes": [], "ingr_names": [], "license": "", "text": text, "source_ref": "",
+        "year": None, "source_file": "", "effective_date": None,
     }
     c.update(kw)
     return {f: c[f] for f in FIELDS}
+
+
+def _meta_of(fname: str) -> dict[str, Any]:
+    """표에 있는 파일이면 문서 메타 표의 값, 시험용 임의 파일 이름이면 빈 값."""
+    try:
+        return chunk_meta(fname)
+    except KeyError:
+        return {"year": None, "source_file": fname, "effective_date": None}
 
 
 # --------------------------------------------------------------------------- L2 병용 조합(성분쌍)
@@ -126,12 +139,12 @@ def build_combo_chunks(json_path: Path | None = None) -> list[dict[str, Any]]:
         if r["remark"]:
             text += f" 비고: {r['remark']}"
         n = r["n"]
-        loc = f"병용금기_데이터.json 항목 {r['first_id']}" + (f" 외 {n - 1}건(같은 성분쌍·사유·고시의 제품 쌍)" if n > 1 else "")
+        loc = f"{COMBO_JSON_NAME} 항목 {r['first_id']}" + (f" 외 {n - 1}건(같은 성분쌍·사유·고시의 제품 쌍)" if n > 1 else "")
         out.append(_chunk(
             "l2_combo", f"{ca}+{cb}|{r['reason']}|{r['gosi']}", text,
             pair_id=make_pair_id(ca, cb), layer="L2", issuer=ISSUER_KIDS, doc_type="파일데이터", notice_no=norm_notice(r["gosi"]),
             locator=loc, ingr_codes=[ca, cb], ingr_names=[na, nb], license=LICENSE_KIDS,
-            source_ref="한국의약품안전관리원 병용금기약물(AI 학습용)|병용금기_데이터.json",
+            source_ref=f"한국의약품안전관리원 병용금기약물(AI 학습용)|{COMBO_JSON_NAME}", **chunk_meta(COMBO_JSON_NAME),
         ))
     return out
 
@@ -177,7 +190,7 @@ def build_detail_chunks(preg_rows: Sequence[dict[str, str]] | None = None, age_r
             kind, f"{kind}|{code}", text,
             layer="L2", issuer=ISSUER_KIDS, doc_type="파일데이터", notice_no=max(d["notices"], default=""),
             locator=f"{fname} 행 {_rows_label(d['rows'])}", ingr_codes=[code], ingr_names=names, license=LICENSE_KIDS,
-            source_ref=f"한국의약품안전관리원 {'임부금기약물' if kind == 'l2_preg' else '연령금기'}|{fname}",
+            source_ref=f"한국의약품안전관리원 {'임부금기약물' if kind == 'l2_preg' else '연령금기'}|{fname}", **_meta_of(fname),
         ))
     return out
 
@@ -192,6 +205,7 @@ def build_bupyo2_chunks(md_path: Path | None = None) -> list[dict[str, Any]]:
     table = _chunk(
         "l1_bupyo2_table", "bupyo2", table_text, layer="L1", issuer=ISSUER_MFDS, doc_type="고시", notice_no=BUPYO2_NOTICE_NO,
         locator=f"별표 2 {BUPYO2_PAGES}", license=LICENSE_GOSI, source_ref="의약품 병용금기 성분 등의 지정에 관한 규정|gosi_bupyo2_pdfplumber.md",
+        **chunk_meta(GOSI_PDF_NAME),
     )
     out = [table]
     for p in parents:
@@ -203,6 +217,7 @@ def build_bupyo2_chunks(md_path: Path | None = None) -> list[dict[str, Any]]:
             "l1_bupyo2_row", f"bupyo2|{int(m['no']):03d}", text, parent_id=table["chunk_id"],
             layer="L1", issuer=ISSUER_MFDS, doc_type="고시", notice_no=BUPYO2_NOTICE_NO, locator=f"별표 2 연번 {m['no']}",
             ingr_names=[m["ing"]], license=LICENSE_GOSI, source_ref="의약품 병용금기 성분 등의 지정에 관한 규정|gosi_bupyo2_pdfplumber.md",
+            **chunk_meta(GOSI_PDF_NAME),
         ))
     return out
 
