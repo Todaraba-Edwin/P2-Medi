@@ -38,4 +38,6 @@ class ToolContext:
     api_age_fn: ApiIngredientFn | None = None            # 성분 단위 연령금기 API 병기(AG-02 후속). None이면 API_FAIL 꼬리표
     api_pregnancy_fn: ApiIngredientFn | None = None     # 성분 단위 임부금기 API 병기
     label_provider: LabelProvider | None = None
+    corpus: Any = None                            # AG-03 `CorpusIndex`(로컬 청크 인덱스). None이면 검색 도구는 OUT_OF_SCOPE
+    vector_search_fn: Any = None                  # AG-03 `VectorSearchFn`(주입, 원격 pgvector 어댑터). None이면 BM25 단독
     remaining_calls: int = 6                      # ARG_SCHEMA 메시지에 알릴 남은 도구 호출 수(H21, 그래프가 갱신)

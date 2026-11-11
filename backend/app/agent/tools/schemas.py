@@ -25,11 +25,15 @@ STATUS_BY_TOOL: dict[str, frozenset[str]] = {
     "identify_drug": frozenset({"FOUND", "UNIDENTIFIED"}),
     "check_contraindications": frozenset({"FOUND", "NOT_LISTED", "UNIDENTIFIED"}),
     "get_label_section": frozenset({"FOUND", "NO_EVIDENCE"}),
+    # AG-03 문서 검색 도구: 검색은 판정하지 않으므로 상태는 둘뿐이다
+    "search_notice": frozenset({"FOUND", "NO_EVIDENCE"}),
+    "search_reason": frozenset({"FOUND", "NO_EVIDENCE"}),
+    "search_label": frozenset({"FOUND", "NO_EVIDENCE"}),
 }
 POST_WRITABLE_KEYS = frozenset({"evidence", "known_ids", "input_units", "events"})  # emergency·route·profile·confirmed_mentions는 못 쓴다
 
 API_FLAGS = frozenset({"API_SAME", "FILE_ONLY", "API_ONLY", "API_FAIL", "API_PAIR_INCOMPLETE"})
-MISSING_REASONS = frozenset({"ABSENT", "FETCH_FAIL", "OUT_OF_SCOPE"})
+MISSING_REASONS = frozenset({"ABSENT", "FETCH_FAIL", "OUT_OF_SCOPE", "SEARCH_MISS"})  # SEARCH_MISS: 검색했으나 맞는 청크 없음(AG-03, H26)
 
 # 새 꼬리표 제안(어휘 표 등록은 문서 몫)
 FLAG_CODE_NOT_LINKED = "CODE_NOT_LINKED"   # 사전이 KIDS 코드를 붙이지 못함(BE-10-06 A)

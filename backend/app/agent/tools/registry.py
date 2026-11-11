@@ -24,6 +24,9 @@ from app.agent.tools.schemas import (
     IdentifyDrugArgs,
     arg_schema_error,
 )
+from app.agent.tools.search_label import SearchLabelArgs, search_label
+from app.agent.tools.search_notice import SearchNoticeArgs, search_notice
+from app.agent.tools.search_reason import SearchReasonArgs, search_reason
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,13 @@ REGISTRY: dict[str, ToolSpec] = {
                                         "약 여러 개의 병용·임부·연령(·주의) 금기를 성분코드 정확 일치로 조회한다."),
     "get_label_section": ToolSpec("get_label_section", GetLabelSectionArgs, get_label_section,
                                   "품목기준코드와 절 이름으로 허가사항·쉬운 설명 절 본문을 가져온다."),
+    # AG-03 문서 검색 도구(검색은 판정하지 않는다)
+    "search_notice": ToolSpec("search_notice", SearchNoticeArgs, search_notice,
+                              "고시 조문·정의·별표 행(L1)을 찾아 인용한다. 금기 판정은 하지 않는다."),
+    "search_reason": ToolSpec("search_reason", SearchReasonArgs, search_reason,
+                              "병용금기 사유·임부금기·연령금기 상세정보(L2)를 성분코드·성분쌍으로 찾아 인용한다. 판정은 하지 않는다."),
+    "search_label": ToolSpec("search_label", SearchLabelArgs, search_label,
+                             "품목 허가사항·e약은요 문장(L3)을 찾아 절 전체와 함께 인용한다. 판정은 하지 않는다."),
 }
 
 
