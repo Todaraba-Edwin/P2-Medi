@@ -389,3 +389,68 @@ class TestGeneralRules051:
         assert extract_mentions("방광염 때문에 게보린정 먹어도 되나요", dd) == ["게보린정"]
         # 사전에 정확히 있는 이름은 어미·접미 규칙으로 버리지 않는다(와파린정 → 끝이 '정'이라 해당 없음, 동명약은 '약' 규칙 점검)
         assert extract_mentions("동명약 먹어도 되나요", dd) == ["동명약"]
+
+
+# --------------------------------------------------------------------------- AG-05-02 A: 가상 약(BM25 약한 점수)은 NOT_FOUND, 후보 제시 유지
+
+class TestWeakBm25NotFound:
+    """`NOT_FOUND_SCORE_MAX`(Router 임계값) 동작. 값은 monkeypatch로 지정한다(기본 0.0 = 비활성). 시험 이름은 모두 합성이다."""
+
+    def test_default_is_disabled(self, dd):
+        assert R.NOT_FOUND_SCORE_MAX == 0.0
+        for e in route_input("게보린징", dd).entities:
+            assert e.status != R.ST_NOT_FOUND or e.match_type is None
+
+    @pytest.mark.parametrize("q", ["게보린징 먹어도 되나요", "와파린쟁 같이 먹어도 돼요", "부루팬정200밀리그램 괜찮나요", "아스피린프로택트정 먹어도 되나요", "타이레놀쩡500밀리그람 먹어도 돼요"])
+    def test_weak_bm25_becomes_not_found_with_candidates_kept(self, dd, q, monkeypatch):
+        base = route_input(q, dd)
+        bm = [e for e in base.entities if e.match_type == "bm25"]
+        if not bm:
+            pytest.skip("이 입력은 BM25 일치가 아님")
+        monkeypatch.setattr(R, "NOT_FOUND_SCORE_MAX", 1.0)  # 모든 BM25 일치를 NOT_FOUND 쪽으로
+        r = route_input(q, dd)
+        nf = [e for e in r.entities if e.match_type == "bm25"]
+        assert nf and all(e.status == R.ST_NOT_FOUND and e.branch == R.BRANCH_NO_EVIDENCE for e in nf)
+        assert all(e.options and R.FLAG_SIMILAR_SHOWN in e.flags and not e.resolved and e.item_seq is None for e in nf)  # 후보 유지, 자동 확정 없음
+        assert all(1 <= len(e.options) <= MAX_CLARIFY_OPTIONS for e in nf)
+        # 되묻기 문구: 후보를 그대로 보여 주고 "찾지 못했다"를 먼저 말한다. 안전·가부 단정은 없다.
+        assert r.ambiguous and r.clarify is not None and r.clarify.options and "찾지 못했어요" in r.clarify.question
+        assert r.branch_label == R.BRANCH_NO_EVIDENCE
+        for bad in ("안전", "괜찮", "먹어도 됩니다", "문제없"):
+            assert bad not in r.clarify.question
+
+    def test_high_score_typo_stays_typo_suspect(self, dd, monkeypatch):
+        q = "게보린징"
+        e0 = route_input(q, dd).entities[0]
+        if e0.match_type != "bm25":
+            pytest.skip("BM25 일치가 아님")
+        top = e0.options[0].score
+        monkeypatch.setattr(R, "TYPO_SCORE_MAX", 1.0)
+        monkeypatch.setattr(R, "NOT_FOUND_SCORE_MAX", top - 0.01)  # 점수가 임계값보다 높다 → NOT_FOUND 아님
+        e = route_input(q, dd).entities[0]
+        assert e.status == R.ST_TYPO and e.branch == R.BRANCH_TYPO and e.options
+        monkeypatch.setattr(R, "NOT_FOUND_SCORE_MAX", top)  # top <= 임계값 → NOT_FOUND
+        assert route_input(q, dd).entities[0].status == R.ST_NOT_FOUND
+
+    def test_threshold_boundary_is_inclusive(self, dd, monkeypatch):
+        e0 = route_input("와파린쟁", dd).entities[0]
+        if e0.match_type != "bm25":
+            pytest.skip("BM25 일치가 아님")
+        top = e0.options[0].score
+        monkeypatch.setattr(R, "NOT_FOUND_SCORE_MAX", top)
+        assert route_input("와파린쟁", dd).entities[0].status == R.ST_NOT_FOUND
+        monkeypatch.setattr(R, "NOT_FOUND_SCORE_MAX", round(top - 0.0001, 4))
+        assert route_input("와파린쟁", dd).entities[0].status != R.ST_NOT_FOUND
+
+    def test_non_bm25_matches_unaffected_by_threshold(self, dd, monkeypatch):
+        monkeypatch.setattr(R, "NOT_FOUND_SCORE_MAX", 1.0)
+        assert route_input("게보린정", dd).entities[0].status == R.ST_RESOLVED  # 정확·정규화 일치
+        assert route_input("타이레놀", dd).entities[0].status == R.ST_AMBIGUOUS  # 접두 일치 되묻기 유지
+        assert route_input("완전히없는약이름", dd).entities[0].status in (R.ST_NOT_FOUND, R.ST_TYPO, R.ST_AMBIGUOUS)
+
+    def test_ambiguous_still_wins_branch_label_over_not_found(self, dd, monkeypatch):
+        monkeypatch.setattr(R, "NOT_FOUND_SCORE_MAX", 1.0)
+        r = route_input("타이레놀이랑 와파린쟁 같이 먹어도 돼요", dd)
+        sts = {e.status for e in r.entities}
+        if R.ST_AMBIGUOUS in sts:
+            assert r.branch_label == R.BRANCH_AMBIGUOUS

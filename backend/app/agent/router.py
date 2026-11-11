@@ -44,6 +44,14 @@ MAX_CLARIFY_OPTIONS = 5  # 되묻기 후보 상한
 # 14/17(82%, Wilson 95% 59~94%)로 같고 0.50 이하는 하락(12/17 이하), 음성 중 TYPO 오분류 0/22. 값 사이 차이가 구간에 묻혀 현 값 유지(근거 불충분).
 # 개발셋은 합성이고 BM25 일치가 26건뿐이라 소표본이다. 시험셋은 쓰지 않았다.
 TYPO_SCORE_MAX = 0.6
+# BM25 1위 점수가 이 이하이면 오탈자 의심(TYPO_SUSPECT)이 아니라 NOT_FOUND(근거 없음)로 본다(AG-05-02 A). **후보 제시는 유지**한다
+# (`options`·되묻기 "혹시 …인가요?"는 그대로 나오고 상태·분기만 근거 없음). 0.0 = 비활성(BM25 점수는 사전 계약상 항상 BM25_MIN_NORM=0.15 이상).
+# 사전 계약 값 `BM25_MIN_NORM`을 올리지 않고 Router 쪽 별도 임계값으로 둔 이유: BM25_MIN_NORM은 `lookup_name`을 쓰는 모든 호출자(AG-02 identify_drug 등)의
+# 후보 컷이라 올리면 그쪽 후보가 조용히 사라진다. Router의 상태 라벨만 바꾸는 쪽이 계약을 덜 건드린다.
+# 보정(2026-11-11, `backend/scripts/calibrate_router.py`, 개발셋, 선택 규칙은 측정 전에 고정): 가상 약 BM25 1위 점수(0.15~0.63)와 오탈자 약(0.20~0.52)이 겹쳐
+# 점수만으로는 못 가른다. 오탈자→NOT_FOUND 상한(10%)·전체 오분류 상한(5%)을 지키는 최대 후보 0.20은 가상 약 재현율 3/13 [8~50%]로 비활성 1/13 [1~33%]와 구간이 겹쳐
+# **근거 불충분 → 비활성(0.0) 유지**. 0.45 이상은 가상 약 11/13이지만 오탈자 11/17이 NOT_FOUND로 가 안전 방향이 아니다. 개발셋 소표본, 시험셋은 쓰지 않았다.
+NOT_FOUND_SCORE_MAX = 0.0
 
 # Router가 상태에 쓸 수 있는 키(PostToolUse의 `POST_WRITABLE_KEYS`와 같은 방식의 제한). emergency·route·messages·evidence·answer는 못 쓴다.
 # `profile`·`drug_mentions`·`intent`는 RFP-23 §4.4 문서 필드, 나머지는 제안.
@@ -63,6 +71,7 @@ ST_NOT_FOUND = "NOT_FOUND"  # 사전에 없음. "안전하다"는 뜻이 아니�
 
 FLAG_NO_PRODUCT_INFO = "NO_PRODUCT_INFO"  # H17: 성분 단위 일치, 제품 정보 없음(막지 않음)
 FLAG_CODE_NOT_LINKED = "CODE_NOT_LINKED"  # 사전이 KIDS 코드를 붙이지 못함 → 도구는 UNIDENTIFIED 처리(NOT_LISTED 아님)
+FLAG_SIMILAR_SHOWN = "SIMILAR_NAMES_SHOWN"  # NOT_FOUND이지만 비슷한 이름 후보를 보여 준다(근거 없음 가능, AG-05-02 A)
 FLAG_SAME_NAME_INGREDIENT = "ALSO_INGREDIENT_NAME"  # 제품명이면서 성분명이기도 함(제품 우선, 사전 노트)
 
 INTENT_CONTRA = "contraindication"
@@ -308,6 +317,8 @@ def _entity(raw: str, r: LookupResult) -> Entity:
         flags.append(FLAG_SAME_NAME_INGREDIENT)
     if r.match_type == MATCH_BM25:
         top = r.candidates[0].score
+        if top <= NOT_FOUND_SCORE_MAX:  # 가상 약 의심: 근거 없음으로 분류하되 후보는 유지
+            return Entity(**base, status=ST_NOT_FOUND, branch=BRANCH_NO_EVIDENCE, flags=[*flags, FLAG_SIMILAR_SHOWN], options=options)
         if top <= TYPO_SCORE_MAX:
             return Entity(**base, status=ST_TYPO, branch=BRANCH_TYPO, flags=flags, options=options)
         return Entity(**base, status=ST_AMBIGUOUS, branch=BRANCH_AMBIGUOUS, flags=flags, options=options)
@@ -324,12 +335,14 @@ def _entity(raw: str, r: LookupResult) -> Entity:
 
 
 def _clarify(ents: list[Entity]) -> Clarify | None:
-    pending = [e for e in ents if e.status in (ST_AMBIGUOUS, ST_TYPO)]
+    pending = [e for e in ents if e.status in (ST_AMBIGUOUS, ST_TYPO) or (e.status == ST_NOT_FOUND and e.options)]
     if not pending:
         return None
     t = pending[0]
     # 코드 템플릿. 후보 이름만 보여 주고 먹어도 되는지·안전한지는 말하지 않는다. 질문은 하나다.
-    if t.status == ST_TYPO:
+    if t.status == ST_NOT_FOUND:  # 후보를 보여 주는 근거 없음(AG-05-02 A): "찾지 못했다"고 먼저 말하고 비슷한 이름만 묻는다(없다는 말이 안전하다는 뜻이 아니다)
+        q = f"'{t.raw}'은(는) 목록에서 찾지 못했어요. 혹시 아래 중에 찾으시는 약이 있나요? 없으면 약 이름을 다시 알려 주세요."
+    elif t.status == ST_TYPO:
         q = f"'{t.raw}'와(과) 비슷한 약이 있어요. 찾으시는 약이 아래 중에 있나요? 하나를 골라 주세요."
     else:
         q = f"'{t.raw}'에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요."
@@ -417,7 +430,12 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
     has_sig = prof.age_years is not None or prof.pregnant is not None
     clarify = _clarify(ents)
     if clarify is not None:
-        label = BRANCH_AMBIGUOUS if any(e.status == ST_AMBIGUOUS for e in ents) else BRANCH_TYPO
+        if any(e.status == ST_AMBIGUOUS for e in ents):
+            label = BRANCH_AMBIGUOUS
+        elif any(e.status == ST_TYPO for e in ents):
+            label = BRANCH_TYPO
+        else:
+            label = BRANCH_NO_EVIDENCE  # 후보를 보여 주는 NOT_FOUND만 있는 경우(AG-05-02 A)
     elif any(e.status == ST_NOT_FOUND for e in ents):
         label = BRANCH_NO_EVIDENCE
     else:

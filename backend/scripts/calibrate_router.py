@@ -10,6 +10,15 @@
   3) 후보 중 양성 TYPO 재현율이 가장 높은 값을 고른다. 동률이면 현재값(0.6)에 가까운 쪽, 그래도 같으면 낮은 쪽.
   4) 고른 값이 현재값과 다르더라도, 고른 값의 재현율 Wilson 95% 구간이 현재값의 구간과 겹치면 **바꾸지 않는다**("근거 불충분").
   칸당 n≤8이면 유의성을 주장하지 않는다(PJ2-RFP.md 9.1절).
+
+AG-05-02 A: Router `NOT_FOUND_SCORE_MAX`(BM25 1위 점수가 이 이하이면 TYPO가 아니라 NOT_FOUND, 후보 제시는 유지) 보정.
+기준값 선택 규칙(측정 전에 고정, 2026-11-11):
+  양성 = 가상 약("근거 없음" 문항의 `fake_name`). 오분류 = 오탈자·모호·정상 약이 NOT_FOUND로 간 것.
+  1) 격자는 0.15~0.60, 0.05 단위 + 비활성(0.0 = 현재).
+  2) 후보 값 = 오탈자 약의 NOT_FOUND 오분류율 ≤ NF_TYPO_CAP(10%) **그리고** 오탈자·모호·정상 전체 NOT_FOUND 오분류율 ≤ NF_ALL_CAP(5%)인 격자.
+  3) 후보 중 가상 약 NOT_FOUND 재현율이 가장 높은 값, 동률이면 낮은 값(보수적).
+  4) 고른 값의 재현율 Wilson 95% 구간이 비활성(0.0)의 구간과 겹치면 **값을 바꾸지 않고(비활성 유지)** "근거 불충분"으로 보고한다.
+  가상 약 n=13이라 유의성을 주장하지 않는다.
 """
 
 from __future__ import annotations
@@ -33,6 +42,9 @@ from app.tools.drug_dict import MATCH_BM25, MATCH_CONTAINS, MATCH_PREFIX, DrugDi
 DEV_SET = ROOT / "evaluation" / "eval_set" / "dev_set.jsonl"
 DICT_PATH = ROOT / "data" / "mock" / "dict" / "drug_dict.json"
 GRID = [round(0.30 + 0.05 * i, 2) for i in range(13)]  # 0.30 ~ 0.90
+NF_GRID = [0.0] + [round(0.15 + 0.05 * i, 2) for i in range(10)]  # 0.0(비활성) + 0.15 ~ 0.60
+NF_TYPO_CAP = 0.10
+NF_ALL_CAP = 0.05
 FPR_CAP = 0.10
 SMALL_N = 8  # 칸당 n이 이 값 이하면 유의성 주장 금지
 
@@ -71,11 +83,13 @@ class Obs:
     match_type: str | None = None
 
 
-def status_at(o: Obs, t: float) -> str | None:
-    """같은 관찰에서 기준값 t일 때의 상태. BM25 일치만 t로 갈린다(router._entity와 같은 규칙)."""
+def status_at(o: Obs, t: float, nf: float = 0.0) -> str | None:
+    """같은 관찰에서 기준값 t(오탈자)·nf(근거 없음)일 때의 상태. BM25 일치만 갈린다(router._entity와 같은 규칙: nf 먼저, 그다음 t)."""
     if o.status is None:
         return None
     if o.match_type == MATCH_BM25 and o.top is not None:
+        if o.top <= nf:
+            return router.ST_NOT_FOUND
         return router.ST_TYPO if o.top <= t else router.ST_AMBIGUOUS
     return o.status
 
@@ -96,8 +110,8 @@ class GridRow:
     fake_notfound: tuple[int, int]  # 가상 약 중 NOT_FOUND
 
 
-def measure(obs: Iterable[Obs], t: float) -> GridRow:
-    caught = [(o, status_at(o, t)) for o in obs if o.status is not None]
+def measure(obs: Iterable[Obs], t: float, nf: float = 0.0) -> GridRow:
+    caught = [(o, status_at(o, t, nf)) for o in obs if o.status is not None]
     typo = [s for o, s in caught if o.kind == KIND_TYPO]
     amb = [s for o, s in caught if o.kind == KIND_AMBIG]
     real = [s for o, s in caught if o.kind == KIND_REAL]
@@ -113,6 +127,43 @@ def measure(obs: Iterable[Obs], t: float) -> GridRow:
         fpr=(sum(s == router.ST_TYPO for s in neg), len(neg)),
         fake_notfound=(sum(s == router.ST_NOT_FOUND for s in fake), len(fake)),
     )
+
+
+@dataclass
+class NfRow:
+    nf: float
+    fake_nf: tuple[int, int]  # 가상 약 중 NOT_FOUND(재현율)
+    typo_nf: tuple[int, int]  # 오탈자 약 중 NOT_FOUND(오분류)
+    ambig_nf: tuple[int, int]  # 모호 약 중 NOT_FOUND(오분류)
+    real_nf: tuple[int, int]  # 정상 약 중 NOT_FOUND(오분류)
+    all_nf: tuple[int, int]  # 오탈자·모호·정상 전체 중 NOT_FOUND(오분류)
+    typo_recall: tuple[int, int]  # 부수 영향: 오탈자 약 중 TYPO(후보 제시로 이어지는 라벨)
+
+
+def measure_nf(obs: Iterable[Obs], t: float, nf: float) -> NfRow:
+    caught = [(o, status_at(o, t, nf)) for o in obs if o.status is not None]
+    by = {k: [s for o, s in caught if o.kind == k] for k in (KIND_FAKE, KIND_TYPO, KIND_AMBIG, KIND_REAL)}
+    neg = [*by[KIND_TYPO], *by[KIND_AMBIG], *by[KIND_REAL]]
+    nfk = lambda xs: (sum(s == router.ST_NOT_FOUND for s in xs), len(xs))  # noqa: E731
+    return NfRow(nf, nfk(by[KIND_FAKE]), nfk(by[KIND_TYPO]), nfk(by[KIND_AMBIG]), nfk(by[KIND_REAL]), nfk(neg),
+                 (sum(s == router.ST_TYPO for s in by[KIND_TYPO]), len(by[KIND_TYPO])))
+
+
+def choose_nf(rows: list[NfRow]) -> tuple[float, str]:
+    """위 docstring(AG-05-02 A)의 선택 규칙 1~4. 비활성(0.0)을 기준으로 삼는다."""
+    base = next(r for r in rows if r.nf == 0.0)
+    cand = [r for r in rows if r.nf > 0.0 and _rate(r.typo_nf) <= NF_TYPO_CAP and _rate(r.all_nf) <= NF_ALL_CAP]
+    if not cand:
+        return 0.0, "오분류 상한을 만족하는 격자 없음 → 비활성 유지"
+    best_rate = max(_rate(r.fake_nf) for r in cand)
+    best = min((r for r in cand if _rate(r.fake_nf) == best_rate), key=lambda r: r.nf)
+    if best_rate <= _rate(base.fake_nf):
+        return 0.0, f"후보 {best.nf:.2f}가 비활성보다 가상 약 재현율을 높이지 못함 → 비활성 유지, 근거 불충분"
+    lo_b, hi_b = wilson(*best.fake_nf)
+    lo_0, hi_0 = wilson(*base.fake_nf)
+    if lo_b <= hi_0 and lo_0 <= hi_b:
+        return 0.0, f"후보 {best.nf:.2f}의 가상 약 재현율 구간이 비활성의 구간과 겹침 → 값을 바꾸지 않음, 근거 불충분"
+    return best.nf, f"후보 {best.nf:.2f}의 가상 약 재현율 구간이 비활성과 겹치지 않음"
 
 
 def _rate(kn: tuple[int, int]) -> float:
@@ -195,9 +246,9 @@ class Collected:
     n_entities: int = 0
 
 
-def collect(rows: list[dict[str, Any]], dd: DrugDict, t: float) -> Collected:
-    old = router.TYPO_SCORE_MAX
-    router.TYPO_SCORE_MAX = t
+def collect(rows: list[dict[str, Any]], dd: DrugDict, t: float, nf: float = 0.0) -> Collected:
+    old, old_nf = router.TYPO_SCORE_MAX, router.NOT_FOUND_SCORE_MAX
+    router.TYPO_SCORE_MAX, router.NOT_FOUND_SCORE_MAX = t, nf
     out = Collected()
     try:
         for row in rows:
@@ -230,7 +281,7 @@ def collect(rows: list[dict[str, Any]], dd: DrugDict, t: float) -> Collected:
                 if e.match_type in (MATCH_PREFIX, MATCH_CONTAINS) and e.n_candidates == 1:
                     out.prefix_single.append((q, e.raw, res.ambiguous and e.status == router.ST_AMBIGUOUS))
     finally:
-        router.TYPO_SCORE_MAX = old
+        router.TYPO_SCORE_MAX, router.NOT_FOUND_SCORE_MAX = old, old_nf
     return out
 
 
@@ -259,6 +310,18 @@ def render(c: Collected, rows: list[GridRow], current: float, chosen: float, why
     return "\n".join(L)
 
 
+def render_nf(rows: list[NfRow], current_nf: float, chosen: float, why: str) -> str:
+    L = ["### AG-05-02 A: NOT_FOUND 기준값 격자(BM25 1위 점수 ≤ 값이면 NOT_FOUND, 후보 제시 유지. † = 칸당 n≤8, 유의성 주장 금지)",
+         "| nf | 가상 약 NOT_FOUND(재현율) | 오탈자→NOT_FOUND | 모호→NOT_FOUND | 정상→NOT_FOUND | 전체 오분류(FPR) | 오탈자 TYPO 유지 |",
+         "|---|---|---|---|---|---|---|"]
+    for r in rows:
+        mark = " ◀현재" if abs(r.nf - current_nf) < 1e-9 else ""
+        L.append(f"| {r.nf:.2f}{' (비활성)' if r.nf == 0.0 else ''}{mark} | {fmt(*r.fake_nf)} | {fmt(*r.typo_nf)} | {fmt(*r.ambig_nf)} | {fmt(*r.real_nf)} | "
+                 f"{fmt(*r.all_nf)} | {fmt(*r.typo_recall)} |")
+    L += ["", f"### 선택: {chosen:.2f} (현재 {current_nf:.2f}) — {why}"]
+    return "\n".join(L)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", type=Path, default=None, help="마크다운 결과를 저장할 경로(선택)")
@@ -280,6 +343,12 @@ def main() -> int:
         assert direct == via, f"격자 재계산 불일치 t={t}"
     chosen, why = choose_threshold(grid, current)
     text = render(base, grid, current, chosen, why)
+    cur_nf = router.NOT_FOUND_SCORE_MAX
+    nf_rows = [measure_nf(base.obs, current, v) for v in sorted({*NF_GRID, cur_nf})]
+    for v in (NF_GRID[1], cur_nf, NF_GRID[-1]):  # 점수 기반 재계산이 실제 route_input과 같은지 표본 교차 확인
+        assert measure_nf(collect(rows, dd, current, v).obs, current, v) == next(r for r in nf_rows if abs(r.nf - v) < 1e-9), f"nf 재계산 불일치 {v}"
+    nf_chosen, nf_why = choose_nf(nf_rows)
+    text += "\n\n" + render_nf(nf_rows, cur_nf, nf_chosen, nf_why)
     text += "\n\n### 누락 사례(기대 약을 엔티티로 못 잡음)\n" + "\n".join(f"- [{k}] {n} ← {q}" for q, n, k in base.missed[: a.cases])
     text += "\n\n### 오탐 사례(엉뚱한 엔티티)\n" + "\n".join(f"- `{raw}` ← {q}" for q, raw in base.false_ents[: a.cases])
     text += f"\n\n(누락 총 {len(base.missed)}개, 오탐 총 {len(base.false_ents)}개)"
