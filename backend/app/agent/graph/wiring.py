@@ -73,6 +73,7 @@ def build_deps(
     system_prompt: str | None = None,
     registry: dict[str, Any] | None = None,
     tracer: Any = None,
+    ledger: Any = None,
 ) -> GraphDeps:
     """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음)."""
     tools = build_tools(tool_ctx, registry)
@@ -83,10 +84,17 @@ def build_deps(
             from app.config import get_settings
 
             settings = get_settings()
+        from app.agent.graph.metered import CachedSummary, CachedToolModel
+
+        # 실제 모델은 llm_cache·개발 원장 경로로 감싼다(캐시 상태 hit/miss가 L2 `cache` 필드로, 요약 토큰은 include_raw로 계측된다)
+        est = llm.MAX_COMPLETION_TOKENS * llm.PRICE_OUT / 1e6
         if tool_model is None:
-            tool_model = llm.bind_tools_model(llm.make_chat_model(settings, purpose="tools"), tools)
+            tool_model = CachedToolModel(llm.bind_tools_model(llm.make_chat_model(settings, purpose="tools"), tools),
+                                         model=llm.MODEL, estimate_usd=est, ledger=ledger)
         if summary_model is None:
-            summary_model = llm.summary_model(llm.make_chat_model(settings, purpose="summary"))
+            structured = llm.make_chat_model(settings, purpose="summary").with_structured_output(
+                llm.answer_draft_json_schema(), method="json_schema", strict=True, include_raw=True)
+            summary_model = CachedSummary(structured, model=llm.MODEL, estimate_usd=est, ledger=ledger)
     kwargs: dict[str, Any] = {}
     if registry is not None:
         kwargs["registry"] = registry
