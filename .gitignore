@@ -54,3 +54,4 @@ tickets/issues/
 
 # 시험셋 (로컬 전용, 커밋하지 않음. manifest.json의 sha256만 커밋)
 evaluation/eval_set/*.SEALED.jsonl
+**/*.SEALED.jsonl
