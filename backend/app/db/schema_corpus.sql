@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS corpus_chunks (
     issuer       TEXT NOT NULL,
     doc_type     TEXT NOT NULL,                  -- 고시 / 파일데이터 / 허가사항 ...
     notice_no    TEXT NOT NULL DEFAULT '',       -- 연도 4자리 + 번호 4자리
-    base_date    DATE NOT NULL,                  -- 기준일(데이터 기준 2026-07-21)
+    base_date    DATE NOT NULL,                  -- 기준일(파일별, 파일 이름 끝 _YYYYMMDD: 임부·연령·별표 2026-07-21, 병용 2026-07-31, 노인주의 2026-10-01)
     locator      TEXT NOT NULL,                  -- 인용 위치(별표 2 연번 37 / 파일 행 ...)
     ingr_codes   TEXT[] NOT NULL DEFAULT '{}',
     ingr_names   TEXT[] NOT NULL DEFAULT '{}',
