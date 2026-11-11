@@ -21,7 +21,14 @@ from pathlib import Path
 from typing import Any
 
 from app.db.doc_meta import parse_base_date
-from app.db.source_files import COMBO_JSON_NAME
+from app.db.source_files import (
+    AGE_CSV_NAME,
+    COMBO_JSON_NAME,
+    DOSE_CSV_NAME,
+    ELDERLY_KIDS_CSV_NAME,
+    LACT_CSV_NAME,
+    PREG_CSV_NAME,
+)
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
@@ -33,6 +40,10 @@ AS_OF_KIDS = "2026-07-21"  # 임부·연령·용량 파일 공통(병용금기�
 AS_OF_COMBO = parse_base_date(COMBO_JSON_NAME) or ""  # 병용금기 JSON 파일 이름 끝 `_YYYYMMDD`(2026-07-31, plan-critic #2)
 AS_OF_LACTATION = "2025-11-27"
 AS_OF_HIRA = "2026-06-01"
+# 노인주의약물(KIDS) CSV는 파일명 제공일을 포털 수정일 2026-10-01로 고친 파일이라 이름 끝 날짜가 곧 수정일이다(2026-11-11 사용자 결정).
+# 이 한 파일에 한해 as_of에 수정일을 쓴다(나머지 파일의 AS_OF_*는 BE-16-02 결정 전까지 그대로).
+AS_OF_ELDERLY_KIDS = parse_base_date(ELDERLY_KIDS_CSV_NAME) or ""
+KIND_ELDERLY_KIDS = "elderly_kids"  # 심평원 노인주의(`elderly`)와 분리: lookup._CAUTION_KINDS에 없어 판정 경로(check_contraindications)에 섞이지 않는다
 
 # 비교용 환산(일). 연령 비교는 어림값이며 판정 값 자체는 원본 단위를 함께 보존한다.
 _UNIT_DAYS = {"주": 7.0, "개월": 30.4375, "세": 365.25}
@@ -249,6 +260,23 @@ def normalize_elderly(row: dict[str, str]) -> dict[str, Any] | None:
                     _s(row.get("공고번호")), _s(row.get("공고일자")), SRC_HIRA, AS_OF_HIRA)
 
 
+def normalize_elderly_kids(row: dict[str, str]) -> dict[str, Any] | None:
+    """KIDS 노인주의약물 CSV(제품 단위 행, 성분코드 키). 상세정보·공고번호 열이 없으므로 detail은 빈 문자열이다.
+
+    행 키에 출처(KIDS)와 제품코드를 넣어 심평원 노인주의 행과 겹치지 않게 한다. kind를 `elderly_kids`로 따로 둔 이유:
+    기존 `elderly`는 `lookup._CAUTION_KINDS`가 성분코드로 읽어 항목을 내므로, 같은 kind에 넣으면 같은 성분이 두 번 나오는 이중 판정이 된다.
+    """
+    code = _s(row.get("성분코드"))
+    if not code:
+        return None
+    product = _s(row.get("제품코드"))
+    return {
+        "row_key": _row_key("caution", KIND_ELDERLY_KIDS, SRC_KIDS, code, product, _s(row.get("제품명"))),
+        "kind": KIND_ELDERLY_KIDS, "ingr_code": code, "ingr_name": _s(row.get("성분명")), "detail": "",
+        "notice_no": "", "notice_date": None, "source": SRC_KIDS, "as_of": AS_OF_ELDERLY_KIDS,
+    }
+
+
 # --------------------------------------------------------------------------- 수집·집계
 
 @dataclass
@@ -297,12 +325,13 @@ def collect(
 # 파일 → (테이블, 정규화 함수, 파서) 대응. 파일 이름은 `data/` 안의 원본 이름이다.
 CORE_SOURCES = {
     COMBO_JSON_NAME: ("contra_pair", normalize_contra_json, AS_OF_COMBO),
-    "한국의약품안전관리원_임부금기약물_20260721.csv": ("pregnancy_contra", normalize_pregnancy, AS_OF_KIDS),
-    "한국의약품안전관리원_연령금기_20260721.csv": ("age_contra", normalize_age, AS_OF_KIDS),
+    PREG_CSV_NAME: ("pregnancy_contra", normalize_pregnancy, AS_OF_KIDS),
+    AGE_CSV_NAME: ("age_contra", normalize_age, AS_OF_KIDS),
 }
 EXTENSION_SOURCES = {
-    "한국의약품안전관리원_용량주의약물_20260721.csv": ("caution", normalize_dose, AS_OF_KIDS),
-    "한국의약품안전관리원_수유부주의_20251127.csv": ("caution", normalize_lactation, AS_OF_LACTATION),
+    DOSE_CSV_NAME: ("caution", normalize_dose, AS_OF_KIDS),
+    LACT_CSV_NAME: ("caution", normalize_lactation, AS_OF_LACTATION),
+    ELDERLY_KIDS_CSV_NAME: ("caution", normalize_elderly_kids, AS_OF_ELDERLY_KIDS),
     "의약품안전사용서비스(DUR)_노인주의 품목리스트 2026.6.csv": ("caution", normalize_elderly, AS_OF_HIRA),
     "의약품안전사용서비스(DUR)_노인주의(해열진통소염제) 품목리스트 2026.6.csv": ("caution", normalize_elderly, AS_OF_HIRA),
 }

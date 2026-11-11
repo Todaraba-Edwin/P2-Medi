@@ -34,11 +34,44 @@ def test_table_shape() -> None:
     assert len(DOC_META) >= 10
     assert all(k == m.source_file for k, m in DOC_META.items())
     assert all(m.source_url is None or m.source_url.startswith("http") for m in DOC_META.values())
-    # 사용자가 알려 준 두 파일만 값이 있고 나머지는 지어내지 않는다(CLAUDE.md 3·4장)
-    assert {m.source_file: m.source_url for m in DOC_META.values() if m.source_url} == {
-        sf.COMBO_JSON_NAME: "https://www.data.go.kr/data/15161282/fileData.do",
-        sf.PREG_CSV_NAME: "https://www.data.go.kr/data/15089735/fileData.do",
+    # 사용자가 알려 준 data.go.kr 데이터셋 번호만 주소로 만든다(지어내지 않는다)
+    datasets = {m.source_file: m.dataset_id for m in DOC_META.values() if m.source_file.startswith("한국의약품안전관리원_")}
+    assert datasets == {
+        sf.COMBO_JSON_NAME: "15161282", sf.PREG_CSV_NAME: "15089735", sf.AGE_CSV_NAME: "15089531",
+        sf.DOSE_CSV_NAME: "15089533", sf.LACT_CSV_NAME: "15131932", sf.ELDERLY_KIDS_CSV_NAME: "15089521",
+        sf.COMBO_CSV_VERIFY_NAME: "15089525",
     }
+    for m in DOC_META.values():
+        if m.dataset_id:
+            assert m.source_url == f"https://www.data.go.kr/data/{m.dataset_id}/fileData.do"
+
+
+def test_portal_dates_recorded_but_base_date_unchanged() -> None:
+    """수정일·등록일은 기록만 한다. base_date(파일명 접미)와 별개이며 표시·판정 기준일은 바뀌지 않았다(BE-16-02 대기)."""
+    m = get_meta(sf.COMBO_JSON_NAME)
+    assert (m.modified_date, m.registered_date, m.update_cycle) == ("2026-09-23", "2026-08-18", "수시(1회성)")
+    assert m.base_date == "2026-07-31"
+    assert get_meta(sf.PREG_CSV_NAME).modified_date == "2026-08-27"
+    assert get_meta(sf.ELDERLY_KIDS_CSV_NAME).modified_date == get_meta(sf.ELDERLY_KIDS_CSV_NAME).base_date == "2026-10-01"
+    dur = [m for m in DOC_META.values() if m.source_file.startswith("의약품안전사용서비스(DUR)_")]
+    assert len(dur) == 5
+    assert {(m.dataset_id, m.modified_date, m.update_cycle, m.provider) for m in dur} == {("15127983", "2026-06-12", "연간", "건강보험심사평가원")}
+
+
+def test_safe_drug_notice_is_2016_and_2012_is_history() -> None:
+    assert get_meta(sf.SAFE_GOSI_PDF_NAME).notice_no == get_meta(sf.SAFE_BYEOLPYO_PDF_NAME).notice_no == "제2016-156호"
+    assert get_meta(sf.SAFE_BYEOLPYO_PDF_NAME).provider == "국가법령정보센터"
+    assert sf.SAFE_GOSI_2012_PDF_NAME not in DOC_META  # 대체됨(이력), 활성 문서 아님
+    assert get_meta("약사법_제2항.pdf").issuer == "보건복지부"
+
+
+def test_hira_edition_roles() -> None:
+    """현행(2026판)만 코퍼스 적재 대상이고 나머지 판은 비교용(인용 참고 자료)이다."""
+    hira = {m.year: m for m in DOC_META.values() if m.doc_type == "발간물"}
+    assert sorted(hira) == [2021, 2022, 2023, 2024, 2025, 2026]
+    assert {y: m.edition_role for y, m in hira.items()} == {2021: "비교용", 2022: "비교용", 2023: "비교용", 2024: "비교용", 2025: "비교용", 2026: "현행"}
+    assert [m.notice_no for y, m in sorted(hira.items()) if y in (2021, 2022, 2026)] == ["G000BX1-2020-138", "G000BX1-2021-122", "G000BX1-2025-129"]
+    assert hira[2026].source_url and "recommendIdx=177231" in hira[2026].source_url
 
 
 def test_base_date_matches_filename_for_file_data() -> None:
@@ -72,6 +105,10 @@ def test_pdf_first_page_contains_issuer_and_notice(meta) -> None:  # noqa: ANN00
     text = _first_text(path).replace(" ", "")
     if not text.strip():
         pytest.skip("텍스트 층 없는 PDF(미확인 칸은 None)")
+    if meta.doc_type == "발간물" and meta.year in (2021, 2022, 2026):
+        pytest.skip("발간등록번호는 사용자가 표지 이미지에서 확인해 알려 준 값(텍스트 층에 없음, 2026-11-11)")
+    if meta.doc_type in ("고시 별표", "법률"):
+        pytest.skip("첫 쪽에 부처·번호가 없는 문서(값은 파일 이름·사용자 알림에서 옴)")
     if meta.issuer:
         assert meta.issuer.replace(" ", "") in text
     if meta.notice_no and meta.doc_type == "발간물":
@@ -95,3 +132,21 @@ def test_combo_as_of_comes_from_file_name_and_others_unchanged():
     row = loaders.normalize_contra_json({"metadata": {"성분코드A": "100501ATE", "성분코드B": "100601ATE", "금기사유": "x", "고시번호": "1"}})
     assert row["as_of"] == loaders.AS_OF_COMBO
     assert loaders.CORE_SOURCES[sf.COMBO_JSON_NAME][2] == loaders.AS_OF_COMBO
+
+
+def test_combo_verify_csv_is_recorded_only() -> None:
+    """검증본 CSV는 기록만 한다: 병용 JSON과 기준일이 같고 신선도 점검에서 JSON의 '최신본 아님' 표시를 바꾸지 않는다."""
+    csv, js = get_meta(sf.COMBO_CSV_VERIFY_NAME), get_meta(sf.COMBO_JSON_NAME)
+    assert (csv.dataset_id, csv.modified_date, csv.registered_date, csv.update_cycle, csv.provider) == (
+        "15089525", "2026-08-10", "2024-08-13", "수시(1회성)", "한국의약품안전관리원")
+    assert csv.base_date == js.base_date == "2026-07-31"
+    assert csv.note and "코드에서 읽지 않음" in csv.note and "512,464" in csv.note
+    assert js.note and "BE-16-02 A" in js.note and js.modified_date == "2026-09-23"
+    assert sf.COMBO_CSV_VERIFY_NAME != sf.COMBO_JSON_NAME
+
+
+def test_dates_read_from_pdfs() -> None:
+    """2026-11-11 PDF에서 읽은 값: 병용금기 고시 시행일(부칙 8쪽), 기능과 역할 발행일(판권면)."""
+    assert get_meta(sf.GOSI_PDF_NAME).effective_date == "2026-07-21"
+    assert {y: m.enacted_or_revised_date for y, m in ((m.year, m) for m in DOC_META.values() if m.doc_type == "발간물")} == {
+        2021: None, 2022: None, 2023: "2022-12-31", 2024: "2024-03-15", 2025: "2024-12", 2026: "2025-11"}

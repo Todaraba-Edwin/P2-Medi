@@ -119,3 +119,28 @@ def test_http_embed_retries_429_and_hides_key(monkeypatch):
     with pytest.raises(RuntimeError) as ei:
         ec.http_embed("m", ["x"], "sk-SECRET-KEY", sleep=waits.append)
     assert waits == [1.0] and "sk-SECRET-KEY" not in str(ei.value)
+
+
+def test_extend_after_finalize_keeps_old_rows_and_calls_only_new(tmp_path):
+    """마무리된 npy·index.json 뒤에 새 텍스트가 생기면 기존 행·벡터는 그대로 두고 새 텍스트만 호출한다(BE-16)."""
+    import numpy as np
+
+    old = ec.unique_texts(chunks_of(*[f"텍스트{i}" for i in range(6)]))
+    store = ec.Store(tmp_path / "emb", dim=DIM)
+    ec.run_embedding(old, store, _emb([], tmp=tmp_path), log=lambda s: None)
+    store.finalize([h for h, _ in old])
+    before = np.load(store.npy).copy()
+    rows_before = json.loads(store.index_json.read_text(encoding="utf-8"))["rows"]
+
+    new = ec.unique_texts(chunks_of(*[f"텍스트{i}" for i in range(6)], "새 글 가", "새 글 나"))
+    assert store.reopen_for_extension() == 6
+    assert not store.index_json.exists() and (store.dir / "index.json.before_extend").exists()
+    calls: list[int] = []
+    ec.run_embedding(new, store, _emb(calls, tmp=tmp_path), log=lambda s: None)
+    assert sum(calls) == 2
+    assert store.finalize([h for h, _ in new])["rows"] == 8
+    after = np.load(store.npy)
+    rows_after = json.loads(store.index_json.read_text(encoding="utf-8"))["rows"]
+    assert all(rows_after[h] == r for h, r in rows_before.items())  # 기존 행 번호 유지
+    assert np.array_equal(after[:6], before)
+    assert store.reopen_for_extension() == 8  # 다시 열어도 일관(이전 before_extend는 덮어쓰기 대상)
