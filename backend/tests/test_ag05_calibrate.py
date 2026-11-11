@@ -148,3 +148,79 @@ def test_dev_set_never_touches_sealed():
 def test_wilson_within_unit_interval(k, n):
     lo, hi = C.wilson(k, n)
     assert 0.0 <= lo <= k / n <= hi <= 1.0
+
+
+# --------------------------------------------------------------------------- AG-05-02 A: NOT_FOUND 기준값 보정
+
+def test_nf_grid_is_disabled_plus_015_to_060():
+    assert C.NF_GRID[0] == 0.0 and C.NF_GRID[1] == 0.15 and C.NF_GRID[-1] == 0.60 and len(C.NF_GRID) == 11
+
+
+def test_status_at_nf_applies_before_typo_and_only_to_bm25():
+    o = C.Obs(C.KIND_FAKE, R.ST_TYPO, 0.3, MATCH_BM25)
+    assert C.status_at(o, 0.6, 0.0) == R.ST_TYPO  # 비활성
+    assert C.status_at(o, 0.6, 0.3) == R.ST_NOT_FOUND  # top <= nf
+    assert C.status_at(o, 0.6, 0.29) == R.ST_TYPO
+    p = C.Obs(C.KIND_AMBIG, R.ST_AMBIGUOUS, 0.9, MATCH_PREFIX)
+    assert C.status_at(p, 0.6, 0.6) == R.ST_AMBIGUOUS  # 접두 일치는 nf로 안 바뀐다
+    assert C.status_at(C.Obs(C.KIND_FAKE, None), 0.6, 0.6) is None
+
+
+def _nf_obs() -> list[C.Obs]:
+    return [
+        *[C.Obs(C.KIND_FAKE, R.ST_TYPO, s, MATCH_BM25) for s in (0.2, 0.3, 0.4)],
+        C.Obs(C.KIND_FAKE, R.ST_NOT_FOUND),
+        *[C.Obs(C.KIND_TYPO, R.ST_TYPO, s, MATCH_BM25) for s in (0.35, 0.5)],
+        C.Obs(C.KIND_AMBIG, R.ST_AMBIGUOUS, 0.9, MATCH_PREFIX),
+        C.Obs(C.KIND_REAL, R.ST_RESOLVED, None, "exact"),
+    ]
+
+
+def test_measure_nf_counts():
+    r = C.measure_nf(_nf_obs(), 0.6, 0.35)
+    assert r.fake_nf == (3, 4)  # 0.2·0.3 + 원래 NOT_FOUND
+    assert r.typo_nf == (1, 2)  # 0.35
+    assert r.all_nf == (1, 4) and r.typo_recall == (1, 2)
+    assert C.measure_nf(_nf_obs(), 0.6, 0.0).fake_nf == (1, 4)
+
+
+def _nrow(nf: float, fake: tuple[int, int], typo: tuple[int, int], allx: tuple[int, int]) -> C.NfRow:
+    z = (0, 1)
+    return C.NfRow(nf, fake, typo, z, z, allx, z)
+
+
+def test_choose_nf_keeps_disabled_when_intervals_overlap():
+    rows = [_nrow(0.0, (1, 13), (0, 17), (0, 156)), _nrow(0.2, (3, 13), (1, 17), (1, 156))]
+    v, why = C.choose_nf(rows)
+    assert v == 0.0 and "근거 불충분" in why
+
+
+def test_choose_nf_changes_only_when_disjoint_and_within_caps():
+    rows = [_nrow(0.0, (5, 100), (0, 100), (0, 100)), _nrow(0.3, (90, 100), (5, 100), (2, 100))]
+    v, why = C.choose_nf(rows)
+    assert v == 0.3 and "겹치지 않" in why
+
+
+@pytest.mark.parametrize("typo,allx", [((20, 100), (1, 100)), ((5, 100), (10, 100))])
+def test_choose_nf_respects_caps(typo, allx):
+    rows = [_nrow(0.0, (5, 100), (0, 100), (0, 100)), _nrow(0.4, (95, 100), typo, allx)]
+    v, why = C.choose_nf(rows)
+    assert v == 0.0 and "상한" in why
+
+
+def test_choose_nf_tie_prefers_lower_value():
+    rows = [_nrow(0.0, (5, 100), (0, 100), (0, 100)), _nrow(0.2, (90, 100), (1, 100), (1, 100)), _nrow(0.3, (90, 100), (1, 100), (1, 100))]
+    assert C.choose_nf(rows)[0] == 0.2
+
+
+def test_choose_nf_no_gain_keeps_disabled():
+    rows = [_nrow(0.0, (5, 13), (0, 17), (0, 17)), _nrow(0.2, (5, 13), (0, 17), (0, 17))]
+    v, why = C.choose_nf(rows)
+    assert v == 0.0 and "근거 불충분" in why
+
+
+def test_collect_restores_both_thresholds(monkeypatch):
+    monkeypatch.setattr(R, "TYPO_SCORE_MAX", 0.6)
+    monkeypatch.setattr(R, "NOT_FOUND_SCORE_MAX", 0.0)
+    C.collect([], None, 0.3, 0.2)  # type: ignore[arg-type]
+    assert (R.TYPO_SCORE_MAX, R.NOT_FOUND_SCORE_MAX) == (0.6, 0.0)
