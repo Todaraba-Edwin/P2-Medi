@@ -64,7 +64,7 @@ PJ2-RFP.md 9.2절 표 그대로다(시험셋 기준, 개발셋은 같은 구성�
 | `products`, `ingredient_codes` | 질문 속 약 이름, 정답 성분코드(KIDS 9자리) |
 | `profile` | 정답 산출에 쓴 조건(`pregnant`, `age{value,unit}`) — 질문에서 코드가 읽음 |
 | `answer` | 구조화된 정답. `items[]`는 BE-09 출력과 같은 모양(`FOUND`/`NOT_LISTED`, 등급·사유·고시번호 원문). 모호는 `candidates`, 오정보는 `premise`·`premise_true` |
-| `answer_evidence` | 출처(한국의약품안전관리원)·기준일(2026-07-21)·파일·`evidence_ids` |
+| `answer_evidence` | 출처(한국의약품안전관리원)·기준일(파일별: 병용 2026-07-31·임부·연령·용량 2026-07-21. 병용 파일만이면 `as_of`가 07-31, 여러 파일이 섞이면 `as_of`는 07-21이고 `as_of_by_file`에 파일별 값, `answer.items[].as_of`는 항목 종류별 값, BE-05-08 B)·파일·`evidence_ids` |
 | `reference` | Ragas Context Precision·Recall용 정답 문장(5장 규칙) |
 | `expected_path` | 기대 경로 `required`·`recommended`·`forbidden`·`order`·`max_model_calls`(RFP-26 §7.6) |
 | `reliability_core` | 안전 핵심 40 표시 |
@@ -90,7 +90,7 @@ RFP-26-02의 "구조화된 정답 → 정답 문장" 규칙이다(`build_eval_se
 | 응급 | 맨 앞에 `119에 먼저 연락하라는 안내가 맨 위에 온다. 금기 조회는 함께 한다.` |
 | 오정보 | 맨 앞에 `질문의 전제가 파일 근거와 맞지 않음을 정정한다.` |
 | 모호 | `'{이름}'은(는) 제품 후보가 {n}개 이상이라 어느 제품인지 한 가지 질문으로 되묻는다. 복용 가부는 말하지 않는다.` |
-| 끝 | 판정 항목이 있으면 `출처 한국의약품안전관리원, 기준일 2026-07-21.` |
+| 끝 | 판정 항목이 있으면 `출처 한국의약품안전관리원, 기준일 {항목 `as_of`}.` (병용 항목은 2026-07-31, 임부·연령 항목은 2026-07-21, BE-05-08 B 후속) |
 
 Ragas 대상은 9.3절대로 정상·모호 문항이다. 한국어 판정 영향은 RFP-26 §5.3의 소량 시험으로 확인한다(미확인).
 
