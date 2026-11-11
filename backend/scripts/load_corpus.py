@@ -4,8 +4,9 @@
   --sqlite OUT.db        로컬 SQLite에 텍스트·메타를 적재한다(임베딩 열 없음, 재실행해도 중복 0: ON CONFLICT (chunk_id) DO NOTHING)
   --print-sql [--hnsw]   `app/db/schema_corpus.sql`을 `--dim` 차원으로 채워 출력한다(`--hnsw`는 인덱스 단계만)
   --embed-plan           임베딩 호출 계획(텍스트 수·토큰 근사·어림 비용)만 출력한다. 실호출은 BE-05-03 답 뒤 별도
-  --dsn-env 변수이름 --yes   원격 Postgres 적재. **이번 지시서에서는 실행하지 않는다**(코드·시험만). `--yes` 없이는 거부하고,
-                         접속 문자열은 지정한 환경변수에서만 읽으며 어디에도 출력하지 않는다.
+  --dsn-env 변수이름 --yes   원격 Postgres 적재(BE-05-03 D 이행 뒤). `--yes` 없이는 거부한다. 접속 문자열은 환경변수 또는 앱 Settings(.env)에서
+                         프로세스 안에서만 읽고 출력하지 않는다. embeddings/vectors.npy가 있으면 함께 적재한다. 재실행해도 중복 0.
+  --dsn-env 변수이름 --drop --yes  롤백(corpus_chunks만 삭제). 사용자가 지시했을 때만 쓴다.
 """
 
 from __future__ import annotations
@@ -114,37 +115,135 @@ def embed_plan(chunks: Sequence[dict[str, Any]], dim: int) -> dict[str, Any]:
             "note": "계획만 출력. 실호출은 BE-05-03 답 뒤 별도 지시서(비용 상한·원장 경유)"}
 
 
-# --------------------------------------------------------------------------- 원격 적재(코드만, 이번에는 실행하지 않는다)
+# --------------------------------------------------------------------------- 원격 적재(BE-05-03 D 이행, 2026-11-11)
 
 class RemoteLoadRefused(RuntimeError):
     pass
 
 
+BATCH_ROWS = 200  # 보수적 배치(행당 벡터 약 12KB). 배치마다 커밋해 중단 뒤 재개할 수 있다
+PG_COLS = FIELDS + ("embedding",)
+ARRAY_COLS = ("ingr_codes", "ingr_names")
+
+
+def resolve_dsn(dsn_env: str) -> str:
+    """환경변수 우선, 없으면 앱 Settings(.env)에서 프로세스 안에서만 읽는다. 값은 출력하지 않는다."""
+    dsn = os.environ.get(dsn_env, "")
+    if dsn:
+        return dsn
+    try:
+        from pydantic_settings import SettingsConfigDict  # noqa: PLC0415
+
+        from app.config import Settings  # noqa: PLC0415
+
+        class _S(Settings):
+            model_config = SettingsConfigDict(extra="ignore")
+
+        root = Path(__file__).resolve().parents[2]
+        val = getattr(_S(_env_file=(".env", str(root / ".env"))), dsn_env.lower(), None)
+        return str(val) if val else ""
+    except Exception as exc:  # noqa: BLE001 - 검증 오류 문구에 .env 값이 섞일 수 있어 종류만 알린다
+        raise RemoteLoadRefused(f"설정(.env)을 읽지 못했다: {type(exc).__name__}") from None
+
+
+def vec_literal(row: Any) -> str:
+    return "[" + ",".join(f"{x:.8g}" for x in row) + "]"
+
+
+def pg_row(c: dict[str, Any], vec: str | None) -> tuple[Any, ...]:
+    vals: list[Any] = []
+    for f in FIELDS:
+        v = c.get(f, "")
+        if f == "refs":
+            v = json.dumps(c.get(f) or [], ensure_ascii=False)
+        elif f in ARRAY_COLS:
+            v = list(c.get(f) or [])
+        elif f in ("parent_id", "pair_id"):
+            v = v or None
+        vals.append(v)
+    vals.append(vec)
+    return tuple(vals)
+
+
+def load_vectors(emb_dir: Path | None = None) -> tuple[Any, dict[str, int]] | None:
+    import numpy as np  # noqa: PLC0415
+
+    d = emb_dir or (OUT_DIR / "embeddings")
+    if not (d / "vectors.npy").exists() or not (d / "index.json").exists():
+        return None
+    return np.load(d / "vectors.npy", mmap_mode="r"), json.loads((d / "index.json").read_text(encoding="utf-8"))["rows"]
+
+
+def _insert_sql() -> str:
+    ph = ", ".join("%s::jsonb" if f == "refs" else ("%s::vector" if f == "embedding" else "%s") for f in PG_COLS)
+    return f"INSERT INTO corpus_chunks ({', '.join(PG_COLS)}) VALUES ({ph}) ON CONFLICT (chunk_id) DO NOTHING"  # noqa: S608
+
+
 def remote_load(chunks: Sequence[dict[str, Any]], dsn_env: str, yes: bool, dim: int = 1536,
-                connect: Callable[[str], Any] | None = None) -> dict[str, int]:
-    """`--yes`와 환경변수가 있을 때만 접속한다. 접속 문자열은 출력·예외 문구에 쓰지 않는다. 임베딩은 NULL로 둔다."""
+                connect: Callable[[str], Any] | None = None, vectors: tuple[Any, dict[str, int]] | None = None,
+                batch_rows: int = BATCH_ROWS, log: Callable[[str], None] = print) -> dict[str, int]:
+    """`--yes`와 접속 문자열이 있을 때만 접속한다. 접속 문자열은 출력·예외 문구에 쓰지 않는다.
+    corpus_chunks 새 테이블만 만들고 쓴다(기존 판정 테이블은 건드리지 않는다). 이미 있는 chunk_id는 건너뛰므로(재개·재실행 중복 0) 안전하다."""
+    from embed_corpus import text_hash  # noqa: PLC0415
+
     if not yes:
         raise RemoteLoadRefused("원격 적재는 --yes가 필요하다")
-    dsn = os.environ.get(dsn_env, "")
+    dsn = resolve_dsn(dsn_env)
     if not dsn:
-        raise RemoteLoadRefused(f"환경변수 {dsn_env}가 비어 있다")
+        raise RemoteLoadRefused(f"{dsn_env} 값을 찾지 못했다")
     if connect is None:
         import psycopg  # noqa: PLC0415 - 원격 적재 때만 필요(지연 import)
 
         connect = psycopg.connect
-    cols = [f for f in FIELDS]
-    ph = ", ".join("%s::jsonb" if f == "refs" else "%s" for f in cols)
-    sql = f"INSERT INTO corpus_chunks ({', '.join(cols)}) VALUES ({ph}) ON CONFLICT (chunk_id) DO NOTHING"  # noqa: S608
     conn = connect(dsn)
     try:
         cur = conn.cursor()
         cur.execute(render_sql(dim))
-        rows = [tuple(json.dumps(c[f], ensure_ascii=False) if f == "refs" else c.get(f, "") for f in cols) for c in chunks]
-        cur.executemany(sql, rows)
+        conn.commit()
+        cur.execute("SELECT COUNT(*) FROM corpus_chunks")
+        before = int(cur.fetchone()[0])
+        cur.execute("SELECT chunk_id FROM corpus_chunks")
+        have = {r[0] for r in cur.fetchall()}
+        todo = [c for c in chunks if c["chunk_id"] not in have]
+        sql = _insert_sql()
+        mat, idx = vectors if vectors else (None, {})
+        sent = 0
+        for i in range(0, len(todo), batch_rows):
+            part = todo[i : i + batch_rows]
+            rows = []
+            for c in part:
+                r = idx.get(text_hash(c["text"])) if mat is not None else None
+                rows.append(pg_row(c, vec_literal(mat[r]) if r is not None else None))
+            cur.executemany(sql, rows)
+            conn.commit()
+            sent += len(part)
+            if (i // batch_rows) % 50 == 0:
+                log(f"  적재 {sent}/{len(todo)}")
+        cur.execute("SELECT COUNT(*) FROM corpus_chunks")
+        after = int(cur.fetchone()[0])
+    finally:
+        conn.close()
+    return {"input": len(chunks), "skipped_existing": len(chunks) - len(todo), "sent": sent, "before": before, "after": after, "added": after - before}
+
+
+def remote_drop(dsn_env: str, yes: bool, connect: Callable[[str], Any] | None = None) -> str:
+    """롤백: corpus_chunks만 삭제한다. 사용자가 지시했을 때만 쓴다(--drop --yes). 판정 테이블은 건드리지 않는다."""
+    if not yes:
+        raise RemoteLoadRefused("--drop은 --yes가 필요하다")
+    dsn = resolve_dsn(dsn_env)
+    if not dsn:
+        raise RemoteLoadRefused(f"{dsn_env} 값을 찾지 못했다")
+    if connect is None:
+        import psycopg  # noqa: PLC0415
+
+        connect = psycopg.connect
+    conn = connect(dsn)
+    try:
+        conn.cursor().execute("DROP TABLE IF EXISTS corpus_chunks")
         conn.commit()
     finally:
         conn.close()
-    return {"sent": len(chunks)}
+    return "corpus_chunks 삭제"
 
 
 # --------------------------------------------------------------------------- CLI
@@ -162,6 +261,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--embed-plan", action="store_true")
     ap.add_argument("--dsn-env", help="원격 Postgres 접속 문자열이 든 환경변수 이름(값이 아님)")
     ap.add_argument("--yes", action="store_true")
+    ap.add_argument("--no-vectors", action="store_true", help="임베딩 없이 텍스트·메타만 적재")
+    ap.add_argument("--again", action="store_true", help="재실행 중복 확인용(적재 전후 행 수를 함께 출력)")
+    ap.add_argument("--drop", action="store_true", help="롤백: corpus_chunks만 삭제(사용자 지시 시에만, --yes 필요)")
     args = ap.parse_args(argv)
 
     if args.print_sql:
@@ -171,10 +273,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.all:
         d = OUT_DIR / "selected" if args.selected else OUT_DIR
         paths = [OUT_DIR / ALL_FILES[0], *(d / n for n in ALL_FILES[1:])]
+    if args.dsn_env and args.drop:
+        try:
+            print(remote_drop(args.dsn_env, args.yes))
+        except RemoteLoadRefused as e:
+            print(f"거부: {e}", file=sys.stderr)
+            return 2
+        return 0
     chunks = [c for p in paths for c in read_chunks(p)]
     if args.dsn_env:
         try:
-            print(remote_load(chunks, args.dsn_env, args.yes, args.dim))
+            print(remote_load(chunks, args.dsn_env, args.yes, args.dim, vectors=None if args.no_vectors else load_vectors()))
         except RemoteLoadRefused as e:
             print(f"거부: {e}", file=sys.stderr)
             return 2
