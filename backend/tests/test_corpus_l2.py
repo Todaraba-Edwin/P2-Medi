@@ -75,7 +75,7 @@ def test_combo_dedup_and_pair_id_order_independent(json_path: Path):
     cs = B.build_combo_chunks(json_path)
     assert len(cs) == 3  # (A,B,독성) 합침 + (A,B,다른 사유) + (A,C,QT)
     assert B.make_pair_id("AAA000AAA", "BBB000BBB") == B.make_pair_id("BBB000BBB", "AAA000AAA") == "AAA000AAA+BBB000BBB"
-    assert all(c["ingr_codes"] == sorted(c["ingr_codes"]) and c["layer"] == "L2" and c["base_date"] == "2026-07-21" for c in cs)
+    assert all(c["ingr_codes"] == sorted(c["ingr_codes"]) and c["layer"] == "L2" and c["base_date"] == "2026-07-31" for c in cs)
     # 형식이 맞지 않는 고시번호는 빈 값(연도 4자리+번호 4자리만 인정)
     assert [c["notice_no"] for c in cs if "QT" in c["text"]] == [""]
 

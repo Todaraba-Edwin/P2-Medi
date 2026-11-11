@@ -41,7 +41,7 @@ from chunk_trial import (  # noqa: E402
     load_bupyo2,
 )
 
-from app.db.doc_meta import chunk_meta  # noqa: E402
+from app.db.doc_meta import chunk_meta, parse_base_date  # noqa: E402
 from app.db.source_files import COMBO_JSON_NAME, GOSI_PDF_NAME  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,7 +49,8 @@ OUT_DIR = ROOT / "data" / "mock" / "corpus"
 CHUNKS_PATH = OUT_DIR / "l2_chunks.jsonl"
 MANIFEST_PATH = OUT_DIR / "manifest.json"
 
-BASE_DATE = "2026-07-21"
+BASE_DATE = "2026-07-21"  # 임부·연령·별표 2 청크 기본값
+COMBO_BASE_DATE = parse_base_date(COMBO_JSON_NAME) or BASE_DATE  # 병용 청크(파일 이름 `_20260731`, plan-critic #2)
 ISSUER_KIDS = "한국의약품안전관리원"
 ISSUER_MFDS = "식품의약품안전처"
 LICENSE_KIDS = "공공저작물 제2유형(출처표시, 상업적 이용금지)"
@@ -144,7 +145,7 @@ def build_combo_chunks(json_path: Path | None = None) -> list[dict[str, Any]]:
             "l2_combo", f"{ca}+{cb}|{r['reason']}|{r['gosi']}", text,
             pair_id=make_pair_id(ca, cb), layer="L2", issuer=ISSUER_KIDS, doc_type="파일데이터", notice_no=norm_notice(r["gosi"]),
             locator=loc, ingr_codes=[ca, cb], ingr_names=[na, nb], license=LICENSE_KIDS,
-            source_ref=f"한국의약품안전관리원 병용금기약물(AI 학습용)|{COMBO_JSON_NAME}", **chunk_meta(COMBO_JSON_NAME),
+            source_ref=f"한국의약품안전관리원 병용금기약물(AI 학습용)|{COMBO_JSON_NAME}", base_date=COMBO_BASE_DATE, **chunk_meta(COMBO_JSON_NAME),
         ))
     return out
 
