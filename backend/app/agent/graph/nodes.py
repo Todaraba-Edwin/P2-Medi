@@ -17,6 +17,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from app.agent import guardrail
 from app.agent.answer_schema import AnswerDraft, Sentence, parse_draft
 from app.agent.finalize import finalize
+from app.agent.graph.metered import unwrap_summary
 from app.agent.graph.state import (
     END_CLARIFY,
     END_FALLBACK,
@@ -114,7 +115,9 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
         # 도구를 더 부르지 않는다 = 근거 수집 끝. 같은 노드에서 도구 없는 구조화 출력 호출로 문장을 받는다.
         if n >= deps.max_calls:
             return {"messages": [resp], "call_count": n, "limit_reached": True, "events": [{"rule": "H12", "event": "CALL_LIMIT", "call_count": n}]}
-        draft = deps.summary_model.invoke(_summary_messages(state, deps))
+        draft, raw = unwrap_summary(deps.summary_model.invoke(_summary_messages(state, deps)))
+        if deps.tracer is not None and hasattr(deps.tracer, "summary_call"):  # 요약 호출 토큰·캐시 상태(L2, 자식 span)
+            deps.tracer.summary_call(raw, step=n + 1, parsed=draft is not None)
         return {"messages": [resp], "call_count": n + 1, "draft": draft}
 
     tools_by_name = {t.name: t for t in deps.tools}

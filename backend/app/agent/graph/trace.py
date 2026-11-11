@@ -5,8 +5,10 @@
 - 내용을 싣지 않는다: 질문·모델 출력·도구 결과 원문은 넘기지 않는다. `input_summary`·`output_summary`는 이름·개수·근거 ID·코드만 담는다.
   모드 필터(service에서 내용 필드 제거, 파일 없음)와 비밀 마스킹은 L1 `SpanLogger`가 한다(이 모듈은 필드만 고른다).
 - 하네스 이벤트 이름은 상태 `events`의 `event` 값을 그대로 `harness_event.detail`에 쓴다(코드 이름만). 동작은 `HARNESS_ACTIONS` 표가 정한다.
-- 캐시 상태: 그래프의 모델 호출은 LangChain `ChatOpenAI` 경로라 `llm_cache.py`를 거치지 않는다. 응답 메타데이터에 `mediagent_cache`가 있으면 그 값을,
-  없으면 `off`를 적는다(평가 모드는 `cache_mode()`가 항상 off).
+- 캐시 상태: `wiring.build_deps`가 만든 실제 모델은 `graph.metered`의 `CachedToolModel`·`CachedSummary`로 감싸 `llm_cache`·원장을 거치고
+  응답 메타데이터 `mediagent_cache`에 `off`·`hit`·`miss`를 적는다. 그 값을 `cache`에 쓰고, 없으면(가짜 모델) `off`다(평가 모드는 항상 off).
+- 요약(구조화 출력) 호출은 `summary_call`이 같은 `model` 노드 span에 토큰·비용을 합치고 내역을 `output_summary.summary_call`에 둔다
+  (2026-11-11 가산, 새 span·새 필드 없음: 노드 span 6종·경로 재구성은 그대로).
 - `sink`는 `.log(**fields)`를 가진 객체(`SpanLogger` 또는 시험용 수집기). 없으면 계측하지 않는다(`GraphDeps.tracer=None`이 기본).
 """
 
@@ -143,6 +145,7 @@ class GraphTracer:
     cost_fn: Callable[[int, int, int], float] | None = None
     _trace: _Trace | None = field(default=None, init=False, repr=False)
     _node_span: str | None = field(default=None, init=False, repr=False)
+    _pending_summary: dict[str, Any] | None = field(default=None, init=False, repr=False)
 
     # ------------------------------------------------------------------ 공통
     def _new_span_id(self) -> str:
@@ -166,6 +169,7 @@ class GraphTracer:
     def start_trace(self) -> str:
         self._trace = _Trace(trace_id=f"t-{uuid.uuid4().hex[:12]}", started=self.clock())
         self._node_span = None
+        self._pending_summary = None
         return self._trace.trace_id
 
     @property
@@ -240,19 +244,42 @@ class GraphTracer:
         um = getattr(last, "usage_metadata", None) or {}
         tin, tout = int(um.get("input_tokens") or 0), int(um.get("output_tokens") or 0)
         tcached = int(((um.get("input_token_details") or {}).get("cache_read")) or 0)
-        if um:
-            f["tokens_in"], f["tokens_out"], f["tokens_cached"] = tin, tout, tcached
-            if self.cost_fn is not None:
-                f["cost_usd"] = round(self.cost_fn(tin, tout, tcached), 8)
+        cost = self.cost_fn(tin, tout, tcached) if (um and self.cost_fn is not None) else 0.0
         meta = getattr(last, "response_metadata", None) or {}
         f["cache"] = str(meta.get("mediagent_cache") or "off")
         n_calls = len(getattr(last, "tool_calls", None) or [])
         f["output_summary"] = {"n_tool_calls": n_calls, "tools": [tc.get("name") for tc in getattr(last, "tool_calls", None) or []],
                                "summary_draft": upd.get("draft") is not None}
+        ps, self._pending_summary = self._pending_summary, None
+        has_usage = bool(um)
+        if ps is not None:  # 같은 노드의 요약 호출을 합산(내역은 output_summary에)
+            s_cost = self.cost_fn(ps["tokens_in"], ps["tokens_out"], ps["tokens_cached"]) if (ps["has_usage"] and self.cost_fn is not None) else 0.0
+            f["output_summary"]["summary_call"] = {"cache": ps["cache"], "parsed": ps["parsed"], "tokens_in": ps["tokens_in"],
+                                                   "tokens_out": ps["tokens_out"], "tokens_cached": ps["tokens_cached"], "cost_usd": round(s_cost, 8)}
+            tin, tout, tcached, cost = tin + ps["tokens_in"], tout + ps["tokens_out"], tcached + ps["tokens_cached"], cost + s_cost
+            has_usage = has_usage or ps["has_usage"]
+            if ps["cache"] != f["cache"]:  # 두 호출의 캐시 상태가 다르면 실제 호출이 있었던 쪽을 남긴다(적중 비율이 부풀지 않게)
+                f["cache"] = next((c for c in ("stored", "miss", "off") if c in (f["cache"], ps["cache"])), f["cache"])
+        if has_usage:
+            f["tokens_in"], f["tokens_out"], f["tokens_cached"] = tin, tout, tcached
+            if self.cost_fn is not None:
+                f["cost_usd"] = round(cost, 8)
         if self._trace is not None:
             self._trace.tokens_in += tin
             self._trace.tokens_out += tout
             self._trace.cost_usd += float(f.get("cost_usd") or 0.0)
+
+    def summary_call(self, raw: Any, *, step: int, parsed: bool) -> None:
+        """요약(구조화 출력) 호출 한 번의 토큰·비용·캐시를 같은 `model` 노드 span에 합친다(새 span·새 필드 없음, 2026-11-11 가산).
+
+        `model` 노드 하나가 도구 선택 호출과 요약 호출을 함께 하므로(AG-19 ④) 노드 span의 `tokens_*`·`cost_usd`는 두 호출의 합이 되고,
+        호출별 내역은 `output_summary.summary_call`(dev·eval만)에 둔다. `raw`가 없으면(가짜 요약) 토큰 0, `cache=off`다.
+        """
+        um = getattr(raw, "usage_metadata", None) or {}
+        meta = getattr(raw, "response_metadata", None) or {}
+        self._pending_summary = {"step": step, "parsed": bool(parsed), "cache": str(meta.get("mediagent_cache") or "off"), "has_usage": bool(um),
+                                 "tokens_in": int(um.get("input_tokens") or 0), "tokens_out": int(um.get("output_tokens") or 0),
+                                 "tokens_cached": int(((um.get("input_token_details") or {}).get("cache_read")) or 0)}
 
     def _emit_header(self, state: dict[str, Any], upd: dict[str, Any]) -> None:
         # service 집계에는 머리 레코드를 보내지 않는다(종료 사유는 finalize span이 이미 한 번 세었다. 두 번 세지 않게)

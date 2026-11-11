@@ -59,14 +59,30 @@ def cached_openai_call(
     messages: list,
     args: dict | None,
     fetch: Callable[[], Any],
+    **kwargs: Any,
+) -> Any:
+    """fetch()는 JSON 직렬화 가능한 응답을 돌려주는 실제 호출. cost_fn(응답)은 실제 비용(USD). 캐시 상태가 필요하면 `cached_openai_call_status`."""
+    return cached_openai_call_status(model, messages, args, fetch, **kwargs)[0]
+
+
+def cached_openai_call_status(
+    model: str,
+    messages: list,
+    args: dict | None,
+    fetch: Callable[[], Any],
     *,
     cost_fn: Callable[[Any], float] | None = None,
     estimate_usd: float = 0.0,
     ledger: CostLedger | None = None,
     prompt_files: Sequence[str] = (),
     tag: str = "",
-) -> Any:
-    """fetch()는 JSON 직렬화 가능한 응답을 돌려주는 실제 호출. cost_fn(응답)은 실제 비용(USD)."""
+) -> tuple[Any, str]:
+    """`cached_openai_call`과 같고 (응답, 캐시 상태)를 돌려준다(AG-01 L2 `cache` 필드, 2026-11-11 가산).
+
+    상태(로깅 전략 4장 `cache` 열거형): `off`(캐시 꺼짐·평가 모드) | `hit`(저장본 적중, 실호출·비용 0) | `stored`(record 모드 미스 → 실호출 뒤 저장)
+    | `miss`(실호출했으나 저장되지 않음, 방어용).
+    replay 모드의 적중 실패는 상태를 돌려주지 않고 `CacheMiss`로 중단한다(기존 동작 그대로).
+    """
     ledger = ledger or CostLedger()
     bucket = "eval" if is_eval() else "dev"
 
@@ -78,6 +94,10 @@ def cached_openai_call(
         return resp
 
     if cache_mode() == "off":
-        return guarded_fetch()
+        return guarded_fetch(), "off"
     module = _load_llm_cache()
-    return module.cached_call("openai", model, messages, args, guarded_fetch, prompt_files, tag)
+    hits, stored = int(module.stats.get("hit", 0)), int(module.stats.get("stored", 0))
+    resp = module.cached_call("openai", model, messages, args, guarded_fetch, prompt_files, tag)
+    if int(module.stats.get("hit", 0)) > hits:
+        return resp, "hit"
+    return resp, ("stored" if int(module.stats.get("stored", 0)) > stored else "miss")

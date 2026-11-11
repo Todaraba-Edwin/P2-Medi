@@ -142,7 +142,7 @@ def test_eval_writes_under_run_dir(monkeypatch, tmp_path):
 
 # ---- 마스킹 ----
 def test_masking_patterns():
-    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abc_DEF-123"
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abc_DEF-123"  # guard: fake
     text = f"key={SECRET} url=https://x/api?serviceKey=ABCD%2Bxyz&a=1 db=postgres://u:pw@h:5432/d jwt={jwt}"
     masked = mask_text(text)
     for leaked in (SECRET, "ABCD%2Bxyz", "u:pw@h", jwt):

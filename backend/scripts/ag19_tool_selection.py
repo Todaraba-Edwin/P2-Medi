@@ -35,7 +35,7 @@ from app.agent.llm import PRICE_IN, PRICE_OUT, LedgerCallback, bind_tools_model,
 from app.agent.tools.context import ToolContext  # noqa: E402
 from app.agent.tools.langchain_adapter import build_tools  # noqa: E402
 from app.agent.tools.registry import REGISTRY  # noqa: E402
-from app.config import get_settings  # noqa: E402
+from app.config import get_settings, reveal  # noqa: E402
 from app.llm.ledger import BudgetExceeded, CostLedger  # noqa: E402
 from app.security.redact import install_excepthook  # noqa: E402
 
@@ -249,7 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if a.max_usd > HARD_CAP_USD:
         print(f"--max-usd는 {HARD_CAP_USD} 이하만 허용한다.", file=sys.stderr)
         return 2
-    if not get_settings().openai_api_key:
+    if not reveal(get_settings().openai_api_key):
         print("OPENAI_API_KEY를 찾지 못했다(환경변수 또는 작업 위치의 .env). 저장소 루트에서 실행한다.", file=sys.stderr)
         return 2
     res = run(a.max_usd, CostLedger())

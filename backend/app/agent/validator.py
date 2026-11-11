@@ -27,7 +27,7 @@ from app.agent.patterns import (  # noqa: PLC2701 — 같은 패키지의 도구
     tool_grades,
     unsupported_identifiers,
 )
-from app.agent.quote_check import build_text_index, resolve_citation
+from app.agent.quote_check import ELLIPSIS, build_text_index, resolve_citation, verify_quote_text
 from app.agent.renderer import RenderResult
 from app.agent.sentence_filter import _DECISION_PATTERNS  # noqa: PLC2701 — 복용 지시·변경 표현은 필터 상수를 재사용(중복 정의 금지)
 
@@ -44,6 +44,16 @@ MISSING_ADVICE_ABSENT = "MISSING_ADVICE_ABSENT"    # ⑥ 미확보 항목에 약
 MISSING_IMPLIES_NONE = "MISSING_IMPLIES_NONE"      # ⑥ 미확보 항목을 "없음·안전"으로 암시
 BAD_CLAIM_TYPE = "BAD_CLAIM_TYPE"                  # ⑦ claim_type 없음·모르는 값
 NUMBER_NOT_IN_EVIDENCE = "NUMBER_NOT_IN_EVIDENCE"  # ⑧ 근거에 없는 연령·등급·번호·날짜
+QUOTE_MISMATCH = "QUOTE_MISMATCH"                  # ⑨ H28 인용부호 안 글자가 연결된 원문(청크·라벨)과 다르다
+
+# ⑨ 인용 글자 일치(H28). 문장에 연결된 근거 중 원문 인용 대상(`CORPUS_QUOTE` 청크 또는 라벨 항목)이 있을 때만 검사한다.
+# - 인용부호: 큰따옴표(" “ ”)와 낫표(「」『』)만 본다. 작은따옴표(' ‘ ’)는 한국어에서 강조에 흔히 쓰여 보지 않는다(한계).
+# - 공백 제거 뒤 `QUOTE_MIN_CHARS`자 미만(`…` 제외)인 짧은 인용은 강조·용어로 보고 보지 않는다(오탐 방지, 한계).
+# - 허용하는 정규화는 공백·줄바꿈 제거뿐이다. 생략은 `…`로만(조각이 원문 한 근거 안에 같은 순서로 있어야 한다).
+# - 원문은 문장의 `evidence_ids` 각각의 원문(`build_text_index`)이다. 여러 근거를 이어 붙이지 않으므로 청크를 가로지르는 인용은 불일치다.
+QUOTE_MIN_CHARS = 6
+QUOTABLE_SOURCE_KINDS = frozenset({"CORPUS_QUOTE"})
+_QUOTE_SPAN = re.compile(r"[\"“「『]([^\"“”「」『』\n]+)[\"”」』]")
 
 # ---------------------------------------------------------------------------------------- 금칙 상수(공백 제거 문장에 매칭)
 # 매칭 뒤 12자 안에 부정(아니·없·않·못·말)이 오면 "안전하다는 뜻이 아니에요" 같은 부정 문장이므로 통과시킨다.
@@ -289,6 +299,24 @@ def _grade_values(norm_or_text: str) -> list[str]:
     return vals
 
 
+def _quotable(it: dict[str, Any]) -> bool:
+    return it.get("source_kind") in QUOTABLE_SOURCE_KINDS or bool(it.get("is_label"))
+
+
+def _quote_mismatch(text: str, s: SimpleNamespace, ctx: SimpleNamespace) -> bool:
+    """⑨ H28: 원문 인용 대상 근거에 연결된 문장의 인용부호 안 글자가 그 근거 원문 하나에 글자 그대로 있는지(공백만 정규화)."""
+    if not any(_quotable(it) for it in _cited_items(s, ctx.by_id, ctx.row_to_item)):
+        return False
+    pool = [_norm(ctx.index[e]) for e in s.evidence_ids if ctx.index.get(e)]
+    for q in _QUOTE_SPAN.findall(text):
+        qn = _norm(q)
+        if len(qn.replace(ELLIPSIS, "")) < QUOTE_MIN_CHARS:
+            continue
+        if not any(verify_quote_text(qn, p) for p in pool):   # 원문이 비었거나(EASY_TEXT_MISSING 등) 어느 한 근거에도 없으면 불일치
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------------------- 문장 단위 검사
 def _check_sentence(s: SimpleNamespace, items: list[dict[str, Any]], ctx: SimpleNamespace, allowed_types: frozenset[str]) -> str | None:
     # ⑦ claim_type: 검사 전에 걸러 실패로 기록한다
@@ -298,6 +326,10 @@ def _check_sentence(s: SimpleNamespace, items: list[dict[str, Any]], ctx: Simple
     if not text.strip():
         return None
     norm = _norm(text)
+
+    # ⑨ 인용 글자 일치(H28): 지어낸 인용은 다른 검사보다 먼저 사유를 정한다(인용 구간 마스킹 ②가 지어낸 인용을 빼지 않도록)
+    if _quote_mismatch(text, s, ctx):
+        return QUOTE_MISMATCH
 
     # ① 안전 단정
     if _has_safe_assertion(norm):

@@ -17,6 +17,15 @@ SPEC = importlib.util.spec_from_file_location("precommit_guard", REPO / "scripts
 guard = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(guard)
 
+@pytest.fixture(autouse=True)
+def _restore_log_factory():
+    """install_excepthook()이 함께 설치하는 logging 레코드 가리기를 시험마다 되돌린다(S-05)."""
+    yield
+    from app.logging.redact_filter import uninstall_log_redaction
+
+    uninstall_log_redaction()
+
+
 FAKE_KEY = "fake-key-0000abcd1234wxyz"  # 앞 조각 'fake', 뒤 조각 'wxyz'
 FAKE_BAD = "fake-key-0000zzzz9999badv"
 
@@ -49,7 +58,7 @@ def test_redact_masks_full_value_and_fragments(monkeypatch):
 def test_redact_keeps_ordinary_text_and_masks_patterns(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert redact("정상 문장 http://example.com 입니다") == "정상 문장 http://example.com 입니다"
-    assert "***" in redact("serviceKey=abcdef123456&x=1")
+    assert "***" in redact("serviceKey=abcdef123456&x=1")  # guard: fake
 
 
 def test_redact_ignores_short_secret_values(monkeypatch):

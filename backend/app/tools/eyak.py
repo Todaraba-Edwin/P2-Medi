@@ -201,10 +201,12 @@ class EyakClient:
             from app.config import get_settings
 
             settings = get_settings()
+        from app.config import reveal
+
         http = ApiHttpClient(
             SERVICE_ALIAS,
             settings.drdeasydrug_end_point,
-            settings.drdeasydrug_api_key,
+            reveal(settings.drdeasydrug_api_key),
             mode="snapshot" if settings.mediagent_api_mode == "snapshot" else "live",
             cache=cache_from_settings(settings),
             max_calls=settings.mediagent_api_max_calls,

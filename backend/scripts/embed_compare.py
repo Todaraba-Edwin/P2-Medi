@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.llm.cache import cache_mode, cached_openai_call  # noqa: E402
 from app.llm.ledger import BudgetExceeded, CostLedger  # noqa: E402
+from app.security.redact import install_excepthook  # noqa: E402
 from app.tools.drug_dict import DEFAULT_DICT_PATH, DrugDict, char_ngrams, normalize_name  # noqa: E402
 
 DICT_DIR = Path(DEFAULT_DICT_PATH).parent
@@ -734,4 +735,5 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    install_excepthook()  # S-05: 키를 쓰는 스크립트의 예외·logging 출력 가리기
     raise SystemExit(main())
