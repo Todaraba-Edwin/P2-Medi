@@ -18,7 +18,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import re
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,6 +35,7 @@ from app.tools.drug_dict import (
     Candidate,
     DrugDict,
     LookupResult,
+    normalize_name,
 )
 
 # --------------------------------------------------------------------------- 상수
@@ -108,7 +111,8 @@ class ClarifyOption(BaseModel):
 class Entity(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    raw: str  # 질문에서 뽑은 후보 문자열(조사 제거 후)
+    raw: str  # 사전 조회에 쓴 문자열(조사 제거 후. 떨어진 함량을 붙여 맞았으면 붙인 문자열)
+    strength: str | None = None  # 질문 속 함량 표기("500mg", "2.5밀리그램/0.5밀리리터"). 판정·용량 결정에 쓰지 않고 이름 조회에만 쓴다
     normalized: str
     status: Literal["RESOLVED", "AMBIGUOUS", "TYPO_SUSPECT", "NOT_FOUND"]
     branch: str  # 정상 | 오탈자 | 모호 | 근거 없음
@@ -261,6 +265,56 @@ def _lookup_best(dd: DrugDict, tok: str) -> tuple[str, LookupResult]:
     return results[1] if len(results) > 1 else results[0]
 
 
+_RANK = {MATCH_EXACT: 3, MATCH_NORMALIZED: 3, MATCH_PREFIX: 2, MATCH_CONTAINS: 2, MATCH_BM25: 1}
+
+
+def _rank(r: LookupResult) -> int:
+    return 0 if r.empty else _RANK.get(r.match_type or "", 1)
+
+
+def _strength_key(strength: str) -> str:
+    return normalize_name(strength)
+
+
+def _prefer_strength(dd: DrugDict, used: str, r: LookupResult, strength: str) -> LookupResult:
+    """이름 일치(비BM25)로 후보가 여럿이면 함량이 이름에 든 후보를 앞으로 옮긴다(순서만 바꾼다. 상태·후보 수·일치 종류는 그대로).
+    BM25 결과는 1위 점수가 오탈자·근거 없음 판정에 쓰이므로 순서를 바꾸지 않는다."""
+    sk = _strength_key(strength)
+    if r.empty or r.match_type == MATCH_BM25 or len(r.candidates) < 2 or not sk:
+        return r
+    wide = dd.lookup_name(used, top_k=max(MAX_CLARIFY_OPTIONS, r.total_candidates))
+    if wide.match_type != r.match_type or wide.total_candidates != r.total_candidates:
+        return r
+    cands = sorted(wide.candidates, key=lambda c: 0 if sk in normalize_name(c.name) else 1)  # 안정 정렬: 같은 그룹 안 순서 유지
+    return dataclasses.replace(r, candidates=tuple(cands[: len(r.candidates)]))
+
+
+def lookup_mention(dd: DrugDict, m: Mention) -> tuple[str, LookupResult, str | None]:
+    """후보 하나의 사전 조회 문자열을 고른다. (조회에 쓴 문자열, 결과, 함량 표기)를 돌려준다.
+
+    시도 순서(더 구체적인 것 먼저): ① 토큰 그대로(붙은 함량 포함, 지금까지의 동작) ② 토큰+떨어진 함량 ③ 함량을 뗀 이름.
+    일치 등급(정확·정규화 3 > 접두·중간 2 > BM25 1 > 없음 0)이 가장 높은 것을 쓰고, 같으면 앞의 것을 쓴다.
+    ①이 정확·정규화 일치면 지금과 같은 결과다. ③을 썼고 후보가 여럿이면 함량이 든 후보를 앞으로 옮긴다(되묻기 유지, 자동 확정 없음)."""
+    used, r = _lookup_best(dd, m.token)
+    name, glued = split_strength(m.token)
+    strength = "/".join(s for s in (glued, m.strength) if s) or None
+    if _rank(r) == 3 or not strength:
+        return used, r, strength
+    # 대체 조회(②·③)는 이름 일치(접두·중간 이상)일 때만 쓴다. BM25 후보로 ①을 덮으면 없는 약이 오탈자로 보일 수 있다(안전 방향 유지).
+    best_used, best, name_only = used, r, not glued   # ① 함량이 떨어져 있었으면 ①이 곧 ③(이름만)이다
+    if m.tail:  # ② 토큰+떨어진 함량(원문 `/` 유지): 더 구체적이라 동률이어도 ①보다 앞선다
+        u2, r2 = _lookup_best(dd, used + m.tail)
+        if _rank(r2) >= 2 and _rank(r2) >= _rank(best):
+            best_used, best, name_only = u2, r2, False
+    if glued and _rank(best) < 3:  # ③ 붙은 함량을 뗀 이름: 더 높은 등급일 때만
+        u3, r3 = _lookup_best(dd, name)
+        if _rank(r3) >= 2 and _rank(r3) > _rank(best):
+            best_used, best, name_only = u3, r3, True
+    if name_only:
+        best = _prefer_strength(dd, best_used, best, strength)
+    return best_used, best, strength
+
+
 def _strong(dd: DrugDict, tok: str) -> bool:
     r = dd.lookup_name(tok, top_k=1)
     return not r.empty and r.match_type in (MATCH_EXACT, MATCH_NORMALIZED)
@@ -279,23 +333,124 @@ def _split_joined(dd: DrugDict, tok: str) -> list[str]:
     return [tok]
 
 
-def extract_mentions(text: str, dd: DrugDict) -> list[str]:
-    """질문에서 사전 조회에 쓸 후보 문자열을 등장 순서대로 뽑는다(중복 제거). 조회 결과는 보지 않고 문자열만 정리한다."""
-    out: list[str] = []
-    seen: set[str] = set()
-    for raw in _SPLIT_RE.split(text or ""):
-        tok = _clean_token(raw)
-        if not tok or _is_noise(tok, dd):
+# --------------------------------------------------------------------------- 함량(AG-05 후속, 2026-11-11)
+# 약 이름 뒤에 붙거나 공백·`/`로 떨어진 함량("…정 500 mg", "…주2.5밀리그램/0.5밀리리터", "…서방정 10/5mg")을 이름에서 분리해
+# 사전 조회 후보를 고른다. 사전 조회 규칙·점수 기준(`TYPO_SCORE_MAX`·`NOT_FOUND_SCORE_MAX`)은 그대로이고, Router가 조회 *문자열*만 고른다.
+# 함량은 질량·부피·역가 단위만 본다(정·알·포처럼 개수를 세는 단위는 복용량이라 함량으로 붙이지 않는다).
+_STR_UNIT = r"(?:mg|mcg|μg|µg|ug|g|ml|l|iu|밀리그램|밀리그람|마이크로그램|그램|그람|밀리리터|리터|단위|%)"
+_STR_NUM = r"\d+(?:\.\d+)?"
+_STRENGTH_CORE = _STR_NUM + r"(?:/" + _STR_NUM + r")*" + _STR_UNIT + r"?(?:/" + _STR_NUM + r"?" + _STR_UNIT + r")*"
+_STRENGTH_ONLY_RE = re.compile(r"^(?:" + _STRENGTH_CORE + r"|" + _STR_UNIT + r"|/" + _STRENGTH_CORE + r")$", re.IGNORECASE)
+_HAS_UNIT_RE = re.compile(_STR_UNIT + r"$", re.IGNORECASE)
+_STRENGTH_TAIL_RE = re.compile(r"^(?P<name>.*?[^\d./])(?P<strength>" + _STR_NUM + r"(?:/" + _STR_NUM + r")*" + _STR_UNIT + r"(?:/" + _STR_NUM + r"?" + _STR_UNIT + r")*)$",
+                               re.IGNORECASE)
+
+
+def _strip_all_particles(tok: str) -> str:
+    vs = _variants(tok)
+    return vs[-1]
+
+
+def _strength_piece(tok: str) -> str | None:
+    """토큰(조사 포함 가능)이 함량 조각(숫자·단위·`/`)뿐이면 조사를 뗀 조각, 아니면 None."""
+    for v in _variants(tok):
+        if _STRENGTH_ONLY_RE.match(v):
+            return v
+    return None
+
+
+def split_strength(tok: str) -> tuple[str, str | None]:
+    """이름에 붙은 함량 꼬리를 뗀다("가나다정500mg" → ("가나다정", "500mg")). 단위가 있어야 떼고, 이름 부분은 2자 이상이어야 한다."""
+    m = _STRENGTH_TAIL_RE.match(_strip_all_particles(tok))
+    if not m or len(m.group("name")) < 2:
+        return tok, None
+    return m.group("name"), m.group("strength")
+
+
+@dataclass(frozen=True)
+class Mention:
+    """질문에서 뽑은 약 후보 하나. `token`은 질문 원문 조각(붙어 있는 함량 포함), `tail`은 공백·`/`로 떨어져 뒤따른 함량의
+    원문 표기(공백 제거, `/` 유지. 예: "25mg", "/0.5밀리리터", "10/5mg")."""
+
+    token: str
+    tail: str | None = None
+
+    @property
+    def strength(self) -> str | None:
+        return self.tail.lstrip("/") if self.tail else None
+
+
+_ATTACH_SEP_RE = re.compile(r"^[\s/]*$")  # 이름과 함량 사이에 공백·`/`만 있을 때 붙인다(쉼표·접속어가 있으면 다른 약이다)
+
+
+def _raw_tokens(text: str) -> list[tuple[str, str]]:
+    """(토큰, 바로 앞 구분자 원문). 구분자는 `_SPLIT_RE`가 지운 문자(공백·`/`·쉼표 등)를 모은 것이다."""
+    out: list[tuple[str, str]] = []
+    sep, pos = "", 0
+    s = text or ""
+    for m in _SPLIT_RE.finditer(s):
+        seg = s[pos:m.start()]
+        if seg:
+            out.append((seg, sep))
+            sep = ""
+        sep += m.group()
+        pos = m.end()
+    if s[pos:]:
+        out.append((s[pos:], sep))
+    return [(_clean_token(t), sp) for t, sp in out if _clean_token(t)]
+
+
+def extract_mention_details(text: str, dd: DrugDict) -> list[Mention]:
+    """`extract_mentions`와 같은 후보에, 공백·`/`로 바로 뒤따른 함량 조각을 원문 표기(`/` 유지)로 붙여 돌려준다(중복 제거, 등장 순서)."""
+    out: list[Mention] = []
+    seen: dict[str, int] = {}
+    toks = _raw_tokens(text)
+    i = 0
+    last_name_at: int | None = None  # 바로 앞 토큰이 약 후보였는지(함량은 이름 바로 뒤에 올 때만 붙인다)
+    while i < len(toks):
+        tok, sep = toks[i]
+        piece = _strength_piece(tok)
+        if piece is not None:
+            # 떨어진 함량 조각을 하나로 모은다: "500" "mg" → "500mg", "2.5밀리그램" "/" "0.5밀리리터" → "2.5밀리그램/0.5밀리리터".
+            tail = ("/" if "/" in sep else "") + piece
+            j = i + 1
+            while j < len(toks) and (nxt := _strength_piece(toks[j][0])) is not None:
+                nsep = toks[j][1]
+                if "/" in nsep or nxt.startswith("/"):
+                    tail += ("/" if "/" in nsep else "") + nxt
+                elif not nxt[0].isdigit() and tail[-1].isdigit() and _ATTACH_SEP_RE.match(nsep):
+                    tail += nxt   # "500" "mg"
+                else:
+                    break
+                j += 1
+            if (last_name_at is not None and _HAS_UNIT_RE.search(tail) and _ATTACH_SEP_RE.match(sep)
+                    and out[last_name_at].tail is None):
+                out[last_name_at] = Mention(out[last_name_at].token, tail)
+            last_name_at = None
+            i = j
+            continue
+        last_name_at = None
+        if _is_noise(tok, dd):
+            i += 1
             continue
         for piece in _split_joined(dd, tok):
             piece = _clean_token(piece)
             if not piece or _is_noise(piece, dd):
+                last_name_at = None
                 continue
             key = re.sub(r"\s+", "", piece).lower()
             if key not in seen:
-                seen.add(key)
-                out.append(piece)
+                seen[key] = len(out)
+                out.append(Mention(piece))
+            last_name_at = seen[key]
+        i += 1
     return out
+
+
+def extract_mentions(text: str, dd: DrugDict) -> list[str]:
+    """질문에서 사전 조회에 쓸 후보 문자열을 등장 순서대로 뽑는다(중복 제거). 조회 결과는 보지 않고 문자열만 정리한다.
+    떨어진 함량 조각("500 mg", "/0.5밀리리터", "10/5mg")은 후보가 아니다(`extract_mention_details`가 이름에 붙인다)."""
+    return [m.token for m in extract_mention_details(text, dd)]
 
 
 # --------------------------------------------------------------------------- 엔티티
@@ -304,11 +459,11 @@ def _option(c: Candidate) -> ClarifyOption:
     return ClarifyOption(name=c.name, item_seq=c.item_seq, entp_name=c.entp_name, prescription=c.prescription, matched_by=c.matched_by, score=c.score)
 
 
-def _entity(raw: str, r: LookupResult) -> Entity:
+def _entity(raw: str, r: LookupResult, strength: str | None = None) -> Entity:
     flags: list[str] = []
     options = [_option(c) for c in r.candidates[:MAX_CLARIFY_OPTIONS]]
     base: dict[str, Any] = dict(
-        raw=raw, normalized=r.normalized_query, matched_by=r.matched_by, match_type=r.match_type, resolved=r.resolved,
+        raw=raw, strength=strength, normalized=r.normalized_query, matched_by=r.matched_by, match_type=r.match_type, resolved=r.resolved,
         needs_clarification=r.needs_clarification, n_candidates=r.total_candidates,
     )
     if r.empty:
@@ -406,20 +561,40 @@ def extract_profile(text: str, profile: ProfileState | dict[str, Any] | None = N
     return ProfileState(age_years=out_age, pregnant=out_preg, source=src)
 
 
+# --------------------------------------------------------------------------- 모델 입력 정리 블록(ROUTER_NOTE)
+
+NOTE_ENTITY_KEYS = ("raw", "strength", "status", "item_seq", "matched_by", "code_status")
+
+
+def note_entities(entities: list[Entity] | list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """ROUTER_NOTE의 `drug_candidates`(질문 속 약 목록). 키 순서·집합을 고정하고, 같은 정규화 이름은 한 번만 낸다(등장 순서 유지).
+    판정이 아니라 입력 정리다. 상태 dict(`state_update()` 결과)와 `Entity` 둘 다 받는다."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for e in entities or []:
+        d = e.model_dump() if isinstance(e, BaseModel) else dict(e)
+        key = str(d.get("normalized") or d.get("raw") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append({k: d.get(k) for k in NOTE_ENTITY_KEYS})
+    return out
+
+
 # --------------------------------------------------------------------------- 진입점
 
 def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] | None = None, *,
                 emergency: bool = False, guardrail_route: str | None = None) -> RouterResult:
     """질문 하나를 정리한다. `emergency`·`guardrail_route`는 AG-08이 쓴 값을 읽어 그대로 돌려줄 뿐 결과에 영향이 없다."""
-    mentions = extract_mentions(text, dd)
+    mentions = extract_mention_details(text, dd)
     truncated = len(mentions) > MAX_DRUGS
     mentions = mentions[:MAX_DRUGS]
 
     ents: list[Entity] = []
     seen_seq: set[str] = set()
     for m in mentions:
-        used, r = _lookup_best(dd, m)
-        e = _entity(used, r)
+        used, r, strength = lookup_mention(dd, m)
+        e = _entity(used, r, strength)
         if e.item_seq and e.status == ST_RESOLVED:  # 같은 제품을 두 번 말한 경우(예: 약어와 정식명)는 한 번만
             if e.item_seq in seen_seq:
                 continue
