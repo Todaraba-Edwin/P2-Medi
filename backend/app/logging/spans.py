@@ -54,6 +54,8 @@ CONTENT_FREE_FIELDS = frozenset(
         "verdict", "violations", "source", "file_api_match", "data_as_of",
         "end_reason", "prompt_version", "prompt_set", "tool_schema_version", "graph_version",
         "input_source",
+        # AG-01 L2(2026-11-11, 가산): trace 머리 레코드(로깅 전략 2장 (3))
+        "api_enabled", "total_latency_ms", "total_cost_usd",
     }
 )  # fmt: skip
 ALLOWED_FIELDS = CONTENT_FREE_FIELDS | CONTENT_FIELDS
