@@ -51,12 +51,14 @@ def detect_emergency(text: str) -> bool:
 # --------------------------------------------------------------------------- 범위 외 분류
 # (이유 키, 정규화 글자 패턴). 앞의 것이 우선한다.
 _SCOPE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # 입구 오탐 방지(plan-critic #1): "임신한 상태에서 …먹어도", "수유 중인데 …먹어도 괜찮", "…계속 먹어야 하는 사람인데 …"는
+    # 임부·수유·상시 복용 금기 확인 질문이라 거절하면 조회가 막힌다. 그래서 상태·계속 조건은 '줄임·끊음' 동사나 정상·수치 맥락이 있을 때만 건다.
     ("ASSESS_STATE", re.compile(
-        r"상태.*(?:줄|끊|중단|그만|멈|먹어도|안먹|계속|들여도)|"
-        r"(?:줄|끊|중단|그만|먹어도|안먹|들여도).*상태|"
-        r"(?:수치|혈압|혈당|수|검사|컨디션).*(?:끊|줄|그만|먹어도|안먹).*(?:수준|되는|괜찮|할것|할수)|"
-        r"(?:정상|괜찮).*(?:먹어도|안먹|끊어도|될|수준)|"
-        r"계속.*먹어야")),
+        r"상태.*(?:줄|끊|중단|그만|멈|안먹|들여도)|"
+        r"(?:줄|끊|중단|그만|안먹|들여도).*상태|먹어도(?:되는|괜찮은)상태|"
+        r"(?:수치|혈압|혈당|검사|컨디션).*(?:끊|줄|그만|안먹).*(?:수준|되는|괜찮|할것|할수)|"
+        r"(?:정상|괜찮).*(?:안먹|끊어도|그만|수준)|"
+        r"(?:정상|수치|괜찮|좋아|나았|호전).*계속.*먹어야")),
     ("HIDE_FROM_DOCTOR", re.compile(
         r"(의사|병원|약사|주치의|담당의|선생님)[가-힣]{0,4}"
         r"(숨기|숨겨|숨길|숨기고|비밀로|말하지말|말안|말씀안|알리지말|알리지않|몰래|모르게)|"
@@ -91,7 +93,7 @@ def detect_injection(text: str) -> bool:
 
 
 def classify_scope(text: str) -> str | None:
-    """범위 외 이유 키(`STOP_DOSE_CHANGE`·`HIDE_FROM_DOCTOR`·`DIAGNOSIS`·`PRESCRIPTION`·`DOSAGE`·`PERSONAL_RECORD`) 또는 None."""
+    """범위 외 이유 키(`ASSESS_STATE`·`STOP_DOSE_CHANGE`·`HIDE_FROM_DOCTOR`·`DIAGNOSIS`·`PRESCRIPTION`·`DOSAGE`·`PERSONAL_RECORD`) 또는 None."""
     n = normalize(text)
     for key, pat in _SCOPE_PATTERNS:
         if pat.search(n):
