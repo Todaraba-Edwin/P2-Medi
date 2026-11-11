@@ -61,17 +61,86 @@ _NEGATION = re.compile(r"아니|없|않|못|말")
 _SAFE_RES = [re.compile(p) for p in SAFE_ASSERTION_PATTERNS]
 
 # 복용 변경·중단·감량 지시와 의료진 우회(H6·H7). 복용 지시 일반형은 문장 필터의 `_DECISION_PATTERNS`를 재사용한다.
-BYPASS_PATTERNS = (
-    r"(?:의사|약사|선생님|의료진|병원)(?:님)?(?:에게|한테|께)?.*(?:알리지|말하지|얘기하지|이야기하지|숨기|비밀|몰래)",
-    r"(?:의사|약사|병원|의료진)(?:에게|한테|께)?(?:는)?(?:알릴필요(?:가)?없|말할필요(?:가)?없|비밀로)",
-    r"(?:의사|약사|선생님).*(?:말씀|말)(?:안|못)(?:드려|드려도|드렸|해도|했)",
-    r"(?:의사|약사|선생님).*(?:알리지|얘기하지|말하지)(?:않|못).*(?:도|아도)",
-    r"(?:병원|의사|약국)(?:에)?(?:가지|갈필요|안가도)",
-    r"(?:임의로|마음대로|스스로|알아서)(?:끊|중단|줄이|늘리|조절|감량)",
-    r"(?:끊어도|중단해도|줄여도|늘려도|그만먹어도|안먹어도)(?:돼요|됩니다|된다|괜찮)",
-    r"처방(?:을|은)?무시",
+# 상의 권유("숨기지 말고 알려 주세요", "상의하지 않고 끊지 마세요", "임의로 줄이거나 끊지 마세요")는 통과시키고(AG-07 후속,
+# 2026-11-11), 우회 조장("말씀 안 드려도 돼요", "알리지 않아도 됩니다")·변경 지시("알아서 줄이세요")는 계속 막는다.
+# 구분 방식: 문장을 절(종결 어미·구두점)로 나눈 뒤
+#   ⓐ 숨김 표지(숨기·비밀로, 의료진+몰래·모르게)는 바로 금지형(…지 마/말/않, …면 안, …서는 안)이 붙거나 목적어 하나 뒤
+#      복용 변경 동사의 금지형이 오면("의사 몰래 약을 끊지 마세요") 권유로 본다.
+#   ⓑ 알림·상의 동사의 부정(알리지 않/말하지 말/말씀 안 드려/상의할 필요 없 …)은 우회로 보되, 다음 셋은 권유로 본다.
+#      - 연결형(…지 않고/않은 채/않으면서) 바로 뒤가 복용 변경 동사의 금지형이다("상의하지 않고 끊지 마세요")
+#      - 관형·가정형(…지 않은/않았다면, 못 드렸다면) 뒤에 알림·상의 권유 명령이 온다("알리지 않은 약이 있다면 알려 주세요")
+#      - 바로 뒤가 "…으면 안"이다("알리지 않으면 안 돼요")
+#   ⓒ 임의 변경(임의로·마음대로·스스로·알아서 + 끊·줄이·늘리…)은 그 동사 사슬("줄이거나 끊")에 금지형이 바로 붙을 때만 권유로 본다.
+#   금지형은 복용 변경 동사 사슬에 바로 붙어야 한다(`_CHAIN_PROHIBIT`). "알아서 줄이고 다른 약은 바꾸지 마세요"는 우회로 남는다.
+#   ⓓ 병원·약국에 가지 말라/갈 필요 없다(“가지고 가서”는 제외), "…해도 돼요"형 복용 변경 허락, 처방 무시는 그대로 막는다.
+_CLAUSE_SPLIT = re.compile(r"(?<=세요|어요|아요|해요|예요|에요|니다|돼요)|(?<=십시오)|[.,!?;·]")
+_PROHIBIT = r"(?:지(?:마|말)|(?:으|시|하시|으시)?면안|서는안|선안)"
+# 복용 변경 동사 사슬("줄이거나 끊", "중단하")에 금지형이 *바로* 붙어야 권유로 본다("알아서 줄이고 다른 약은 바꾸지 마세요"는 우회).
+_CHG = r"(?:끊|중단|중지|줄이|늘리|조절|감량|증량|바꾸|변경|멈추|그만두|그만먹|복용|먹|드시|건너뛰)"
+_CHAIN_PROHIBIT = _CHG + r"하?(?:(?:거나|이나)" + _CHG + r"하?)*" + _PROHIBIT
+_SELF_ADV = r"(?:임의로|마음대로|함부로|스스로|알아서|혼자서?|혼자판단해서)?"
+_OBJ = r"(?:(?:(?!고|거나)[가-힣]){0,6}?(?:을|를|은|는|도))?"   # "약을", "복용량을" 같은 목적어 하나(연결 어미 "고"를 넘지 않는다)
+_ACTION_PROHIBIT_AFTER = re.compile("^" + _SELF_ADV + _OBJ + _SELF_ADV + _CHAIN_PROHIBIT)
+_SELF_CHAIN_PROHIBIT = re.compile("^" + _SELF_ADV + _CHAIN_PROHIBIT)   # ⓒ: 부사 바로 뒤 동사 사슬에 금지형
+_STAFF = r"(?:의사|약사|선생님|의료진|병원|약국|주치의|담당의)"
+_CONCEAL = re.compile(r"숨기|숨겨|숨길|비밀로|" + _STAFF + r"(?:님)?(?:[가-힣]{0,3}?)(?:몰래|모르게)")
+_CONCEAL_NEGATED = re.compile(r"^(?:하)?(?:지(?:마|말|않)|면안|서는안|선안)")
+_INFORM = r"(?:알리|말하|말씀하|말씀드리|얘기하|이야기하|상의하|상담하|물어보|여쭤보)"  # "확인하지 않았어요"(조회 범위 설명)는 넣지 않는다
+_INFORM_NEG = re.compile(
+    _INFORM + r"지(?:마|말|않)"
+    r"|(?:알릴|말할|말씀드릴|말씀할|얘기할|이야기할|상의할|상담할|물어볼|여쭤볼)필요(?:가|는|도)?없"
+    r"|(?:말씀|말|얘기|이야기|상의)(?:은|는|도)?(?:안|못)(?:드려|드리|드렸|해|하|했)"
+    r"|안(?:알려|알리|말해|물어)"
+    r"|확인(?:하지않아도|할필요(?:가|는|도)?없)"
 )
-_BYPASS_RES = [re.compile(p) for p in BYPASS_PATTERNS]
+_INFORM_CONNECT = re.compile(r"^않(?:고서|고|은채로|은채|은상태로|으면서)")
+_INFORM_RELATIVE = re.compile(r"^(?:않은(?!채|상태)|않았다면|않았으면|않았던)|^(?:드렸|했)(?:다면|으면)")
+_INFORM_MUST = re.compile(r"^(?:않으면|않으시면)안")
+_INFORM_ADVICE = re.compile(
+    r"(?:알려|말씀해|말씀드려|얘기해|이야기해|상의해|상담해|물어봐|여쭤봐)(?:주|보)?(?:세요|십시오)"
+    r"|(?:알리|말씀하|얘기하|이야기하|상의하|상담하|물어보|여쭤보|확인하)(?:세요|십시오)"
+)
+_SELF_CHANGE = re.compile(r"(?:임의로|마음대로|스스로|알아서|혼자서?)(?:끊|중단|줄이|줄여|늘리|늘려|조절|감량|증량|바꾸|바꿔)")
+_VISIT_SKIP = re.compile(r"(?:병원|의사|약국|진료)(?:에|을|를|은|는)?(?:가지(?:마|말|않아도)|갈필요(?:가|는)?없|안가도)")
+_CHANGE_ALLOWED = re.compile(r"(?:끊어도|중단해도|줄여도|늘려도|그만먹어도|안먹어도)(?:돼요|됩니다|된다|괜찮)")
+_IGNORE_RX = re.compile(r"처방(?:을|은)?무시")
+
+
+def _clauses(norm: str) -> list[str]:
+    return [c for c in _CLAUSE_SPLIT.split(norm) if c]
+
+
+def _has_bypass(norm: str) -> bool:
+    """의료진 우회 조장·임의 복용 변경 지시가 있으면 True. 공백을 지운 문장(`_norm`)을 받는다."""
+    if _VISIT_SKIP.search(norm) or _CHANGE_ALLOWED.search(norm) or _IGNORE_RX.search(norm):
+        return True
+    for clause in _clauses(norm):
+        # ⓐ 숨김 표지
+        for m in _CONCEAL.finditer(clause):
+            tail = clause[m.end():]
+            if _CONCEAL_NEGATED.search(tail) or _ACTION_PROHIBIT_AFTER.search(tail):
+                continue
+            return True
+        # ⓑ 알림·상의 동사의 부정
+        for m in _INFORM_NEG.finditer(clause):
+            neg_at = m.end() - 1 if m.group().endswith("않") else None
+            tail = clause[neg_at:] if neg_at is not None else clause[m.end():]
+            conn = _INFORM_CONNECT.search(tail) if neg_at is not None else None
+            if conn and _ACTION_PROHIBIT_AFTER.search(tail[conn.end():]):
+                continue
+            if neg_at is not None and _INFORM_MUST.search(tail):
+                continue
+            rel_tail = tail if neg_at is not None else clause[m.end() - 2:]
+            if _INFORM_RELATIVE.search(rel_tail) and _INFORM_ADVICE.search(norm[norm.find(clause) + m.end():]):
+                continue
+            return True
+        # ⓒ 임의 변경
+        for m in _SELF_CHANGE.finditer(clause):
+            if _SELF_CHAIN_PROHIBIT.search(clause[m.start():]):
+                continue
+            return True
+    return False
+
 
 _GRADE_AFTER = re.compile(r"(?<![가-힣A-Za-z0-9])([0-9A-Za-z]+)\s*등급")
 _GRADE_BEFORE = re.compile(r"등급\s*[:은는이]?\s*([0-9A-Za-z])(?![0-9A-Za-z])")
@@ -236,7 +305,7 @@ def _check_sentence(s: SimpleNamespace, items: list[dict[str, Any]], ctx: Simple
 
     # ② 복용 변경·중단·복용 지시와 의료진 우회(허가사항 원문 인용 구간은 제외)
     q_norm = _norm(_mask_quotes(SimpleNamespace(**{**s.__dict__, "text": text}), ctx.index))
-    if any(r.search(q_norm) for r in _BYPASS_RES) or any(r.search(q_norm) for r in _DECISION_PATTERNS):
+    if _has_bypass(q_norm) or any(r.search(q_norm) for r in _DECISION_PATTERNS):
         return DOSE_CHANGE_OR_BYPASS
 
     # ③ 등급 값은 1·2·M만
