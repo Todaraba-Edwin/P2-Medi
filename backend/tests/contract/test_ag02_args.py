@@ -80,7 +80,8 @@ def test_unknown_tool_blocked():
 
 
 def test_registry_has_three_tools():
-    assert set(REGISTRY) == {"identify_drug", "check_contraindications", "get_label_section"}
+    """AG-02의 세 도구는 그대로 있고, AG-03 검색 도구 3개가 더해져 6개다(`test_ag03_tools.py`가 검색 쪽을 검사)."""
+    assert set(REGISTRY) == {"identify_drug", "check_contraindications", "get_label_section", "search_notice", "search_reason", "search_label"}
     assert set(STATUS_BY_TOOL) == set(REGISTRY)
 
 
