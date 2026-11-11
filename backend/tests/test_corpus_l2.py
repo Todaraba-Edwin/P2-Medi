@@ -166,6 +166,12 @@ def test_remote_load_uses_on_conflict_do_nothing_with_fake_conn(chunks: list[dic
         def execute(self, sql: str, *a):
             seen.setdefault("sql", []).append(sql)
 
+        def fetchone(self):
+            return (seen.get("n", 0),)  # COUNT(*)
+
+        def fetchall(self):
+            return []  # 기존 chunk_id 없음
+
         def executemany(self, sql: str, rows):
             seen["insert"], seen["n"] = sql, len(list(rows))
 
@@ -180,7 +186,7 @@ def test_remote_load_uses_on_conflict_do_nothing_with_fake_conn(chunks: list[dic
             seen["closed"] = True
 
     out = L.remote_load(chunks, "X_CORPUS_DSN", yes=True, connect=lambda _d: Conn())
-    assert out["sent"] == len(chunks) and seen["n"] == len(chunks) and "ON CONFLICT (chunk_id) DO NOTHING" in seen["insert"]
+    assert out["sent"] == len(chunks) and out["input"] == len(chunks) and seen["n"] == len(chunks) and "ON CONFLICT (chunk_id) DO NOTHING" in seen["insert"]
     assert seen["commit"] and seen["closed"] and "vector(1536)" in seen["sql"][0]
 
 
