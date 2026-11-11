@@ -34,8 +34,8 @@
   "dev": {
    "file": "dev_set.jsonl",
    "n": 150,
-   "sha256": "a56b28e34149071424570bf734940177b3a6eb6c287505dbb60774fd1fce669c",
-   "bytes": 315536,
+   "sha256": "ee21a1eeaca5c3123ee72a4913ad806cdf64f0eb741bec6b92c8da029a795f51",
+   "bytes": 317503,
    "by_group": {
     "정상-임부": 10,
     "정상-병용": 15,
