@@ -106,6 +106,32 @@ class Store:
                 raise RuntimeError("벡터 파일이 인덱스보다 짧다. 진행 파일을 확인한다")
         return rows
 
+    def reopen_for_extension(self) -> int:
+        """마무리된 vectors.npy·index.json을 진행 파일(partial)로 되돌려 새 텍스트를 덧붙일 수 있게 한다(기존 행·순서 유지).
+
+        기존 npy·json은 덮어쓰기 전에 `*.before_extend`로 옮겨 두고, 다시 finalize가 새로 쓴다. 돌려주는 값은 되돌린 행 수.
+        """
+        import numpy as np
+
+        if not self.index_json.exists():
+            return 0
+        rows: dict[str, int] = json.loads(self.index_json.read_text(encoding="utf-8"))["rows"]
+        mat = np.load(self.npy, mmap_mode="r")
+        if mat.shape != (len(rows), self.dim):
+            raise RuntimeError("npy와 index.json의 행 수가 다르다")
+        order = sorted(rows, key=rows.__getitem__)
+        if [rows[h] for h in order] != list(range(len(rows))):
+            raise RuntimeError("index.json 행 번호가 연속이 아니다")
+        with open(self.bin, "wb") as f:
+            f.write(np.asarray(mat, dtype="<f4").tobytes())
+        with open(self.idx, "w", encoding="utf-8") as f:
+            for h in order:
+                f.write(json.dumps(h) + "\n")
+        del mat
+        self.npy.replace(self.npy.with_name("vectors.npy.before_extend"))
+        self.index_json.replace(self.index_json.with_name("index.json.before_extend"))
+        return len(order)
+
     def append(self, hashes: Sequence[str], vectors: Any) -> None:
         import numpy as np
 
@@ -215,6 +241,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     _ensure_cache_importable()
     items = unique_texts(chunks)
     store = Store()
+    if store.index_json.exists() and any(h not in store.done_hashes() for h, _ in items):
+        print(f"기존 임베딩 {store.reopen_for_extension()}행을 이어 붙이기 모드로 연다(새 텍스트만 호출)")
     emb = Embedder(MODEL_SIZE, args.max_usd, lambda model_id, texts: http_embed(model_id, texts, key))
     try:
         res = run_embedding(items, store, emb, args.limit)

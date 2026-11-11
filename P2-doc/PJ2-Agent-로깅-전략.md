@@ -89,7 +89,7 @@ trace (요청 1건, trace_id)
 | 캐시 | `cache`(`off`/`hit`/`miss`/`stored`), `cache_key12` | 평가 오염 방지 | `llm_cache.py`의 키 앞 12자 |
 | 하네스 | `harness_event`(규칙 ID H1~H16 + 동작: block/rewrite/rollback/append) | 하네스가 막았나 | RFP-29 §6. 새 하네스 이벤트 이름은 RFP-33 참고 |
 | 검증 | `verdict`(pass/fix/fail), `violations`(규칙 ID 목록) | Validator 효과 | AG-07 |
-| 데이터 | `source`(file/api/snapshot), `file_api_match`(일치/불일치/API 끔), `data_as_of`(기준일 2026-07-21 등) | 근거·기준일 | 일치율은 평가 점수와 섞지 않는다(BE-08) |
+| 데이터 | `source`(file/api/snapshot), `file_api_match`(일치/불일치/API 끔), `data_as_of`(파일별 기준일, 예: 병용금기 2026-07-31·임부금기 2026-07-21) | 근거·기준일 | 일치율은 평가 점수와 섞지 않는다(BE-08) |
 | 종료 | `end_reason`(정상/호출 상한/안내 전환/거절/오류) | 경로 평가 지표 | RFP-26 §7.6 "종료 사유" |
 
 ### (3) trace 머리(요청 단위)에 남기는 것

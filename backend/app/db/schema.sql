@@ -54,9 +54,10 @@ CREATE TABLE IF NOT EXISTS age_contra (        -- 연령금기: 성분코드 + �
 CREATE INDEX IF NOT EXISTS idx_age_code ON age_contra (ingr_code);
 
 -- 확장(권장): 용량주의·수유부주의·노인주의. 성분코드로 주의 여부만 돌려준다.
+-- elderly_kids: KIDS 노인주의약물 CSV(2026-11-11 BE-16). 판정 경로(lookup)는 읽지 않는다. 이미 만든 원격 테이블의 CHECK는 IF NOT EXISTS로 바뀌지 않는다.
 CREATE TABLE IF NOT EXISTS caution (
     row_key      TEXT PRIMARY KEY,
-    kind         TEXT NOT NULL CHECK (kind IN ('dose', 'lactation', 'elderly')),
+    kind         TEXT NOT NULL CHECK (kind IN ('dose', 'lactation', 'elderly', 'elderly_kids')),
     ingr_code    TEXT NOT NULL,
     ingr_name    TEXT,
     detail       TEXT,                         -- 용량주의는 '1일 최대투여량' 표시 문자열(조언이 아니라 원문)

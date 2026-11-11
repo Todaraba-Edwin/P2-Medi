@@ -44,6 +44,10 @@ STOP_KINDS = {"auth", "rate_limit", "config", "call_budget"}
 # 점검 시나리오(상비약). 이름은 사전이 풀고, 판정에 쓰는 것은 도구 안의 코드다.
 LABEL_NAME = "타이레놀정500mg"
 LABEL_SECTION = "용법용량"
+# 시나리오 eyak_label: 용법용량이 아닌 절(효능)은 e약은요가 우선이므로 e약은요 항목(출처·조회 시각)이 결과에 나오는 경로를 본다(RFP-03 남은 조건).
+EYAK_SECTION = "효능"
+EYAK_LABEL_CAP = 5
+EYAK_LABEL_BUDGET = {EYAK_ALIAS: 1, PRMSN_ALIAS: 1, ITEM_ALIAS: 0, INGR_ALIAS: 0}
 # 사전에서 DUR API 성분코드(api_codes)가 붙은 성분은 8개뿐이라(2026-11-11 확인) 그중 병용금기 가능성이 있는 쌍을 코드로 직접 준다.
 # 라사길린(D000698) × 슈도에페드린(D000448). 타이레놀 쌍은 사전에 api_codes가 있는 상대가 없어 API_PAIR_INCOMPLETE가 된다.
 PAIR_DRUGS = [{"ingredient_code": "D000698"}, {"ingredient_code": "D000448"}]
@@ -74,7 +78,8 @@ class LiveLabelProvider:
         return {"item": r.raw_items[0], "collected_at": r.queried_at_utc, "source": r.source or "live"}
 
 
-def _http_clients(settings: Any) -> dict[str, _http.ApiHttpClient]:
+def _http_clients(settings: Any, budget: dict[str, int] | None = None) -> dict[str, _http.ApiHttpClient]:
+    budget = budget or BUDGET
     cache = _http.cache_from_settings(settings)
     spec = {
         EYAK_ALIAS: (settings.drdeasydrug_end_point, settings.drdeasydrug_api_key),
@@ -83,7 +88,7 @@ def _http_clients(settings: Any) -> dict[str, _http.ApiHttpClient]:
         INGR_ALIAS: (settings.durirdntinfoservice03_end_point, settings.durirdntinfoservice03_api_key),
     }
     return {
-        a: _http.ApiHttpClient(a, url, key, mode="live", cache=cache, max_retries=0, max_calls=BUDGET[a])
+        a: _http.ApiHttpClient(a, url, key, mode="live", cache=cache, max_retries=0, max_calls=budget[a])
         for a, (url, key) in spec.items()
     }
 
@@ -140,7 +145,16 @@ def _summ(name: str, out: dict[str, Any]) -> dict[str, Any]:
             "error": out.get("error"), "items": items}
 
 
-def plan() -> dict[str, Any]:
+def plan(scenario: str = "all") -> dict[str, Any]:
+    if scenario == "eyak_label":
+        return {
+            "mode": "dry-run", "scenario": scenario, "total_http_cap": EYAK_LABEL_CAP, "per_service_budget": EYAK_LABEL_BUDGET, "retries": 0,
+            "scenarios": [
+                {"tool": "identify_drug", "args": {"name": LABEL_NAME}, "http": 0},
+                {"tool": "get_label_section", "args": {"name": LABEL_NAME, "section": EYAK_SECTION}, "http": "e약은요 1 + 허가 상세 1"},
+            ],
+            "note": "실호출은 --run --yes 로만 한다. 기본값에서는 네트워크를 쓰지 않는다.",
+        }
     return {
         "mode": "dry-run", "total_http_cap": TOTAL_CAP, "per_service_budget": BUDGET, "retries": 0,
         "scenarios": [
@@ -153,12 +167,15 @@ def plan() -> dict[str, Any]:
     }
 
 
-def run() -> dict[str, Any]:
+def run(scenario: str = "all") -> dict[str, Any]:
     from app.config import get_settings
 
+    eyak_only = scenario == "eyak_label"
+    budget = EYAK_LABEL_BUDGET if eyak_only else BUDGET
+    cap = EYAK_LABEL_CAP if eyak_only else TOTAL_CAP
     settings = get_settings()
-    clients = _http_clients(settings)
-    missing = [a for a, c in clients.items() if BUDGET[a] > 0 and not (c.base_url and c.api_key)]
+    clients = _http_clients(settings, budget)
+    missing = [a for a, c in clients.items() if budget[a] > 0 and not (c.base_url and c.api_key)]
     if missing:
         return {"aborted": "config", "services_without_config": missing}
     dur = DurClient(clients[ITEM_ALIAS], clients[INGR_ALIAS], max_pages=2)
@@ -181,12 +198,14 @@ def run() -> dict[str, Any]:
 
     steps: list[tuple[str, str, dict[str, Any]]] = []
     if seq:
-        steps.append(("get_label_section", "get_label_section", {"item_seq": seq, "section": LABEL_SECTION}))
-    steps.append(("check_contraindications(pair)", "check_contraindications", {"drugs": PAIR_DRUGS}))
-    steps.append(("check_contraindications(age+pregnancy)", "check_contraindications",
-                  {"drugs": [{"name": AGE_DRUG}], "age": AGE, "pregnancy": True}))
+        sec = EYAK_SECTION if eyak_only else LABEL_SECTION
+        steps.append((f"get_label_section({sec})", "get_label_section", {"item_seq": seq, "section": sec}))
+    if not eyak_only:
+        steps.append(("check_contraindications(pair)", "check_contraindications", {"drugs": PAIR_DRUGS}))
+        steps.append(("check_contraindications(age+pregnancy)", "check_contraindications",
+                      {"drugs": [{"name": AGE_DRUG}], "age": AGE, "pregnancy": True}))
     for label, tool, args in steps:
-        if total_calls() >= TOTAL_CAP:
+        if total_calls() >= cap:
             stopped = "total_cap"
             break
         out = invoke(tool, args, ctx)
@@ -199,8 +218,8 @@ def run() -> dict[str, Any]:
             stopped = "api_failure"
             break
     return {
-        "mode": "run", "ran_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "http_calls": {a: c.calls for a, c in clients.items()}, "http_total": total_calls(), "http_cap": TOTAL_CAP,
+        "mode": "run", "scenario": scenario, "ran_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "http_calls": {a: c.calls for a, c in clients.items()}, "http_total": total_calls(), "http_cap": cap,
         "stopped": stopped, "results": results,
     }
 
@@ -209,11 +228,12 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--run", action="store_true", help="실제 호출(--yes 필요)")
     ap.add_argument("--yes", action="store_true", help="실호출 확인")
+    ap.add_argument("--scenario", choices=["all", "eyak_label"], default="all", help="eyak_label: 효능 절 e약은요 경로만(공공 API 2회)")
     args = ap.parse_args(argv)
     if not (args.run and args.yes):
-        print(json.dumps(plan(), ensure_ascii=False, indent=2))
+        print(json.dumps(plan(args.scenario), ensure_ascii=False, indent=2))
         return 0
-    report = run()
+    report = run(args.scenario)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / f"rfp03_live_check_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.json"
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

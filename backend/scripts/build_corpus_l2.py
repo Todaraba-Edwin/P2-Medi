@@ -2,6 +2,7 @@
 
 만드는 청크(BE-05-02 A 확정 단위, `data/mock/chunk_trial/chunk_schema.md` 참조):
   l2_combo        병용금기 고유 조합 1건 = 성분쌍 단위(KIDS 병용 JSON 스트리밍)
+  l2_elderly      KIDS 노인주의약물 목록 성분 단위(BE-16, 상세정보 열 없음 → 목록 포함 사실만)
   l2_preg/l2_age  임부·연령금기 상세정보 성분 단위(성분명·종류·조건·문구). 임부 M등급은 원문 그대로(RFP-17)
   l1_bupyo2_table 별표 2 표 청크(제목·열 이름·쪽), 행 청크의 parent_id가 가리킨다
   l1_bupyo2_row   별표 2 행 + 열 이름 + 표 제목·연번
@@ -32,6 +33,7 @@ from chunk_trial import (  # noqa: E402
     AGE_CSV,
     BUPYO2,
     BUPYO2_TITLE,
+    DATA,
     L2_JSON,
     PREG_CSV,
     _cp949_rows,
@@ -42,7 +44,7 @@ from chunk_trial import (  # noqa: E402
 )
 
 from app.db.doc_meta import chunk_meta, parse_base_date  # noqa: E402
-from app.db.source_files import COMBO_JSON_NAME, GOSI_PDF_NAME  # noqa: E402
+from app.db.source_files import COMBO_JSON_NAME, ELDERLY_KIDS_CSV_NAME, GOSI_PDF_NAME  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "data" / "mock" / "corpus"
@@ -51,6 +53,8 @@ MANIFEST_PATH = OUT_DIR / "manifest.json"
 
 BASE_DATE = "2026-07-21"  # 임부·연령·별표 2 청크 기본값
 COMBO_BASE_DATE = parse_base_date(COMBO_JSON_NAME) or BASE_DATE  # 병용 청크(파일 이름 `_20260731`, plan-critic #2)
+ELDERLY_BASE_DATE = parse_base_date(ELDERLY_KIDS_CSV_NAME) or BASE_DATE  # 파일 이름 `_20261001` = 포털 수정일(BE-16, 이 파일에 한해 수정일)
+ELDERLY_REP_PRODUCTS = 3  # 청크에 적는 대표 제품 수
 ISSUER_KIDS = "한국의약품안전관리원"
 ISSUER_MFDS = "식품의약품안전처"
 LICENSE_KIDS = "공공저작물 제2유형(출처표시, 상업적 이용금지)"
@@ -84,7 +88,7 @@ def make_pair_id(code_a: str, code_b: str) -> str:
 
 def make_chunk_id(kind: str, key: str, text: str) -> str:
     """`{종류 접두}-{sha1(키 + 본문)[:16]}`. 같은 키·같은 본문이면 재적재해도 같은 값이다."""
-    prefix = {"l2_combo": "l2c", "l2_preg": "l2p", "l2_age": "l2a", "l1_bupyo2_table": "l1t", "l1_bupyo2_row": "l1r"}[kind]
+    prefix = {"l2_combo": "l2c", "l2_preg": "l2p", "l2_age": "l2a", "l1_bupyo2_table": "l1t", "l1_bupyo2_row": "l1r", "l2_elderly": "l2e"}[kind]
     raw = kind + "|" + key + "\x1f" + text
     return f"{prefix}-{sha(raw)}"
 
@@ -196,6 +200,41 @@ def build_detail_chunks(preg_rows: Sequence[dict[str, str]] | None = None, age_r
     return out
 
 
+# --------------------------------------------------------------------------- L2 노인주의약물(KIDS 목록, 성분 단위)
+
+def build_elderly_chunks(rows: Sequence[dict[str, str]] | None = None, fname: str = ELDERLY_KIDS_CSV_NAME) -> list[dict[str, Any]]:
+    """성분 단위 청크. CSV에 상세정보 열이 없으므로 '목록에 포함된 성분'이라는 사실과 성분·제품 수·대표 제품만 쓴다(문구를 지어내지 않는다)."""
+    data = _cp949_rows(DATA / fname) if rows is None else rows
+    acc: dict[str, dict[str, Any]] = {}
+    for i, r in enumerate(data, start=1):  # 행 번호 = 헤더를 뺀 데이터 행 번호(1부터)
+        code = (r.get("성분코드") or "").strip()
+        if not code:
+            continue
+        d = acc.setdefault(code, {"names": set(), "products": set(), "rows": []})
+        name = (r.get("성분명") or "").strip()
+        if name:
+            d["names"].add(name)
+        prod = (r.get("제품명") or "").strip()
+        if prod:
+            d["products"].add((r.get("제품코드") or "").strip() + "|" + prod)
+        d["rows"].append(i)
+    out = []
+    for code in sorted(acc):
+        d = acc[code]
+        names = sorted(d["names"])
+        prods = sorted(p.split("|", 1)[1] for p in d["products"])
+        rep = ", ".join(prods[:ELDERLY_REP_PRODUCTS])
+        text = (f"{' / '.join(names)}\n한국의약품안전관리원 노인주의약물 목록에 포함된 성분. 성분코드 {code}. "
+                f"해당 제품 {len(prods)}개." + (f" 대표 제품: {rep}" if rep else ""))
+        out.append(_chunk(
+            "l2_elderly", f"l2_elderly|{code}", text,
+            layer="L2", issuer=ISSUER_KIDS, doc_type="파일데이터", notice_no="", base_date=ELDERLY_BASE_DATE,
+            locator=f"{fname} 행 {_rows_label(d['rows'])}", ingr_codes=[code], ingr_names=names, license=LICENSE_KIDS,
+            source_ref=f"한국의약품안전관리원 노인주의약물|{fname}", **_meta_of(fname),
+        ))
+    return out
+
+
 # --------------------------------------------------------------------------- L1 별표 2(표 + 행)
 
 def build_bupyo2_chunks(md_path: Path | None = None) -> list[dict[str, Any]]:
@@ -226,7 +265,7 @@ def build_bupyo2_chunks(md_path: Path | None = None) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- 전체 빌드·출력·검증
 
 def build_all() -> list[dict[str, Any]]:
-    chunks = build_combo_chunks() + build_detail_chunks() + build_bupyo2_chunks()
+    chunks = build_combo_chunks() + build_detail_chunks() + build_elderly_chunks() + build_bupyo2_chunks()
     chunks.sort(key=lambda c: (c["chunk_kind"], c["chunk_id"]))
     return chunks
 
