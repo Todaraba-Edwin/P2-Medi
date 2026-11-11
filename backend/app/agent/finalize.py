@@ -199,6 +199,33 @@ def _badges(found_items: list[dict[str, Any]], render_badges: list[dict[str, Any
     return out
 
 
+def _first_value(items: list[dict[str, Any]], *keys: str) -> str | None:
+    """항목들에서 첫 비어 있지 않은 문자열 값(없으면 None). 값을 지어내지 않는다."""
+    for it in items:
+        for k in keys:
+            v = it.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+    return None
+
+
+def fallback_summary(items: list[dict[str, Any]]) -> str:
+    """검증 폴백 요약 문구를 코드가 고른다. 확인된 항목(FOUND·NOT_LISTED 묶음)이 있으면 SOME, 없으면 NONE."""
+    items = [it for it in items or [] if isinstance(it, dict)]
+    confirmed = [it for it in items if _bucket(it) in (BUCKET_FOUND, BUCKET_NOT_LISTED)]
+    if confirmed:
+        doc_date = _first_value(confirmed, "as_of")
+        return fp.FALLBACK_SOME_CONFIRMED.format(doc_date=doc_date) if doc_date else fp.FALLBACK_SOME_NO_DATE
+    api_time = _first_value(items, "queried_at_display", "queried_at_utc")
+    doc_date = _first_value(items, "as_of")
+    parts = []
+    if api_time:
+        parts.append(fp.FALLBACK_NONE_SCOPE_API.format(api_time=api_time))
+    if doc_date:
+        parts.append(fp.FALLBACK_NONE_SCOPE_DOC.format(doc_date=doc_date))
+    return fp.FALLBACK_NONE_CONFIRMED.format(scope=", ".join(parts)) if parts else fp.FALLBACK_NONE_NO_SCOPE
+
+
 def finalize(
     items: list[dict[str, Any]],
     model_summary: str | None = None,
@@ -208,11 +235,13 @@ def finalize(
     limit_reached: bool = False,
     refuse_reason: str | None = None,
     grade_def_missing: list[dict[str, Any]] | None = None,
+    validation_fallback: bool = False,
 ) -> dict[str, Any]:
     """응답 딕셔너리를 만든다. 고정 문구는 인자·모델 출력과 무관하게 항상 들어간다.
 
     - `limit_reached`: 모델 호출 상한으로 끝났다. 모델 요약은 쓰지 않고 지금까지의 항목을 코드 문구로 보인다(RFP-33-06).
     - `refuse_reason`: 입구 거절 이유 키(`guardrail.classify_scope`). 거절 문구가 요약 자리에 들어간다.
+    - `validation_fallback`: 두 번째 검증 실패. 모델 요약은 없고 코드 폴백 문구(`fallback_summary`)가 요약 자리에 들어간다.
     - `grade_def_missing`: `[{"grade": "2", "missing_reason": "FETCH_FAIL"|"OUT_OF_SCOPE"}]` 등급 정의 블록 미확보(PRD-15-03).
     """
     items = [it for it in items or [] if isinstance(it, dict)]
@@ -248,6 +277,8 @@ def finalize(
         summary: str | None = fp.REFUSE_MESSAGES.get(refuse_reason, fp.REFUSE_MESSAGES["OUT_OF_SCOPE"])
     elif limit_reached:
         summary = None  # LLM 요약 없이 코드로만
+    elif validation_fallback:
+        summary = fallback_summary(items)
     else:
         summary = model_summary.strip() if isinstance(model_summary, str) and model_summary.strip() else None
 

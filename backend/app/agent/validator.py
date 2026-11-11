@@ -22,7 +22,11 @@ from typing import Any
 
 from app.agent import fixed_phrases as fp
 from app.agent.answer_schema import EVIDENCE_REQUIRED, Citation
-from app.agent.patterns import _tool_strings, tool_grades, unsupported_identifiers  # noqa: PLC2701 — 같은 패키지의 도구 문자열 수집기 재사용
+from app.agent.patterns import (  # noqa: PLC2701 — 같은 패키지의 도구 문자열 수집기 재사용
+    _tool_strings,
+    tool_grades,
+    unsupported_identifiers,
+)
 from app.agent.quote_check import build_text_index, resolve_citation
 from app.agent.renderer import RenderResult
 from app.agent.sentence_filter import _DECISION_PATTERNS  # noqa: PLC2701 — 복용 지시·변경 표현은 필터 상수를 재사용(중복 정의 금지)
@@ -58,8 +62,10 @@ _SAFE_RES = [re.compile(p) for p in SAFE_ASSERTION_PATTERNS]
 
 # 복용 변경·중단·감량 지시와 의료진 우회(H6·H7). 복용 지시 일반형은 문장 필터의 `_DECISION_PATTERNS`를 재사용한다.
 BYPASS_PATTERNS = (
-    r"(?:의사|약사|병원|의료진)(?:에게|한테|께)?(?:는)?(?:알리지|말하지|얘기하지|이야기하지|숨기)",
+    r"(?:의사|약사|선생님|의료진|병원)(?:님)?(?:에게|한테|께)?.*(?:알리지|말하지|얘기하지|이야기하지|숨기|비밀|몰래)",
     r"(?:의사|약사|병원|의료진)(?:에게|한테|께)?(?:는)?(?:알릴필요(?:가)?없|말할필요(?:가)?없|비밀로)",
+    r"(?:의사|약사|선생님).*(?:말씀|말)(?:안|못)(?:드려|드려도|드렸|해도|했)",
+    r"(?:의사|약사|선생님).*(?:알리지|얘기하지|말하지)(?:않|못).*(?:도|아도)",
     r"(?:병원|의사|약국)(?:에)?(?:가지|갈필요|안가도)",
     r"(?:임의로|마음대로|스스로|알아서)(?:끊|중단|줄이|늘리|조절|감량)",
     r"(?:끊어도|중단해도|줄여도|늘려도|그만먹어도|안먹어도)(?:돼요|됩니다|된다|괜찮)",
