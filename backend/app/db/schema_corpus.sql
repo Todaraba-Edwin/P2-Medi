@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS corpus_chunks (
     license      TEXT NOT NULL,
     text         TEXT NOT NULL,
     source_ref   TEXT NOT NULL,                  -- 데이터셋|파일 이름
+    year         SMALLINT,                       -- 문서 메타 표(doc_meta.py): 고시 개정 연도 또는 기준일 연도. 미확인 NULL
+    source_file  TEXT NOT NULL DEFAULT '',       -- 원본 파일 이름(API 청크는 빈 문자열)
+    effective_date DATE,                         -- 시행일(확인된 경우만). 미확인 NULL
     item_seq     TEXT NOT NULL DEFAULT '',       -- L3: 품목기준코드(e약은요·허가 상세). 같은 제품의 청크를 모으는 키
     item_name    TEXT NOT NULL DEFAULT '',
     section      TEXT NOT NULL DEFAULT '',       -- L3: 절(항목) 이름 또는 `doc 조항 제목`

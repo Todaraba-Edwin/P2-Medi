@@ -1,7 +1,7 @@
 """BE-10 제품·성분 사전 빌더(오프라인 1차). 외부 API·임베딩 호출 없음, 로컬 파일만 읽는다.
 
 재료(모두 `data/` 로컬):
-  - KIDS 병용금기 JSON(`data/병용금기_데이터.json`, 스트리밍): 제품코드·제품명·성분코드(KIDS형식)·성분명 A/B
+  - KIDS 병용금기 JSON(`data/한국의약품안전관리원_병용금기약물(AI 학습용)_20260731.json`, 스트리밍): 제품코드·제품명·성분코드(KIDS형식)·성분명 A/B
   - KIDS 임부·연령·수유부 CSV: 제품코드·제품명·성분코드. 용량주의 CSV는 복합제가 1성분만 표시되어 제품·복합제 연결에는 쓰지 않고,
     **단일 성분 코드 목록으로만** 쓴다(BE-10-10 C: 연령·임부 목록에 없는 제형의 단일 성분 코드를 사전이 알도록. `dose_single_codes` 참조)
   - 수집 스냅샷 `data/mock/api_snapshots/`: eyak-all(e약은요), prmsn-names(허가정보 전체 목록), prmsn-detail(상세 212개),
@@ -30,6 +30,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db.loaders import iter_csv, iter_json_array
+from app.db.source_files import COMBO_JSON_NAME
 from app.tools.drug_dict import (
     BM25_TOKENIZER,
     CODE_COMPONENT_ONLY,
@@ -241,7 +242,7 @@ def _file_hash(paths: Iterable[Path]) -> str:
 
 def material_hashes(data_dir: Path, snap: Path) -> dict[str, str]:
     out: dict[str, str] = {}
-    kj = data_dir / "병용금기_데이터.json"
+    kj = data_dir / COMBO_JSON_NAME
     if kj.exists():
         out["kids_contra_json"] = _file_hash([kj])
     for fn in ("한국의약품안전관리원_임부금기약물_20260721.csv", "한국의약품안전관리원_연령금기_20260721.csv",
@@ -629,7 +630,7 @@ def main(argv: list[str] | None = None) -> int:
 
     snaps = snapshot_sets(SNAP)
     hashes = material_hashes(DATA, SNAP)
-    kids = list(kids_json_records(DATA / "병용금기_데이터.json", args.limit_kids))
+    kids = list(kids_json_records(DATA / COMBO_JSON_NAME, args.limit_kids))
     data, stats = build_dictionary(kids, list(kids_csv_records(DATA)), snaps, hashes, list(kids_dose_records(DATA)))
     (out / "drug_dict.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from app.db import loaders
+from app.db.source_files import COMBO_JSON_NAME
 
 REAL_DATA = Path(__file__).resolve().parents[2] / "data"
 
@@ -124,7 +125,7 @@ def test_json_stream_limit_and_empty(tmp_path):
 def test_load_is_idempotent(tmp_path):
     preg = _write_cp949(tmp_path / "한국의약품안전관리원_임부금기약물_20260721.csv", PREG_HEADER + PREG_ROWS)
     age = _write_cp949(tmp_path / "한국의약품안전관리원_연령금기_20260721.csv", AGE_HEADER + AGE_ROWS)
-    (tmp_path / "병용금기_데이터.json").write_text(
+    (tmp_path / COMBO_JSON_NAME).write_text(
         json.dumps([_contra_obj(i) for i in range(5)], ensure_ascii=False), encoding="utf-8")
     assert preg.exists() and age.exists()
     collected = loaders.collect_all(tmp_path, include_extension=False)
@@ -156,9 +157,9 @@ def test_estimate_size_scales_with_rows(tmp_path):
 
 # ------------------------------------------------------------ 실제 파일(있을 때만)
 
-@pytest.mark.skipif(not (REAL_DATA / "병용금기_데이터.json").exists(), reason="data/ 원본 없음(로컬 전용)")
+@pytest.mark.skipif(not (REAL_DATA / COMBO_JSON_NAME).exists(), reason="data/ 원본 없음(로컬 전용)")
 def test_real_contra_json_streams_first_n_within_memory():
-    path = REAL_DATA / "병용금기_데이터.json"        # 약 540MB
+    path = REAL_DATA / COMBO_JSON_NAME        # 약 540MB
     tracemalloc.start()
     n = 0
     for obj in loaders.iter_json_array(path, limit=2000):

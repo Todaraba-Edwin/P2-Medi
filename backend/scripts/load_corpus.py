@@ -158,7 +158,7 @@ def pg_row(c: dict[str, Any], vec: str | None) -> tuple[Any, ...]:
             v = json.dumps(c.get(f) or [], ensure_ascii=False)
         elif f in ARRAY_COLS:
             v = list(c.get(f) or [])
-        elif f in ("parent_id", "pair_id"):
+        elif f in ("parent_id", "pair_id", "year", "effective_date"):
             v = v or None
         vals.append(v)
     vals.append(vec)

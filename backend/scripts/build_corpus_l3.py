@@ -37,6 +37,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 import build_corpus_l2 as L2  # noqa: E402
 from chunk_trial import EYAK_FIELDS, SNAP, clean_field, parse_table, split_sentences  # noqa: E402
 
+from app.db.doc_meta import chunk_meta  # noqa: E402
+from app.db.source_files import GOSI_PDF_NAME  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = L2.OUT_DIR
 NOTICE_MD = ROOT / "P2-doc" / "MFDS_병용금기_지정규정_고시.md"
@@ -65,8 +68,10 @@ EXTRA = L2.EXTRA_FIELDS
 
 def mk(kind: str, key: str, text: str, prefix: str, **kw: Any) -> dict[str, Any]:
     c: dict[str, Any] = {f: "" for f in L2.FIELDS + EXTRA}
-    c.update({"parent_id": None, "refs": [], "pair_id": None, "ingr_codes": [], "ingr_names": [], "base_date": L2.BASE_DATE})
+    c.update({"year": None, "effective_date": None, "parent_id": None, "refs": [], "pair_id": None, "ingr_codes": [], "ingr_names": [], "base_date": L2.BASE_DATE})
     c.update(kw)
+    if c["year"] is None and c["base_date"]:
+        c["year"] = int(str(c["base_date"])[:4])  # 문서 파일이 없는 API 청크는 수집 기준일의 연도
     c.update({"chunk_kind": kind, "text": text, "chunk_id": f"{prefix}-{L2.sha(kind + '|' + key + chr(31) + text)}"})
     return {f: c[f] for f in L2.FIELDS + EXTRA}
 
@@ -367,7 +372,7 @@ def build_notice_chunks(notice_md: Path | None = None, bup1: Path | None = None,
     """(청크들, 보고 정보). 별표 1·3 변환본이 없으면 건너뛰고 skipped에 적는다."""
     arts = parse_notice((notice_md or NOTICE_MD).read_text(encoding="utf-8"))
     base = {"layer": "L1", "issuer": ISSUER_MFDS, "doc_type": "고시", "notice_no": L2.BUPYO2_NOTICE_NO, "license": L2.LICENSE_GOSI,
-            "source_ref": "의약품 병용금기 성분 등의 지정에 관한 규정|MFDS_병용금기_지정규정_고시.md"}
+            "source_ref": "의약품 병용금기 성분 등의 지정에 관한 규정|MFDS_병용금기_지정규정_고시.md", **chunk_meta(GOSI_PDF_NAME)}
     chunks: list[dict[str, Any]] = []
     art_id: dict[int, str] = {}
     ho_id: dict[tuple[int, int], str] = {}

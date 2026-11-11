@@ -36,6 +36,7 @@ from app.db.loaders import (  # noqa: E402  (BE-09 정규화 재사용, 읽기�
     normalize_contra_json,
     normalize_pregnancy,
 )
+from app.db.source_files import COMBO_JSON_NAME  # noqa: E402
 import variants as V  # noqa: E402  (RFP-28-02 코드 변형 규칙)
 
 SEED = 20261110
@@ -45,7 +46,7 @@ POOL_MODEL = "claude-haiku-4-5-20251001"  # data/credit_use/manifest.json의 mod
 
 F_PREG = DATA / "한국의약품안전관리원_임부금기약물_20260721.csv"
 F_AGE = DATA / "한국의약품안전관리원_연령금기_20260721.csv"
-F_COMBO = DATA / "병용금기_데이터.json"
+F_COMBO = DATA / COMBO_JSON_NAME
 F_POOL = {s: DATA / "credit_use" / f"pool_{s}.jsonl" for s in ("dev", "test")}
 F_TPL = DATA / "mock" / "question_templates" / "question_templates.jsonl"
 OUT = {"dev": HERE / "dev_set.jsonl", "test": HERE / "test_set.SEALED.jsonl"}
