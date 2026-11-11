@@ -11,7 +11,7 @@ class DraftPromptError(RuntimeError):
     """채택되지 않은 프롬프트를 기준선에 연결하려 할 때."""
 
 
-def load_system_prompt(name: str = "agent_system@v1", *, allow_draft: bool = False, prompts_dir: Path = PROMPTS_DIR) -> str:
+def load_system_prompt(name: str = "agent_system@v2", *, allow_draft: bool = False, prompts_dir: Path = PROMPTS_DIR) -> str:
     text = (prompts_dir / f"{name}.md").read_text(encoding="utf-8")
     fm, body = split_frontmatter(text)
     if fm is None:
