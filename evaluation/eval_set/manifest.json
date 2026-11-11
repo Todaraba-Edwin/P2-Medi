@@ -34,8 +34,8 @@
   "dev": {
    "file": "dev_set.jsonl",
    "n": 150,
-   "sha256": "ee21a1eeaca5c3123ee72a4913ad806cdf64f0eb741bec6b92c8da029a795f51",
-   "bytes": 317503,
+   "sha256": "4a1aa5e6250601c333946462a60e1a68e35f2889e44eb9e7698d86976019050e",
+   "bytes": 317703,
    "by_group": {
     "정상-임부": 10,
     "정상-병용": 15,
@@ -110,8 +110,8 @@
   "test": {
    "file": "test_set.SEALED.jsonl",
    "n": 151,
-   "sha256": "df2e5a7cdfad4a54df0ebb37d53d68bcb9d3d702b18ee0e9d2cca61fbf1bec29",
-   "bytes": 322200,
+   "sha256": "38c5af5c5e9786ac0edf76b8fe08c614144a51bb295ba595533b5a252a0a2b2a",
+   "bytes": 322500,
    "by_group": {
     "정상-병용": 15,
     "정상-임부": 10,
