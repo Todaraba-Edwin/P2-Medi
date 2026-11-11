@@ -149,6 +149,13 @@ class CorpusIndex:
                     self._name_keys[k].add(i)
         self._bm25 = BM25(tokenize(c.get("text", "")) for c in self.chunks)
 
+    @classmethod
+    def from_db(cls, conn_factory: Any, *, batch: int = 5000) -> CorpusIndex:
+        """원격 Supabase `corpus_chunks`(읽기 전용 SELECT)에서 서버 시작 시 1회 구성한다. 구현은 `corpus_remote`."""
+        from app.agent.tools.corpus_remote import load_corpus_from_db  # noqa: PLC0415 - 순환 import 방지
+
+        return load_corpus_from_db(conn_factory, batch=batch)
+
     # ------------------------------------------------------------------ 조회
 
     def __len__(self) -> int:
