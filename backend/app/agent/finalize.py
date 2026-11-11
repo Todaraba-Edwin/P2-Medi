@@ -18,6 +18,7 @@ from app.agent import fixed_phrases as fp
 from app.agent.answer_schema import Sentence
 from app.agent.patterns import has_code
 from app.agent.renderer import render
+from app.tools.provenance import DATASET_LABELS
 from app.tools.provenance import badge as source_badge
 
 BUCKET_FOUND, BUCKET_NOT_LISTED, BUCKET_IDENTIFIED, BUCKET_UNCONFIRMED = 0, 1, 2, 3
@@ -209,20 +210,43 @@ def _first_value(items: list[dict[str, Any]], *keys: str) -> str | None:
     return None
 
 
+def _dataset_dates(items: list[dict[str, Any]]) -> list[tuple[str | None, str | None]]:
+    """항목 순서대로 (자료 이름, 기준일) 쌍. 같은 쌍은 한 번만. 자료 이름은 `kind`로 코드가 정한다(없으면 None).
+    날짜는 항목 값만 쓰고 지어내지 않는다."""
+    seen: dict[tuple[str | None, str | None], None] = {}
+    for it in items:
+        label = DATASET_LABELS.get(it.get("kind") or "")
+        d = it.get("as_of")
+        date = d.strip() if isinstance(d, str) and d.strip() else None
+        seen.setdefault((label, date), None)
+    return list(seen)
+
+
 def fallback_summary(items: list[dict[str, Any]]) -> str:
-    """검증 폴백 요약 문구를 코드가 고른다. 확인된 항목(FOUND·NOT_LISTED 묶음)이 있으면 SOME, 없으면 NONE."""
+    """검증 폴백 요약 문구를 코드가 고른다. 확인된 항목(FOUND·NOT_LISTED 묶음)이 있으면 SOME, 없으면 NONE.
+    기준일은 자료마다 따로 나열한다(AG-08-03 B)."""
     items = [it for it in items or [] if isinstance(it, dict)]
     confirmed = [it for it in items if _bucket(it) in (BUCKET_FOUND, BUCKET_NOT_LISTED)]
     if confirmed:
-        doc_date = _first_value(confirmed, "as_of")
-        return fp.FALLBACK_SOME_CONFIRMED.format(doc_date=doc_date) if doc_date else fp.FALLBACK_SOME_NO_DATE
+        names: list[str] = []
+        for label, date in _dataset_dates(confirmed):
+            if label is None:
+                continue
+            text = fp.FALLBACK_SOME_DATASET_DATED.format(label=label, doc_date=date) if date else label
+            # 같은 자료가 날짜 없음과 날짜 있음으로 따로 나오면 날짜 있는 쪽만 남긴다
+            if date is None and any(n.startswith(label + "(") for n in names):
+                continue
+            names = [n for n in names if not (date and n == label)]
+            if text not in names:
+                names.append(text)
+        return fp.FALLBACK_SOME_CONFIRMED.format(datasets=fp.FALLBACK_SOME_DATASET_SEP.join(names)) if names else fp.FALLBACK_SOME_NO_DATE
     api_time = _first_value(items, "queried_at_display", "queried_at_utc")
-    doc_date = _first_value(items, "as_of")
     parts = []
     if api_time:
         parts.append(fp.FALLBACK_NONE_SCOPE_API.format(api_time=api_time))
-    if doc_date:
-        parts.append(fp.FALLBACK_NONE_SCOPE_DOC.format(doc_date=doc_date))
+    for label, date in _dataset_dates(items):
+        if date:
+            parts.append(fp.FALLBACK_NONE_SCOPE_DOC.format(label=label or fp.FALLBACK_NONE_DOC_LABEL, doc_date=date))
     return fp.FALLBACK_NONE_CONFIRMED.format(scope=", ".join(parts)) if parts else fp.FALLBACK_NONE_NO_SCOPE
 
 

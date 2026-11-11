@@ -34,7 +34,11 @@ def test_table_shape() -> None:
     assert len(DOC_META) >= 10
     assert all(k == m.source_file for k, m in DOC_META.items())
     assert all(m.source_url is None or m.source_url.startswith("http") for m in DOC_META.values())
-    assert all(m.source_url is None for m in DOC_META.values())  # 사용자가 알려 주기 전까지 지어내지 않는다
+    # 사용자가 알려 준 두 파일만 값이 있고 나머지는 지어내지 않는다(CLAUDE.md 3·4장)
+    assert {m.source_file: m.source_url for m in DOC_META.values() if m.source_url} == {
+        sf.COMBO_JSON_NAME: "https://www.data.go.kr/data/15161282/fileData.do",
+        sf.PREG_CSV_NAME: "https://www.data.go.kr/data/15089735/fileData.do",
+    }
 
 
 def test_base_date_matches_filename_for_file_data() -> None:
@@ -75,3 +79,19 @@ def test_pdf_first_page_contains_issuer_and_notice(meta) -> None:  # noqa: ANN00
     elif meta.notice_no:
         num = meta.notice_no.removeprefix("제").removesuffix("호")  # '2026-52' / '1181' / '21525'
         assert num.replace("-", "") in text.replace("-", "").replace("제", "") or num in text
+
+
+def test_combo_as_of_comes_from_file_name_and_others_unchanged():
+    """병용금기 판정 경로의 기준일은 파일 이름(2026-07-31)에서, 임부·연령·용량·수유부는 기존 값(plan-critic #2)."""
+    from app.db import loaders
+    from app.tools import lookup, provenance
+
+    assert loaders.AS_OF_COMBO == parse_base_date(sf.COMBO_JSON_NAME) == "2026-07-31"
+    assert loaders.AS_OF_KIDS == "2026-07-21" and loaders.AS_OF_LACTATION == "2025-11-27"
+    assert lookup._KIND_SOURCE["contra_pair"][1] == provenance.DATASET_AS_OF["contra_pair"] == loaders.AS_OF_COMBO
+    for k in ("pregnancy", "age", "dose"):
+        assert lookup._KIND_SOURCE[k][1] == provenance.DATASET_AS_OF[k] == "2026-07-21"
+    assert lookup._KIND_SOURCE["lactation"][1] == "2025-11-27"
+    row = loaders.normalize_contra_json({"metadata": {"성분코드A": "100501ATE", "성분코드B": "100601ATE", "금기사유": "x", "고시번호": "1"}})
+    assert row["as_of"] == loaders.AS_OF_COMBO
+    assert loaders.CORE_SOURCES[sf.COMBO_JSON_NAME][2] == loaders.AS_OF_COMBO

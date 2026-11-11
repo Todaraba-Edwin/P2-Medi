@@ -296,7 +296,7 @@ def test_second_failure_falls_back_to_code_text(dd):
     st = run_question(g, PAIR_QS[1])
     assert st["rewind_count"] == 1 and st["end_reason"] == "VALIDATION_FALLBACK" and st["final_sentences"] == []
     a = st["answer"]
-    assert "안전합니다" not in a["text"] and a["summary"] == fp.FALLBACK_SOME_CONFIRMED.format(doc_date="2026-07-21")
+    assert "안전합니다" not in a["text"] and a["summary"] == fp.FALLBACK_SOME_CONFIRMED.format(datasets="병용금기 파일(기준일 2026-07-21)")
     assert a["fixed_notice"] == fp.FIXED_NOTICE and any(e["bucket"] == "found" for e in a["entries"])  # 코드 문구로 항목은 남는다
     assert len(sm.calls) == 2  # 되감기는 최대 1회
 

@@ -26,17 +26,18 @@ MISS = _item("NO_EVIDENCE", missing_reason="SEARCH_MISS", as_of=None, source_kin
 
 
 def test_some_when_any_judged_item():
-    assert fallback_summary([MISS, FOUND]) == fp.FALLBACK_SOME_CONFIRMED.format(doc_date="2026-07-21")
-    assert fallback_summary([NOT_LISTED]) == fp.FALLBACK_SOME_CONFIRMED.format(doc_date="2026-07-21")
+    exp = fp.FALLBACK_SOME_CONFIRMED.format(datasets="병용금기 파일(기준일 2026-07-21)")
+    assert fallback_summary([MISS, FOUND]) == exp
+    assert fallback_summary([NOT_LISTED]) == exp
 
 
 def test_none_with_both_dates_and_variants():
     full = _item("NO_EVIDENCE", missing_reason="ABSENT", queried_at_display="2026-11-11 09:00 (KST)")
-    assert fallback_summary([full]) == ("검색한 자료(API 조회 2026-11-11 09:00 (KST), 문서 기준일 2026-07-21)에서는 확인하지 못했어요. "
+    assert fallback_summary([full]) == ("검색한 자료(API 조회 2026-11-11 09:00 (KST), 병용금기 파일 기준일 2026-07-21)에서는 확인하지 못했어요. "
                                         "정확한 확인은 약국·약사에게 하세요.")
-    assert "문서 기준일" not in fallback_summary([MISS]) and "API 조회 2026-11-11" in fallback_summary([MISS])
+    assert "기준일" not in fallback_summary([MISS]) and "API 조회 2026-11-11" in fallback_summary([MISS])
     only_doc = _item("NO_EVIDENCE", missing_reason="ABSENT")
-    assert fallback_summary([only_doc]) == fp.FALLBACK_NONE_CONFIRMED.format(scope="문서 기준일 2026-07-21")
+    assert fallback_summary([only_doc]) == fp.FALLBACK_NONE_CONFIRMED.format(scope="병용금기 파일 기준일 2026-07-21")
     bare = _item("NO_EVIDENCE", missing_reason="ABSENT", as_of=None)
     assert fallback_summary([bare]) == fp.FALLBACK_NONE_NO_SCOPE == fallback_summary([])
 
@@ -47,13 +48,46 @@ def test_demoted_or_unsourced_judged_items_do_not_count_as_confirmed():
 
 
 def test_some_without_date_omits_it():
-    s = fallback_summary([_item("FOUND", as_of=None)])
-    assert s == fp.FALLBACK_SOME_NO_DATE and "None" not in s and "기준" not in s.split("공공")[0]
+    s = fallback_summary([_item("FOUND", as_of=None)])  # 날짜는 없고 자료 이름만(날짜를 지어내지 않는다)
+    assert s == fp.FALLBACK_SOME_CONFIRMED.format(datasets="병용금기 파일") and "None" not in s and "기준일" not in s
+    unnamed = fallback_summary([_item("FOUND", kind="zzz", as_of=None)])
+    assert unnamed == fp.FALLBACK_SOME_NO_DATE
+
+
+def test_some_lists_each_dataset_date_in_item_order():  # AG-08-03 B
+    combo = _item("FOUND", kind="contra_pair", as_of="2026-07-31", evidence_id="e:c")
+    preg = _item("FOUND", kind="pregnancy", as_of="2026-07-21", evidence_id="e:p")
+    lact = _item("NOT_LISTED", kind="lactation", as_of="2025-11-27", evidence_id="e:l")
+    exp = "병용금기 파일(기준일 2026-07-31)·임부금기 파일(기준일 2026-07-21)에서 확인된 내용만 아래에 보여 드려요."
+    assert fallback_summary([combo, preg]).startswith(exp)
+    assert fallback_summary([preg, combo]).startswith("임부금기 파일(기준일 2026-07-21)·병용금기 파일(기준일 2026-07-31)")  # 순서는 항목 순서
+    three = fallback_summary([combo, preg, lact])
+    assert "수유부주의 파일(기준일 2025-11-27)" in three and three.count("기준일") == 3
+    # 같은 (자료, 날짜)는 한 번만
+    dup = fallback_summary([combo, _item("FOUND", kind="contra_pair", as_of="2026-07-31", evidence_id="e:c2"), preg])
+    assert dup.count("병용금기 파일") == 1 and dup.count("기준일") == 2
+    # 같은 자료의 날짜가 다르면 둘 다, 날짜 없는 같은 자료는 날짜 있는 쪽에 흡수
+    two_dates = fallback_summary([combo, _item("FOUND", kind="contra_pair", as_of="2026-08-01", evidence_id="e:c3")])
+    assert "2026-07-31" in two_dates and "2026-08-01" in two_dates
+    mixed = fallback_summary([_item("FOUND", kind="pregnancy", as_of=None, evidence_id="e:x"), preg])
+    assert mixed.count("임부금기 파일") == 1 and "(기준일 2026-07-21)" in mixed
+    # 확인되지 않은 항목의 날짜는 SOME 문구에 섞이지 않는다
+    assert "수유부" not in fallback_summary([combo, _item("NO_EVIDENCE", kind="lactation", missing_reason="ABSENT", as_of="2025-11-27")])
+
+
+def test_none_lists_each_dataset_date():
+    a = _item("NO_EVIDENCE", kind="contra_pair", missing_reason="ABSENT", as_of="2026-07-31", source_kind=None)
+    b = _item("NO_EVIDENCE", kind="pregnancy", missing_reason="ABSENT", as_of="2026-07-21", source_kind=None, queried_at_display="2026-11-11 09:00 (KST)")
+    c = _item("NO_EVIDENCE", kind="pregnancy", missing_reason="ABSENT", as_of="2026-07-21", source_kind=None, evidence_id="e:d")
+    assert fallback_summary([a, b, c]) == fp.FALLBACK_NONE_CONFIRMED.format(
+        scope="API 조회 2026-11-11 09:00 (KST), 병용금기 파일 기준일 2026-07-31, 임부금기 파일 기준일 2026-07-21")
+    unnamed = _item("NO_EVIDENCE", kind="zzz", missing_reason="ABSENT", as_of="2026-07-21", source_kind=None)
+    assert "문서 기준일 2026-07-21" in fallback_summary([unnamed])
 
 
 def test_summary_only_on_validation_fallback():
     on = finalize([FOUND], validation_fallback=True)
-    assert on["summary"] == fp.FALLBACK_SOME_CONFIRMED.format(doc_date="2026-07-21")
+    assert on["summary"] == fp.FALLBACK_SOME_CONFIRMED.format(datasets="병용금기 파일(기준일 2026-07-21)")
     assert on["summary"] in on["text"]
     off = finalize([FOUND])
     assert off["summary"] is None
@@ -75,13 +109,17 @@ def test_other_fields_unchanged_by_fallback_flag():
             assert on["text"].splitlines()[0] == fp.EMERGENCY_119
 
 
-@pytest.mark.parametrize("items", [[], [FOUND], [MISS], [_item("FOUND", as_of=None)], [_item("NO_EVIDENCE", as_of=None, source_kind=None)]])
+_MULTI = [_item("FOUND", kind="contra_pair", as_of="2026-07-31", evidence_id="e:c"), _item("FOUND", kind="pregnancy", evidence_id="e:p")]
+
+
+@pytest.mark.parametrize("items", [[], [FOUND], [MISS], [_item("FOUND", as_of=None)], [_item("NO_EVIDENCE", as_of=None, source_kind=None)], _MULTI])
 def test_phrases_never_assert_safety(items):
     text = fallback_summary(items)
     assert unsafe_reason(text) is None
     assert not any(w in text for w in ("안전", "괜찮", "문제없", "문제 없")) and not any(t in text for t in fp.FORBIDDEN_SCREEN_TERMS)
     for const in (fp.FALLBACK_NONE_CONFIRMED, fp.FALLBACK_NONE_NO_SCOPE, fp.FALLBACK_SOME_CONFIRMED, fp.FALLBACK_SOME_NO_DATE):
-        assert unsafe_reason(const.format(scope="x", doc_date="d")) is None
+        assert unsafe_reason(const.format(scope="x", datasets="x")) is None
+    assert "FALLBACK_SOME_CONFIRMED" in fp.DRAFT_KEYS and "FALLBACK_NONE_SCOPE_DOC" in fp.DRAFT_KEYS
     sent = Sentence(text=text, evidence_ids=[], claim_type="guidance", citations=[])
     assert unsafe_reason(sent.text) is None
     fr = filter_sentences(AnswerDraft(sentences=[sent]), items)  # 문장 필터·Validator가 0건 걸러낸다
