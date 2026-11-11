@@ -67,14 +67,14 @@ def test_pair_found_both_directions(conn):
         m = item.matches[0]
         assert m["reason"].startswith("독성 증가")
         assert m["notice_no"] == "20200130"
-        assert item.as_of == "2026-07-21" and item.source == "한국의약품안전관리원"
+        assert item.as_of == "2026-07-31" and item.source == "한국의약품안전관리원"
         assert item.evidence_id == f"contra_pair:{FLU}:{TSONE}"
 
 
 def test_pair_not_listed_carries_source_and_date(conn):
     item = _one(lookup.check_contraindications(conn, [FLU, CLEAN]), "contra_pair")
     assert item.status == NOT_LISTED and item.matches == []
-    assert item.as_of == "2026-07-21" and item.source
+    assert item.as_of == "2026-07-31" and item.source
 
 
 def test_pregnancy_grade_and_detail_verbatim(conn):

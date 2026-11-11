@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.db.doc_meta import parse_base_date
 from app.db.source_files import COMBO_JSON_NAME
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -28,7 +29,8 @@ SRC_KIDS = "한국의약품안전관리원"
 SRC_HIRA = "건강보험심사평가원"
 
 # 파일별 기준일(BE-09 완료 조건, RFP 5.1절 (5)). 심평원 품목리스트는 '2026.6' 월 단위 표기라 월초로 적는다.
-AS_OF_KIDS = "2026-07-21"
+AS_OF_KIDS = "2026-07-21"  # 임부·연령·용량 파일 공통(병용금기는 아래 AS_OF_COMBO)
+AS_OF_COMBO = parse_base_date(COMBO_JSON_NAME) or ""  # 병용금기 JSON 파일 이름 끝 `_YYYYMMDD`(2026-07-31, plan-critic #2)
 AS_OF_LACTATION = "2025-11-27"
 AS_OF_HIRA = "2026-06-01"
 
@@ -163,7 +165,7 @@ def normalize_contra_json(obj: dict[str, Any]) -> dict[str, Any] | None:
         "name_a": _s(m.get("성분명A")), "name_b": _s(m.get("성분명B")),
         "notice_no": notice_no, "notice_date": _s(m.get("고시적용일")) or None,
         "reason": reason, "remark": _s(m.get("비고")),
-        "source": SRC_KIDS, "as_of": AS_OF_KIDS,
+        "source": SRC_KIDS, "as_of": AS_OF_COMBO,
     }
 
 
@@ -294,7 +296,7 @@ def collect(
 
 # 파일 → (테이블, 정규화 함수, 파서) 대응. 파일 이름은 `data/` 안의 원본 이름이다.
 CORE_SOURCES = {
-    COMBO_JSON_NAME: ("contra_pair", normalize_contra_json, AS_OF_KIDS),
+    COMBO_JSON_NAME: ("contra_pair", normalize_contra_json, AS_OF_COMBO),
     "한국의약품안전관리원_임부금기약물_20260721.csv": ("pregnancy_contra", normalize_pregnancy, AS_OF_KIDS),
     "한국의약품안전관리원_연령금기_20260721.csv": ("age_contra", normalize_age, AS_OF_KIDS),
 }

@@ -7,9 +7,13 @@
   "kids_files": [
    "한국의약품안전관리원_임부금기약물_20260721.csv",
    "한국의약품안전관리원_연령금기_20260721.csv",
-   "병용금기_데이터.json"
+   "한국의약품안전관리원_병용금기약물(AI 학습용)_20260731.json"
   ],
-  "kids_as_of": "2026-07-21",
+  "kids_as_of": {
+   "병용금기": "2026-07-31",
+   "임부·연령·용량": "2026-07-21",
+   "수유부": "2025-11-27"
+  },
   "combo_json_rows": 512464,
   "combo_pairs": 23619,
   "question_pool": [
@@ -34,8 +38,8 @@
   "dev": {
    "file": "dev_set.jsonl",
    "n": 150,
-   "sha256": "4a1aa5e6250601c333946462a60e1a68e35f2889e44eb9e7698d86976019050e",
-   "bytes": 317703,
+   "sha256": "bc51d083b1df310f8d589475acde6a6dbf171935a770e8c3c217726e0dc26ee3",
+   "bytes": 329729,
    "by_group": {
     "정상-임부": 10,
     "정상-병용": 15,
@@ -110,8 +114,8 @@
   "test": {
    "file": "test_set.SEALED.jsonl",
    "n": 151,
-   "sha256": "38c5af5c5e9786ac0edf76b8fe08c614144a51bb295ba595533b5a252a0a2b2a",
-   "bytes": 322500,
+   "sha256": "79affcf29e27eb418edb494f5bfb3631ef3eace06e79e01e9dc5421b7c13632f",
+   "bytes": 334158,
    "by_group": {
     "정상-병용": 15,
     "정상-임부": 10,
@@ -160,5 +164,6 @@
    "golden_excluded": 4
   }
  },
- "last_updated": "2026-11-10T14:48:40.108329"
+ "last_updated": "2026-11-11",
+ "last_change_reason": "BE-05-08 B 및 후속, 병용 기준일 파일명 20260731 반영(items·answer_evidence·reference 꼬리 날짜·files), 정답 판정 불변"
 }

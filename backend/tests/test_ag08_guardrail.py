@@ -148,7 +148,11 @@ def test_in_scope_questions_are_not_refused(text):
 
 
 def test_refusal_for_stop_dose_points_to_doctor_or_pharmacist():
-    assert "의사·약사와 상의" in fp.REFUSE_MESSAGES["STOP_DOSE_CHANGE"]
+    # PJ2-Agent-Harness.md 4.4 표 문구와 글자까지 같아야 한다(plan-critic #3)
+    assert fp.REFUSE_MESSAGES["STOP_DOSE_CHANGE"] == (
+        "약을 줄이거나 끊는 방법과 시기는 알려 드릴 수 없어요. 의사가 줄이라고 했더라도 어떻게 줄일지는 처방한 그 의사나 약사에게 다시 확인하세요. "
+        "이 서비스는 지금 상태로 약을 줄여도 되는지 판단(진단·평가)해 드릴 수 없어요."
+    )
 
 
 # --------------------------------------------------------------------------- 인젝션(사용자 입력)
@@ -243,3 +247,16 @@ def test_no_other_module_lists_keywords_or_defines_detector():
         if p.is_file() and p.suffix in {".ts", ".tsx", ".js", ".jsx"} and "node_modules" not in p.parts:
             t = p.read_text(encoding="utf-8", errors="ignore")
             assert "EMERGENCY_KEYWORDS" not in t and "detect_emergency" not in t, p
+
+
+# --------------------------------------------------------------------------- plan-critic #1: 임부·수유·상시 복용 확인은 거절하지 않는다
+@pytest.mark.parametrize("text", [
+    "임신한 상태에서 타이레놀 먹어도 되나요",
+    "수유 중인데 판콜 먹어도 괜찮나요",
+    "혈압약을 계속 먹어야 하는 사람인데 이 감기약 같이 먹어도 되나요",
+    "임신 중 먹어도 되는 약인가요",
+    "계속 복용 중인 약과 같이 먹어도 되나요",
+])
+def test_pregnancy_lactation_chronic_questions_are_not_refused(text):
+    assert classify_scope(text) is None
+    assert guardrail_in(text)["route"] == "AGENT"

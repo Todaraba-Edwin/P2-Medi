@@ -1,7 +1,7 @@
 """근거 문서 메타 표(2026-11-11 사용자 승인). 청크 메타(`year`·`source_file`·`effective_date`)의 원천이다.
 
 * 칸 값은 파일 이름 또는 PDF·추출 텍스트 첫 쪽 문구에서 사람이 읽어 확인한 것만 적는다. 확인하지 못한 칸은 None(보고서에 '미확인').
-* `source_url`은 전부 None이다. 지어내지 않고 사용자가 알려 주는 값만 후속 기록한다.
+* `source_url`은 사용자가 알려 준 값(CLAUDE.md 3·4장의 data.go.kr 링크)만 적고 나머지는 None이다. 지어내지 않는다.
 * 기준일(`base_date`)은 `_YYYYMMDD` 접미를 코드로 파싱한다. 날짜가 없는 DUR 품목리스트(`2026.6`)는 `YYYY-MM`(월 단위)이다.
 """
 
@@ -41,12 +41,12 @@ class DocMeta:
     effective_date: str | None           # 시행일(확인된 경우만)
     base_date: str | None                # 데이터 기준일(파일명 접미 또는 고시 개정일)
     year: int | None
-    source_url: str | None = None        # 사용자가 알려 주기 전까지 전부 None
+    source_url: str | None = None        # 사용자가 알려 준 것만, 나머지 None
 
 
-def _file(name: str, issuer: str, doc_type: str = "파일데이터") -> DocMeta:
+def _file(name: str, issuer: str, doc_type: str = "파일데이터", source_url: str | None = None) -> DocMeta:
     bd = parse_base_date(name)
-    return DocMeta(name, issuer, doc_type, None, None, None, bd, int(bd[:4]) if bd else None)
+    return DocMeta(name, issuer, doc_type, None, None, None, bd, int(bd[:4]) if bd else None, source_url)
 
 
 KIDS = "한국의약품안전관리원"
@@ -62,8 +62,8 @@ def _hira(year: int, notice_no: str | None) -> DocMeta:
 
 _METAS: tuple[DocMeta, ...] = (
     # --- 한국의약품안전관리원 파일데이터(기준일은 파일명 접미)
-    _file(sf.COMBO_JSON_NAME, KIDS),
-    _file(sf.PREG_CSV_NAME, KIDS),
+    _file(sf.COMBO_JSON_NAME, KIDS, source_url="https://www.data.go.kr/data/15161282/fileData.do"),
+    _file(sf.PREG_CSV_NAME, KIDS, source_url="https://www.data.go.kr/data/15089735/fileData.do"),
     _file(sf.AGE_CSV_NAME, KIDS),
     _file(sf.DOSE_CSV_NAME, KIDS),
     _file(sf.LACT_CSV_NAME, KIDS),

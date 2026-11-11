@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from app.db.loaders import AS_OF_HIRA, AS_OF_KIDS, AS_OF_LACTATION, SRC_HIRA, SRC_KIDS
+from app.db.loaders import AS_OF_COMBO, AS_OF_HIRA, AS_OF_KIDS, AS_OF_LACTATION, SRC_HIRA, SRC_KIDS
 
 # 기관(대그룹). 값은 적재 모듈의 출처 문자열과 같다.
 PUBLISHER = {
@@ -48,7 +48,7 @@ DATE_LABELS = {
 
 # 자료 키 → 기준일(파일 자료만)
 DATASET_AS_OF = {
-    "contra_pair": AS_OF_KIDS, "pregnancy": AS_OF_KIDS, "age": AS_OF_KIDS, "dose": AS_OF_KIDS,
+    "contra_pair": AS_OF_COMBO, "pregnancy": AS_OF_KIDS, "age": AS_OF_KIDS, "dose": AS_OF_KIDS,
     "lactation": AS_OF_LACTATION, "elderly": AS_OF_HIRA,
 }
 

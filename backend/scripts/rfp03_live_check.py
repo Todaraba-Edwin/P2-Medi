@@ -100,7 +100,7 @@ def _load_file_db() -> sqlite3.Connection:
             parts[name] = loaders.read_source(DATA / name, norm, table, loaders.AS_OF_KIDS)
     contra = DATA / COMBO_JSON_NAME
     if contra.is_file():
-        parts[contra.name] = loaders.read_source(contra, loaders.normalize_contra_json, "contra_pair", loaders.AS_OF_KIDS)
+        parts[contra.name] = loaders.read_source(contra, loaders.normalize_contra_json, "contra_pair", loaders.AS_OF_COMBO)
     loaders.load_into(c, parts)
     return c
 

@@ -17,6 +17,7 @@ from itertools import combinations
 from typing import Any
 
 from app.db.loaders import (
+    AS_OF_COMBO,
     AS_OF_HIRA,
     AS_OF_KIDS,
     AS_OF_LACTATION,
@@ -32,7 +33,7 @@ UNIDENTIFIED = "UNIDENTIFIED"
 
 # 종류별 출처·기준일(NOT_LISTED 항목에도 단다. FOUND는 행의 값을 쓴다).
 _KIND_SOURCE = {
-    "contra_pair": (SRC_KIDS, AS_OF_KIDS),
+    "contra_pair": (SRC_KIDS, AS_OF_COMBO),
     "pregnancy": (SRC_KIDS, AS_OF_KIDS),
     "age": (SRC_KIDS, AS_OF_KIDS),
     "dose": (SRC_KIDS, AS_OF_KIDS),

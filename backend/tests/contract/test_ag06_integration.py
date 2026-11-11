@@ -62,7 +62,7 @@ def test_render_real_check_output_detail_citations_badges(checked):
     assert {c["evidence_id"] for c in res.citations} == {PAIR_ID, PREG_ID, pair_row}
     c = next(x for x in res.citations if x["evidence_id"] == pair_row)
     assert c["row_key"] == by_kind(checked, "contra_pair", "FOUND")[0]["matches"][0]["row_key"]
-    assert c["dataset_key"] == "contra_pair" and c["source_kind"] == "FILE" and c["as_of"] == "2026-07-21"
+    assert c["dataset_key"] == "contra_pair" and c["source_kind"] == "FILE" and c["as_of"] == "2026-07-31"
     assert [(b["kind"], b["grade"]) for b in res.badges] == [("contra_pair", None), ("pregnancy", "2")]   # FOUND만, 등급 원문 그대로
     assert all(b["status"] == "FOUND" for b in res.badges)
 

@@ -28,7 +28,7 @@ def test_mixed_statuses_found_notlisted_unidentified():
     out = run([{"name": "이부정"}, {"name": "와파린정"}, {"name": "미등록정"}], pregnancy=True)
     assert {i["status"] for i in out["items"]} == {"FOUND", "NOT_LISTED", "UNIDENTIFIED"}
     (pair,) = pick(out, "contra_pair", "FOUND")
-    assert pair["source_kind"] == "FILE" and pair["as_of"] == "2026-07-21" and pair["matches"][0]["row_evidence_id"]
+    assert pair["source_kind"] == "FILE" and pair["as_of"] == "2026-07-31" and pair["matches"][0]["row_evidence_id"]
     assert {tuple(i["flags"]) for i in pick(out, "contra_pair", "UNIDENTIFIED")} == {("PAIR_NOT_CHECKED",)}
     assert len(pick(out, "contra_pair", "UNIDENTIFIED")) == 2  # 이부정-미등록정, 와파린정-미등록정
     preg = {i["drugs"][0]: i["status"] for i in pick(out, "pregnancy")}
@@ -128,7 +128,7 @@ def test_api_same():
     assert {i["source_kind"] for i in found} == {"FILE", "API_DIRECT"}  # 두 출처 모두 기록
     api = [i for i in found if i["source_kind"] == "API_DIRECT"][0]
     assert api["queried_at_utc"] == "2026-11-10T12:00:00Z" and api["dataset_key"] == "dur_ingr"
-    assert any(i["as_of"] == "2026-07-21" for i in found)
+    assert any(i["as_of"] == "2026-07-31" for i in found)
 
 
 def test_file_only():

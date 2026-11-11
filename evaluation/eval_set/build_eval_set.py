@@ -28,7 +28,9 @@ sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(ROOT / "evaluation" / "credit_use"))
 
 from app.db.loaders import (  # noqa: E402  (BE-09 정규화 재사용, 읽기만)
+    AS_OF_COMBO,
     AS_OF_KIDS,
+    AS_OF_LACTATION,
     SRC_KIDS,
     iter_csv,
     iter_json_array,
@@ -220,7 +222,7 @@ class Kids:
         lo, hi = sorted((a, b))
         rows = self.pairs.get(pkey(a, b), [])
         return {"kind": "contra_pair", "status": "FOUND" if rows else "NOT_LISTED", "subject": [a, b],
-                "evidence_id": f"contra_pair:{lo}:{hi}", "source": SRC_KIDS, "as_of": AS_OF_KIDS, "matches": rows}
+                "evidence_id": f"contra_pair:{lo}:{hi}", "source": SRC_KIDS, "as_of": AS_OF_COMBO, "matches": rows}
 
     def item_preg(self, c: str) -> dict:
         rows = self.preg.get(c, [])
@@ -331,13 +333,30 @@ BAD_ANSWER = {
 }
 
 
+def kids_evidence(files: list[str]) -> dict:
+    """answer_evidence 공통부(BE-05-08 B 후속): 파일별 기준일. 병용 파일만이면 병용 기준일, 섞이면 as_of는 임부·연령 기준일이고 as_of_by_file로 병용 기준일을 따로 적는다."""
+    d = {"source": SRC_KIDS, "as_of": AS_OF_KIDS, "files": files}
+    if F_COMBO.name in files:
+        if len(files) == 1:
+            d["as_of"] = AS_OF_COMBO
+        else:
+            d["as_of_by_file"] = {n: (AS_OF_COMBO if n == F_COMBO.name else AS_OF_KIDS) for n in files}
+    return d
+
+
 def reference(it: dict) -> str:
     """Ragas reference 문장(RFP-26-02, RFP-26 §5.3): 구조화된 정답 → 정답 문장. README 4장과 같은 규칙."""
     t = it["expected_response_type"]
     names = it.get("products") or []
     nm = {c: n for c, n in zip(it.get("ingredient_codes") or [], names)}
     parts = []
-    tail = f" 출처 {SRC_KIDS}, 기준일 {AS_OF_KIDS}."
+    dates = {x["kind"]: x.get("as_of") for x in (it["answer"].get("items") or [])}
+    if len(set(dates.values())) > 1:
+        label = {"contra_pair": "병용", "pregnancy": "임부", "age": "연령"}
+        asof = ", ".join(f"{label.get(k, k)} {v}" for k, v in dates.items())
+    else:
+        asof = next(iter(dates.values()), AS_OF_KIDS)
+    tail = f" 출처 {SRC_KIDS}, 기준일 {asof}."
     for x in (it["answer"].get("items") or []):
         subj = [nm.get(c, c) for c in x["subject"]]
         if x["kind"] == "contra_pair":
@@ -455,7 +474,7 @@ class Builder:
         if it["answer_evidence"] is None and it["answer"].get("items"):
             files = sorted({{"contra_pair": F_COMBO.name, "pregnancy": F_PREG.name, "age": F_AGE.name}[x["kind"]]
                             for x in it["answer"]["items"]})
-            it["answer_evidence"] = {"source": SRC_KIDS, "as_of": AS_OF_KIDS, "files": files,
+            it["answer_evidence"] = {**kids_evidence(files),
                                      "evidence_ids": [x["evidence_id"] for x in it["answer"]["items"]]}
         it["reference"] = reference(it)
         self.items.append(it)
@@ -815,7 +834,7 @@ class Builder:
                      question=fill(t["template"], {"모호이름": st}), products=[st], codes=[],
                      answer={"items": [], "ambiguous_name": st, "candidates": ns[:12], "candidate_count": len(ns),
                              "candidate_basis": "KIDS 파일 제품명 접두 일치(사전 BE-10 전 잠정)"},
-                     evidence={"source": SRC_KIDS, "as_of": AS_OF_KIDS, "files": [F_PREG.name, F_AGE.name, F_COMBO.name],
+                     evidence={**kids_evidence([F_PREG.name, F_AGE.name, F_COMBO.name]),
                                "evidence_ids": []},
                      path=json.loads(json.dumps(t["expected_path"])), generator=gen_of(t), generator_detail=t["generated_by"],
                      source_ref=t["id"], provisional=True,
@@ -910,7 +929,7 @@ class Builder:
                          "extra_facts": [{"basis": f"KIDS 병용금기 JSON에 성분명 warfarin 코드 {warf_rows}개(아세트아미노펜 단일 쌍 0개, RFP-21 §4.8 #5)"},
                                          {"label": "와파린, 플루클록사실린을 복용하는 환자는 의사 또는 약사와 상의하십시오.(e약은요 202106092 상호작용)"}],
                          "note": "병용금기 목록에 아세트아미노펜 단일 쌍이 없음을 알리고 라벨 상호작용 문장을 인용한다."},
-                 evidence={"source": SRC_KIDS, "as_of": AS_OF_KIDS, "files": [F_COMBO.name], "evidence_ids": []},
+                 evidence={**kids_evidence([F_COMBO.name]), "evidence_ids": []},
                  path=path("judgment"), golden=True, golden_source="RFP-21 §4.8 #5 (TC-10 변형)",
                  generator="human", generator_detail="RFP-21 §4.8 질문 원문",
                  provisional=True, provisional_reason="'타이레놀'은 제품 후보 여럿: 사전(BE-10)에서 아세트아미노펜 단일 제품으로 풀리는지 확정")
@@ -969,7 +988,7 @@ class Builder:
                      question=fill(t["template"], slots), products=[v for v in slots.values()], codes=codes,
                      answer={"items": [], "fake_name": fake, "fake_check": "KIDS 임부·연령 CSV와 병용 JSON의 제품명·접두에 없음(코드 확인)",
                              "note": "가상 약은 '약을 확인하지 못함'(UNIDENTIFIED)이며 '금기 목록에 없음'과 구분한다."},
-                     evidence={"source": SRC_KIDS, "as_of": AS_OF_KIDS, "files": [F_PREG.name, F_AGE.name, F_COMBO.name],
+                     evidence={**kids_evidence([F_PREG.name, F_AGE.name, F_COMBO.name]),
                                "evidence_ids": []},
                      path=json.loads(json.dumps(t["expected_path"])), generator=gen_of(t), generator_detail=t["generated_by"],
                      source_ref=t["id"])
@@ -1116,7 +1135,8 @@ def main() -> None:
     dev = Builder(k, "dev", exclude_keys=test_keys).build()
     manifest = {"set_version": SET_VERSION, "seed": SEED, "built_by": "evaluation/eval_set/build_eval_set.py",
                 "llm_calls": 0, "sources": {
-                    "kids_files": [F_PREG.name, F_AGE.name, F_COMBO.name], "kids_as_of": AS_OF_KIDS,
+                    "kids_files": [F_PREG.name, F_AGE.name, F_COMBO.name], "kids_as_of": {
+                        "병용금기": AS_OF_COMBO, "임부·연령·용량": AS_OF_KIDS, "수유부": AS_OF_LACTATION},
                     "combo_json_rows": k.combo_rows, "combo_pairs": len(k.pairs),
                     "question_pool": ["data/credit_use/pool_dev.jsonl", "data/credit_use/pool_test.jsonl"],
                     "question_templates": "data/mock/question_templates/question_templates.jsonl (m4-v1)"},
