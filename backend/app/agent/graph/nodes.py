@@ -194,8 +194,10 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
             sents = [Sentence.model_validate(s) for s in state.get("final_sentences") or []]
             summary = " ".join(s.text for s in sents) or None
             refuse = state.get("refuse_reason") if state.get("route") == guardrail.ROUTE_REFUSE else None  # 응급+범위 외: 거절 문구와 119를 함께
-            resp = finalize(items, model_summary=summary, emergency=emergency, sentences=sents, refuse_reason=refuse)
-            why = END_FALLBACK if (state.get("validation") or {}).get("next") == "fallback" else END_NORMAL
+            fell_back = (state.get("validation") or {}).get("next") == "fallback"
+            resp = finalize(items, model_summary=summary, emergency=emergency, sentences=sents, refuse_reason=refuse,
+                            validation_fallback=fell_back and not refuse)  # 거절 문구가 있으면 그대로 둔다
+            why = END_FALLBACK if fell_back else END_NORMAL
         return {"answer": resp, "end_reason": why, "events": [{"rule": "H3", "event": "FINALIZE", "end_reason": why}]}
 
     raw = {"guardrail_in": guardrail_in, "router": router, "model": model, "tools": tools, "validator": validator, "finalize": finalize_node}

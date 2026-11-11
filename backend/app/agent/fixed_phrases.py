@@ -116,7 +116,8 @@ CAUTION_LABELS = {"dose": "용량 주의", "lactation": "수유부 주의", "eld
 
 # --------------------------------------------------------------------------- 입구 거절(초안, `guardrail.classify_scope` 이유 키)
 REFUSE_MESSAGES = {
-    "STOP_DOSE_CHANGE": "복용을 멈추거나 양을 바꾸는 것은 처방한 의사·약사와 상의하세요. 이 서비스는 복용 변경을 안내하지 않아요.",
+    "STOP_DOSE_CHANGE": "약을 줄이거나 끊는 방법과 시기는 알려 드릴 수 없어요. 의사가 줄이라고 했더라도 의사·약사와 상의하세요. 이 서비스는 지금 상태로 약을 줄여도 되는지 판단(진단·평가)해 드릴 수 없어요.",
+    "ASSESS_STATE": "지금 상태로 약을 줄이거나 끊어도 되는지는 진찰과 검사가 필요한 판단이라 이 서비스가 해 드릴 수 없어요. 처방한 의사나 약사와 상의하세요.",
     "HIDE_FROM_DOCTOR": "먹는 약은 의사·약사에게 숨기지 말고 모두 알려 주세요. 숨겨 달라는 요청은 도와드릴 수 없어요.",
     "DIAGNOSIS": "진단은 할 수 없어요. 증상이 걱정되면 의사·약사에게 확인하세요. 약 이름이 있으면 금기 여부는 공공 자료로 확인해 드려요.",
     "PRESCRIPTION": "처방은 할 수 없어요. 처방은 의사가 해요. 가진 약의 금기 여부는 공공 자료로 확인해 드려요.",
@@ -130,10 +131,19 @@ DRAFT_KEYS = (
     "EMERGENCY_119", "UNIDENTIFIED_NEXT", "UNIDENTIFIED_NOT_SAFE", "LOOKUP_FAILED", "TRUNCATED", "REFERENCE_ONLY_LINE",
     "REFUSE_MESSAGES", "LIMIT_REACHED", "CAUTION_LABELS", "PHARMACIST_ADVICE_NO_NAMES", "PHARMACIST_ADVICE_FIXED",
     "BLOCKED_NO_SOURCE_KIND", "GRADE_DEF_MISSING_TEXT", "INVALID_CODE", "PAIR_NOT_CHECKED", "IDENTIFIED_LINE",
+    "FALLBACK_NONE_CONFIRMED", "FALLBACK_SOME_CONFIRMED",
 )
 
 # 상한 도달 안내(초안): 모델 호출 상한으로 끝났을 때 LLM 요약 없이 코드가 붙인다
 LIMIT_REACHED = "답을 정리하다 시간이 다 되어 여기까지 확인한 결과만 보여 드려요. 확인하지 못한 항목은 약국·약사에게 물어보세요."
+# 검증 폴백(두 번째 검증 실패) 요약 문구 2종(AG-01·AG-08, 사용자 승인 2026-11-11). 모델은 쓰지 않는다.
+# 확인된 항목(FOUND·NOT_LISTED) 0개 → NONE, 하나라도 있으면 SOME. 날짜·시각은 항목 값만 쓰고 없으면 해당 부분을 생략한다.
+FALLBACK_NONE_CONFIRMED = "검색한 자료({scope})에서는 확인하지 못했어요. 정확한 확인은 약국·약사에게 하세요."  # {scope}: 아래 조각
+FALLBACK_NONE_SCOPE_API = "API 조회 {api_time}"
+FALLBACK_NONE_SCOPE_DOC = "문서 기준일 {doc_date}"
+FALLBACK_NONE_NO_SCOPE = "검색한 자료에서는 확인하지 못했어요. 정확한 확인은 약국·약사에게 하세요."  # 날짜·시각 모두 없을 때
+FALLBACK_SOME_CONFIRMED = "{doc_date} 기준 공공 자료에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요."
+FALLBACK_SOME_NO_DATE = "공공 자료에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요."  # 기준일 없을 때
 BLOCKED_NO_SOURCE_KIND = "출처 종류를 알 수 없는 근거는 보여 드리지 않아요"  # 근거 항목 차단 안내(초안)
 
 # 화면에 나가면 안 되는 내부 용어·폐기 문구(시험용 목록)

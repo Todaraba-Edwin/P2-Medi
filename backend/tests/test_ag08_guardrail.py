@@ -75,15 +75,34 @@ def test_guardrail_result_is_plain_dict_with_required_keys():
 
 # --------------------------------------------------------------------------- 범위 외·거절 이유
 @pytest.mark.parametrize("text,reason", [
+    # ASSESS_STATE: 상태 평가 질문(수치·혈압·혈당 등 정상이면 계속/끊어도)
+    ("지금 줄여도 되는 상태인지 봐 주세요", "ASSESS_STATE"),
+    ("혈당 수치가 정상이면 약을 끊어도 돼요", "ASSESS_STATE"),
+    ("컨디션 괜찮은데 약 안 먹어도 될 것 같아요", "ASSESS_STATE"),
+    ("혈압 120에 80이면 그만 먹어도 되는 수준이에요", "ASSESS_STATE"),
+    ("갑상선 수치 정상인데 신지로이드 계속 먹어야 해요?", "ASSESS_STATE"),
+    # STOP_DOSE_CHANGE: 복용 중단·감량 지시(기존 + 보강)
     ("혈압약 끊어도 돼요?", "STOP_DOSE_CHANGE"),
     ("복용 중단해도 될까요", "STOP_DOSE_CHANGE"),
     ("약을 절반만 먹어도 돼요", "STOP_DOSE_CHANGE"),
     ("약 줄여서 먹을래요", "STOP_DOSE_CHANGE"),
     ("약을 그만 먹고 싶어요", "STOP_DOSE_CHANGE"),
+    # STOP_DOSE_CHANGE: 보강 패턴들(의사 지시, 제품명 뒤 동사, 붙여쓰기)
+    ("처방한 의사가 끊으라고 했는데 언제까지 먹다가 끊으면 돼요?", "STOP_DOSE_CHANGE"),
+    ("의사선생님이줄이라고하셨는데어떻게줄이나요", "STOP_DOSE_CHANGE"),
+    ("주치의가 용량 낮추자고 했어요", "STOP_DOSE_CHANGE"),
+    ("의사가 스테로이드 서서히 줄이라는데 일정 짜 줘", "STOP_DOSE_CHANGE"),
+    ("담당의가 약을 끊으라고 했어요", "STOP_DOSE_CHANGE"),
+    # HIDE_FROM_DOCTOR: 의료진 우회(기존 + 보강)
     ("의사한테는 비밀로 하고 이 약 먹고 싶어요", "HIDE_FROM_DOCTOR"),
     ("약사에게 숨기고 같이 먹어도 되나요", "HIDE_FROM_DOCTOR"),
     ("의사 몰래 먹어도 되나요", "HIDE_FROM_DOCTOR"),
     ("의사에게 말하지 말아 주세요", "HIDE_FROM_DOCTOR"),
+    # HIDE_FROM_DOCTOR: 보강 패턴들(호칭 변형, 말씀 표현)
+    ("담당 선생님한테는 비밀로 양을 좀 낮춰도 괜찮을까요", "HIDE_FROM_DOCTOR"),
+    ("의사 선생님께 말씀 안 드려도 돼요", "HIDE_FROM_DOCTOR"),
+    ("약사님께 알리지 않고 먹어도 괜찮나요", "HIDE_FROM_DOCTOR"),
+    # 다른 범위 외 이유들
     ("제가 무슨 병인지 진단해 주세요", "DIAGNOSIS"),
     ("이 증상 진단해줘", "DIAGNOSIS"),
     ("병명이 뭐예요", "DIAGNOSIS"),
@@ -109,6 +128,19 @@ def test_scope_refusal_reasons(text, reason):
     "여섯 살 아이가 먹어도 되는 약인가요",
     "아스피린 허가사항 용법용량 원문 보여 주세요",
     "약국에서 산 약 두 개를 같이 먹어도 되는지 확인해 주세요",
+    # 오탐 점검(최소 10개): 정상 질문이 거절되지 않는 음성 사례
+    "의사가 처방해 준 약, 병용 금기가 있나요",
+    "처방받은 혈압약과 아스피린 함께 먹어도 되나요",
+    "주치의가 처방해 준 약의 금기를 알고 싶어요",
+    "담당 선생님이 추천하신 약과 제 상비약 확인해 주세요",
+    "의사 선생님께서 이 약을 먹으라고 하셨는데 괜찮나요",
+    "의사 말을 따르고 있는데 다른 약과 함께 먹어도 되나요",
+    "의약분업법 약사에게 어떤 항목을 확인하면 좋을까요",
+    "선생님이 처방해 주신 항생제 금기가 있나요",
+    "약사님께 상담받은 약들 사이의 금기 정보 원하는데요",
+    "병원에 가는 날 가져갈 약 목록 준비 중인데 확인해 주세요",
+    "처방전 받은 약이 안전한지 확인 부탁드려요",
+    "항상 먹는 약과 새로 받은 약의 병용 여부 물어봐요",
 ])
 def test_in_scope_questions_are_not_refused(text):
     assert classify_scope(text) is None
