@@ -249,4 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # S-05: 직접 실행할 때만 처리되지 않은 예외·logging 출력에서 키·DSN을 가린다(import만 할 때는 설치하지 않음)
+    from app.security.redact import install_excepthook  # noqa: E402, PLC0415
+    install_excepthook()
     raise SystemExit(main())
