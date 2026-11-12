@@ -71,6 +71,7 @@ class AgentState(TypedDict, total=False):
     ambiguous: bool
     clarify: dict[str, Any] | None
     truncated: bool
+    required_claims: list[str]  # AG-05: 필요한 주장 유형(코드 규칙 부분). 쓰는 쪽은 router뿐이다
     # model ⇄ tools
     messages: Annotated[list[Any], add_messages]
     call_count: int

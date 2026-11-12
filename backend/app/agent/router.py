@@ -14,6 +14,7 @@
 
 상태 필드(RFP-23 §4.4·PJ2-Agent-Harness.md 3.5절): 문서에 있는 것은 `profile`·`drug_mentions`·`intent`.
 `entities`·`branch_label`·`ambiguous`·`clarify`·`truncated`는 **이 모듈의 제안**이다(문서 반영은 티켓·문서 몫).
+`required_claims`(2026-11-12 제안)는 질문에 필요한 주장 유형 중 **코드 규칙으로 정할 수 있는 것**만 담는다(`required_claims()` 참고).
 """
 
 from __future__ import annotations
@@ -58,7 +59,8 @@ NOT_FOUND_SCORE_MAX = 0.0
 
 # Router가 상태에 쓸 수 있는 키(PostToolUse의 `POST_WRITABLE_KEYS`와 같은 방식의 제한). emergency·route·messages·evidence·answer는 못 쓴다.
 # `profile`·`drug_mentions`·`intent`는 RFP-23 §4.4 문서 필드, 나머지는 제안.
-ROUTER_WRITABLE_KEYS = frozenset({"profile", "drug_mentions", "intent", "entities", "branch_label", "ambiguous", "clarify", "truncated"})
+ROUTER_WRITABLE_KEYS = frozenset({"profile", "drug_mentions", "intent", "entities", "branch_label", "ambiguous", "clarify", "truncated",
+                                  "required_claims"})
 
 # 분기 라벨(AG-04 평가 세트 composition 어휘와 같다: 정상·오탈자·모호·근거 없음)
 BRANCH_NORMAL = "정상"
@@ -83,6 +85,23 @@ INTENT_DOCUMENT = "document"
 INTENT_OPEN = "open"
 
 _STRONG = {MATCH_EXACT, MATCH_NORMALIZED, MATCH_PREFIX, MATCH_CONTAINS}  # BM25가 아닌 이름 일치
+
+# 주장 유형(`P2-doc/PJ2-DUR-RAG-근거설계.md` 4장 "주장 유형별 허용 근거"의 일곱 가지). 답변 문장의 `claim_type`(fact·conclusion·guidance,
+# `answer_schema.py`)과는 다른 축이다. Router는 이 중 코드 규칙으로 정할 수 있는 것만 `required_claims`에 적는다(AG-05 §2 (개선) 조건의 코드 규칙 부분).
+CLAIM_CONTRA_STATUS = "contra_status"  # 금기 여부(L0만)
+CLAIM_GRADE_DEFINITION = "grade_definition"  # 등급 정의(L1). 질문이 정의를 묻는지는 프롬프트 분류 몫이라 코드 규칙으로 채우지 않는다
+CLAIM_CONTRA_REASON = "contra_reason"  # 금기 사유(L2·L3). 판정된 쌍이 있어야 필요해지므로 도구 결과 뒤에 정한다(Router 시점에는 모른다)
+CLAIM_PRODUCT_CAUTION = "product_caution"  # 제품 주의(L3)
+CLAIM_TERM_PROCEDURE = "term_procedure"  # 용어·절차(L4). 프롬프트 분류 몫
+CLAIM_LIMITATION = "limitation_notice"  # 한계·고지(코드 고정 문구, FR-06)
+CLAIM_AS_OF = "as_of_date"  # 기준일(메타데이터)
+CLAIM_TYPES = (CLAIM_CONTRA_STATUS, CLAIM_GRADE_DEFINITION, CLAIM_CONTRA_REASON, CLAIM_PRODUCT_CAUTION, CLAIM_TERM_PROCEDURE,
+               CLAIM_LIMITATION, CLAIM_AS_OF)  # 설계 문서 4장 표의 순서
+CLAIM_LABELS_KO = {
+    CLAIM_CONTRA_STATUS: "금기 여부", CLAIM_GRADE_DEFINITION: "등급 정의", CLAIM_CONTRA_REASON: "금기 사유", CLAIM_PRODUCT_CAUTION: "제품 주의",
+    CLAIM_TERM_PROCEDURE: "용어·절차", CLAIM_LIMITATION: "한계·고지", CLAIM_AS_OF: "기준일",
+}
+CLAIMS_BY_CODE_RULE = frozenset({CLAIM_CONTRA_STATUS, CLAIM_PRODUCT_CAUTION, CLAIM_LIMITATION, CLAIM_AS_OF})  # Router 코드 규칙이 채우는 유형
 
 # --------------------------------------------------------------------------- 모델
 
@@ -147,6 +166,7 @@ class RouterResult(BaseModel):
     ambiguous: bool = False  # 제안: True면 model로 가지 않고 되묻기로 끝낸다
     clarify: Clarify | None = None  # 제안
     truncated: bool = False  # 제안: 약이 MAX_DRUGS를 넘어 앞의 MAX_DRUGS개만 남김
+    required_claims: list[str] = Field(default_factory=list)  # 제안: 필요한 주장 유형(코드 규칙 부분만, `CLAIM_TYPES` 순서)
     n_pairs: int = 0  # resolved 엔티티 기준 쌍 수(쌍 나누기는 코드, 조회는 model이 도구로)
     emergency: bool = False  # 입력 통과(AG-08이 쓴 값, Router는 읽기만)
     guardrail_route: str | None = None  # 입력 통과
@@ -163,6 +183,7 @@ class RouterResult(BaseModel):
             "ambiguous": self.ambiguous,
             "clarify": self.clarify.model_dump() if self.clarify else None,
             "truncated": self.truncated,
+            "required_claims": list(self.required_claims),
         }
         if not set(out) <= ROUTER_WRITABLE_KEYS:
             raise RuntimeError("Router가 쓸 수 없는 상태 키")
@@ -180,7 +201,8 @@ _CONNECTORS = ("이랑", "하고", "이나", "랑", "과", "와", "및", "나") 
 _SPLIT_RE = re.compile(r"[,，+·&、;]|(?<!\d)/|/(?!\d)|\s+")  # 숫자 사이 "/"(5/850밀리그램)는 약 이름의 일부라 나누지 않는다
 _PUNCT_RE = re.compile(r"^[\s\"'`(\[{<]+|[\s?!.…~\"'`)\]}>]+$")
 _NUM_UNIT_RE = re.compile(
-    r"^\d+(\.\d+)?\s*(살|세|개월|주|주차|일|시간|번|회|kg|키로|밀리그램|밀리그람|밀리리터|mg|mcg|μg|ug|ml|g|l|알|정|포|캡슐|병|방울)$", re.IGNORECASE
+    r"^\d+(\.\d+)?\s*(살|세|개월|주|주차|일|시간|번|회|kg|키로|밀리그램|밀리그람|밀리리터|mg|mcg|μg|ug|ml|g|l|알|정|포|캡슐|병|방울|"
+    r"등급|개|가지|명)$", re.IGNORECASE  # 숫자+분류사("3등급", "2개")는 약 이름이 아니다(AG-05 후속 2026-11-12)
 )
 _UNIT_ONLY_RE = re.compile(r"^(밀리그램|밀리그람|밀리리터|mg|mcg|μg|ug|ml|g|l)$", re.IGNORECASE)  # 용량 단위만 떨어져 나온 토큰
 _AGE_YEAR_RE = re.compile(r"(\d{1,3})\s*(?:살|세)")
@@ -228,9 +250,75 @@ def _is_noise(tok: str, dd: DrugDict | None = None) -> bool:
         return True
     if _STOP_SUFFIX_RE.search(tok):
         return True
-    if dd is not None and (_VERB_END_RE.search(tok) or _SYMPTOM_END_RE.search(tok)):
+    if dd is None:
+        return False
+    if _VERB_END_RE.search(tok) or _SYMPTOM_END_RE.search(tok):
         return not any(_strong(dd, v) for v in vs)
+    if _noise_rule(tok, vs) is not None:  # AG-05 후속: 조사 뗀 변형까지 보는 일반 규칙. 사전에 이름으로 맞으면(접두·중간 포함) 버리지 않는다
+        return not any(_name_match(dd, v) for v in vs)
     return False
+
+
+# --------------------------------------------------------------------------- 잡음 규칙 확장(AG-05 후속, 2026-11-12)
+# 동사 활용형·일반 명사가 약 이름 후보로 뽑혀 NOT_FOUND·오탈자 의심 엔티티가 되는 문제를 줄인다. **낱말을 더하지 않고** 어미·조사·접미 꼴만 본다.
+# 보호 조건은 위 규칙(정확·정규화 일치)보다 넓다: 조사 뗀 변형이 사전에 이름으로 맞으면(정확·정규화·접두·중간) 약 후보로 남긴다. 조사를 뗀 약 이름은
+# 줄여 부른 이름(접두 일치, 되묻기 대상)일 수 있어서다. BM25 유사 일치만 있는 토큰은 보호하지 않는다(용언이 우연히 비슷한 이름에 걸린 경우가 대부분).
+# 개발셋 전후 측정은 `backend/scripts/calibrate_router.py`(개발셋만). 규칙으로 못 거르는 일반 명사(증상 없는 보통 명사)는 남는다(LLM 추출 몫).
+NOISE_ONE_SYLLABLE = "one_syllable_particle"  # 한 음절 + 조사("열이", "눈에", "되는"): 한 음절짜리 약 이름은 없다
+NOISE_RECIPIENT = "recipient_particle"  # 받는 사람·분배 조사("아이한테", "의사님께", "개씩"): 사람·수량을 가리킨다
+NOISE_VERB_END = "verb_ending"  # 용언 어미("요약해", "가능한", "하던데") 또는 용언 어미 + 인용·보조 조사("된다고", "맞자고")
+NOISE_NOUN_SUFFIX = "noun_suffix"  # 증상·질환 접미 + 조사("두통이"), 약효군 접미("혈압약", "항생제". 제형 이름은 제외)
+NOISE_STOP_STEM = "stop_stem"  # 불용어 둘 이상이 같이 쓰는 어간에서 조사·어미가 떨어진 꼴("괜찮나" → "괜찮")
+
+_RECIPIENT_RE = re.compile(r"(한테|에게|께|께서|씩)$")
+# 하다 활용(해·하는·한·할·하기·한데), 연결·종결 어미, 부사 접미(히). 조사와 같은 꼴(고·도·나·며)은 넣지 않는다(오탈자 약 + 조사를 버리지 않으려고).
+# 이 꼴로 끝나는 제품명은 사전(약 4.7만 건)에 0건이다(2026-11-12 확인).
+_VERB_END2_RE = re.compile(r"(다가|던데|면서요|면서|거든요|가요|도록|거나|지만|니까|해|하는|한|할|하기|한데|히)$")
+_JUNG_WA, _JUNG_WO = 9, 14  # 한글 중성 번호: ㅘ, ㅝ
+_QUOTE_PARTICLES = frozenset({"고", "는", "며", "도", "만"})  # 용언 어미 뒤에 붙는 인용·보조 조사("된다고", "안전하다며"). 격조사(을·를·이·가…)는 명사 뒤라 제외
+_CLASS_END_RE = re.compile(r"(약|제)$")  # 약효군을 가리키는 보통 명사("혈압약", "수면제")
+# 제형을 가리키는 꼴은 제품명 끝에 실제로 쓰여서(사전 약 100건) 약효군 규칙에서 뺀다(지금처럼 약 후보로 남긴다)
+_FORM_END_RE = re.compile(r"(좌약|고약|안약|관장약|시약|첩부제|흡입제|주사제|좌제|분무제|이식제|산제|점안제|트로키제|경고제|관류제|제제)$")
+
+
+def _stop_stems() -> frozenset[str]:
+    """불용어 둘 이상이 공통으로 시작하는 2자 이상 접두(그 자체가 불용어인 것은 제외). 불용 용언의 어간에 해당한다."""
+    count: dict[str, int] = {}
+    for w in _STOP_WORDS:
+        for i in range(2, len(w)):
+            count[w[:i]] = count.get(w[:i], 0) + 1
+    return frozenset(p for p, n in count.items() if n >= 2 and p not in _STOP_WORDS)
+
+
+_STOP_STEMS = _stop_stems()
+
+
+def _ends_contracted_yo(tok: str) -> bool:
+    """받침 없는 ㅘ·ㅝ 음절 + "요"로 끝나는가("와요", "줘요", "메스꺼워요"). 어간 모음과 어미 아/어가 줄어든 해요체 꼴이다."""
+    if len(tok) < 2 or tok[-1] != "요" or not "가" <= tok[-2] <= "힣":
+        return False
+    code = ord(tok[-2]) - ord("가")
+    return code % 28 == 0 and (code // 28) % 21 in (_JUNG_WA, _JUNG_WO)
+
+
+def _noise_rule(tok: str, vs: list[str]) -> str | None:
+    """토큰(원형 `tok`, 조사 뗀 변형 `vs`)이 걸리는 잡음 규칙 이름. 없으면 None. 사전은 보지 않는다(보호 조건은 `_is_noise`)."""
+    if any(tok.endswith(p) and len(tok) - len(p) == 1 for p in _PARTICLES):
+        return NOISE_ONE_SYLLABLE
+    if _RECIPIENT_RE.search(tok):
+        return NOISE_RECIPIENT
+    if any(_VERB_END2_RE.search(v) for v in vs) or _ends_contracted_yo(tok):
+        return NOISE_VERB_END
+    for prev, cur in zip(vs, vs[1:], strict=False):  # prev에서 조사 하나를 떼어 cur이 됐다
+        if prev[len(cur):] in _QUOTE_PARTICLES and _VERB_END_RE.search(cur):
+            return NOISE_VERB_END
+    if any(_SYMPTOM_END_RE.search(v) for v in vs[1:]):
+        return NOISE_NOUN_SUFFIX
+    if any(_CLASS_END_RE.search(v) and not _FORM_END_RE.search(v) for v in vs):
+        return NOISE_NOUN_SUFFIX
+    if any(v in _STOP_STEMS for v in vs[1:]):
+        return NOISE_STOP_STEM
+    return None
 
 
 def _strip_particle(tok: str) -> str:
@@ -320,6 +408,12 @@ def _strong(dd: DrugDict, tok: str) -> bool:
     return not r.empty and r.match_type in (MATCH_EXACT, MATCH_NORMALIZED)
 
 
+def _name_match(dd: DrugDict, tok: str) -> bool:
+    """사전에 이름으로 맞는가(정확·정규화·접두·중간). BM25 유사 일치는 이름 일치가 아니다."""
+    r = dd.lookup_name(tok, top_k=1)
+    return not r.empty and r.match_type in _STRONG
+
+
 def _split_joined(dd: DrugDict, tok: str) -> list[str]:
     """붙여 쓴 입력을 연결어에서 나눈다. 왼쪽이 사전 이름과 정확히 맞고 오른쪽이 2자 이상일 때만 나눈다(와파린 같은 이름 보호)."""
     if len(tok) < 5:
@@ -380,6 +474,21 @@ class Mention:
         return self.tail.lstrip("/") if self.tail else None
 
 
+# 서술격 조사 "이다"의 활용("…정10밀리그램인지", "…정인데"). `_STOP_SUFFIX_RE`가 토큰째 버리던 꼴이라, 앞말이 약 이름일 때는 떼고 앞말을 후보로 쓴다.
+_COPULA_RE = re.compile(r"(인지|인가요|인가|인데|입니다|이에요|예요)$")
+
+
+def _strip_copula(tok: str, dd: DrugDict) -> str:
+    """토큰이 "이다" 활용으로 끝나고 앞말이 함량 표기로 끝나거나 사전에 이름으로 맞으면(정확·정규화·접두·중간) 앞말을 돌려준다. 아니면 그대로."""
+    m = _COPULA_RE.search(tok)
+    if not m:
+        return tok
+    stem = tok[: m.start()]
+    if len(stem) >= 2 and (split_strength(stem)[1] is not None or _name_match(dd, stem)):
+        return stem
+    return tok
+
+
 _ATTACH_SEP_RE = re.compile(r"^[\s/]*$")  # 이름과 함량 사이에 공백·`/`만 있을 때 붙인다(쉼표·접속어가 있으면 다른 약이다)
 
 
@@ -430,6 +539,7 @@ def extract_mention_details(text: str, dd: DrugDict) -> list[Mention]:
             i = j
             continue
         last_name_at = None
+        tok = _strip_copula(tok, dd)
         if _is_noise(tok, dd):
             i += 1
             continue
@@ -506,7 +616,9 @@ def _clarify(ents: list[Entity]) -> Clarify | None:
 
 # --------------------------------------------------------------------------- 유형·프로필
 
-_CONTRA_RE = re.compile(r"같이|함께|동시|병용|섞|겹|중복|상호작용|금기|먹어도|복용해도|먹여도|먹어|괜찮|피해야|써도|발라도")
+# "도 되/돼/될"(허락을 묻는 꼴: "줘도 되나요")과 "먹었"(이미 먹은 뒤 묻는 꼴)은 2026-11-12에 더했다. 잡음 엔티티가 줄면서 약 수(2개 이상이면 금기)에
+# 기대어 붙던 라벨이 빠지는 문항이 있어서다(개발셋 전후 비교, 유형 라벨이 바뀐 문항은 보고에 적음).
+_CONTRA_RE = re.compile(r"같이|함께|동시|병용|섞|겹|중복|상호작용|금기|먹어도|복용해도|먹여도|먹어|먹었|괜찮|피해야|써도|발라도|도\s*(?:되|돼|될)")
 _INFO_RE = re.compile(r"효능|효과|용법|용량|부작용|주의사항|무슨 약|어떤 약|뭐에 좋|성분|사용법|어떻게 먹|설명")
 _DOC_RE = re.compile(r"등급|고시|규정|별표|지정|기준일|근거|출처|DUR|왜 금기|M등급")
 
@@ -531,6 +643,29 @@ def classify_intent(text: str, n_drugs: int, *, has_profile_signal: bool) -> lis
     elif n_drugs >= 1 and not labels:
         labels.append(INTENT_DRUG_INFO)
     return list(dict.fromkeys(labels))
+
+
+_AS_OF_RE = re.compile(r"기준일|언제\s*기준|며칠\s*기준")
+
+
+def required_claims(intent: list[str], text: str = "") -> list[str]:
+    """질문에 필요한 주장 유형 중 코드 규칙으로 정할 수 있는 것(`CLAIMS_BY_CODE_RULE`). 순서는 `CLAIM_TYPES`(설계 문서 4장 표)다.
+
+    규칙:
+      - 한계·고지: 항상. 고정 문구는 유형과 상관없이 코드가 모든 답변에 붙인다(FR-06).
+      - 금기 판정 질문(`contraindication`): 금기 여부 + 기준일(판정에 쓴 파일의 기준일을 함께 보여야 한다).
+      - 약품 정보 질문(`drug_info`): 제품 주의.
+      - 기준일을 직접 묻는 문장: 기준일.
+    여기서 채우지 않는 것: 금기 사유(판정된 쌍이 있어야 필요하므로 도구 결과 뒤), 등급 정의·용어·절차(질문이 그것을 묻는지는 프롬프트 분류).
+    판정이나 경로 선택이 아니다. 누락 검사(AG-07)·분해 검색(AG-03)이 읽을 목록을 적어 둘 뿐이다."""
+    need = {CLAIM_LIMITATION}
+    if INTENT_CONTRA in intent:
+        need |= {CLAIM_CONTRA_STATUS, CLAIM_AS_OF}
+    if INTENT_DRUG_INFO in intent:
+        need.add(CLAIM_PRODUCT_CAUTION)
+    if _AS_OF_RE.search(text or ""):
+        need.add(CLAIM_AS_OF)
+    return [c for c in CLAIM_TYPES if c in need]
 
 
 def extract_profile(text: str, profile: ProfileState | dict[str, Any] | None = None) -> ProfileState:
@@ -616,8 +751,9 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
     else:
         label = BRANCH_NORMAL
     n_res = sum(1 for e in ents if e.status == ST_RESOLVED)
+    intent = classify_intent(text, len(ents), has_profile_signal=has_sig)
     return RouterResult(
-        drug_mentions=[e.raw for e in ents], entities=ents, intent=classify_intent(text, len(ents), has_profile_signal=has_sig),
+        drug_mentions=[e.raw for e in ents], entities=ents, intent=intent, required_claims=required_claims(intent, text),
         profile=prof, branch_label=label, ambiguous=clarify is not None, clarify=clarify, truncated=truncated,
         n_pairs=n_res * (n_res - 1) // 2, emergency=emergency, guardrail_route=guardrail_route, dict_version=dd.version,
     )
