@@ -106,6 +106,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | Anthropic | `ANTHROPIC_API_KEY` | 평가용 LLM judge(Claude Sonnet 5.5), 평가 문항 생성 보조(Haiku 4.5). 서비스 런타임에는 쓰지 않는다(PRD-08-06 A, Haiku는 비전 시험에서 불가 판정) |
 | Upstage | `UPSTAGE_API_KEY` | 평가 질문 문장 **주 생성기**(`solar-pro4`, RFP-28-04: 블라인드 비교에서 Haiku보다 자주 선택됨), Haiku 4.5는 보조 |
 | Supabase (Postgres + pgvector, 2026-11-04 사용자 알림) | `SUPABASE_DB_URL`(Session pooler 연결 문자열, 핵심 경로), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`(서버 전용), `SUPABASE_JWKS_URL` | DB 연결(백엔드). 뒤 네 개는 이메일 로그인(BE-11, 확장)용이며 DB 비밀번호는 `SUPABASE_DB_URL`에 들어 있다 |
+| 프런트(Next.js, 2026-11-12 FE-01 f4 A) | `MEDIAGENT_BACKEND_ORIGIN`(서버 전용, rewrites 프록시 대상), `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_API_MOCKING`(`enabled`일 때만 MSW) | 프런트가 백엔드를 부르는 주소와 목 스위치. 비밀값이 아니며 `NEXT_PUBLIC_*`에는 어떤 키도 넣지 않는다 |
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
 
 ## 4. 데이터 파일
