@@ -149,6 +149,18 @@ FALLBACK_SOME_DATASET_SEP = "·"
 FALLBACK_SOME_NO_DATE = "공공 자료에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요."  # 자료 이름을 모를 때
 BLOCKED_NO_SOURCE_KIND = "출처 종류를 알 수 없는 근거는 보여 드리지 않아요"  # 근거 항목 차단 안내(초안)
 
+# --------------------------------------------------------------------------- 스트림 진행 표시(BE-06-09 A, 2026-11-12)
+# `progress` 이벤트의 `label`은 이 표에서만 나간다(서버가 준다, 프런트 상수 없음). 문구는 `P2-doc/PJ2-PRD.md` 15.4절
+# 로딩 행 "진행 상태(약 찾는 중·금기 확인 중·근거 찾는 중)"의 글자 그대로다(새 문구 아님, 초안 아님). 키는 `stage` 식별자.
+PROGRESS_DRUG_LOOKUP = "약 찾는 중"
+PROGRESS_CONTRA_CHECK = "금기 확인 중"
+PROGRESS_EVIDENCE_SEARCH = "근거 찾는 중"
+PROGRESS_LABELS = {
+    "drug_lookup": PROGRESS_DRUG_LOOKUP,
+    "contraindication_check": PROGRESS_CONTRA_CHECK,
+    "evidence_search": PROGRESS_EVIDENCE_SEARCH,
+}
+
 # 화면에 나가면 안 되는 내부 용어·폐기 문구(시험용 목록)
 FORBIDDEN_SCREEN_TERMS = (
     "UNIDENTIFIED", "NOT_LISTED", "FOUND", "NO_EVIDENCE", "EASY_TEXT_MISSING", "NO_PRODUCT_INFO", "missing_reason",
