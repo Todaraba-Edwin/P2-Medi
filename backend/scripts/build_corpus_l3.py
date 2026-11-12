@@ -13,12 +13,14 @@
   5) rowspan/colspan 등으로 칸 수가 열 수와 다른 행이 30% 이상인 표는 열·값 짝을 만들지 않고 칸을 ` | `로 잇는다(표 열 줄에 짝 확인 필요 표시).
   4) 행 묶음(6행·1,500자 이하)마다 열 이름을 반복하고, 한 청크는 3,000자를 넘지 않게 쪼갠다.
 
-BE-05-04 C 표 전개(`--spans expand`, 2026-11-11, 기본값은 아직 기존 규칙 `keep`): `expand_table_spans`가 HTML 표를 열 좌표 격자로
+BE-05-04 C 표 전개(2026-11-11 구현, **2026-11-12 BE-05-09 B로 기본 규칙이 됨**): `expand_table_spans`가 HTML 표를 열 좌표 격자로
 펼쳐 rowspan·colspan 셀을 해당하는 모든 칸에 채운 뒤(`table_chunks_v2`) 위 1)~4) 규칙을 적용한다. 머리글이 rowspan·colspan으로
 여러 줄이면 열마다 위에서 아래 머리글 글자를 이어 열 이름을 만든다. 전개 뒤에도 칸이 비거나 넘치는 행이 30% 이상이면 5) 폴백.
 전체 폭 한 칸 행은 짧으면 소제목, 길거나 각주 표지(*, †, ※ 등)로 시작하면 `[표 주석]` 줄, 첫 행이면 `[표 제목]` 줄로 내고(원문 문단을 잃지 않음),
 3)은 이 행에서 시작한 두 칸 이상이 같은 개수로 쌓였을 때만 푼다. 칸마다 쌓인 개수가 다른 행이 있으면 열 짝은 지키되 표에 짝 확인 필요를 표시한다.
-결과는 `prmsn-v2` 명령이 새 파일 `l3_prmsn.v2.jsonl`과 변경 목록 `l3_prmsn.v2.changes.json`으로 쓴다(기존 `l3_prmsn.jsonl`은 덮어쓰지 않음).
+기본 `build`의 허가 상세(`l3_prmsn.jsonl`)는 이 v2 규칙으로 만든다(BE-05-09 B). 옛 규칙은 `build --legacy-prmsn`으로만 낸다.
+`build`가 기존 `l3_prmsn.jsonl`과 다른 내용으로 덮어쓰기 전에 `l3_prmsn.before_be0504.jsonl`로 한 번 보관한다(이미 있으면 그대로 둔다, 되돌리기용).
+`prmsn-v2` 명령은 비교용으로 새 파일 `l3_prmsn.v2.jsonl`과 변경 목록 `l3_prmsn.v2.changes.json`을 쓴다(기존 `l3_prmsn.jsonl`은 덮어쓰지 않음, 옛 규칙 `--legacy-prmsn` 기준 대비).
 
 사용(작업 위치 `backend/`): `.venv/bin/python scripts/build_corpus_l3.py build [--label-filter all|selected] [--check]` / `verify` / `capacity` / `samples` / `prmsn-v2`
 """
@@ -499,7 +501,9 @@ def prmsn_selected(doc: str, title: str) -> bool:
 
 
 def build_prmsn_chunks(snap_dir: Path | None = None, codes: dict[str, tuple[list[str], str]] | None = None,
-                       table_fn: Callable[[str], tuple[list[str], list[str], bool]] = table_chunks) -> list[dict[str, Any]]:
+                       table_fn: Callable[[str], tuple[list[str], list[str], bool]] | None = None) -> list[dict[str, Any]]:
+    """허가 상세 청크. `table_fn` 기본값은 v2 표 전개 규칙(`table_chunks_v2`, BE-05-09 B). 옛 규칙은 `table_fn=table_chunks`로만."""
+    table_fn = table_fn or table_chunks_v2
     codes = {} if codes is None else codes
     out: list[dict[str, Any]] = []
     for fp in sorted(glob.glob(str((snap_dir or PRMSN_DIR) / "item-*.json"))):
@@ -727,10 +731,10 @@ def jsonl_lines(chunks: Sequence[dict[str, Any]]) -> list[str]:
     return [json.dumps(c, ensure_ascii=False, separators=(",", ":")) for c in chunks]
 
 
-def build_all(label_filter: str = "all") -> dict[str, list[dict[str, Any]]]:
+def build_all(label_filter: str = "all", legacy_prmsn: bool = False) -> dict[str, list[dict[str, Any]]]:
     codes = load_product_codes()
     notice, info = build_notice_chunks(bup2_table_id=next(c["chunk_id"] for c in L2.build_bupyo2_chunks() if c["chunk_kind"] == "l1_bupyo2_table"))
-    sets = {"eyak": build_eyak_chunks(codes=codes), "prmsn": build_prmsn_chunks(codes=codes), "notice": notice}
+    sets = {"eyak": build_eyak_chunks(codes=codes), "prmsn": build_prmsn_chunks(codes=codes, table_fn=table_chunks if legacy_prmsn else table_chunks_v2), "notice": notice}
     build_all.info = info  # type: ignore[attr-defined]
     for k in sets:
         sets[k].sort(key=lambda c: (c["chunk_kind"], c["chunk_id"]))
@@ -758,8 +762,25 @@ def global_links(extra: Sequence[Path] = ()) -> dict[str, Any]:
     return L2.link_report(chunks) | {"files": len(chunks)}
 
 
+OLD_KEEP_NAME = "l3_prmsn.before_be0504.jsonl"  # 덮어쓰기 전 보관 이름(BE-05-09 B, 재적재 도구와 같은 이름)
+
+
+def keep_old_prmsn(out_dir: Path, new_lines: Sequence[str]) -> str:
+    """`l3_prmsn.jsonl`이 새 내용과 다르면 `*.before_be0504`로 한 번 복사 보관한다(이미 있으면 덮어쓰지 않는다).
+    반환: 'none'(기존 파일 없음)·'same'(같음)·'kept'(보관함)·'exists'(보관본이 이미 있어 그대로 둠)."""
+    cur, keep = out_dir / FILES["prmsn"], out_dir / OLD_KEEP_NAME
+    if not cur.exists():
+        return "none"
+    if cur.read_text(encoding="utf-8") == "\n".join(new_lines) + "\n":
+        return "same"
+    if keep.exists():
+        return "exists"
+    keep.write_bytes(cur.read_bytes())
+    return "kept"
+
+
 def cmd_build(args: argparse.Namespace) -> int:
-    sets = build_all(args.label_filter)
+    sets = build_all(args.label_filter, getattr(args, "legacy_prmsn", False))
     man = manifest_for(sets, args.label_filter)
     out_dir = OUT_DIR / ("selected" if args.label_filter == "selected" else "")
     mpath = out_dir / "manifest_l3.json"
@@ -769,6 +790,9 @@ def cmd_build(args: argparse.Namespace) -> int:
         print(f"재빌드 해시 {'동일' if same else '다름'}: {man['sha256'][:16]} (기존 {old['sha256'][:16]})")
         return 0 if same else 1
     out_dir.mkdir(parents=True, exist_ok=True)
+    kept = keep_old_prmsn(out_dir, jsonl_lines(sets["prmsn"]))
+    if kept in ("kept", "exists"):
+        print(f"옛 {FILES['prmsn']} → {OLD_KEEP_NAME} ({'보관함' if kept == 'kept' else '보관본이 이미 있어 그대로 둠'})")
     for k, cs in sets.items():
         (out_dir / FILES[k]).write_text("\n".join(jsonl_lines(cs)) + "\n", encoding="utf-8")
     man["notice_info"] = build_all.info  # type: ignore[attr-defined]
@@ -916,9 +940,9 @@ def audit_table(html_text: str) -> tuple[int, int, list[str]]:
 
 
 def cmd_prmsn_v2(args: argparse.Namespace) -> int:
-    old_path = OUT_DIR / FILES["prmsn"]
+    old_path = OUT_DIR / OLD_KEEP_NAME if (OUT_DIR / OLD_KEEP_NAME).exists() else OUT_DIR / FILES["prmsn"]  # 전환 뒤에는 보관본이 옛 파일
     v2_path = OUT_DIR / V2_FILE
-    if v2_path.resolve() == old_path.resolve():  # pragma: no cover - 경로 상수가 바뀌어도 기존 파일은 덮어쓰지 않는다
+    if v2_path.resolve() in (old_path.resolve(), (OUT_DIR / FILES["prmsn"]).resolve()):  # pragma: no cover - 경로 상수가 바뀌어도 기존 파일은 덮어쓰지 않는다
         raise SystemExit("v2 출력이 기존 l3_prmsn.jsonl을 가리킨다")
     codes = load_product_codes()
     old = [json.loads(ln) for ln in old_path.read_text(encoding="utf-8").splitlines() if ln]
@@ -992,6 +1016,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     b = sub.add_parser("build")
     b.add_argument("--label-filter", choices=("all", "selected"), default="all")
     b.add_argument("--check", action="store_true")
+    b.add_argument("--legacy-prmsn", action="store_true", help="허가 상세를 옛 표 규칙으로 만든다(기본은 v2 표 전개, BE-05-09 B)")
     b.set_defaults(fn=cmd_build)
     sub.add_parser("verify").set_defaults(fn=cmd_verify)
     sub.add_parser("capacity").set_defaults(fn=cmd_capacity)
