@@ -197,7 +197,7 @@ def post_tool_use(call, result, ctx) -> tuple[ToolMessage, dict]:
 - **상태 4종**: `FOUND`(해당 있음, 또는 찾음), `NOT_LISTED`(조회는 성공했고 금기 목록에 없음), `UNIDENTIFIED`(약을 식별하지 못해 판정하지 못함), `NO_EVIDENCE`(검색 도구가 맞는 근거를 찾지 못함)다. 도구별로 쓸 수 있는 상태는 위 `STATUS_BY_TOOL`과 같다. 검색 도구의 `NO_EVIDENCE`는 RFP-22-02 A의 코드 검사(청크의 약·성분 ID 일치)로 정한다. 의미 검색은 0건이 잘 나오지 않으므로 건수로 정하지 않는다. `search_label`의 `NO_PRODUCT`는 성분코드로 불렀을 때의 결과이며, 상태가 아니라 거부 응답이다(4.1 (a)).
 - **API 쪽 사정은 상태가 아니라 꼬리표다.** API 실패나 양방향 누락은 파일 판정을 바꾸지 않는다(PJ2-RFP.md 5.1절 (7)). 그래서 초안의 `INCOMPLETE` 상태는 없앴다. 평가에서는 API를 끄므로 이 꼬리표가 나오지 않는다.
 - **입력 코드 형식 꼬리표 2개(2026-11-10 사용자 승인, 어휘 표 등록)**: `INVALID_CODE`는 `identify`가 형식이 맞지 않는 코드를 받아 `UNIDENTIFIED`로 돌려줄 때 항목에 붙고(`backend/app/tools/lookup.py` 224·243행), `PAIR_NOT_CHECKED`는 코드 쌍 중 하나가 `INVALID_CODE`여서 그 쌍을 조회하지 못했을 때 붙는다(같은 파일 253행). 둘 다 상태는 `UNIDENTIFIED`이고 `NOT_LISTED`가 아니다(H2). 회귀 시험은 `backend/tests/test_be09_lookup.py`다. 문구는 아래 표에 있다.
-- **사전이 코드를 붙이지 못한 경우(BE-10-06 A, 2026-11-10)**: 코드 없음은 `NOT_LISTED`가 아니라 `UNIDENTIFIED`로 다룬다("금기 목록에서 확인하지 못함", 안전하다는 뜻이 아님 + 약사 확인). 문구와 새 꼬리표 어휘는 AG-02 착수 때 확정한다(새 상태는 만들지 않는다).
+- **사전이 코드를 붙이지 못한 경우(BE-10-06 A, 2026-11-10)**: 코드 없음은 `NOT_LISTED`가 아니라 `UNIDENTIFIED`로 다룬다("금기 목록에서 확인하지 못함", 안전하다는 뜻이 아님 + 약사 확인). 문구와 새 꼬리표 어휘(`CODE_NOT_LINKED` 등)는 2026-11-12 사용자 승인으로 아래 표에 등록했다(새 상태는 만들지 않는다).
 - PostToolUse는 **판정을 바꾸지 않는다.** 판정은 도구 안의 코드가 이미 했고(H9), Post는 결과가 계약을 지켰는지 본다. 모델·`validator`·`finalize`가 같은 사실을 보게 하는 것이 목적이다.
 - `finalize`는 항목별 상태와 꼬리표를 읽어 **항목마다** 고정 문구를 코드로 붙인다. 순서는 `FOUND`(금기 발견) 항목이 먼저다. 그래야 한 결과 안에서 발견한 금기가 다른 항목의 "확인하지 못함"에 묻히지 않는다(PRD 화면의 "제품별 줄", PJ2-PRD.md 15장).
 
@@ -208,17 +208,28 @@ def post_tool_use(call, result, ctx) -> tuple[ToolMessage, dict]:
 | `UNIDENTIFIED` | "약을 찾지 못해 확인하지 못함" + 다시 쓸 이름 안내. 항목에 `input_name`(입력 이름 그대로)·`searched[{dataset, count}]`·`retried`를 달고 화면 문구는 기관 표기 `식약처·한국의약품안전관리원 자료에서 찾지 못했어요`(내부 단계명·`약 이름 사전` 없음). 다중 약 질문의 식별된 약은 요약 한 줄 항목으로 함께 나간다(PRD-14-01·02·04) |
 | `INVALID_CODE` | (초안, AG-06 구현 때 확정) "입력한 약을 식약처·한국의약품안전관리원 자료에서 찾지 못했어요. 약 이름을 다시 알려 주세요." 형식이 맞지 않는 코드(None·빈 문자열·KIDS 성분코드 형식 아님)가 `UNIDENTIFIED`로 돌아온 항목에 붙는다. 판정한 출처가 아니므로 `source=None`·`as_of=None`·`dataset_key=None`이다(BE-09 §2, 2026-11-10). 코드명은 화면에 노출하지 않는다 |
 | `PAIR_NOT_CHECKED` | (초안, AG-06 구현 때 확정) "이 약과 함께 먹어도 되는지는 식약처·한국의약품안전관리원 자료에서 확인하지 못했어요. 안전하다는 뜻이 아니에요." 코드 쌍 중 하나가 `INVALID_CODE`여서 그 쌍을 조회하지 못한 항목에 붙는다. `NOT_LISTED`가 아니라 `UNIDENTIFIED`이며 "확인하지 못함"으로 렌더한다. 판정한 출처가 아니므로 `INVALID_CODE`와 같이 `source=None`·`as_of=None`·`dataset_key=None`이다(2026-11-10 사용자 결정). 코드명은 화면에 노출하지 않는다 |
+| `CODE_NOT_LINKED` | "금기 목록에서 확인하지 못했지만, 안전하다는 뜻이 아니에요. 약사에게 확인하세요"(사용자 수정 문구, 2026-11-12 승인). 사전이 KIDS 코드를 붙이지 못했거나 제형 불일치·일부 성분만 조회된 경우에 붙는다. 상태는 `UNIDENTIFIED`이고 `NOT_LISTED`가 아니다(BE-10-06 A). 코드(`provenance.FLAG_NOTES`)는 현재 "금기 목록에서 확인하지 못함. 안전하다는 뜻이 아니에요. 약사에게 확인하세요"이며 AG-08 구현에서 이 문구로 바꾼다(공통 상수 `NOT_SAFE`와 글자가 일치) |
+| `REFERENCE_ONLY` | "다른 제형에서 목록에 있음, 이 제품 판정 아님"(2026-11-12 승인). `route_only`·`mismatch`·`unknown` 성분 단위 일치에 붙는다. 항목별 한 줄 `REFERENCE_ONLY_LINE`: "참고: {drug}는 다른 제형에서 금기 목록에 있어요. 이 제품에 대한 판정은 아니에요"(코드 초안) |
+| `AMBIGUOUS_NAME` | "같은 이름의 약이 여러 개라 어느 약인지 먼저 확인해야 해요"(2026-11-12 승인). 이름이 여러 약이거나 BM25 후보일 때 붙는다(되묻기, H11). `check_contraindications`는 BM25 후보를 항상 이 꼬리표로 돌려 자동 확정하지 않는다 |
+| `LOOKUP_FAILED` | "조회하지 못해 확인하지 못함. 안전하다는 뜻이 아니에요. 약사에게 확인하세요"(코드 `fixed_phrases.LOOKUP_FAILED`, 2026-11-12 승인). DB 조회 오류일 때 붙고 상태는 `UNIDENTIFIED`이다. 예외 종류만 `error_type`으로 노출하고 메시지는 노출하지 않는다 |
+| `TRUNCATED` | "원문이 길어 일부만 보여 드려요. 전체는 약사에게 확인하세요"(코드 `fixed_phrases.TRUNCATED`, 2026-11-12 승인). 절 본문이 2000자를 넘어 잘렸을 때 붙는다 |
 | `NO_EVIDENCE` | "근거 문장을 찾지 못함" |
-| `NO_PRODUCT_INFO` | "제품 단위 정보(제품 연령 문장·허가 라벨·제형) 없음. 봉투의 제품명을 알려 주시면 더 확인할 수 있어요" |
+| `NO_PRODUCT_INFO` | "제품 단위 정보(제품 연령 문장·허가사항·제형) 없음. 봉투의 제품명을 알려 주시면 더 확인할 수 있어요"(2026-11-12 승인. PRD-10-04로 "허가 라벨"을 "허가사항"으로 바꾼 코드 `fixed_phrases.NO_PRODUCT_INFO`의 현재 값) |
+| `verdict_allowed` | 사용자 문구가 아니라 검색 도구 항목의 필드이다(2026-11-12 승인). 검색 도구(`search_notice`·`search_reason`·`search_label` 등) 항목은 `verdict_allowed=False`이다. 검색 결과만으로 금기 여부를 말하지 않고 판정은 `check_contraindications`만 한다(H29, `backend/app/agent/tools/search_common.py`) |
+| `QUOTE_MISMATCH` | 사용자 문구가 아니라 `validator`의 문장 제거 사유 코드이다(2026-11-12 승인, 검사 ⑨, H28). 문장의 인용부호(큰따옴표·낫표) 안 글자가 연결된 원문 인용 대상 근거(`CORPUS_QUOTE` 청크·`is_label` 라벨 항목)와 일치하지 않으면 그 문장을 `DROPPED`로 걸러내고 `harness_event`의 `reasons.QUOTE_MISMATCH`로 센다. 6자 미만 인용은 건너뛴다 |
+| `FALLBACK_SOME_CONFIRMED` | "{자료1}(기준일 {날짜})·{자료2}(기준일 {날짜})에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요."(2026-11-12 승인. 일부만 확인한 경우의 폴백) |
+| `FALLBACK_NONE_CONFIRMED` | "검색한 자료({scope})에서는 확인하지 못했어요. 정확한 확인은 약국·약사에게 하세요."(2026-11-12 승인. 하나도 확인하지 못한 경우의 폴백) |
 | `EASY_TEXT_MISSING` | "{약 이름}은 전문의약품이라 쉬운 설명(e약은요)이 없어서 허가사항 원문을 그대로 보여 드려요"(PRD-10-04, `EASY_TEXT_MISSING_NOTE`). 허가 상세 원문이 있을 때의 안내 한 줄이다 |
 | 미확보 `OUT_OF_SCOPE` | `MISSING_OUT_OF_SCOPE`: "{약 이름}은 전문의약품이라 공공 자료로는 설명을 확인할 수 없어요" + 약사 확인 권고 |
 | 미확보 `ABSENT` | `MISSING_ABSENT`: "{약 이름} 허가사항에는 이 항목이 따로 적혀 있지 않아요" + 약사 확인 권고 |
 | 미확보 `FETCH_FAIL` | `MISSING_FETCH_FAIL`: "지금은 허가사항을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요" + 약사 확인 권고 |
-| 미확보 `SEARCH_MISS`(`NO_EVIDENCE`) | `MISSING_SEARCH_MISS`: "허가사항에서 관련 문장을 찾지 못했어요" + 약사 확인 권고 |
+| 미확보 `SEARCH_MISS`(`NO_EVIDENCE`) | `MISSING_SEARCH_MISS`: "허가사항에서 관련 문장을 찾지 못했어요" + 약사 확인 권고(2026-11-12 승인) |
 | 등급 정의 블록 미확보 `GRADE_DEF_MISSING`(후보) + `FETCH_FAIL`·`OUT_OF_SCOPE` | `FETCH_FAIL`: "지금은 임부금기 {N}등급의 뜻(고시 원문)을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요." / `OUT_OF_SCOPE`: "임부금기 {N}등급의 뜻(고시 원문)을 아직 준비하지 못했어요." + 약사 확인 권고(후보). `SEARCH_MISS` 없음(등급 정의는 청크 ID 조회). 원문 없는 블록은 조항 출처 줄 없음(PRD-15-03) |
 | `source_kind` 표지 | `API_DIRECT` "공식 자료에서 직접 가져왔어요", `FILE` "공식 파일 기준이에요", `CORPUS_QUOTE` "공식 문서에서 찾은 문장이에요"(쉬운 말, 내부 용어 없음, 후보). 표지는 `{종류 문구} · {dataset}` 형식으로 자료 약칭(출처 표 자료 열과 같은 문자열, 예: `공식 문서 · e약은요 쉬운 설명`)을 포함한다(PRD-12-03) |
 | `FILE_ONLY`·`API_ONLY`·`API_SAME` | PJ2-RFP.md 5.1절 (7)의 문구 |
 | `API_FAIL`·`API_PAIR_INCOMPLETE` | "실시간 확인을 하지 못함"(파일 기준 답은 그대로) |
+
+- **어휘 표 등록 메모(2026-11-12 사용자 승인, Recap 0-1)**: `CODE_NOT_LINKED`·`REFERENCE_ONLY`·`AMBIGUOUS_NAME`·`LOOKUP_FAILED`·`TRUNCATED`·`SEARCH_MISS`·`NO_PRODUCT_INFO`·`verdict_allowed`·`QUOTE_MISMATCH`와 폴백 문구 2종(`FALLBACK_SOME_CONFIRMED`·`FALLBACK_NONE_CONFIRMED`)을 위 표에 등록했다(`SEARCH_MISS`는 아래 `MISSING_SEARCH_MISS` 행의 문구가 코드와 같아 승인 일자만 더했다). `CODE_NOT_LINKED`만 사용자가 문구를 고쳤고, 코드의 `provenance.FLAG_NOTES`는 AG-08 구현에서 바꾼다. 폴백 2종은 코드에서 현재 `DRAFT_KEYS`에 들어 있으며 승인 반영(해제)은 AG-08이 코드에서 한다. 출처: `tickets/agent/AG-02.md` §5, `AG-03`·`AG-06` §5, `backend/app/tools/provenance.py`, `backend/app/agent/fixed_phrases.py`.
 
 - **미확보 사유 코드와 권고 필수 규칙(PRD-11, 2026-11-09, H26·H27)**: 허가사항 원문 미확보는 `missing_reason` 4종(`ABSENT`·`FETCH_FAIL`·`SEARCH_MISS`·`OUT_OF_SCOPE`)으로 구분해 도구가 돌려주고(`SEARCH_MISS`는 `NO_EVIDENCE`와 함께), `finalize`가 위 표의 상수를 렌더한다. **화면·mock·프로토타입의 문구도 이 상수에서만 나온다**(상수에 없는 일반 실패 문구 "원문을 가져오지 못했어요"는 폐기, 사용자 지적). 미확보 항목마다 **약국·약사 확인 권고를 코드가 필수로 붙이고**(접히지 않음, 강조 색 박스) 어느 경우에도 "상호작용 없음·안전"을 암시하지 않는다. 권고 문구 존재와 암시 부재는 `validator`가 코드로 검사한다. 화면 대응표는 `tickets/doc/PRD-11.md` §6.6·§6.7이다.
 
