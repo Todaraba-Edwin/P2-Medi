@@ -1,0 +1,295 @@
+# 프런트 구현 위임 계획 (Can I PPiyak)
+
+**DELEGATION PLAN: 프런트 구현 위임 계획**
+
+> 원본: 2026-11-12 메인 지시서(`data/mock/briefs/2026-11-12-fe-plan.md`, 로컬 전용)와 저장소 문서(`P2-doc/PJ2-프론트-기술스택.md`, `tickets/frontend/FE-01.md`·`FE-02.md`·`FE-07.md`, `tickets/backend/BE-06.md`, `backend/app/api/schemas.py`, `backend/app/agent/fixed_phrases.py`), FE-07 점검 결과(로컬 전용 `P2-doc/report/SCH-02-ui-review-2026-11-12.md`, `data/mock/ui-review/2026-11-12/P6-critic-r3.md`, `data/mock/briefs/ui-fix-brief-2026-11-12.md`). 작성일 2026-11-12. 이 문서는 계획이며 코드(`frontend/`)는 아직 없다. 값(주소·키)은 쓰지 않고 환경변수 이름만 적었다. 소요 시간은 모두 **측정 전**이다.
+
+## Index
+- [1. 요약](#1-요약)
+- [2. 선행 조건](#2-선행-조건)
+  - [2.1 선행 조건 표](#21-선행-조건-표)
+  - [2.2 BE-06 v1에서 프런트가 기다리는 필드](#22-be-06-v1에서-프런트가-기다리는-필드)
+  - [2.3 디자인 반영 뒤 확인할 것](#23-디자인-반영-뒤-확인할-것)
+- [3. 작업 패키지](#3-작업-패키지)
+  - [3.1 FE-01-13 분할과의 대응](#31-fe-01-13-분할과의-대응)
+  - [3.2 WP 표](#32-wp-표)
+  - [3.3 WP별 완료 기준](#33-wp별-완료-기준)
+- [4. 순서와 병렬](#4-순서와-병렬)
+  - [4.1 순서도](#41-순서도)
+  - [4.2 병렬 가능 쌍과 파일 소유](#42-병렬-가능-쌍과-파일-소유)
+- [5. 안전 불변식](#5-안전-불변식)
+- [6. VS Code 세션 운영 규칙](#6-vs-code-세션-운영-규칙)
+  - [6.1 세션 시작](#61-세션-시작)
+  - [6.2 브랜치와 작업 폴더](#62-브랜치와-작업-폴더)
+  - [6.3 커밋과 병합](#63-커밋과-병합)
+  - [6.4 보고 형식](#64-보고-형식)
+  - [6.5 메인과의 역할 분담](#65-메인과의-역할-분담)
+  - [6.6 컨텍스트 관리](#66-컨텍스트-관리)
+- [7. 사용자 게이트](#7-사용자-게이트)
+- [8. 결정 후보](#8-결정-후보)
+- [9. 리스크와 되돌리기](#9-리스크와-되돌리기)
+- [10. 한계와 확인하지 못한 것](#10-한계와-확인하지-못한-것)
+- [11. 근거 자료](#11-근거-자료)
+
+## 1. 요약
+
+- **무엇을**: 프런트(Next.js, `frontend/`)를 작업 패키지(WP) 7개로 나눠 **VS Code의 Claude Code**에 한 개씩 맡긴다. WP마다 지시서(`data/mock/briefs/fe/{WP-id}.md`, 로컬 전용)가 있고 이 문서의 WP 이름과 1:1이다(3.2절).
+- **모델**: Fable 5.2(VS Code `/model`에서 확인한 ID). 사용자는 VS Code에서 Fable 5.2를 쓰며, brew로 받은 CLI에는 5.1까지만 보인다. 저장소 문서는 모델 ID 문자열을 지어 쓰지 않는다. 세션을 열 때 `/model`로 확인한 ID를 보고 파일에 적는다(6.4절).
+- **FE-01-13**: 사용자 답 "권장대로"(A: 분할 5개 안, 화면 조립은 FE-07 디자인 반영 뒤)로 정해졌다. 원래 선택지 A의 "컴포넌트 단위까지 먼저 **병렬**"은 사용자 방침(2026-11-12, "병렬이 한꺼번에 돌면 따라가기 어렵다")에 따라 **직렬 기본, 파일 소유가 완전히 갈릴 때만 최대 2개 병렬**로 운용한다. 바뀐 것은 모델 표기와 실행 방식(herdr pane이 아니라 사용자가 연 VS Code 세션)뿐이다. FE-01 §6 결정 현황 표의 갱신은 `schedule-writer`가 한다(이 문서는 고치지 않음).
+- **지금 시작할 수 있는 것**: 스캐폴드·토큰(`FE-IMPL-00`), API 클라이언트·NDJSON 파서·zod v0·MSW 틀(`FE-IMPL-01`), 채팅 입력·스토어·진행 표시(`FE-IMPL-02`). 디자인 반영과 BE-06 v1을 기다리지 않는다.
+- **기다려야 하는 것**: 계약 v1 이행(`FE-IMPL-03`, BE-06 v1 뒤), 결과 카드(`FE-IMPL-04`), 근거 상세·응급·고정 안내(`FE-IMPL-05`), 화면 조립(`FE-IMPL-06`, 사용자 승인 뒤).
+- **결정 후보 f1~f5는 답이 끝났다**(2026-11-12, 8장): f1 A(저장소 안 `frontend/`에서 작업, 사용자 선택), f2~f5 A(★). `FE-IMPL-00`은 바로 시작할 수 있다. **남은 사용자 몫**은 G1 디자인 반영 확인, G2 BE-06 결정 후보 b1~b7과 FE-07 후보 답, WP마다 G3 검수·커밋 요청, G4 화면 조립 승인이다(7장).
+
+## 2. 선행 조건
+
+### 2.1 선행 조건 표
+
+| 선행 조건 | 지금 상태(2026-11-12) | 막는 WP | 막지 않는 WP | 근거 |
+|---|---|---|---|---|
+| (a) **디자인 반영**: 수정 지시서를 클로드앱 디자인 세션이 반영하고, 새 스냅샷으로 FE-07 P0을 다시 돈다(반영 확인) | 수정 지시서 승인(G1 A)함, 디자인 세션 전달·반영 대기(사용자) | `FE-IMPL-04`(결과 카드 배치), `FE-IMPL-05`(근거 상세·응급 배치), `FE-IMPL-06`(조립) | `FE-IMPL-00`(토큰은 현재 값으로 시작, 2.3절 차이만 보완), `01`, `02`, `03` | `SCH-02-ui-review` 7.5절(`:480-481`), `PJ2-프론트-기술스택.md:348-353`(9장 (2)) |
+| (b) **BE-06 응답 스키마 v1**: 결정 후보 b1~b7에 답하고 BE-06이 `chat_response@v1`·스트림 이벤트 형식·요청 모델·`/openapi.json`을 구현 | 골격 `chat_response@v0`만 있음, b1~b7 미등록 | `FE-IMPL-03`(계약 이행), 그 뒤의 `04`·`05`(v1 필드), `02`의 되묻기 카드(보완 지점), `06`의 실제 `/chat` 연결 | `00`, `01`(v0와 이벤트 초안으로 시작), `02`(되묻기 카드 제외) | `schemas.py:26,128-180`, `BE-06.md:33,38-40`, `SCH-02-ui-review` 6.4절(`:419-428`), `P6-critic-r3.md:5-6` |
+| (c) FE-07 결정 후보 FE-07-03~13·AG-08 a1~a15 | 미등록(보고서 후보) | 문구는 백엔드 상수가 소유하므로 프런트 코드를 막지 않는다. 다만 FE-07-06(카드 날짜 줄)은 `04`, FE-07-07(약국 링크)·FE-07-08(빈칸 상태)은 `05`·`06`, FE-07-09(폭 분기)는 `06`의 범위를 정한다 | `00`~`03` | `SCH-02-ui-review` 6.2절(`:385-398`) |
+| (d) 8장 결정 후보 f1~f5 | **답 완료(2026-11-12)**, 번호 등록은 `schedule-writer` | 없음 | 전부 | 이 문서 6.2·6.3절·8장 |
+| (e) FE-06 브랜드 이미지 변환(favicon·마스코트 크롭) | 사용자 확인 대기 | 막지 않음. `00`은 자리만 두고 보고에 적는다 | 전부 | `FE-01.md:38`, `schedule.md` Recap 행 3 |
+
+### 2.2 BE-06 v1에서 프런트가 기다리는 필드
+
+v0로는 핵심 결과 보드를 그릴 수 없다는 지적(`P6-critic-r3.md:5`)을 WP 단위로 옮겼다. 필드 이름은 BE-06이 정한다.
+
+| 필요한 것 | v0 상태 | 기다리는 WP | 근거 |
+|---|---|---|---|
+| 제품 줄 `findings[].ingredients[]`(성분 칩 `금기 원인`·`중복`·`병용금기 원인`) | 없음 | `04` | `P6-critic-r3.md:11-17`, `BE-06.md:33`, `schemas.py:128-147` |
+| 제품 줄마다 붙은 배지 `findings[].badges[{kind, grade, source}]` | 응답 전체에 한 목록(`badges[]`), `source` 없음 | `04` | `P6-critic-r3.md:19-27`, `BE-06.md:38`, `schemas.py:150-155,173` |
+| 쌍(A × B) 판정 구조(b1) | 없음 | `04`·`05` | 보고서 6.4절 b1 |
+| 되묻기 후보 `candidates[]`(b3) | 없음 | `02` 되묻기 카드 | `P6-critic-r3.md:39-45` |
+| 진행·오류 스트림 이벤트 형식(`chat_event`) | 초안(`PJ2-프론트-기술스택.md:206-239`) | `03`(확정 이행). `01`은 초안으로 시작 | `BE-06.md:39`, `P6-critic-r3.md:29-37` |
+| 요청 모델(대화 상태 한 묶음·확인된 약 목록·대상) | 없음 | `03`·`02`(요청 본문) | `P6-critic-r3.md:47-53`, `BE-06.md:29` |
+| `detail[]`의 인용·약 이름·항목명·미확보 문구, 등급 정의 블록 | 일부(`rows: list[dict]`) | `05` | 보고서 7.3절(`:466`), `BE-06.md:34-35,38` |
+| `/openapi.json`(openapi-typescript 입력) | 엔드포인트 없음 | `03` | `BE-06.md:40`, `FE-01.md:52` |
+| 응급의 `end_reason` 처리(b2), 상단 배너 자리 `notice`(b6), 조회 시각(b7) | 결정 전 | `05`·`06` | 보고서 6.4절 b2·b6·b7 |
+| `fixed_notice` 줄 순서(응답: 권고 → 고정 / 보드: 고정 → 권고) | 응답 순서는 `schemas.py:179` | `05`(받은 순서 그대로 그림) | `P6-critic-r3.md:103-109`, 보고서 7.1절 FE-02 행 |
+
+### 2.3 디자인 반영 뒤 확인할 것
+
+- **토큰**: 수정 지시서 10.2절(`ui-fix-brief-2026-11-12.md:201-207`)이 `--faint` 사용처, 버튼 히트 영역 44px, 1024~1279 폭 배치를 고치라고 했다. `00`은 현재 10장 토큰(`PJ2-프론트-기술스택.md:359-389`)으로 시작하고, 반영 뒤 바뀐 변수만 `src/styles/` 한 곳에서 고친다(9장 리스크 R3).
+- **보드**: FE-07-08 ★A면 빈칸 상태 보드 8개(`ui-fix-brief` 11.1절)가 새로 생긴다. `05`·`06`의 화면 시험 목록에 더한다.
+- **확인 방법**: FE-07 파이프라인 P0(새 기준일 스냅샷) 재실행 결과를 사용자가 메인 세션에서 확인하고 G1 게이트(7장)를 연다.
+
+## 3. 작업 패키지
+
+### 3.1 FE-01-13 분할과의 대응
+
+FE-01-13 A의 5개 안을 기본으로 하고, ⑤를 "지금 할 수 있는 골격"(`01`)과 "v1 계약 이행"(`03`)으로 나눴으며 화면 조립을 별도 WP(`06`)로 뺐다. 이유: ⑤를 하나로 두면 BE-06 v1을 기다리는 동안 파서·MSW까지 막힌다.
+
+| FE-01-13 분할(`PJ2-프론트-기술스택.md:340-346`) | WP |
+|---|---|
+| ① 스캐폴드·설정·토큰 | `FE-IMPL-00-scaffold` |
+| ⑤ API 클라이언트·MSW·타입·시험 | `FE-IMPL-01-api-stream`(골격, v0) + `FE-IMPL-03-contract-v1`(v1 이행) |
+| ② 채팅·입력·스트리밍 | `FE-IMPL-02-chat` |
+| ③ 결과 카드·배지·날짜 줄 | `FE-IMPL-04-result` |
+| ④ 근거 상세·응급 배너·고정 안내 | `FE-IMPL-05-evidence-emergency` |
+| 화면 조립(FE-07 반영 뒤) | `FE-IMPL-06-assembly` |
+
+### 3.2 WP 표
+
+"시작"은 선행 조건과 무관하게 바로 할 수 있으면 **즉시**, 아니면 **대기**다. 지시서는 `data/mock/briefs/fe/{WP-id}.md`(로컬 전용)다.
+
+| WP | 티켓·브랜치(제안) | 시작 | 목표 | 소유 폴더·파일 | 금지 파일(공통 외) | 선행 | 예상 소요 |
+|---|---|---|---|---|---|---|---|
+| `FE-IMPL-00-scaffold` | FE-01, `feature/FE-01-impl00-scaffold` | 즉시 | Next.js App Router·TS strict·Tailwind v4 토큰·ESLint `jsx-a11y`·Vitest·Playwright·MSW 설치와 설정, 공용 안전 장치(마스코트 금지 영역, 저장 금지 lint, 금지어 시험), 개발 전용 미리보기 경로 | `frontend/` 루트 설정 파일 전부(`package.json`·`pnpm-lock.yaml`·`.nvmrc`·`next.config.ts`·`tsconfig.json`·`eslint.config.mjs`·`vitest.config.ts`·`playwright.config.ts`), `src/app/layout.tsx`·`page.tsx`(빈 자리)·`src/app/dev/`(틀), `src/styles/`, `src/components/`(ui/·`Mascot`·`NoMascotZone`), `src/lib/ui-settings.ts`, `src/test/`, `public/` | `src/features/`, `src/lib/api/`, `src/mocks/`, `src/stores/` | 없음(f1·f2 답 완료) | 측정 전 |
+| `FE-IMPL-01-api-stream` | FE-01, `feature/FE-01-impl01-api-stream` | 즉시(`00` 뒤) | ky 클라이언트, NDJSON 파서(`AsyncIterable<ChatEvent>`), zod 스키마(v0 수동 + 이벤트 초안), MSW 핸들러와 합성 fixture(정상·응급 첫 이벤트·되묻기·거절·오류·끊김), 무응답 상한·abort | `src/lib/api/`, `src/mocks/`, `frontend/e2e/fixtures/`(스트림 fixture) | `src/features/`, `src/stores/`, 루트 설정(패키지 추가는 보고로 요청) | `00`(f3 A 확정) | 측정 전 |
+| `FE-IMPL-02-chat` | FE-01, `feature/FE-01-impl02-chat` | 즉시(`01` 뒤). 되묻기 카드만 대기 | 입력창·대화 스레드·진행 표시(`progress` 이벤트로만)·오류/다시 시도·대화 스토어(메모리 전용, 대화 상태 한 입력 묶음)·시작 화면(마스코트 허용 자리) | `src/features/chat/`, `src/stores/`, `src/lib/fixed/`(f5 생성 파일·대조 시험), `frontend/scripts/gen-fixed-phrases.mjs`, `src/app/dev/preview/chat/` | `src/lib/api/`(읽기만), `src/mocks/`, `src/styles/`, 루트 설정 | `01`(f5 A 확정) | 측정 전 |
+| `FE-IMPL-03-contract-v1` | FE-01, `feature/FE-01-impl03-contract-v1` | 대기 | `/openapi.json` → `openapi-typescript` 생성 스크립트, zod v1(`chat_response@v1`·확정 이벤트 형식·요청 모델), fixture v1 이행, 파서 시험 갱신 | `src/lib/api/`, `src/mocks/`, `frontend/e2e/fixtures/`, `frontend/scripts/gen-api.*` | `src/features/`, `src/stores/`, `src/styles/`, 루트 설정(`package.json`의 스크립트 한 줄 추가는 보고로 요청) | BE-06 v1 병합, `01` | 측정 전 |
+| `FE-IMPL-04-result` | FE-02, `feature/FE-02-impl04-result` | 대기 | 결과 카드·제품 줄·배지(`flex-wrap` 한 규칙)·성분 칩·"목록에 없음" 줄·날짜 줄 부품(`DateLines`) | `src/features/result/`, `src/components/DateLines.tsx`(+ 시험), `src/app/dev/preview/result/` | `src/features/evidence/`, `src/features/emergency/`, `src/features/chat/`, `src/lib/api/`, `src/mocks/`, `src/styles/` | (a), `03`, FE-07-06 답 | 측정 전 |
+| `FE-IMPL-05-evidence-emergency` | FE-02, `feature/FE-02-impl05-evidence` | 대기 | 근거 상세 패널(Radix Sheet/Accordion)·판정·사유 원문·허가사항 인용·출처 표(배열 순서 그대로)·등급 정의 블록·원문 미확보 박스·약사 확인 권고 박스(접히지 않음)·119 배너·고정 안내 박스·고지 | `src/features/evidence/`, `src/features/emergency/`, `src/app/dev/preview/evidence/` | `src/features/result/`, `src/components/DateLines.tsx`(쓰기만 금지, 가져다 씀), `src/features/chat/`, `src/lib/api/`, `src/mocks/`, `src/styles/` | (a), `03`, `04`, FE-07-07·08 답 | 측정 전 |
+| `FE-IMPL-06-assembly` | FE-01, `feature/FE-01-impl06-assembly` | 대기(사용자 승인 G4) | `src/app/page.tsx` 조립(채팅 → 결과 → 근거 상세), 응급 흐름, 근거 상세 열기·닫기를 들어온 결과에 고정, 모바일 셸(데스크톱은 FE-07-09 답), Playwright 흐름·폭 시험, BE-06 엔드포인트가 있으면 rewrites 실연결 시험(BE-13 점검 항목) | `src/app/page.tsx`, `src/app/(shell)/`(셸), `frontend/e2e/*.spec.ts` | 각 `src/features/*`는 결함만 보고로 요청(직접 고치지 않음), `src/lib/api/`, `src/styles/` | `04`, `05`, G4, FE-07-09 답 | 측정 전 |
+
+의존성 추가: 직렬로 도는 WP는 필요한 패키지를 `pnpm add`로 더할 수 있고(`package.json`·`pnpm-lock.yaml` 변경), 더한 패키지와 이유를 보고에 적는다. 그 밖의 루트 설정 파일 수정은 보고로 요청한다. 병렬 쌍(4.2절)에서는 `03`만 `package.json`을 고친다.
+
+공통 금지(모든 WP): `.env`·`.env.*` 열기, `backend/`·`evaluation/`·`schedule*.md`·`tickets/`·`P2-doc/`·`CLAUDE.md`·`.claude/` 수정, git 명령(f2 A), 브랜치 전환(6.2절), `data/mock/` 내용을 `frontend/`로 복사(f3 A), 아티팩트 수정.
+
+### 3.3 WP별 완료 기준
+
+모든 WP의 공통 완료 기준: `pnpm lint`(ESLint + `jsx-a11y`, 경고 0), `pnpm typecheck`(`tsc --noEmit`), `pnpm test`(Vitest + Testing Library) 통과, 5장 안전 불변식 중 해당 행의 점검 통과, 보고 파일과 `## NEXT`(6.4절). 아래는 WP별로 더하는 것이다.
+
+| WP | 더하는 완료 기준 |
+|---|---|
+| `00` | `pnpm build` 통과. `pnpm e2e`(Playwright 스모크: 빈 페이지가 360px·320px에서 가로 스크롤 없음). ESLint가 `zustand/middleware`의 `persist` 가져오기와 `ui-settings.ts` 밖의 `localStorage`·`sessionStorage` 사용을 오류로 막는다(위반 예시 시험 1건). 금지어 시험이 `backend/app/agent/fixed_phrases.py`의 `FORBIDDEN_SCREEN_TERMS`(`:153-156`)를 읽어 `src/`의 화면 글자와 대조한다. `Mascot`이 `NoMascotZone` 안에서는 그려지지 않는다(시험). `next.config`에 `/api/*` rewrites(`MEDIAGENT_BACKEND_ORIGIN`)만 있고 Route Handler가 없다. 다크모드 변수가 없다. `NEXT_PUBLIC_*`는 허용 목록(`NEXT_PUBLIC_API_BASE_URL`·`NEXT_PUBLIC_API_MOCKING`)만 쓴다. |
+| `01` | 파서 시험: 줄이 조각 경계·UTF-8 멀티바이트 중간에서 잘림, `\r\n`, 빈 줄, 끝 버퍼, 잘못된 JSON → 오류 상태, zod 실패 → 오류 상태, `abort()`. 스트림 규칙(`PJ2-프론트-기술스택.md:192-204`): POST 자동 재시도 0, `answer` 전 끊김은 부분 결과 없음, `emergency`는 끊겨도 유지. MSW가 `NEXT_PUBLIC_API_MOCKING=enabled`일 때만 켜진다. fixture는 합성 값이고 `chat_response@v0` zod를 통과한다. |
+| `02` | 진행 표시는 `progress` 이벤트로만 바뀌고 문구는 PRD 15.4 로딩 행의 세 단계(`PJ2-PRD.md:406`)뿐이며 "단계" 글자를 쓰지 않는다(금지어). 새 질문이면 진행 중 요청을 `abort()`. 대화 뒤 `localStorage`·`sessionStorage`·IndexedDB에 질문 문장이 없다(시험). "다시 시도"는 사용자가 눌렀을 때만. 응급 이벤트가 오면 진행 표시의 마스코트가 숨는다. 360px에서 입력창이 첫 화면에 있다(Playwright). |
+| `03` | `pnpm gen:api`가 백엔드 `/openapi.json`에서 타입을 만들고 손으로 쓴 v0 타입을 대체한다. zod가 `chat_response@v1`만 받고 다른 버전은 오류 상태다. `01`의 파서 시험이 확정 이벤트 형식으로 모두 통과한다. fixture가 v1 zod를 통과한다. |
+| `04` | 배지는 `findings[].badges[]` 순서 그대로, 화면이 조합·재정렬하지 않는다(시험). PRD-15 §7 ①~⑥ 화면 시험(360px·320px, 배지 잘림 0, 제목이 한 글자 폭으로 쪼개지지 않음). "목록에 없음" 줄의 보조줄(안전 아님)이 항상 보인다. 결과 카드에 날짜·시각 줄이 없다(FE-07-06 ★A일 때). `DateLines`는 `dates[]` 한 항목 = 한 줄, 문자열 조립 없음. 배지 색은 토큰만 쓴다. |
+| `05` | 119 배너: `role="alert"`, `href="tel:119"`, 응답 안의 `emergency.text`를 그대로. 고정 안내·약사 확인 권고·"목록에 없음" 보조줄이 접힘 요소(Accordion·Sheet 닫힘 상태) 안에 없다(시험). 출처 표 행 순서 = `citations[]` 순서. 미확보 박스 문구 = 응답 값(화면 상수 없음). 고정 영역에 마스코트 없음. 터치 영역 44px 이상(Playwright로 대표 버튼 측정). |
+| `06` | Playwright 흐름: 응급 질문이면 첫 화면 맨 위 119(스크롤 없이), 일반 질문은 진행 → 결과 → 근거 상세 펼침, 되묻기 → 후보 선택 재전송, 거절, 오류·다시 시도, 끊김. 근거 상세 닫기가 원래 결과로 돌아간다. 360px·320px 가로 스크롤 없음. `pnpm build` 통과. BE-06 엔드포인트가 있으면 rewrites 경유 스트림이 줄 단위로 도착하는지 기록(BE-13). |
+
+## 4. 순서와 병렬
+
+### 4.1 순서도
+
+기본은 직렬이다. 한 WP가 끝나고 사용자가 검수·커밋(G3)한 뒤 다음 WP를 연다.
+
+```
+[f1~f5 답 완료]
+    │
+    ▼
+FE-IMPL-00-scaffold ──G3──▶ FE-IMPL-01-api-stream ──G3──▶ FE-IMPL-02-chat ──G3──┐
+                                                          (되묻기 카드는 b3 뒤 보완) │
+                                                                                     │
+[BE-06 v1 병합(선행 b)] ─────────────────────────▶ FE-IMPL-03-contract-v1 ──G3──┤
+                                                    (02와 병렬 가능, 4.2절)          │
+                                                                                     ▼
+[디자인 반영 + P0 재실행(선행 a), G1] ────────────────────────▶ FE-IMPL-04-result ──G3──▶ FE-IMPL-05-evidence-emergency ──G3──┐
+                                                                                                                              │
+[G4 화면 조립 승인] ──────────────────────────────────────────────────────────────────────────────▶ FE-IMPL-06-assembly ──G3──▶ FE-01·FE-02 완료 조건 점검
+```
+
+- BE-06 v1이 `02`보다 늦으면 `02` 다음에 바로 `04`로 가지 않고 기다린다. 기다리는 동안 할 수 있는 프런트 일은 없다고 보고 다른 티켓(백엔드)을 진행한다.
+- `04` → `05`는 직렬이다. `05`가 `04`의 `DateLines`를 가져다 쓰기 때문이다(`PJ2-프론트-기술스택.md:345`).
+
+### 4.2 병렬 가능 쌍과 파일 소유
+
+허용하는 병렬 쌍은 **`FE-IMPL-02-chat` ∥ `FE-IMPL-03-contract-v1` 하나**다. BE-06 v1이 `02` 진행 중에 들어오는 경우에만 쓴다. **f1 A(같은 작업 트리)에서는 두 브랜치를 동시에 체크아웃할 수 없어 기본으로 쓰지 않는다**(6.2절 완화 규칙 3). 아래 소유 표는 한 브랜치에서 두 WP를 돌릴 때 커밋을 나누는 기준이다. 사용자가 두 세션을 동시에 따라가기 어렵다면 쓰지 않고 직렬로 한다.
+
+| 파일·폴더 | `02` | `03` |
+|---|---|---|
+| `src/features/chat/`, `src/stores/`, `src/lib/fixed/`, `frontend/scripts/gen-fixed-phrases.mjs`, `src/app/dev/preview/chat/` | 소유 | 금지 |
+| `src/lib/api/`, `src/mocks/`, `frontend/e2e/fixtures/`, `frontend/scripts/gen-api.*` | 금지(읽기만) | 소유 |
+| `package.json`·`pnpm-lock.yaml`(`gen:api` 스크립트 한 줄·`openapi-typescript` 개발 의존성만) | 금지(패키지가 필요하면 보고로 요청) | 소유 |
+| 그 밖의 루트 설정·`src/styles/`·`src/components/`·`src/app/`(미리보기 `chat/` 제외) | 금지 | 금지 |
+
+- 겹침 0: 한쪽의 소유 파일은 다른 쪽의 금지 목록에 있다.
+- 인터페이스 고정: `03`은 `src/lib/api/`의 공개 함수 이름과 `AsyncIterable<ChatEvent>` 모양을 바꾸지 않는다. 바꿔야 하면 멈추고 보고한다(`02`가 같은 시점에 그 인터페이스를 쓰기 때문).
+- 두 WP는 서로 다른 브랜치(6.2절)이며, 병합은 `03` → `02` 순으로 한다(`02`가 v1 타입으로 컴파일되는지 병합 전에 확인).
+
+## 5. 안전 불변식
+
+프런트가 지켜야 하는 몫이다. 원본은 CLAUDE.md 1장, `PJ2-프론트-기술스택.md` 7장(`:289-306`), `FE-01.md:35-53`, `FE-02.md:26-56`이며 다르면 원본을 따른다. "점검"은 각 WP 완료 기준(3.3절)에 들어간다.
+
+| # | 불변식 | 점검(자동) | 해당 WP |
+|---|---|---|---|
+| S1 | **고정 문구·판정은 백엔드 값 그대로.** `fixed_notice[]`·`disclaimer`·`emergency.text`·`findings[].text`·`badges[].text`·`notice`·미확보 문구를 받은 그대로 그린다. 프런트가 문구를 짓거나 줄이거나 합치지 않고, 성분 상태·금기 여부·배지를 스스로 판단·조합·재정렬하지 않는다 | Testing Library: fixture 값과 렌더 글자 일치, 배열 순서 일치. `src/`에 `fixed_phrases.py` 문구와 같은 글자가 화면 상수로 있으면 실패(f5 A의 생성 파일 `src/lib/fixed/phrases.generated.ts`만 예외이며, 그 파일은 원문 대조 시험으로 `fixed_phrases.py`와 글자 일치를 확인한다) | `02`·`04`·`05`·`06` |
+| S2 | **응급 119는 맨 위.** `emergency` 이벤트를 받으면 즉시 맨 위에, 이후 내리지 않는다. `href="tel:119"`, `role="alert"`. 응급 감지는 서버만 한다(프런트는 질문 문장을 보지 않음). 금기 조회는 막지 않고 그 아래 이어진다 | 스트림 fixture(응급 첫 이벤트)로 배너가 첫 요소인지, 끊김 뒤에도 남는지. Playwright 360px 첫 화면 | `01`·`02`·`05`·`06` |
+| S3 | **마스코트 금지 영역.** 응급·금기 결과·"목록에 없음"·고정 문구 영역에는 마스코트를 쓰지 않는다. 119·금기 결과가 나오면 진행 표시의 마스코트를 숨긴다. "삐!"는 금기 발견 배지에만, 소리 없음 | `NoMascotZone` 시험, 해당 영역에 마스코트 이미지 0개. 오디오 요소 0개 | `00`·`02`·`04`·`05` |
+| S4 | **금지어.** `FORBIDDEN_SCREEN_TERMS`(`fixed_phrases.py:153-156`: 내부 상태명, "단계", "허가 라벨" 등)가 화면 글자(프런트가 쓴 UI 문구)에 없다 | `00`이 만든 금지어 시험이 모든 WP에서 돈다 | 전부 |
+| S5 | **"목록에 없음 ≠ 안전" 영역은 접히지 않는다.** 고정 안내·약사 확인 권고·"안전하다는 뜻이 아니에요" 보조줄은 펼침 컨트롤 안에 두지 않는다 | 해당 요소의 조상에 닫힘 상태 Accordion·Sheet가 없음 | `04`·`05`·`06` |
+| S6 | **질문·대화 저장 금지.** Zustand `persist` 금지, `sessionStorage`·`localStorage`·IndexedDB·쿠키에 질문·응답 없음(UI 설정만 `ui-settings.ts`). 질문·응답을 `console`에 남기지 않는다 | ESLint `no-restricted-imports`·`no-restricted-globals`·`no-console`, 대화 뒤 저장소 검사 시험 | `00`·`02`·`06` |
+| S7 | **비밀값 금지.** `NEXT_PUBLIC_*`에는 공개 값만(`NEXT_PUBLIC_API_BASE_URL`·`NEXT_PUBLIC_API_MOCKING`, 확장 때 Supabase 공개 키). 서버 전용 키는 프런트에 두지 않는다. 문서·보고·커밋에는 변수 이름만. `.env`·`.env.*`를 열지 않는다 | `src/`의 `process.env.NEXT_PUBLIC_` 이름이 허용 목록과 같은지 검사(시험 또는 lint 규칙). `frontend/.env.local`은 `.gitignore:9`로 무시됨(2026-11-12 `git check-ignore` 확인) | 전부 |
+| S8 | **요약에 용량 숫자를 만들지 않는다.** `summary`는 가공 없이, 용법용량 원문은 근거 상세 인용에서만. 표로 쪼개지 않는다(b4 ★B) | 렌더 글자 = `summary` 값 | `04`·`05` |
+| S9 | **가짜 진행 없음.** 진행 표시는 `progress` 이벤트로만, 검증 전 판정 내용(성분 이름이 든 중간 결과)을 보이지 않는다 | 이벤트 없이 단계가 바뀌지 않음(가짜 타이머 시험) | `02` |
+| S10 | **화면 폭.** 360px·320px에서 가로 스크롤 없이 입력·요약·근거 펼침·119·고정 문구가 쓰인다 | Playwright `scrollWidth <= clientWidth` | `00`·`02`·`04`·`05`·`06` |
+
+## 6. VS Code 세션 운영 규칙
+
+### 6.1 세션 시작
+
+1. 사용자가 VS Code에서 **저장소 루트**(P2-Medi)를 연다(f1 A, 6.2절). 코드는 `frontend/` 아래에만 쓴다.
+2. Claude Code 패널에서 새 세션을 열고 `/model`로 Fable 5.2인지 확인한다. 확인한 ID를 보고 파일에 적게 한다(문서에는 ID를 지어 쓰지 않음).
+3. 첫 메시지는 한 줄이다: "`<저장소 루트>/data/mock/briefs/fe/{WP-id}.md` 지시서를 읽고 수행하라". 지시서가 맨 먼저 `CLAUDE.md`(1·3·7장)와 이 문서 3·5·6장을 읽게 한다.
+4. 권한: 파일 수정은 자동 승인(acceptEdits) 수준을 쓰되, 셸 명령(`pnpm install` 등)은 사용자가 승인한다. 저장소의 `.claude/settings.json` deny 규칙(`.env` 읽기 차단)이 VS Code 세션에서도 걸리는지 첫 WP에서 확인한다(10장).
+5. 한 세션 = 한 WP. WP가 끝나면 세션을 닫고 다음 WP는 새 세션으로 연다(6.6절).
+
+### 6.2 브랜치와 작업 폴더
+
+- **작업 폴더는 저장소 안 `frontend/`다**(f1 A, 2026-11-12 사용자 답: "`backend/`처럼 `/frontend` 폴더를 생성하여 하위에서 진행"). CLAUDE.md 7장 폴더 구조와 같고 worktree는 쓰지 않는다. 지시서·보고 파일(`data/mock/briefs/`)도 같은 저장소 안에 있어 경로가 그대로 통한다.
+- 한 WP = 한 브랜치(`feature/FE-0n-implNN-{주제}`, 3.2절). `develop`에서 만든다(git-flow, `.claude/agents/git-actor.md`).
+- **위험**: VS Code 세션과 메인·백엔드 pane이 **같은 작업 트리**를 쓴다. WP 브랜치가 체크아웃된 동안 다른 pane이 커밋하면 그 커밋이 WP 브랜치에 들어가고, 누가 브랜치를 바꾸면 VS Code 세션이 고치던 파일이 다른 브랜치 상태로 바뀐다. 파일 자체는 겹치지 않는다(WP는 `frontend/`만, 백엔드는 `backend/`·문서). 문제는 **브랜치와 커밋이 섞이는 것**이다.
+- **완화 규칙(제안)**:
+  1. 모든 브랜치 조작(생성·체크아웃·병합)은 `git-actor`만 한다. VS Code 세션과 다른 pane은 브랜치를 바꾸지 않는다. 세션은 시작할 때 `git branch --show-current`로 확인만 하고, 다르면 멈추고 보고한다.
+  2. WP 브랜치가 체크아웃된 동안 다른 pane은 `develop` 커밋이나 브랜치 전환을 하지 않는다. 백엔드·문서 pane이 파일을 고치는 것은 괜찮지만, 그 커밋은 WP가 병합된 뒤 `develop`(또는 자기 feature 브랜치)에서 한다.
+  3. WP는 직렬이라 한 번에 체크아웃되는 WP 브랜치는 하나다. 병렬 쌍(4.2절)은 같은 작업 트리에서 두 브랜치를 동시에 체크아웃할 수 없으므로 **f1 A에서는 쓰지 않는 것을 기본으로 한다**. 쓰려면 두 WP를 한 브랜치에서 돌리고 커밋을 파일 소유별로 나눈다(메인이 정함).
+  4. 백엔드 위임 작업(커밋이 필요한 일)과 겹치면 **WP 사이에** 처리한다: 진행 중 WP를 끝내고 검수·커밋·`develop` 병합 → 백엔드 커밋 → 다음 WP 브랜치 생성.
+  5. 메인은 WP를 시작시키기 전과 커밋 전에 `git status`로 변경 경로가 WP 소유 목록(`frontend/` 아래) 안인지 본다. 밖의 변경이 섞였으면 `git-actor`가 경로별로 나눠 커밋한다.
+
+### 6.3 커밋과 병합
+
+- 현재 규칙: git은 `git-actor` 전담, 작업자는 git을 하지 않고 보고의 `COMMIT:`에 제안만 쓴다(CLAUDE.md 2장 완료 프로토콜, `delegation-brief` §2.4). VS Code 세션도 이 규칙을 따른다(f2 A 확정, 2026-11-12).
+- 흐름: WP 세션이 보고 저장 → 사용자가 메인 pane에 "`FE-IMPL-0n` 보고 검수·커밋" 한 줄 → 메인이 보고를 가볍게 검수(CLAUDE.md 2장 4번)하고 `git-actor`에 커밋·`develop` 병합을 지시 → 다음 WP 브랜치 생성.
+- 커밋 메시지: `[feat] FE-01 FE-IMPL-00 스캐폴드·토큰·안전 lint 설정`처럼 `[keyword] 라벨-번호 내용`(한글). 끝에 공동 저자 줄은 git-actor 규칙을 따른다.
+
+### 6.4 보고 형식
+
+- 파일: `<저장소 루트>/data/mock/briefs/reports/{WP-id}.md`(로컬 전용). 세션 화면에는 "저장했다" 한 줄만 쓴다.
+- 내용: `## {WP-id} 보고` 아래 작업, 확인한 모델 ID(`/model` 표시 그대로), 변경 파일(신규·수정 개수와 경로), 실행한 명령과 결과(`pnpm lint`·`typecheck`·`test`·`e2e`·`build`, 통과/실패 수), 5장 불변식 점검 결과(S#별 통과·해당 없음), 확인하지 못한 것, 다른 WP에 요청할 것(패키지·토큰·인터페이스), 결정 후보(번호 없이 질문·A/B·★·이유·읽을 곳), 가정.
+- 끝에 `## NEXT`: `STATUS: DONE|BLOCKED|NEEDS_USER`, `CHANGED:` 경로 목록, `COMMIT:` 브랜치·제안 메시지, `NEEDS_USER:` 사용자 답·승인(없으면 없음), `NEXT_JOB:` 다음 WP 이름.
+- `python3 scripts/check_schedule.py`: WP는 일정 문서를 고치지 않으므로 실행하지 않아도 된다. 실행했으면 결과를, 아니면 "미실행"을 적는다.
+
+### 6.5 메인과의 역할 분담
+
+| 일 | VS Code 세션(Fable 5.2) | 메인(brew CLI·herdr) |
+|---|---|---|
+| `frontend/` 코드·시험 작성 | 한다(WP 소유 파일만) | 하지 않는다 |
+| 지시서 작성·보완(대기 WP의 "보완 지점" 채우기) | 하지 않는다 | 한다 |
+| 보고 검수, `git-actor`로 브랜치 생성·커밋·병합 | 하지 않는다(제안만) | 한다 |
+| `schedule.md`·티켓 상태·결정 등록 | 하지 않는다 | `schedule-writer`에 맡긴다 |
+| BE-06 v1·백엔드 상수 | 하지 않는다(요청만) | 백엔드 위임 |
+| 디자인 반영·아티팩트 | 하지 않는다 | 하지 않는다(사용자 몫, FE-07-02 A) |
+
+### 6.6 컨텍스트 관리
+
+- WP는 작게 둔다. 한 세션에서 여러 WP를 잇지 않는다. 앞 WP의 맥락은 보고 파일과 커밋으로 넘긴다.
+- 세션은 300줄 넘는 문서를 처음부터 끝까지 읽지 않는다. 지시서가 절·줄 범위를 준다(예: `PJ2-프론트-기술스택.md` 4장 `:163-239`).
+- 세션이 컨텍스트를 많이 쓰거나 WP가 커지면 멈추고 남은 일을 `NEXT_JOB`에 적는다. 메인이 WP를 둘로 나눈 지시서를 새로 쓴다.
+
+## 7. 사용자 게이트
+
+| 게이트 | 언제 | 사용자가 하는 일 | 여는 WP |
+|---|---|---|---|
+| G0 | 완료(2026-11-12) | 8장 후보 f1~f5에 답했다. 번호 등록은 `schedule-writer` | `00` |
+| G1 | 디자인 반영 뒤 | 디자인 세션 반영을 마치고, 메인이 돌린 FE-07 P0 재실행 결과(새 스냅샷)를 확인한다. 바뀐 토큰이 있으면 `00` 보완 지시를 승인한다 | `04`·`05` |
+| G2 | BE-06 v1 전 | BE-06 결정 후보 b1~b7(보고서 6.4절)과 FE-07 후보 FE-07-06·07·08·09에 답한다 | BE-06 본 작업 → `03` |
+| G3 | 각 WP 뒤 | 보고 파일을 보고 메인에 검수·커밋을 맡긴다. 화면이 있는 WP는 `pnpm dev`의 미리보기(`/dev/preview/...`)를 한 번 눈으로 본다 | 다음 WP |
+| G4 | `04`·`05` 뒤 | 화면 조립 시작을 승인한다(FE-01-13 A "조립은 디자인 반영 뒤") | `06` |
+
+이미 완료된 결정(FE-01-01~13, FE-07-01~02)은 다시 열지 않는다.
+
+## 8. 결정 후보
+
+**사용자 답 반영(2026-11-12)**. 아래 다섯 건은 답이 끝났다. 번호(예: FE-01-14~18)와 결정 현황 등록은 `schedule-writer`가 `decision-register` 절차로 한다. f2~f5는 사용자 답 "권장대로"(★A)이고, **f1은 권장(★B)과 다른 A를 골랐다.**
+
+| 후보 | 질문 | 선택지 | 권장(★) | 사용자 답 | 반영 위치 |
+|---|---|---|---|---|---|
+| f1 | 프런트 작업을 어느 폴더에서 할까? | A) 저장소 폴더 그대로(저장소 안 `frontend/`, WP 동안 그 폴더가 feature 브랜치) / B) git worktree로 별도 폴더 | ★B: 같은 작업 트리를 쓰면 브랜치 전환이 서로의 작업을 섞는다 | **A**(권장과 다름). 사용자 이유: "`backend/`처럼 `/frontend` 폴더를 생성하여 하위에서 진행"(CLAUDE.md 7장 폴더 구조와 같음). 위험은 6.2절 완화 규칙으로 다룬다 | 6.1·6.2절, 지시서 전부 머리 |
+| f2 | VS Code 세션의 커밋·병합은 누가 할까? | A) 작업자는 `COMMIT:` 제안만, `git-actor`가 커밋·병합 / B) 세션이 커밋, 병합만 `git-actor` | ★A: git-actor 전담 규칙 유지, 검수(G3) 뒤 커밋 | **A** | 6.3절, 지시서 전부 |
+| f3 | MSW fixture를 어떻게 만들까? | A) `frontend/src/mocks/`에 합성 fixture를 새로 써서 커밋(`data/mock/` 복사 안 함) / B) `data/mock/chat_responses/` 복사 커밋 | ★A: `data/mock/`은 로컬 전용(CLAUDE.md 4장) | **A** | `FE-IMPL-01` 할 일 6 |
+| f4 | 프런트 환경변수 이름을 CLAUDE.md 3장 표에 올릴까? | A) 기술스택 6장 제안(`MEDIAGENT_BACKEND_ORIGIN` 서버 전용, `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_API_MOCKING`) 그대로 / B) 이름 변경 | ★A | **A**. CLAUDE.md 3장 표 등록은 메인이 맡긴다(이 문서·WP는 고치지 않음) | `FE-IMPL-00` 할 일 3 |
+| f5 | 응답이 없는 오류 화면의 고정 안내는? | A) `fixed_phrases.py`에서 생성한 상수 파일 + 원문 대조 시험, 응답 없는 오류 화면에만 / B) 고정 안내 없음 | ★A: 오류에도 "약국·약사 확인" 원칙 | **A** | `FE-IMPL-02` 할 일 8, 5장 S1 |
+
+## 9. 리스크와 되돌리기
+
+| # | 리스크 | 영향 | 완화 |
+|---|---|---|---|
+| R1 | 디자인이 계속 바뀌는 동안 화면을 만들면 버린다 | `04`·`05`·`06` 재작업 | 화면 WP는 G1(반영 확인) 뒤에만 연다. 그 전 WP(`00`~`03`)는 배치와 무관한 설정·계약·로직만 다룬다. G1 뒤에도 바뀌면 바뀐 보드 목록을 메인이 지시서 "보완 지점"에 적고 해당 부품만 고친다 |
+| R2 | 스키마 v0 → v1 변경 | `01`의 zod·fixture가 바뀜, 화면 부품의 props가 바뀜 | 화면 WP(`04`·`05`)는 `03`(v1 이행) 뒤에만 시작해 v0 위에 화면을 짓지 않는다. 파서 인터페이스(`AsyncIterable<ChatEvent>`)는 버전과 무관하게 고정한다. zod가 `schema_version`을 확인해 섞이면 오류 상태로 멈춘다 |
+| R3 | 토큰 변경 | 색·간격이 여러 부품에 흩어지면 고칠 곳이 많다 | 색 값은 `src/styles/`의 `@theme` 한 곳에만 두고 컴포넌트는 유틸리티 이름만 쓴다(`PJ2-프론트-기술스택.md:401`). lint 또는 시험으로 `src/features/`의 hex 색 직접 사용을 막는다. 토큰 변경은 `00` 소유 파일만 고치는 작은 보완 WP로 한다 |
+| R4 | 직렬 운영으로 BE-06 v1이 늦으면 프런트가 멈춘다 | 일정 | 막히는 동안은 백엔드(BE-06 자체)를 먼저 진행한다. 4.2절 병렬 쌍은 BE-06 v1 도착 시점에만 쓴다. 3주 범위가 모자라면 CLAUDE.md 1장 축소 순서(사진·음성 → 프로필 → …)를 따른다 |
+| R5 | Vercel rewrites를 거친 스트리밍이 모였다가 한 번에 온다 | 119 첫 이벤트가 늦게 보임(S2) | `06`에서 실연결 시험을 하고 BE-13에 결과를 넘긴다. 문제가 있으면 FE-01-06을 바꾸는 결정을 새로 올린다(`PJ2-프론트-기술스택.md:92`) |
+| R6 | 같은 작업 트리 공유(f1 A)로 브랜치·커밋이 섞인다 | WP 브랜치에 백엔드 커밋이 들어가거나 세션 파일이 다른 브랜치 상태로 바뀜 | 6.2절 완화 규칙(브랜치 조작은 git-actor만, WP 체크아웃 중 다른 pane 커밋·전환 금지, 백엔드 커밋은 WP 사이, 커밋 전 `git status` 경로 확인) |
+| R8 | VS Code 확장에서 `.claude/settings.json` deny 규칙이 CLI와 다르게 걸릴 수 있다 | 비밀값 노출 위험 | 지시서가 `.env` 열기를 금지하고, 첫 WP에서 deny 규칙이 걸리는지 확인해 보고한다. 걸리지 않으면 메인이 사용자에게 설정 추가를 제안한다 |
+| R7 | 세션이 지시서 범위를 넘어 다른 폴더를 고친다 | 파일 충돌 | 지시서에 소유·금지 목록을 적고, 메인 검수 때 `git status`로 변경 경로가 소유 목록 안인지 본다 |
+
+## 10. 한계와 확인하지 못한 것
+
+- Fable 5.2의 모델 ID 문자열은 확인하지 못했다(VS Code `/model`에서 사용자가 확인).
+- VS Code 확장에서 저장소 `.claude/settings.json`의 deny 규칙이 CLI와 똑같이 동작하는지 확인하지 못했다(첫 WP에서 확인).
+- 디자인 반영 결과와 BE-06 v1 필드 이름은 아직 없다. 대기 WP 지시서의 "보완 지점"은 그때 메인이 채운다.
+- 프로토타입·보드의 렌더링은 FE-07에서도 보지 못했다(`SCH-02-ui-review` 8장 `:490-499`). 화면 WP의 시험은 실제 브라우저(Playwright)가 첫 확인이다.
+- 확장 범위(프로필 온보딩 FE-04, 사진·음성 FE-05)는 이 계획에 없다. 핵심 WP가 끝난 뒤 별도 계획으로 둔다(CLAUDE.md 1장 범위 원칙).
+- 예상 소요는 모두 측정 전이다. 첫 두 WP의 실제 소요를 보고에 적게 해 이후 WP 크기를 조정한다.
+
+## 11. 근거 자료
+
+| 자료 | 경로 | 쓴 곳 |
+|---|---|---|
+| 프런트 기술 스택 | `P2-doc/PJ2-프론트-기술스택.md`(3장 `:59-161`, 4장 `:163-239`, 5장 `:241-266`, 6장 `:268-287`, 7장 `:289-306`, 9장 `:334-353`, 10장 `:355-405`) | 2~6장 |
+| FE-01 결정·완료 조건 | `tickets/frontend/FE-01.md:35-53`(완료 조건), `:98`(FE-01-13) | 1·3·5장 |
+| FE-02 완료 조건 | `tickets/frontend/FE-02.md:26-56` | 3·5장 |
+| FE-07 | `tickets/frontend/FE-07.md:66-72` | 2장 |
+| BE-06 | `tickets/backend/BE-06.md:29,33,38-40,64` | 2장 |
+| 응답 스키마 골격 | `backend/app/api/schemas.py:26,57-180` | 2·5장 |
+| 고정 문구·금지어 | `backend/app/agent/fixed_phrases.py:16-17`(119), `:153-156`(`FORBIDDEN_SCREEN_TERMS`) | 3·5장 |
+| 화면 상태 | `P2-doc/PJ2-PRD.md:401-410`(15.4절) | 3·5장 |
+| FE-07 리뷰 보고(로컬 전용) | `P2-doc/report/SCH-02-ui-review-2026-11-12.md` 6장(`:376-428`), 7장(`:430-488`), 8장(`:490-499`) | 2·7·8장 |
+| 수정 지시서(로컬 전용) | `data/mock/briefs/ui-fix-brief-2026-11-12.md` 10.2절(`:201-207`), 11장(`:218-252`) | 2장 |
+| P6 3회 리뷰(로컬 전용) | `data/mock/ui-review/2026-11-12/P6-critic-r3.md:5-53,103-109,171-172` | 2·8장 |
+| 위임 절차 | `.claude/skills/delegation-brief/SKILL.md` §1·§2.4 | 6장 |
+| WP 지시서(로컬 전용) | `data/mock/briefs/fe/FE-IMPL-00-scaffold.md` ~ `FE-IMPL-06-assembly.md` | 3장 |
