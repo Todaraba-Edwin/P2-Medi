@@ -22,26 +22,32 @@ SECRET = "SeCrEtPaSsWoRd9876"
 DSN = f"postgresql://postgres.abcd:{SECRET}@pooler.example.invalid:5432/postgres"
 WRITE_PREFIX = ("INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "REINDEX", "ANALYZE")
 
-# 작은 합성 범위: 삽입 4(새 본문 2 + 본문 같음 2), 삭제 5(교체 3 + 제거 2), 유지 2, 허가 밖 2
-E = m.Expect(total_before=9, l3p_before=7, insert=4, delete=5, vec_copy=2, vec_new=2, keep=2, para_after=3, table_after=3)
+# 작은 합성 범위: 삽입 4(새 본문 2 + 본문 같음 2), 삭제 5(교체 3 + 제거 2), 유지 2(그중 표 o7은 부모 o2→n2 교체로 relink 1),
+# 허가 밖 5(그중 별표 2 effective_date 대상 2)
+E = m.Expect(total_before=12, l3p_before=7, insert=4, delete=5, vec_copy=2, vec_new=2, keep=2, para_after=3, table_after=3,
+             relink=1, l2_effdate=2)
 
 
 # --------------------------------------------------------------------------- 합성 입력
 
-def chunk(cid: str, text: str, kind: str = m.KIND_PARA, parent: str | None = None, year: int | None = None) -> dict[str, Any]:
+def chunk(cid: str, text: str, kind: str = m.KIND_PARA, parent: str | None = None, year: int | None = None,
+          eff: str | None = None, source_file: str = "") -> dict[str, Any]:
     c = {f: "" for f in m.FIELDS}
     c.update({"chunk_id": cid, "chunk_kind": kind, "parent_id": parent, "refs": [], "pair_id": None, "layer": "L3",
-              "ingr_codes": [], "ingr_names": [], "text": f"{text} {BODY_MARK}", "year": year, "effective_date": None,
-              "base_date": "2026-11-10"})
+              "ingr_codes": [], "ingr_names": [], "text": f"{text} {BODY_MARK}", "year": year, "effective_date": eff,
+              "base_date": "2026-11-10", "source_file": source_file})
     return c
 
 
 OLD = [chunk("l3p-o1", "T1", m.KIND_TABLE), chunk("l3p-o2", "T2"), chunk("l3p-o3", "T3", m.KIND_TABLE), chunk("l3p-o4", "T4"),
-       chunk("l3p-o5", "T5"), chunk("l3p-o6", "T6"), chunk("l3p-o7", "T7", m.KIND_TABLE)]
+       chunk("l3p-o5", "T5"), chunk("l3p-o6", "T6"), chunk("l3p-o7", "T7", m.KIND_TABLE, parent="l3p-o2")]
 NEW = [chunk("l3p-n1", "N1", m.KIND_TABLE, year=2026), chunk("l3p-n2", "T2", year=2026),
        chunk("l3p-n3", "N3", m.KIND_TABLE, parent="l3p-n1", year=2026), chunk("l3p-n5", "T5", year=2026),
-       chunk("l3p-o6", "T6"), chunk("l3p-o7", "T7", m.KIND_TABLE)]
-OUTSIDE = [chunk("l2c-a", "A"), chunk("l2c-b", "B")]
+       chunk("l3p-o6", "T6"), chunk("l3p-o7", "T7", m.KIND_TABLE, parent="l3p-n2")]  # 유지 표, 부모만 새 id
+GOSI = m.GOSI_PDF_NAME
+OUTSIDE = [chunk("l2c-a", "A"), chunk("l2c-b", "B"), chunk("l1r-e1", "E1", "l1_bupyo2_row", eff=m.L2_EFF_DATE, source_file=GOSI),
+           chunk("l1t-e2", "E2", "l1_bupyo2_table", eff=m.L2_EFF_DATE, source_file=GOSI), chunk("l1r-e3", "E3", "l1_bupyo2_row")]
+L2_IDS = ["l1r-e1", "l1t-e2"]
 CHANGES = {"changes": {
     "replaced": [{"old_chunk_id": "l3p-o1", "new_chunk_id": "l3p-n1", "text_changed": True},
                  {"old_chunk_id": "l3p-o2", "new_chunk_id": "l3p-n2", "text_changed": False},
@@ -87,6 +93,7 @@ def env(tmp_path, monkeypatch):
         "EMB_DIR": corpus / "embeddings", "EMB_KEEP_DIR": corpus / "embeddings.before_be0504", "WORK_DIR": review / "be0504",
         "MANIFEST_PATH": review / "be0504" / "manifest.json", "EMBED_TODO_PATH": review / "be0504" / "embed_todo.jsonl",
         "APPROVAL_FLAG": review / "be05_04c_approved.flag", "YEAR_APPROVAL_FLAG": review / "be05_04c_year_approved.flag", "BACKUP_DIR": tmp_path / "backup", "LOG_DIR": tmp_path / "logs",
+        "L2_EFF_APPROVAL_FLAG": review / "be05_04c_l2effdate_approved.flag", "L2_PATH": corpus / "l2_chunks.jsonl",
     }
     for k, v in paths.items():
         monkeypatch.setattr(m, k, v)
@@ -108,7 +115,7 @@ class FakeDB:
         rows = {}
         for c in [*OLD, *OUTSIDE]:
             rows[c["chunk_id"]] = {"chunk_kind": c["chunk_kind"], "parent_id": c["parent_id"], "year": c["year"], "text": c["text"],
-                                   "embedding": vecs[m.text_hash(c["text"])].tolist()}
+                                   "effective_date": None, "embedding": vecs[m.text_hash(c["text"])].tolist()}  # 원격 effective_date NULL(추정)
         for i in range(extra_rows):
             rows[f"l2c-x{i}"] = {"chunk_kind": "l2_combo", "parent_id": None, "year": None, "text": "x", "embedding": [0.0]}
         self.committed: dict[str, Any] = {"rows": rows, "tables": {}, "stage": None}
@@ -235,6 +242,35 @@ class FakeCur:
                     del rows[i]
                     n += 1
             self.rowcount = n
+        elif sql == m.Q_L3P_PARENTS:
+            self._res = [(k, rows[k]["parent_id"]) for k in l3p]
+        elif sql == m.Q_IDS_LIST:
+            self._res = [(i,) for i in p[0] if i in rows]
+        elif sql == m.S3_RELINK:
+            n = 0
+            for cid, old_p, new_p in zip(p[0], p[1], p[2], strict=True):
+                if cid in rows and cid.startswith("l3p-") and rows[cid]["parent_id"] == old_p:
+                    rows[cid]["parent_id"] = new_p
+                    n += 1
+            self.rowcount = n
+        elif sql == m.Q_BACKUP_TABLE_ROWS:
+            t = db.work["tables"][m.BACKUP_TABLE]
+            self._res = [(i, json.dumps({"chunk_id": i, **t[i]}, ensure_ascii=False)) for i in sorted(t)]
+        elif sql == m.Q_EFFDATE_DIST:
+            dist: dict[Any, int] = {}
+            for i in p[0]:
+                if i in rows:
+                    dist[rows[i].get("effective_date")] = dist.get(rows[i].get("effective_date"), 0) + 1
+            self._res = list(dist.items())
+        elif sql == m.Q_EFFDATE_SET:
+            self._res = [(sum(r.get("effective_date") is not None for r in rows.values()),)]
+        elif sql == m.S3C_UPDATE:
+            n = 0
+            for i in p[1]:
+                if i in rows and rows[i].get("effective_date") is None:
+                    rows[i]["effective_date"] = p[0]
+                    n += 1
+            self.rowcount = n
         elif sql == m.S3B_UPDATE:
             n = 0
             for k in l3p:
@@ -320,7 +356,7 @@ def test_plan_does_not_connect_or_write(env, capsys):
 def test_plan_blocks_show_expected_rows(env):
     scope, _, _ = m.compute_scope()
     blocks = {b["block"]: b for b in m.plan_blocks(scope, E)}
-    assert blocks["S3"]["rows"]["post_total"] == 8 and blocks["S3"]["rows"]["delete_batches"] == [5]
+    assert blocks["S3"]["rows"]["post_total"] == 11 and blocks["S3"]["rows"]["delete_batches"] == [5]
     assert "실행 안 함" in blocks["S5"]["remote"]
     assert "S3b" in blocks  # BE-05-11 B 기본
     assert blocks["S3b"]["rows"]["updated"] == E.keep == blocks["S3b"]["rows"]["pre_year_null(유지 행)"]
@@ -637,3 +673,201 @@ def test_plan_and_prepare_without_switch_do_not_touch_local_input(env):
     before = env["CUR_PATH"].read_bytes()
     assert m.main(["plan"], connect_fn=boom, exp=E) == 0 and m.main(["prepare"], connect_fn=boom, exp=E) == 0
     assert env["CUR_PATH"].read_bytes() == before and not env["OLD_KEEP_PATH"].exists()
+
+
+# --------------------------------------------------------------------------- 2026-11-12 S3 broken_parent 34 원인(유지 행 parent 다시 잇기)
+
+def test_scope_finds_relink_for_kept_table_whose_parent_was_replaced(env):
+    scope, _, _ = m.compute_scope()
+    assert scope.relink == [{"chunk_id": "l3p-o7", "old_parent_id": "l3p-o2", "new_parent_id": "l3p-n2"}]
+    assert (scope.broken_parent_no_relink, scope.broken_parent) == (1, 0)  # 다시 잇지 않으면 끊긴다(실데이터 34)
+    assert {r["chunk_id"]: r["parent_id"] for r in scope.insert}["l3p-n3"] == "l3p-n1"
+
+
+def test_scope_rejects_keep_row_drift_outside_year_and_parent(env):
+    new = copy.deepcopy(NEW)
+    new[-1]["section"] = "바뀐 절"  # 유지 행의 다른 DB 열이 바뀌면 재적재가 고치지 못한다
+    with pytest.raises(m.ReloadAbort, match="유지 행의 DB 열"):
+        m.build_scope(OLD, new, CHANGES, {})
+
+
+def test_without_relink_s3_reproduces_broken_parent_and_rolls_back(env):
+    """첫 apply(2026-11-12T11:50Z)와 같은 조건: 유지 행 parent를 다시 잇지 않으면 S3 사후 broken_parent ≠ 0 → 롤백."""
+    db = FakeDB(prepared(env))
+    assert run(env, ["apply", "--yes", "--until", "S2"], db)[0] == 0
+    man = m.load_manifest(E)
+    man["relink"] = []
+    exp0 = m.Expect(**{**{k: getattr(E, k) for k in E.__dataclass_fields__}, "relink": 0})
+    before = copy.deepcopy(db.committed["rows"])
+    log = m.JsonlLog(None, echo=lambda _s: None)
+    with pytest.raises(m.ReloadAbort, match="broken_parent: 기대 0, 실제 1"):
+        m.transaction(db, "S3 본 교체", lambda c: m.s3_replace(c, man, exp0), log)
+    assert db.committed["rows"] == before
+
+
+def test_apply_relinks_kept_rows_between_insert_and_delete(env):
+    db = FakeDB(prepared(env))
+    assert run(env, ["apply", "--yes"], db)[0] == 0
+    rows = db.committed["rows"]
+    assert rows["l3p-o7"]["parent_id"] == "l3p-n2" and "l3p-n2" in rows
+    assert not any(r["parent_id"] and r["parent_id"] not in rows for k, r in rows.items() if k.startswith("l3p-"))
+    ex = db.executed
+    assert ex.index(m.S3_INSERT) < ex.index(m.S3_RELINK) < ex.index(m.S3_DELETE)
+
+
+def test_s0_aborts_before_writes_when_remote_parent_differs(env, capsys):
+    db = FakeDB(prepared(env))
+    db.committed["rows"]["l3p-o7"]["parent_id"] = "l3p-o4"  # 원격이 로컬 옛 파일과 다름(다시 잇기 대상이 맞지 않음)
+    db.work = copy.deepcopy(db.committed)
+    code, _ = run(env, ["apply", "--yes"], db)
+    err = capsys.readouterr().err
+    assert code == 3 and "relink_ready" in err and "post_broken_parent_sim" in err
+    assert writes(db) == []
+
+
+def test_manifest_v1_without_relink_is_refused(env, capsys):
+    prepared(env)
+    man = json.loads(env["MANIFEST_PATH"].read_text(encoding="utf-8"))
+    body = {k: v for k, v in man.items() if k not in ("body_sha256", "relink")} | {"version": 1}
+    env["MANIFEST_PATH"].write_text(json.dumps({**body, "body_sha256": m.body_sha(body)}), encoding="utf-8")
+    code, calls = run(env, ["apply", "--yes"])
+    assert code == 2 and calls == [] and "옛 형식" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- --reuse-backup(사용자 승인 ★A)
+
+def _left_backup_table(env) -> tuple[FakeDB, Any]:
+    vecs = prepared(env)
+    db = FakeDB(vecs)
+    assert run(env, ["apply", "--yes", "--until", "S1"], db)[0] == 0  # 백업 표만 남은 상태(첫 apply S3 롤백과 같음)
+    return db, vecs
+
+
+def test_reuse_backup_same_table_continues_without_ddl(env):
+    db, _ = _left_backup_table(env)
+    assert run(env, ["apply", "--yes"], db)[0] == 3  # 재사용 옵션 없으면 S0이 멈춘다(지금 상태)
+    assert run(env, ["apply", "--yes", "--reuse-backup"], db)[0] == 0
+    assert db.executed.count(m.S1B_CREATE) == 1  # 처음 한 번뿐
+    assert len(db.committed["rows"]) == E.total_after and db.committed["rows"]["l3p-o7"]["parent_id"] == "l3p-n2"
+
+
+@pytest.mark.parametrize(("tamper", "msg"), [("row", "내용 sha256"), ("drop", "행 수")])
+def test_reuse_backup_different_table_aborts_without_writes(env, capsys, tamper, msg):
+    db, _ = _left_backup_table(env)
+    t = db.committed["tables"][m.BACKUP_TABLE]
+    if tamper == "row":
+        t["l3p-o1"]["year"] = 1999
+    else:
+        del t["l3p-o1"]
+    db.work = copy.deepcopy(db.committed)
+    n_before = len(db.executed)
+    code, _ = run(env, ["apply", "--yes", "--reuse-backup"], db)
+    assert code == 3 and msg in capsys.readouterr().err
+    assert [x for x in db.executed[n_before:] if x.lstrip().upper().startswith(WRITE_PREFIX)] == []  # 이번 실행은 쓰기 0
+    assert m.BACKUP_TABLE in db.committed["tables"] and len(db.committed["rows"]) == E.total_before  # 표를 지우지 않음
+
+
+def test_reuse_backup_without_table_aborts_at_s0(env, capsys):
+    db = FakeDB(prepared(env))
+    code, _ = run(env, ["apply", "--yes", "--reuse-backup"], db)
+    assert code == 3 and "backup_table_exists" in capsys.readouterr().err and writes(db) == []
+
+
+def test_reuse_backup_requires_remote_backup_mode(env):
+    prepared(env)
+    assert run(env, ["apply", "--yes", "--reuse-backup", "--backup", "local"])[0] == 2
+
+
+# --------------------------------------------------------------------------- Recap 0-8 별표 2 effective_date(S3c)
+
+def _approve_l2(env) -> None:
+    env["L2_EFF_APPROVAL_FLAG"].write_text("ok")
+
+
+def test_manifest_fixes_l2_effdate_ids_with_sha(env):
+    prepared(env)
+    e = json.loads(env["MANIFEST_PATH"].read_text(encoding="utf-8"))["l2_effdate"]
+    assert e["ids"] == L2_IDS and e["ids_sha256"] == m.ids_sha(L2_IDS) and e["source_sha256"] == m.sha256_file(env["L2_PATH"])
+
+
+def test_l2_effdate_off_by_default(env):
+    db = FakeDB(prepared(env))
+    assert run(env, ["apply", "--yes"], db)[0] == 0
+    assert m.S3C_UPDATE not in db.executed and all(r.get("effective_date") is None for r in db.committed["rows"].values())
+
+
+def test_l2_effdate_requires_own_approval_flag(env, capsys):
+    prepared(env)
+    code, calls = run(env, ["apply", "--yes", "--align-l2-effective-date"])
+    assert code == 2 and calls == [] and env["L2_EFF_APPROVAL_FLAG"].name in capsys.readouterr().err
+
+
+def test_l2_effdate_updates_only_listed_rows_after_s3_before_analyze(env):
+    db = FakeDB(prepared(env))
+    _approve_l2(env)
+    assert run(env, ["apply", "--yes", "--align-l2-effective-date"], db)[0] == 0
+    rows = db.committed["rows"]
+    assert {k for k, r in rows.items() if r.get("effective_date")} == set(L2_IDS)
+    assert all(rows[i]["effective_date"] == m.L2_EFF_DATE for i in L2_IDS)
+    ex = db.executed
+    assert ex.index(m.S3_INSERT) < ex.index(m.S3B_UPDATE) < ex.index(m.S3C_UPDATE) < ex.index(m.S4_ANALYZE)
+
+
+def test_l2_effdate_pre_mismatch_stops_at_s0(env, capsys):
+    db = FakeDB(prepared(env))
+    _approve_l2(env)
+    db.committed["rows"]["l1r-e1"]["effective_date"] = "2020-01-01"
+    db.work = copy.deepcopy(db.committed)
+    code, _ = run(env, ["apply", "--yes", "--align-l2-effective-date"], db)
+    assert code == 3 and "l2_effdate_pre" in capsys.readouterr().err and writes(db) == []
+
+
+def test_l2_effdate_only_mode_same_and_different(env):
+    vecs = prepared(env)
+    _approve_l2(env)
+    db = FakeDB(vecs)  # 같음: 재적재와 따로 S3c만
+    assert run(env, ["apply", "--yes", "--from", "S3c", "--align-l2-effective-date"], db)[0] == 0
+    assert writes(db) == [m.S3C_UPDATE]
+    assert all(db.committed["rows"][i]["effective_date"] == m.L2_EFF_DATE for i in L2_IDS)
+    db2 = FakeDB(vecs)  # 다름: 한 행이 이미 값이 있음 → 롤백
+    db2.committed["rows"]["l1t-e2"]["effective_date"] = m.L2_EFF_DATE
+    db2.work = copy.deepcopy(db2.committed)
+    assert run(env, ["apply", "--yes", "--from", "S3c", "--align-l2-effective-date"], db2)[0] == 3
+    assert db2.committed["rows"]["l1r-e1"]["effective_date"] is None and "ROLLBACK" in db2.executed
+    assert run(env, ["apply", "--yes", "--from", "S3c"], db2)[0] == 2  # 플래그 없이 S3c만은 거부
+
+
+def test_l2_effdate_refused_when_l2_file_changed(env, capsys):
+    prepared(env)
+    _approve_l2(env)
+    write_jsonl(env["L2_PATH"], OUTSIDE[:3])
+    code, calls = run(env, ["apply", "--yes", "--align-l2-effective-date"])
+    assert code == 2 and calls == [] and "l2_chunks" in capsys.readouterr().err
+
+
+def test_plan_shows_s3c_only_with_flag(env, capsys):
+    assert run(env, ["plan"])[0] == 0
+    assert m.S3C_UPDATE not in capsys.readouterr().out
+    assert run(env, ["plan", "--align-l2-effective-date", "--reuse-backup"])[0] == 0
+    out = capsys.readouterr().out
+    assert m.S3C_UPDATE in out and m.S3_RELINK in out and "재사용" in out and BODY_MARK not in out
+
+
+# --------------------------------------------------------------------------- diagnose(원격 읽기 전용)
+
+def test_diagnose_is_read_only_and_explains_broken_parent(env, capsys):
+    db, _ = _left_backup_table(env)
+    n_before = len(db.executed)
+    assert run(env, ["diagnose"], db)[0] == 0
+    new_sql = db.executed[n_before:]
+    assert m.SET_READ_ONLY in new_sql and not [s for s in new_sql if s.lstrip().upper().startswith(WRITE_PREFIX)]
+    rec = json.loads(next(env["LOG_DIR"].glob("be0504_diagnose_*.jsonl")).read_text(encoding="utf-8").splitlines()[-1])
+    r = rec["result"]
+    assert (r["broken_without_relink"], r["broken_with_relink"], r["relink"]) == (1, 0, 1)
+    row = r["broken_rows"][0]
+    assert row["chunk_id"] == "l3p-o7" and row["remote_parent_in_delete"] and row["v2_parent_in_insert"] and row["remote_parent_eq_local_old"]
+    assert r["remote_vs_local_old"] == {"remote_only": 0, "local_only": 0, "parent_differs": 0}
+    assert r["backup_table"]["ids_eq_delete"] and r["backup_table"]["content_eq_main"]
+    assert r["l2_effdate"]["remote_dist"] == {"None": 2} and r["l2_effdate"]["remote_present"] == 2
+    out = capsys.readouterr()
+    assert SECRET not in out.out + out.err and BODY_MARK not in out.out + out.err
