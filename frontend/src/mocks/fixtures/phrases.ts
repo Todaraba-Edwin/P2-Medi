@@ -8,7 +8,31 @@ export const PHRASES = {
   PHARMACIST_ADVICE_FIXED: "확인하지 못한 항목이 있어요. 복용 전에 꼭 약국·약사에게 확인하세요.",
   NOT_LISTED: "금기 목록에 없음(안전하다는 뜻이 아님)",
   BADGE_PAIR: "삐! 병용금기",
+  BADGE_PREGNANCY: "삐! 임부금기 {grade}등급",
+  BADGE_PREGNANCY_M: "삐! 임부금기 M등급",
+  BADGE_PREGNANCY_M_NOTE: "적응증에 따라 등급이 달라요",
+  BADGE_AGE: "삐! 연령금기",
+  UNIDENTIFIED: "약을 찾지 못해 확인하지 못함",
+  UNIDENTIFIED_WHY: "식약처·한국의약품안전관리원 자료에서 찾지 못했어요",
+  UNIDENTIFIED_RETRIED: "표기를 바꿔 한 번 더 찾아봤어요",
+  UNIDENTIFIED_NEXT: "봉투나 상자에 적힌 제품명을 그대로 다시 알려 주세요",
+  MISSING_SEARCH_MISS: "허가사항에서 관련 문장을 찾지 못했어요",
+  LIMIT_REACHED: "답을 정리하다 시간이 다 되어 여기까지 확인한 결과만 보여 드려요. 확인하지 못한 항목은 약국·약사에게 물어보세요.",
+  // 진행 문구(`progress.label`): PROGRESS_LABELS[stage]
+  PROGRESS_DRUG_LOOKUP: "약 찾는 중",
+  PROGRESS_CONTRA_CHECK: "금기 확인 중",
+  PROGRESS_EVIDENCE_SEARCH: "근거 찾는 중",
 } as const;
+
+/** `fixed_phrases.PROGRESS_LABELS`와 같은 대응(키는 `stage`) */
+export const PROGRESS_LABELS = {
+  drug_lookup: PHRASES.PROGRESS_DRUG_LOOKUP,
+  contraindication_check: PHRASES.PROGRESS_CONTRA_CHECK,
+  evidence_search: PHRASES.PROGRESS_EVIDENCE_SEARCH,
+} as const;
+
+// BADGE_SOURCE_TAIL: 등급 불일치 배지의 출처 꼬리(파일 → 성분 API). 배지 문구 = `{배지} {꼬리}`(finalize._badges)
+export const BADGE_SOURCE_TAIL = { FILE: "(파일)", API_DIRECT: "(성분 API)" } as const;
 
 export const DISCLAIMER_PARTS = [
   "공공데이터 기반 정보 제공이며 진단·처방이 아님",
@@ -32,3 +56,7 @@ export const CLARIFY_TAIL = "에 해당하는 약이 여러 개예요. 어떤 �
 export const PUBLISHER_KIDS = "한국의약품안전관리원";
 export const DATASET_CONTRA_PAIR = "병용금기 파일";
 export const DATASET_PREGNANCY = "임부금기 파일";
+export const DATASET_AGE = "연령금기 파일";
+export const DATASET_DUR_INGR = "DUR 성분정보 API";
+export const DATASET_PRMSN = "의약품 허가정보";
+export const PUBLISHER_MFDS = "식약처"; // PUBLISHER["mfds"]

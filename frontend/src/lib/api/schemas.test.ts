@@ -1,42 +1,92 @@
 import { describe, expect, it } from "vitest";
-import { foundResponse } from "@/mocks/fixtures/responses";
-import { ChatEventSchema, ChatResponseSchema, DateLineSchema } from "./schemas";
+import * as responses from "@/mocks/fixtures/responses";
+import { foundResponse, pregnancyResponse } from "@/mocks/fixtures/responses";
+import { ChatEventSchema, ChatRequestSchema, ChatResponseSchema, DateLineSchema, ErrorBodySchema } from "./schemas";
 
 const valid = () => structuredClone(foundResponse) as Record<string, unknown>;
+const finding = (patch: Record<string, unknown>, from = foundResponse) => {
+  const body = structuredClone(from) as unknown as { findings: Record<string, unknown>[] };
+  Object.assign(body.findings[0], patch);
+  return body;
+};
 
-describe("ChatResponse v0 zod", () => {
-  it("fixture를 그대로 통과시킨다", () => {
-    expect(ChatResponseSchema.parse(valid())).toEqual(foundResponse);
+describe("ChatResponse v1 zod", () => {
+  it.each(Object.entries(responses))("fixture %s를 그대로 통과시킨다", (_name, response) => {
+    expect(ChatResponseSchema.parse(structuredClone(response))).toEqual(response);
   });
 
   it("기본값 칸이 빠져도 채운다", () => {
     const parsed = ChatResponseSchema.parse({
-      schema_version: "chat_response@v0",
+      schema_version: "chat_response@v1",
       route: "AGENT",
       summary: null,
+      findings: [{ bucket: "not_listed", evidence_id: null, kind: null, drug: "가나다정", text: "줄 글자" }],
       fixed_notice: ["고정 줄"],
       disclaimer: "고지",
     });
-    expect(parsed.findings).toEqual([]);
-    expect(parsed.end_reason).toBeNull();
-    expect(parsed.emergency).toBeNull();
+    expect(parsed).toMatchObject({ end_reason: null, emergency: null, notice: null, candidates: [], detail: [], citations: [] });
+    expect(parsed.findings[0]).toMatchObject({ target: "product", drugs: [], badges: [], ingredients: [], retried: null, age_criteria: [], age_info_line: null });
   });
 
   it.each([
-    ["다른 schema_version", { schema_version: "chat_response@v1" }],
+    ["v0 문서(schema_version)", { schema_version: "chat_response@v0" }],
+    ["v0의 최상위 badges", { badges: [] }],
     ["모르는 칸(extra=forbid)", { extra_field: 1 }],
+    ["조회 시각 같은 칸(v1에 없음)", { queried_at: "2026-11-12T01:00:00Z" }],
     ["fixed_notice 0줄", { fixed_notice: [] }],
     ["fixed_notice 빈 줄", { fixed_notice: ["  "] }],
     ["disclaimer 빈 글자", { disclaimer: "" }],
     ["모르는 route", { route: "OTHER" }],
     ["모르는 end_reason", { end_reason: "OTHER" }],
+    ["응급을 end_reason으로(값 없음)", { end_reason: "EMERGENCY" }],
+    ["tel 없는 emergency", { emergency: { text: "문구" } }],
+    ["되묻기가 아닌데 candidates", { candidates: [{ input_name: "가나다", name: "가나다정" }] }],
   ])("%s는 거절한다", (_name, patch) => {
     expect(ChatResponseSchema.safeParse({ ...valid(), ...patch }).success).toBe(false);
   });
 
-  it("안쪽 객체의 모르는 칸도 거절한다", () => {
-    const body = valid();
-    (body.badges as Record<string, unknown>[])[0].color = "red";
+  it("v0 fixture 모양(최상위 badges, target·drugs 없음) 전체도 거절한다", () => {
+    const v0 = {
+      schema_version: "chat_response@v0",
+      route: "AGENT",
+      end_reason: "NORMAL",
+      summary: "요약",
+      findings: [{ bucket: "found", evidence_id: "ev-1", kind: "contra_pair", drug: "가나다정 · 라마바캡슐", text: "줄 글자" }],
+      badges: [{ kind: "contra_pair", grade: null, text: "배지", evidence_id: "ev-1", note: null }],
+      fixed_notice: ["고정 줄"],
+      disclaimer: "고지",
+    };
+    expect(ChatResponseSchema.safeParse(v0).success).toBe(false);
+    expect(ChatResponseSchema.safeParse({ ...v0, schema_version: "chat_response@v1" }).success).toBe(false); // 버전만 바꿔도 badges 때문에 거절
+  });
+
+  it.each([
+    ["쌍 줄인데 약이 하나", { drugs: ["가나다정"] }, false],
+    ["쌍 줄인데 약이 셋", { drugs: ["가", "나", "다"] }, false],
+    ["모르는 target", { target: "triple" }, false],
+    ["금기 발견이 아닌 줄의 배지", { bucket: "not_listed" }, false],
+    ["배지 등급 값 밖", { badges: [{ kind: "pregnancy", grade: "3", text: "배지" }] }, false],
+    ["배지 글자 없음", { badges: [{ kind: "pregnancy", text: "" }] }, false],
+    ["배지 kind 없음", { badges: [{ kind: null, text: "배지" }] }, false],
+    ["배지 안의 모르는 칸", { badges: [{ kind: "pregnancy", text: "배지", color: "red" }] }, false],
+    ["searched 개수 음수", { searched: [{ dataset: "자료", count: -1 }] }, false],
+    ["성분 이름 없음", { ingredients: [{ code: "100001ATB" }] }, false],
+    ["나이 기준 값 줄", { age_criteria: ["12세 미만", "6개월 미만"] }, true],
+    ["retried 값", { retried: false }, true],
+  ])("판정 줄: %s", (_name, patch, ok) => {
+    expect(ChatResponseSchema.safeParse(finding(patch)).success).toBe(ok);
+  });
+
+  it("배지·성분·출처 행은 받은 순서를 바꾸지 않는다", () => {
+    const parsed = ChatResponseSchema.parse(structuredClone(responses.gradeMismatchResponse));
+    expect(parsed.findings[0].badges.map((b) => b.source)).toEqual(["FILE", "API_DIRECT"]);
+    expect(parsed.citations.map((c) => c.dataset)).toEqual(responses.gradeMismatchResponse.citations.map((c) => c.dataset));
+    expect(pregnancyResponse.findings[0].ingredients.map((i) => i.name)).toEqual(["라마성분", "사아성분"]);
+  });
+
+  it("미확보 문구는 사유가 있을 때만 온다", () => {
+    const body = structuredClone(responses.missingEvidenceResponse) as unknown as { detail: Record<string, unknown>[] };
+    body.detail[1].missing_reason = null;
     expect(ChatResponseSchema.safeParse(body).success).toBe(false);
   });
 });
@@ -44,37 +94,77 @@ describe("ChatResponse v0 zod", () => {
 describe("DateLine", () => {
   it.each([
     [{ label: "고시일", value: "2026-01-15" }, true],
+    [{ label: "발간일", value: "2026-06" }, true],
     [{ label: "기준일", value: "2026-07-31" }, true],
+    [{ label: "기준일", value: "2026-06" }, true],
     [{ label: "조회", value: "2026-11-12" }, true],
     [{ label: "날짜 없음", value: null }, true],
+    [{ label: "조회", value: "2026-11" }, false], // 조회는 하루 단위만
     [{ label: "날짜 없음", value: "2026-01-15" }, false],
     [{ label: "고시일", value: null }, false],
     [{ label: "고시일", value: "2026.01.15" }, false],
-    [{ label: "고시일", value: "2026-01-15T00:00:00" }, false],
+    [{ label: "고시일", value: "2026-13-45" }, false], // 없는 날짜
+    [{ label: "고시일", value: "2026-02-30" }, false],
+    [{ label: "기준일", value: "2026-13" }, false],
+    [{ label: "고시일", value: "2026-01-15T00:00:00" }, false], // 시각 없음
     [{ label: "자료 기준일", value: "2026-01-15" }, false],
   ])("%j → %s", (line, ok) => {
     expect(DateLineSchema.safeParse(line).success).toBe(ok);
   });
 });
 
-describe("ChatEvent zod", () => {
-  const base = { seq: 0, schema_version: "chat_event@v0" };
+describe("ChatEvent v1 zod", () => {
+  const base = { seq: 0, schema_version: "chat_event@v1" };
 
   it.each([
-    [{ ...base, type: "progress", stage: "drug_lookup" }, true],
+    [{ ...base, type: "progress", stage: "drug_lookup", label: "약 찾는 중" }, true],
     [{ ...base, type: "emergency", emergency: { text: "t", tel: "tel:119" } }, true],
     [{ ...base, type: "answer", response: foundResponse }, true],
-    [{ ...base, type: "error", code: "X", message: "m" }, true],
+    [{ ...base, type: "error", code: "INTERNAL_ERROR", message: null }, true],
+    [{ ...base, type: "error", code: "TIMEOUT" }, true],
+    [{ ...base, type: "error", code: "UPSTREAM_UNAVAILABLE", message: "받은 문구" }, true],
     [{ ...base, type: "done" }, true],
     [{ ...base, type: "done", end_reason: "NORMAL" }, true],
-    [{ ...base, type: "progress", stage: "unknown_stage" }, false],
-    [{ ...base, type: "progress", stage: "drug_lookup", label: "약 찾는 중" }, false],
+    [{ ...base, type: "progress", stage: "drug_lookup" }, false], // label 필수
+    [{ ...base, type: "progress", stage: "drug_lookup", label: "" }, false],
+    [{ ...base, type: "progress", stage: "unknown_stage", label: "문구" }, false],
+    [{ ...base, type: "error", code: "MOCK_SERVER_ERROR", message: null }, false], // 코드 목록 밖
+    [{ ...base, type: "error", message: "문구" }, false],
+    [{ ...base, type: "emergency", emergency: { text: "t" } }, false], // tel 필수
     [{ ...base, type: "unknown" }, false],
-    [{ ...base, schema_version: "chat_event@v1", type: "done" }, false],
+    [{ ...base, schema_version: "chat_event@v0", type: "done" }, false],
     [{ ...base, seq: -1, type: "done" }, false],
-    [{ ...base, type: "answer", response: { ...foundResponse, schema_version: "chat_response@v1" } }, false],
-    [{ ...base, type: "error", code: "X" }, false],
+    [{ ...base, type: "done", extra: 1 }, false],
+    [{ ...base, type: "answer", response: { ...foundResponse, schema_version: "chat_response@v0" } }, false],
   ])("%j → %s", (event, ok) => {
     expect(ChatEventSchema.safeParse(event).success).toBe(ok);
+  });
+});
+
+describe("ChatRequest·ErrorBody zod", () => {
+  it("질문만 주면 빈 묶음이 채워진다", () => {
+    expect(ChatRequestSchema.parse({ question: "질문" })).toEqual({ question: "질문", context: { age: null, pregnant: null, confirmed_drugs: [] } });
+  });
+
+  it.each([
+    [{ question: "질문", context: { age: { lower: 3, upper: 5, unit: "개월" }, pregnant: true } }, true],
+    [{ question: "가".repeat(1000) }, true],
+    [{ question: "" }, false],
+    [{ question: "  " }, false],
+    [{ question: "가".repeat(1001) }, false],
+    [{ question: "질문", extra: 1 }, false],
+    [{ question: "질문", context: { age: "5세" } }, false], // 자유 글 나이는 싣지 않는다
+    [{ question: "질문", context: { age: { lower: 5, upper: 5, unit: "살" } } }, false],
+    [{ question: "질문", context: { age: { lower: -1, upper: 5 } } }, false],
+    [{ question: "질문", context: { confirmed_drugs: [{ name: " " }] } }, false],
+    [{ question: "질문", context: { confirmed_drugs: [{ name: "가".repeat(101) }] } }, false],
+    [{ question: "질문", context: { confirmedDrugs: [] } }, false], // 칸 이름은 snake_case
+  ])("%j → %s", (request, ok) => {
+    expect(ChatRequestSchema.safeParse(request).success).toBe(ok);
+  });
+
+  it("오류 본문은 code와 fields뿐이다", () => {
+    expect(ErrorBodySchema.parse({ code: "INVALID_REQUEST" })).toEqual({ code: "INVALID_REQUEST", fields: [] });
+    expect(ErrorBodySchema.safeParse({ code: "INVALID_REQUEST", fields: ["question"], input: "질문" }).success).toBe(false);
   });
 });

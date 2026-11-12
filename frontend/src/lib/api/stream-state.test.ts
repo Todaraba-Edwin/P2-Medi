@@ -12,9 +12,9 @@ describe("streamReducer", () => {
   it("정상: progress로 stage가 바뀌고 answer·done 뒤 done", () => {
     const events = scenarios.found.events;
     const mid = run([start, ...ev(events.slice(0, 2))]);
-    expect(mid).toMatchObject({ status: "streaming", stage: "contraindication_check", response: null });
+    expect(mid).toMatchObject({ status: "streaming", stage: "contraindication_check", label: "금기 확인 중", response: null });
     const end = run([start, ...ev(events), { type: "end" }]);
-    expect(end).toMatchObject({ status: "done", stage: null, error: null, endedWithoutDone: false });
+    expect(end).toMatchObject({ status: "done", stage: null, label: null, error: null, endedWithoutDone: false });
     expect(end.response).toEqual(scenarios.found.events.find((e) => e.type === "answer")?.response);
   });
 
@@ -52,7 +52,7 @@ describe("streamReducer", () => {
   });
 
   it("answer 없이 done만 오면 결과를 만들지 않는다", () => {
-    const state = run([start, { type: "event", event: { type: "done", seq: 0, schema_version: "chat_event@v0", end_reason: null } }]);
+    const state = run([start, { type: "event", event: { type: "done", seq: 0, schema_version: "chat_event@v1", end_reason: null } }]);
     expect(state).toMatchObject({ status: "interrupted", response: null });
   });
 
@@ -69,8 +69,26 @@ describe("streamReducer", () => {
   it("서버 error 이벤트는 코드·문구를 받은 그대로 담는다", () => {
     const state = run([start, ...ev(scenarios.serverError.events), { type: "end" }]);
     expect(state.status).toBe("error");
-    expect(state.error).toEqual({ kind: "server", status: null, code: "MOCK_SERVER_ERROR", message: "[mock] 오류 문구 자리" });
+    expect(state.error).toEqual({ kind: "server", status: null, code: "INTERNAL_ERROR", message: "[mock] 오류 문구 자리" });
     expect(state.response).toBeNull();
+  });
+
+  it("서버 오류 문구가 null이면 null로 둔다(문구는 화면 상수 몫)", () => {
+    const state = run([start, ...ev(scenarios.serverErrorNoMessage.events), { type: "end" }]);
+    expect(state.status).toBe("error");
+    expect(state.error).toEqual({ kind: "server", status: null, code: "UPSTREAM_UNAVAILABLE", message: null });
+  });
+
+  it("진행 문구(label)는 받은 값 그대로 담고, 서버가 다른 문구를 보내면 그 값이 담긴다", () => {
+    const event = { ...scenarios.found.events[0], label: "서버가 보낸 문구" };
+    expect(run([start, { type: "event", event }])).toMatchObject({ stage: "drug_lookup", label: "서버가 보낸 문구" });
+    expect(run([start]).label).toBeNull();
+  });
+
+  it("HTTP 오류 본문의 code를 담는다", () => {
+    const state = run([start, { type: "failure", failure: { kind: "http", status: 422, code: "INVALID_REQUEST" } }]);
+    expect(state.error).toEqual({ kind: "http", status: 422, code: "INVALID_REQUEST", message: null });
+    expect(canRetry(state)).toBe(false);
   });
 
   it("응답 안의 emergency는 배너 한 자리에 합쳐진다", () => {

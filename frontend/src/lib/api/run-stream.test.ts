@@ -1,11 +1,12 @@
 import { HttpResponse, http } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { scenarios } from "@/mocks/fixtures/scenarios";
 import type { ScenarioName } from "@/mocks/fixtures/scenarios";
 import { createChatHandler } from "@/mocks/handlers";
 import { server } from "@/mocks/server";
 import { runChatStream } from "./run-stream";
 import { ChatStreamError, streamChat } from "./stream";
+import { canRetry } from "./stream-state";
 import type { StreamState } from "./stream-state";
 import type { ChatEvent } from "./types";
 
@@ -60,8 +61,35 @@ describe("streamChat (MSW)", () => {
     use(scenario);
     const { seen, error } = await collect();
     expect(seen).toEqual([]);
-    expect(error).toMatchObject({ kind: "http", status });
+    expect(error).toMatchObject({ kind: "http", status, code: null });
     expect(requests).toBe(1);
+  });
+
+  it.each<[ScenarioName, number, string]>([
+    ["http422", 422, "INVALID_REQUEST"],
+    ["http501", 501, "NOT_IMPLEMENTED"],
+  ])("%s: 본문 {code, fields}의 code를 읽는다", async (scenario, status, code) => {
+    use(scenario);
+    const { error } = await collect();
+    expect(error).toMatchObject({ kind: "http", status, code });
+    expect(requests).toBe(1);
+  });
+
+  it("형식이 틀린 요청(mock 서버 422)은 보낸 값이 본문에 되돌아오지 않는다", async () => {
+    let body: unknown;
+    server.events.on("response:mocked", async ({ response }) => {
+      body = await response.clone().json().catch(() => null);
+    });
+    const response = await fetch(new URL("/api/chat", location.origin), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "합성 질문", extra: "모르는 칸", context: { age: { lower: 5, upper: 3 } } }),
+    });
+    expect(response.status).toBe(422);
+    await vi.waitFor(() => expect(body).not.toBeUndefined());
+    expect(body).toEqual({ code: "INVALID_REQUEST", fields: expect.arrayContaining(["context.age"]) });
+    expect(JSON.stringify(body)).not.toContain("합성 질문");
+    server.events.removeAllListeners("response:mocked");
   });
 
   it("네트워크 오류: 오류를 내고 POST를 다시 보내지 않는다", async () => {
@@ -106,8 +134,42 @@ describe("streamChat (MSW)", () => {
       }),
     );
     await collect();
-    expect(body).toEqual(request);
+    expect(body).toEqual({ question: request.question, context: { age: null, pregnant: null, confirmed_drugs: [] } });
     expect(accept).toBe("application/x-ndjson");
+  });
+
+  it("대화 상태 묶음은 v1 요청 모양으로 실린다", async () => {
+    let body: unknown;
+    server.use(
+      http.post("*/api/chat", async ({ request: req }) => {
+        body = await req.json();
+        return new HttpResponse("", { headers: { "Content-Type": "application/x-ndjson" } });
+      }),
+    );
+    const context = { age: { lower: 5, upper: 5 }, pregnant: false, confirmed_drugs: [{ name: "가나다정", item_seq: "200000001" }, { name: "라마바캡슐" }] };
+    for await (const event of streamChat({ question: "합성 질문", context })) void event;
+    expect(body).toEqual({
+      question: "합성 질문",
+      context: {
+        age: { lower: 5, upper: 5, unit: "세" },
+        pregnant: false,
+        confirmed_drugs: [{ name: "가나다정", item_seq: "200000001" }, { name: "라마바캡슐", item_seq: null }],
+      },
+    });
+  });
+
+  it.each([
+    ["빈 질문", { question: "   " }],
+    ["너무 긴 질문", { question: "가".repeat(1001) }],
+    ["거꾸로 된 나이 구간", { question: "질문", context: { age: { lower: 9, upper: 3 } } }],
+    ["약 11개", { question: "질문", context: { confirmed_drugs: Array.from({ length: 11 }, (_, i) => ({ name: `약${i}` })) } }],
+    ["9자리가 아닌 품목기준코드", { question: "질문", context: { confirmed_drugs: [{ name: "가나다정", item_seq: "123" }] } }],
+  ])("형식이 틀린 요청(%s)은 보내지 않는다", async (_name, bad) => {
+    const state = await runChatStream(bad as never);
+    expect(state.status).toBe("error");
+    expect(state.error).toMatchObject({ kind: "invalid_request", status: null });
+    expect(canRetry(state)).toBe(false);
+    expect(requests).toBe(0);
   });
 });
 
@@ -138,8 +200,11 @@ describe("runChatStream (MSW)", () => {
     ["cutBeforeAnswer", "interrupted"],
     ["closeBeforeAnswer", "interrupted"],
     ["serverError", "error"],
+    ["serverErrorNoMessage", "error"],
     ["http500", "error"],
     ["http400", "error"],
+    ["http422", "error"],
+    ["http501", "error"],
   ])("%s: 결과 없이 %s, 재시도 0회", async (scenario, status) => {
     use(scenario);
     const final = await runChatStream(request);
@@ -154,6 +219,31 @@ describe("runChatStream (MSW)", () => {
     expect(final).toMatchObject({ status: "done", endedWithoutDone: true });
     expect(final.response).not.toBeNull();
   });
+
+  it("빈 줄(하트비트)도 무응답 시계를 다시 돌린다", async () => {
+    // 줄 간격 30ms < 상한 80ms. 이벤트 사이는 빈 줄 3개(약 120ms)라 빈 줄을 세지 않으면 상한에 걸린다
+    use("heartbeat", 30);
+    const final = await runChatStream(request, { idleTimeoutMs: 80 });
+    expect(final).toMatchObject({ status: "done", error: null });
+    expect(final.response).not.toBeNull();
+  });
+
+  it("진행 문구(label)가 상태에 실린다", async () => {
+    use("found");
+    const labels: string[] = [];
+    await runChatStream(request, { onState: (s) => s.label && labels.at(-1) !== s.label && labels.push(s.label) });
+    expect(labels).toEqual(["약 찾는 중", "금기 확인 중", "근거 찾는 중"]);
+  });
+
+  it.each<ScenarioName>(["pregnancy", "pairAndPregnancy", "gradeMismatch", "pregnancyM", "ageFound", "unidentified", "missingEvidence", "limit", "clarify", "refuse", "notListed"])(
+    "결과 모양 시나리오 %s가 끝까지 온다",
+    async (scenario) => {
+      use(scenario);
+      const final = await runChatStream(request);
+      expect(final).toMatchObject({ status: "done", endedWithoutDone: false, error: null });
+      expect(final.response?.schema_version).toBe("chat_response@v1");
+    },
+  );
 
   it("이벤트가 오면 무응답 시계가 다시 돈다", async () => {
     use("found", 30); // 이벤트 간격 30ms < 상한 80ms, 전체는 상한보다 길다
