@@ -19,7 +19,7 @@ function TurnAnswer({ turn, isLast, hasEmergency, onRetry }: { turn: ChatTurn; i
   // 검증을 통과한 응답이 있으면 어떤 상태로 끝났든 그 결과를 보인다(done 없이 끊겨도 유지)
   if (stream.response) return <ResultSlot response={stream.response} />;
   if (stream.status === "streaming") return <ProgressSteps stage={stream.stage} hideMascot={hasEmergency} />;
-  if (stream.status === "error" || stream.status === "interrupted") return <ErrorState stream={stream} onRetry={onRetry} allowRetry={isLast} />;
+  if (stream.status === "error" || stream.status === "interrupted") return <ErrorState stream={stream} onRetry={onRetry} allowRetry={isLast} hideMascot={hasEmergency} />;
   return null; // idle, 사용자가 끊은 차례(aborted)는 질문만 남긴다
 }
 

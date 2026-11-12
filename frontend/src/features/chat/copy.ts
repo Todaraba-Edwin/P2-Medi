@@ -1,10 +1,11 @@
 // 채팅 화면에서 프런트가 쓰는 UI 글자는 이 파일 한 곳에 둔다. 줄마다 근거를 적는다.
 // 고정 안내·판정·119 문구는 여기 두지 않는다(백엔드 값을 받은 그대로 쓴다. S1).
 // "디자인 반영본"은 2026-11-12 after5 스냅샷(프로토타입 모바일·데스크톱)의 글자다.
+import { BRAND_NAME } from "@/components/brand/name";
 import type { ProgressStage } from "@/lib/api";
 
 /** 표시 이름(PRD-06-01: 화면에는 Can I PPiyak, 한글 삐약 병기) */
-export const APP_NAME = "Can I PPiyak";
+export const APP_NAME = BRAND_NAME;
 export const APP_NAME_KO = "삐약";
 
 /** 시작 화면 한 줄 소개(PJ2-PRD.md 15.4 시작·질문 입력 행, 디자인 반영본 홈 히어로) */
