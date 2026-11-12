@@ -48,7 +48,7 @@
 |---|---|---|---|---|
 | (a) **디자인 반영**: 수정 지시서를 클로드앱 디자인 세션이 반영하고, 새 스냅샷으로 FE-07 P0을 다시 돈다(반영 확인) | 수정 지시서 승인(G1 A)함, 디자인 세션 전달·반영 대기(사용자) | `FE-IMPL-04`(결과 카드 배치), `FE-IMPL-05`(근거 상세·응급 배치), `FE-IMPL-06`(조립) | `FE-IMPL-00`(토큰은 현재 값으로 시작, 2.3절 차이만 보완), `01`, `02`, `03` | `SCH-02-ui-review` 7.5절(`:480-481`), `PJ2-프론트-기술스택.md:348-353`(9장 (2)) |
 | (b) **BE-06 응답 스키마 v1**: 결정 후보 b1~b7에 답하고 BE-06이 `chat_response@v1`·스트림 이벤트 형식·요청 모델·`/openapi.json`을 구현 | 골격 `chat_response@v0`만 있음, b1~b7 미등록 | `FE-IMPL-03`(계약 이행), 그 뒤의 `04`·`05`(v1 필드), `02`의 되묻기 카드(보완 지점), `06`의 실제 `/chat` 연결 | `00`, `01`(v0와 이벤트 초안으로 시작), `02`(되묻기 카드 제외) | `schemas.py:26,128-180`, `BE-06.md:33,38-40`, `SCH-02-ui-review` 6.4절(`:419-428`), `P6-critic-r3.md:5-6` |
-| (c) FE-07 결정 후보 FE-07-03~13·AG-08 a1~a15 | 미등록(보고서 후보) | 문구는 백엔드 상수가 소유하므로 프런트 코드를 막지 않는다. 다만 FE-07-06(카드 날짜 줄)은 `04`, FE-07-07(약국 링크)·FE-07-08(빈칸 상태)은 `05`·`06`, FE-07-09(폭 분기)는 `06`의 범위를 정한다 | `00`~`03` | `SCH-02-ui-review` 6.2절(`:385-398`) |
+| (c) FE-07 결정 후보 FE-07-03~13·AG-08 a1~a15 | 미등록(보고서 후보) | 문구는 백엔드 상수가 소유하므로 프런트 코드를 막지 않는다. 다만 FE-07-06(카드 날짜 줄)은 `04`, FE-07-07(약국 링크)·FE-07-08(빈칸 상태)은 `05`·`06`, FE-07-09(폭 분기, 2026-11-12 B로 답함: 반응형 기본)는 `06`의 범위를 정한다 | `00`~`03` | `SCH-02-ui-review` 6.2절(`:385-398`) |
 | (d) 8장 결정 후보 f1~f5 | **답 완료(2026-11-12)**, 번호 등록은 `schedule-writer` | 없음 | 전부 | 이 문서 6.2·6.3절·8장 |
 | (e) FE-06 브랜드 이미지 변환(favicon·마스코트 크롭) | 사용자 확인 대기 | 막지 않음. `00`은 자리만 두고 보고에 적는다 | 전부 | `FE-01.md:38`, `schedule.md` Recap 행 3 |
 
@@ -102,7 +102,7 @@ FE-01-13 A의 5개 안을 기본으로 하고, ⑤를 "지금 할 수 있는 골
 | `FE-IMPL-03-contract-v1` | FE-01, `feature/FE-01-impl03-contract-v1` | 대기 | `/openapi.json` → `openapi-typescript` 생성 스크립트, zod v1(`chat_response@v1`·확정 이벤트 형식·요청 모델), fixture v1 이행, 파서 시험 갱신 | `src/lib/api/`, `src/mocks/`, `frontend/e2e/fixtures/`, `frontend/scripts/gen-api.*` | `src/features/`, `src/stores/`, `src/styles/`, 루트 설정(`package.json`의 스크립트 한 줄 추가는 보고로 요청) | BE-06 v1 병합, `01` | 측정 전 |
 | `FE-IMPL-04-result` | FE-02, `feature/FE-02-impl04-result` | 대기 | 결과 카드·제품 줄·배지(`flex-wrap` 한 규칙)·성분 칩·"목록에 없음" 줄·날짜 줄 부품(`DateLines`) | `src/features/result/`, `src/components/DateLines.tsx`(+ 시험), `src/app/dev/preview/result/` | `src/features/evidence/`, `src/features/emergency/`, `src/features/chat/`, `src/lib/api/`, `src/mocks/`, `src/styles/` | (a), `03`, FE-07-06 답 | 측정 전 |
 | `FE-IMPL-05-evidence-emergency` | FE-02, `feature/FE-02-impl05-evidence` | 대기 | 근거 상세 패널(Radix Sheet/Accordion)·판정·사유 원문·허가사항 인용·출처 표(배열 순서 그대로)·등급 정의 블록·원문 미확보 박스·약사 확인 권고 박스(접히지 않음)·119 배너·고정 안내 박스·고지 | `src/features/evidence/`, `src/features/emergency/`, `src/app/dev/preview/evidence/` | `src/features/result/`, `src/components/DateLines.tsx`(쓰기만 금지, 가져다 씀), `src/features/chat/`, `src/lib/api/`, `src/mocks/`, `src/styles/` | (a), `03`, `04`, FE-07-07·08 답 | 측정 전 |
-| `FE-IMPL-06-assembly` | FE-01, `feature/FE-01-impl06-assembly` | 대기(사용자 승인 G4) | `src/app/page.tsx` 조립(채팅 → 결과 → 근거 상세), 응급 흐름, 근거 상세 열기·닫기를 들어온 결과에 고정, 모바일 셸(데스크톱은 FE-07-09 답), Playwright 흐름·폭 시험, BE-06 엔드포인트가 있으면 rewrites 실연결 시험(BE-13 점검 항목) | `src/app/page.tsx`, `src/app/(shell)/`(셸), `frontend/e2e/*.spec.ts` | 각 `src/features/*`는 결함만 보고로 요청(직접 고치지 않음), `src/lib/api/`, `src/styles/` | `04`, `05`, G4, FE-07-09 답 | 측정 전 |
+| `FE-IMPL-06-assembly` | FE-01, `feature/FE-01-impl06-assembly` | 대기(사용자 승인 G4) | `src/app/page.tsx` 조립(채팅 → 결과 → 근거 상세), 응급 흐름, 근거 상세 열기·닫기를 들어온 결과에 고정, **반응형 셸(ChatGPT 웹 패턴, FE-07-09 B: 좁은 폭 사이드바 숨김·☰ 드로어, 넓은 폭 사이드바+가운데 열, 근거 상세는 넓으면 우측 패널·좁으면 모달·시트)**, Playwright 흐름·폭 시험, BE-06 엔드포인트가 있으면 rewrites 실연결 시험(BE-13 점검 항목) | `src/app/page.tsx`, `src/app/(shell)/`(셸), `frontend/e2e/*.spec.ts` | 각 `src/features/*`는 결함만 보고로 요청(직접 고치지 않음), `src/lib/api/`, `src/styles/` | `04`, `05`, G4(FE-07-09는 2026-11-12 B로 답함) | 측정 전 |
 
 의존성 추가: 직렬로 도는 WP는 필요한 패키지를 `pnpm add`로 더할 수 있고(`package.json`·`pnpm-lock.yaml` 변경), 더한 패키지와 이유를 보고에 적는다. 그 밖의 루트 설정 파일 수정은 보고로 요청한다. 병렬 쌍(4.2절)에서는 `03`만 `package.json`을 고친다.
 
@@ -120,7 +120,7 @@ FE-01-13 A의 5개 안을 기본으로 하고, ⑤를 "지금 할 수 있는 골
 | `03` | `pnpm gen:api`가 백엔드 `/openapi.json`에서 타입을 만들고 손으로 쓴 v0 타입을 대체한다. zod가 `chat_response@v1`만 받고 다른 버전은 오류 상태다. `01`의 파서 시험이 확정 이벤트 형식으로 모두 통과한다. fixture가 v1 zod를 통과한다. |
 | `04` | 배지는 `findings[].badges[]` 순서 그대로, 화면이 조합·재정렬하지 않는다(시험). PRD-15 §7 ①~⑥ 화면 시험(360px·320px, 배지 잘림 0, 제목이 한 글자 폭으로 쪼개지지 않음). "목록에 없음" 줄의 보조줄(안전 아님)이 항상 보인다. 결과 카드에 날짜·시각 줄이 없다(FE-07-06 ★A일 때). `DateLines`는 `dates[]` 한 항목 = 한 줄, 문자열 조립 없음. 배지 색은 토큰만 쓴다. |
 | `05` | 119 배너: `role="alert"`, `href="tel:119"`, 응답 안의 `emergency.text`를 그대로. 고정 안내·약사 확인 권고·"목록에 없음" 보조줄이 접힘 요소(Accordion·Sheet 닫힘 상태) 안에 없다(시험). 출처 표 행 순서 = `citations[]` 순서. 미확보 박스 문구 = 응답 값(화면 상수 없음). 고정 영역에 마스코트 없음. 터치 영역 44px 이상(Playwright로 대표 버튼 측정). |
-| `06` | Playwright 흐름: 응급 질문이면 첫 화면 맨 위 119(스크롤 없이), 일반 질문은 진행 → 결과 → 근거 상세 펼침, 되묻기 → 후보 선택 재전송, 거절, 오류·다시 시도, 끊김. 근거 상세 닫기가 원래 결과로 돌아간다. 360px·320px 가로 스크롤 없음. `pnpm build` 통과. BE-06 엔드포인트가 있으면 rewrites 경유 스트림이 줄 단위로 도착하는지 기록(BE-13). |
+| `06` | Playwright 흐름: 응급 질문이면 첫 화면 맨 위 119(스크롤 없이), 일반 질문은 진행 → 결과 → 근거 상세 펼침, 되묻기 → 후보 선택 재전송, 거절, 오류·다시 시도, 끊김. 근거 상세 닫기가 원래 결과로 돌아간다. 360px·320px 가로 스크롤 없음. **반응형 셸 폭 시험(Playwright 1280/900/700/393/360, 참고 표기 값이며 새 기준 아님): 넓은 폭은 사이드바+가운데 열+근거 상세 우측 패널, 좁은 폭은 사이드바 숨김·☰ 드로어+근거 상세 모달·시트, 어느 폭에서도 119·고정 안내가 첫 화면에 보이고 가로 스크롤 없음(FE-07-09 B).** `pnpm build` 통과. BE-06 엔드포인트가 있으면 rewrites 경유 스트림이 줄 단위로 도착하는지 기록(BE-13). |
 
 ## 4. 순서와 병렬
 
@@ -236,7 +236,7 @@ FE-IMPL-00-scaffold ──G3──▶ FE-IMPL-01-api-stream ──G3──▶ FE
 |---|---|---|---|
 | G0 | 완료(2026-11-12) | 8장 후보 f1~f5에 답했다. 번호 등록은 `schedule-writer` | `00` |
 | G1 | 디자인 반영 뒤 | 디자인 세션 반영을 마치고, 메인이 돌린 FE-07 P0 재실행 결과(새 스냅샷)를 확인한다. 바뀐 토큰이 있으면 `00` 보완 지시를 승인한다 | `04`·`05` |
-| G2 | BE-06 v1 전 | BE-06 결정 후보 b1~b7(보고서 6.4절)과 FE-07 후보 FE-07-06·07·08·09에 답한다 | BE-06 본 작업 → `03` |
+| G2 | BE-06 v1 전 | BE-06 결정 후보 b1~b7(보고서 6.4절)과 FE-07 후보 FE-07-06·07·08에 답한다(FE-07-09는 2026-11-12 B로 답함) | BE-06 본 작업 → `03` |
 | G3 | 각 WP 뒤 | 보고 파일을 보고 메인에 검수·커밋을 맡긴다. 화면이 있는 WP는 `pnpm dev`의 미리보기(`/dev/preview/...`)를 한 번 눈으로 본다 | 다음 WP |
 | G4 | `04`·`05` 뒤 | 화면 조립 시작을 승인한다(FE-01-13 A "조립은 디자인 반영 뒤") | `06` |
 
