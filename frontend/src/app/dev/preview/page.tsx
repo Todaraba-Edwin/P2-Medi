@@ -18,6 +18,11 @@ export default function PreviewPage() {
             브랜드 이미지
           </Link>
         </li>
+        <li>
+          <Link href="/dev/preview/result" className="underline">
+            결과 카드
+          </Link>
+        </li>
       </ul>
     </main>
   );
