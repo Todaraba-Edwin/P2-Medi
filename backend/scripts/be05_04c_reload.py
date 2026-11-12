@@ -3,13 +3,18 @@
   plan                 (기본) 원격 연결 0. 로컬 입력(v2 청크·변경 목록·임베딩 색인)만으로 블록별 예상 행 수·SQL·비용·소요를 출력한다.
   prepare              원격 연결 0, 임베딩 호출 0. L1~L4 로컬 준비: v2 입력 점검, 새 본문만 임베딩 대상으로 추림(`embed_corpus.py run`
                        증분 경로가 그대로 집어 갈 목록과 비용 어림, `--max-usd` 초과면 거부), 삽입·삭제·벡터 복사 목록을 manifest로 고정(sha256).
-                       `--switch-input`을 주면 BE-05-09 A(v2를 `l3_prmsn.jsonl` 이름으로, 옛 파일·임베딩은 `*.before_be0504`로 보관)를 실행한다.
+                       `--switch-input`을 주면 BE-05-09 B 전환을 실행한다: 옛 `l3_prmsn.jsonl`·임베딩을 `*.before_be0504`로 보관한 뒤
+                       **기본 `build_corpus_l3` 규칙(v2)으로 허가 상세를 다시 만들어** `l3_prmsn.jsonl`로 두고, 결과가 `l3_prmsn.v2.jsonl`과
+                       바이트까지 같은지 확인한다(다르면 교체하지 않고 중단). 실제 로컬 파일 교체는 이 옵션을 줄 때만 일어난다.
   apply --yes          원격 쓰기. `--yes` + 승인 파일 `data/mock/review/be05_04c_approved.flag`(사용자 승인 뒤 메인이 만든다)가 둘 다 있어야 한다.
                        S0 읽기 점검(전체 68,818이 아니면 중단) → S1 백업(로컬 jsonl.gz + 원격 백업 표, BE-05-10) → S2 세션 TEMP 적재 →
-                       S3 한 트랜잭션(새 id 삽입 → 옛 id 삭제 → 사후 검사 → 커밋) → [S3b year 맞춤, `--align-year`] → S4 측정·ANALYZE →
+                       S3 한 트랜잭션(새 id 삽입 → 옛 id 삭제 → 사후 검사 → 커밋) → S3b 유지 7,466행 year UPDATE(BE-05-11 B, 별도 승인 A8,
+                       승인 파일 `be05_04c_year_approved.flag`가 따로 있어야 한다, REINDEX 앞) → S4 측정·ANALYZE(year NULL 0 확인) →
                        [S5 REINDEX, `--reindex`를 따로 줄 때만]. 블록마다 사전·사후 COUNT를 기대값과 비교하고 다르면 그 블록을 롤백하고 멈춘다.
 
-기본값은 결정 BE-05-09~11의 권장 A(입력 전환 A, 백업 둘 다 A, year 혼재 그대로 A)다. 다른 답이면 `--old/--new`, `--backup local`, `--align-year`로 바꾼다.
+기본값은 사용자 결정 BE-05-09 B(기본 `build`가 v2, 2026-11-12)·BE-05-10 A(백업 둘 다)·BE-05-11 B(year UPDATE)다. S3b는 기본으로 켜져 있고
+`--keep-year-mixed`로만 끈다(그 경우 승인 A8과 year 확인도 건너뛴다). 다른 답이면 `--old/--new`, `--backup local`로 바꾼다.
+S3b는 7,466행이 HNSW에 새 원소를 쓰므로(+40~50MB 추정) **반드시 REINDEX 앞**에 하고, DB가 작아(Nano 0.5GB) REINDEX 전에 Micro 이상으로 올리길 권한다.
 접속 문자열은 환경변수 SUPABASE_DB_URL(없으면 앱 Settings)에서 프로세스 안에서만 읽고 출력하지 않는다. 줄 단위 로그(`logs/be0504_reload_{UTC}.jsonl`)에는
 행 수·chunk_id·소요만 남기고 본문·벡터·접속 문자열은 남기지 않는다(문자열은 redact를 거친다).
 금지(이 도구는 하지 않는다): DROP INDEX·DROP TABLE(본 표·백업 표)·TRUNCATE·`l3p-` 밖 행 변경·임베딩/LLM/공공 API 호출.
@@ -47,7 +52,7 @@ DSN_ENV = "SUPABASE_DB_URL"
 # --------------------------------------------------------------------------- 경로(시험에서 바꿔 끼운다)
 CUR_PATH = OUT_DIR / "l3_prmsn.jsonl"  # 앱·embed_corpus·load_corpus가 읽는 이름
 V2_PATH = OUT_DIR / "l3_prmsn.v2.jsonl"
-OLD_KEEP_PATH = OUT_DIR / "l3_prmsn.before_be0504.jsonl"  # BE-05-09 A 보관 이름
+OLD_KEEP_PATH = OUT_DIR / "l3_prmsn.before_be0504.jsonl"  # BE-05-09 B 전환 때 옛 파일 보관 이름(`build`도 같은 이름을 쓴다)
 CHANGES_PATH = OUT_DIR / "l3_prmsn.v2.changes.json"
 EMB_DIR = OUT_DIR / "embeddings"
 EMB_KEEP_DIR = OUT_DIR / "embeddings.before_be0504"
@@ -55,6 +60,7 @@ WORK_DIR = REPO / "data" / "mock" / "review" / "be0504"
 MANIFEST_PATH = WORK_DIR / "manifest.json"
 EMBED_TODO_PATH = WORK_DIR / "embed_todo.jsonl"
 APPROVAL_FLAG = REPO / "data" / "mock" / "review" / "be05_04c_approved.flag"
+YEAR_APPROVAL_FLAG = REPO / "data" / "mock" / "review" / "be05_04c_year_approved.flag"  # 승인 A8(BE-05-11 B, S3b 전용)
 BACKUP_DIR = REPO / "data" / "mock" / "backup"
 LOG_DIR = REPO / "logs"
 
@@ -169,7 +175,7 @@ S5_REINDEX = f"REINDEX INDEX {HNSW_INDEX}"
 S5_RESETS = ("RESET maintenance_work_mem", "RESET max_parallel_maintenance_workers", "RESET statement_timeout", "RESET lock_timeout")
 
 # 계획서 §7 예상 소요(추정, 이전 측정 비례)
-EST_TIME = {"S0": "2~3분", "S1": "1~3분", "S2": "1~2분", "S3": "10~60초", "S3b": "수 분(7,466행 비HOT 갱신, 추정)",
+EST_TIME = {"S0": "2~3분", "S1": "1~3분", "S2": "1~2분", "S3": "10~60초", "S3b": "수 분(7,466행 비HOT 갱신, 측정 전 추정)",
             "S4": "1분 미만", "S5": "약 6~7분(첫 빌드 367초 기준, 벡터 검색 중단)"}
 DAILY_BACKUP_NOTICE = ("[확인] Supabase 대시보드 Database → Backups에서 최근 일일 백업 시각을 확인했는가(계획서 §2 P2). "
                        "대시보드 메모리 70% 미만·데모/평가 측정이 없는 시간인지도 확인한다(P4). 85% 이상이면 Ctrl+C(커밋 전이면 원격 변화 0).")
@@ -358,7 +364,7 @@ def compute_scope(old: Path | None = None, new: Path | None = None) -> tuple[Sco
 
 # --------------------------------------------------------------------------- plan
 
-def plan_blocks(scope: Scope, exp: Expect, backup: str = "both", align_year: bool = False, reindex: bool = False) -> list[dict[str, Any]]:
+def plan_blocks(scope: Scope, exp: Expect, backup: str = "both", align_year: bool = True, reindex: bool = False) -> list[dict[str, Any]]:
     nb = math.ceil(len(scope.delete) / DELETE_BATCH)
     sizes = [min(DELETE_BATCH, len(scope.delete) - i * DELETE_BATCH) for i in range(nb)]
     blocks = [
@@ -380,11 +386,14 @@ def plan_blocks(scope: Scope, exp: Expect, backup: str = "both", align_year: boo
          "sql": [SET_LOCK, SET_STMT_S3, Q_TOTAL, Q_L3P, S3_INSERT, Q_IDS_NULLVEC, S3_DELETE + " -- 묶음마다",
                  Q_TOTAL, Q_L3P, Q_L3P_NULLVEC, Q_KINDS, Q_BROKEN_PARENT, Q_NOT_L3P, Q_IDS_PRESENT, "COMMIT"]},
     ]
-    if align_year:
-        blocks.append({"block": "S3b", "remote": "쓰기(BE-05-11 B, REINDEX 앞)", "rows": {"updated": exp.keep},
-                       "sql": [SET_LOCK, Q_L3P_YEAR_NULL, S3B_UPDATE + f" -- year={V2_YEAR}", Q_L3P_YEAR_NULL]})
-    blocks.append({"block": "S4", "remote": "읽기 + ANALYZE", "rows": {"n_live_tup(기대 근처)": exp.total_after},
-                   "sql": [Q_HNSW_BYTES, Q_TUPLES, Q_SIZES, Q_L3P_NULLVEC, Q_BROKEN_PARENT, S4_ANALYZE]})
+    if align_year:  # BE-05-11 B 기본
+        blocks.append({"block": "S3b", "remote": "쓰기(BE-05-11 B, 승인 A8, REINDEX 앞, 별도 트랜잭션)",
+                       "rows": {"pre_year_null(유지 행)": exp.keep, "updated": exp.keep, "post_year_null": 0, "post_total": exp.total_after,
+                                "hnsw_growth_mb(추정, 측정 전)": "+40~50"},
+                       "sql": [SET_LOCK, Q_L3P_YEAR_NULL, S3B_UPDATE + f" -- year={V2_YEAR}, 기대 rowcount {exp.keep}", Q_L3P_YEAR_NULL, Q_TOTAL,
+                               "-- 기대값과 다르면 ROLLBACK·중단(S4·S5로 가지 않음)"]})
+    blocks.append({"block": "S4", "remote": "읽기 + ANALYZE", "rows": {"n_live_tup(기대 근처)": exp.total_after, **({"l3p_year_null": 0} if align_year else {})},
+                   "sql": [Q_HNSW_BYTES, Q_TUPLES, Q_SIZES, Q_L3P_NULLVEC, Q_BROKEN_PARENT, *([Q_L3P_YEAR_NULL] if align_year else []), S4_ANALYZE]})
     blocks.append({"block": "S5", "remote": "쓰기(REINDEX)" if reindex else "실행 안 함(--reindex 없음)", "rows": {},
                    "sql": [*S5_SETS, S5_REINDEX, *S5_RESETS, Q_HNSW_BYTES]})
     for b in blocks:
@@ -392,23 +401,35 @@ def plan_blocks(scope: Scope, exp: Expect, backup: str = "both", align_year: boo
     return blocks
 
 
+def _flag_name(p: Path) -> str:
+    return str(p.relative_to(REPO)) if p.is_relative_to(REPO) else p.name
+
+
 def do_plan(args: argparse.Namespace, exp: Expect = DEFAULT_EXPECT, log: Callable[[str], None] = print) -> dict[str, Any]:
     """원격 연결 없음. 로컬 파일만 읽는다."""
     scope, old_p, new_p = compute_scope(args.old, args.new)
     counted = check_scope(scope, exp)
     cost = embed_cost(scope)
-    blocks = plan_blocks(scope, exp, args.backup, args.align_year, args.reindex)
+    align = not args.keep_year_mixed
+    blocks = plan_blocks(scope, exp, args.backup, align, args.reindex)
     out = {"remote_connections": 0, "inputs": {"old": old_p.name, "new": new_p.name}, "local_counts": counted,
            "expect": exp.as_dict(), "embedding": cost, "max_usd": args.max_usd,
-           "options": {"input_switch(BE-05-09)": "A" if args.old is None and args.new is None else "사용자 지정",
+           "options": {"input_switch(BE-05-09)": "B(기본 build = v2)" if args.old is None and args.new is None else "사용자 지정",
                        "backup(BE-05-10)": "A(로컬+원격 표)" if args.backup == "both" else "B(로컬만)",
-                       "year(BE-05-11)": "B(맞춤)" if args.align_year else "A(그대로)", "reindex": bool(args.reindex)},
+                       "year(BE-05-11)": "B(유지 행 year UPDATE, REINDEX 앞)" if align else "A(혼재 그대로)", "reindex": bool(args.reindex)},
            "remote_cost_usd": 0.0, "blocks": blocks,
-           "approval": {"flag": str(APPROVAL_FLAG.relative_to(REPO)) if APPROVAL_FLAG.is_relative_to(REPO) else APPROVAL_FLAG.name,
-                        "flag_exists": APPROVAL_FLAG.exists()}}
+           "approval": {"flag": _flag_name(APPROVAL_FLAG), "flag_exists": APPROVAL_FLAG.exists(),
+                        **({"year_flag(A8)": _flag_name(YEAR_APPROVAL_FLAG), "year_flag_exists": YEAR_APPROVAL_FLAG.exists()} if align else {})}}
+    if align:
+        out["year_block"] = {"rows_expected": exp.keep, "new_rows_year": scope.year_new, "before_reindex": True,
+                             "hnsw_growth_mb_est": "+40~50(측정 전 추정, 원소당 5.4~6.8KB)", "mismatch": "ROLLBACK·중단"}
     log(f"== BE-05-04 C 재적재 계획(원격 연결 0) 입력: 옛 {old_p.name} → 새 {new_p.name} ==")
     log(f"로컬 범위: {json.dumps(counted, ensure_ascii=False)}")
     log(f"임베딩(호출 안 함, 어림): {json.dumps(cost, ensure_ascii=False)} / 상한 ${args.max_usd}")
+    log(f"옵션: {json.dumps(out['options'], ensure_ascii=False)}")
+    if align:
+        log(f"year(BE-05-11 B): 유지 {exp.keep:,}행 UPDATE(NULL→{V2_YEAR}), 새 행 year {scope.year_new}, HNSW 증가 +40~50MB(측정 전 추정), "
+            "반드시 REINDEX 앞·별도 승인 A8. 메모리 여유가 작다(Nano 0.5GB, Micro 전환 권장은 계획서 §5). 기대값 불일치 시 롤백·중단")
     for b in blocks:
         log(f"-- [{b['block']}] {b['remote']} · 예상 소요 {b['est_time']} · 기대 {json.dumps(b['rows'], ensure_ascii=False)}")
         for s in b["sql"]:
@@ -419,23 +440,37 @@ def do_plan(args: argparse.Namespace, exp: Expect = DEFAULT_EXPECT, log: Callabl
 
 # --------------------------------------------------------------------------- prepare(L1~L4, 원격 0·임베딩 0)
 
+def render_default_prmsn() -> bytes:
+    """기본 `build_corpus_l3` 규칙(v2, BE-05-09 B)으로 만든 허가 상세 청크 jsonl 바이트. 로컬 스냅샷만 읽는다(호출 0). 시험에서 바꿔 끼운다."""
+    import build_corpus_l3 as L3  # noqa: PLC0415 - 전환할 때만 필요
+
+    chunks = L3.build_prmsn_chunks(codes=L3.load_product_codes())
+    chunks.sort(key=lambda c: (c["chunk_kind"], c["chunk_id"]))
+    return ("\n".join(L3.jsonl_lines(chunks)) + "\n").encode("utf-8")
+
+
 def switch_input(log: Callable[[str], None] = print) -> dict[str, Any]:
-    """BE-05-09 A: 옛 `l3_prmsn.jsonl`·임베딩을 `*.before_be0504`로 복사 보관하고 v2 내용을 `l3_prmsn.jsonl`로 복사한다(v2 파일은 그대로 둔다)."""
+    """BE-05-09 B 전환(`prepare --switch-input`에서만 파일을 바꾼다): 옛 `l3_prmsn.jsonl`·임베딩을 `*.before_be0504`로 복사 보관하고,
+    기본 `build` 규칙(v2)으로 다시 만든 `l3_prmsn.jsonl`을 둔다. 새로 만든 내용이 `l3_prmsn.v2.jsonl`(변경 목록의 기준)과 같지 않으면 교체하지 않는다.
+    되돌리기: `*.before_be0504`를 원래 이름으로 복사한다."""
     if OLD_KEEP_PATH.exists():
         if sha256_file(CUR_PATH) == sha256_file(V2_PATH):
             log("입력 전환은 이미 되어 있다(건너뜀)")
             return {"switched": False, "already": True}
         raise ReloadAbort(f"{OLD_KEEP_PATH.name}가 이미 있는데 {CUR_PATH.name}이 v2와 다르다. 손으로 확인한다")
+    rendered = render_default_prmsn()  # 파일을 바꾸기 전에 먼저 만들어 v2와 같은지 본다(다르면 아무것도 바꾸지 않음)
+    if hashlib.sha256(rendered).hexdigest() != sha256_file(V2_PATH):
+        raise ReloadAbort(f"기본 build 결과가 {V2_PATH.name}과 다르다(스냅샷·사전·규칙이 바뀌었는지 확인, 로컬 파일은 바꾸지 않았다)")
     shutil.copy2(CUR_PATH, OLD_KEEP_PATH)
     expect_eq("보관본 sha256", sha256_file(OLD_KEEP_PATH), sha256_file(CUR_PATH))
     EMB_KEEP_DIR.mkdir(parents=True, exist_ok=False)
     for name in ("vectors.npy", "index.json"):
         shutil.copy2(EMB_DIR / name, EMB_KEEP_DIR / name)
     tmp = CUR_PATH.with_suffix(".jsonl.tmp")
-    shutil.copy2(V2_PATH, tmp)
+    tmp.write_bytes(rendered)
     tmp.replace(CUR_PATH)
     expect_eq("전환 뒤 sha256", sha256_file(CUR_PATH), sha256_file(V2_PATH))
-    log(f"입력 전환: {CUR_PATH.name} ← {V2_PATH.name}, 보관 {OLD_KEEP_PATH.name}, {EMB_KEEP_DIR.name}/")
+    log(f"입력 전환(B): {CUR_PATH.name} ← 기본 build(v2) 결과(= {V2_PATH.name}), 보관 {OLD_KEEP_PATH.name}, {EMB_KEEP_DIR.name}/")
     return {"switched": True}
 
 
@@ -489,7 +524,7 @@ def do_prepare(args: argparse.Namespace, exp: Expect = DEFAULT_EXPECT, log: Call
                        "delete": len(scope.delete), "vec_copy": scope.vec_copy, "embed_todo": len(scope.vec_new_hashes)}
     cur_is_v2 = CUR_PATH.exists() and sha256_file(CUR_PATH) == sha256_file(new_p)
     out["input_switched"] = cur_is_v2
-    out["next"] = ([] if cur_is_v2 else ["python scripts/be05_04c_reload.py prepare --switch-input   # BE-05-09 A, 승인 A1 뒤"]) + [
+    out["next"] = ([] if cur_is_v2 else ["python scripts/be05_04c_reload.py prepare --switch-input   # BE-05-09 B 전환(기본 build 규칙으로 재생성·옛 파일 보관), 승인 A1 뒤"]) + [
         "python scripts/embed_corpus.py plan   # 남은 고유 텍스트가 embed_todo와 같은지(호출 0)",
         f"python scripts/embed_corpus.py run --max-usd {args.max_usd}   # 승인 A2 뒤, 새 본문 {len(scope.vec_new_hashes)}개만 호출",
         "python scripts/be05_04c_reload.py apply --yes   # 승인 파일 생성 뒤(A3~A6)"]
@@ -555,6 +590,9 @@ def gate(args: argparse.Namespace) -> None:
         raise Refused(f"승인 파일이 없다: {APPROVAL_FLAG.name}(사용자 승인 뒤 메인 세션이 data/mock/review/에 만든다)")
     if args.from_block == "S5" and not args.reindex:
         raise Refused("--from S5는 --reindex와 함께 쓴다")
+    if not args.keep_year_mixed and args.from_block == "S0" and args.until not in ("S0", "S1", "S2") and not YEAR_APPROVAL_FLAG.is_file():
+        raise Refused(f"year 맞춤(S3b, BE-05-11 B)은 별도 승인 A8 파일이 필요하다: {YEAR_APPROVAL_FLAG.name}"
+                      "(없이 진행하려면 --keep-year-mixed, 그 경우 year는 혼재로 남는다)")
 
 
 # --------------------------------------------------------------------------- 원격 블록
@@ -717,7 +755,7 @@ def s3b_align_year(cur: Any, exp: Expect) -> dict[str, Any]:
     return {"updated": exp.keep}
 
 
-def s4_measure(cur: Any, exp: Expect) -> dict[str, Any]:
+def s4_measure(cur: Any, exp: Expect, align_year: bool = False) -> dict[str, Any]:
     got: dict[str, Any] = {"hnsw_mb": round(int(one(cur, Q_HNSW_BYTES, (HNSW_INDEX,))) / 1048576, 1)}
     cur.execute(Q_TUPLES)
     t = cur.fetchone()
@@ -729,7 +767,11 @@ def s4_measure(cur: Any, exp: Expect) -> dict[str, Any]:
     got["l3p"] = int(one(cur, Q_L3P, (L3P,)))
     got["l3p_nullvec"] = int(one(cur, Q_L3P_NULLVEC, (L3P,)))
     got["broken_parent"] = int(one(cur, Q_BROKEN_PARENT, (L3P,)))
-    for k, w in (("total", exp.total_after), ("l3p", exp.l3p_after), ("l3p_nullvec", 0), ("broken_parent", 0)):
+    checks = [("total", exp.total_after), ("l3p", exp.l3p_after), ("l3p_nullvec", 0), ("broken_parent", 0)]
+    if align_year:  # BE-05-11 B: year는 REINDEX 앞에 끝나 있어야 한다
+        got["l3p_year_null"] = int(one(cur, Q_L3P_YEAR_NULL, (L3P,)))
+        checks.append(("l3p_year_null", 0))
+    for k, w in checks:
         expect_eq(f"S4 {k}(S5 진행 조건)", got[k], w)
     return got
 
@@ -768,7 +810,7 @@ def s5_reindex(conn: Any, log: JsonlLog) -> dict[str, Any]:
 @dataclass
 class ApplyOptions:
     backup: str = "both"
-    align_year: bool = False
+    align_year: bool = True  # BE-05-11 B 기본
     reindex: bool = False
     until: str = "S4"
     from_block: str = "S0"
@@ -780,7 +822,7 @@ def do_apply(conn: Any, m: dict[str, Any], stage_rows: list[tuple[Any, ...]], op
     rep: dict[str, Any] = {}
     log.event("start", options=asdict(opts), expect=exp.as_dict(), dsn_env=DSN_ENV, manifest_body_sha256=m["body_sha256"])
     if opts.from_block == "S5":
-        rep["S4"] = read_only(conn, "S4 재확인", lambda c: s4_measure(c, exp), log)
+        rep["S4"] = read_only(conn, "S4 재확인", lambda c: s4_measure(c, exp, opts.align_year), log)
         rep["S5"] = s5_reindex(conn, log)
         return rep
 
@@ -801,7 +843,7 @@ def do_apply(conn: Any, m: dict[str, Any], stage_rows: list[tuple[Any, ...]], op
         rep["S3b"] = transaction(conn, "S3b year 맞춤", lambda c: s3b_align_year(c, exp), log)
     if opts.until == "S3":
         return rep
-    rep["S4"] = read_only(conn, "S4 측정", lambda c: s4_measure(c, exp), log)
+    rep["S4"] = read_only(conn, "S4 측정", lambda c: s4_measure(c, exp, opts.align_year), log)
     rep["S4_analyze"] = transaction(conn, "S4 ANALYZE", s4_analyze, log)
     if opts.reindex:
         rep["S5"] = s5_reindex(conn, log)
@@ -828,11 +870,12 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("cmd", nargs="?", default="plan", choices=("plan", "prepare", "apply"))
     ap.add_argument("--yes", action="store_true", help="apply 쓰기 동의(승인 파일도 필요)")
     ap.add_argument("--old", type=Path, help="옛 허가 상세 청크 파일(기본: before_be0504가 있으면 그것, 없으면 l3_prmsn.jsonl)")
-    ap.add_argument("--new", type=Path, help="새(v2) 허가 상세 청크 파일(기본 l3_prmsn.v2.jsonl). BE-05-09 B일 때 지정")
-    ap.add_argument("--switch-input", action="store_true", help="prepare에서 BE-05-09 A 입력 전환 실행")
+    ap.add_argument("--new", type=Path, help="새(v2) 허가 상세 청크 파일(기본 l3_prmsn.v2.jsonl, 변경 목록의 기준)")
+    ap.add_argument("--switch-input", action="store_true",
+                    help="prepare에서 BE-05-09 B 전환 실행(옛 파일 보관 후 기본 build 규칙 v2로 l3_prmsn.jsonl 재생성, v2와 같을 때만 교체)")
     ap.add_argument("--max-usd", type=float, default=DEFAULT_MAX_USD, help="임베딩 어림 비용 상한(이 도구는 호출하지 않는다)")
     ap.add_argument("--backup", choices=("both", "local"), default="both", help="BE-05-10: both=A(로컬+원격 표), local=B")
-    ap.add_argument("--align-year", action="store_true", help="BE-05-11 B: 유지 행 year 맞춤(S3b, REINDEX 앞)")
+    ap.add_argument("--keep-year-mixed", action="store_true", help="BE-05-11 B 기본(유지 행 year UPDATE, S3b, 승인 A8)을 끄고 year를 혼재로 둔다")
     ap.add_argument("--reindex", action="store_true", help="S5 REINDEX 실행(기본 안 함, 승인 A7)")
     ap.add_argument("--until", choices=BLOCKS, default="S4", help="이 블록까지만 실행하고 멈춘다")
     ap.add_argument("--from", dest="from_block", choices=("S0", "S5"), default="S0", help="S5: 재적재 뒤 REINDEX만(--reindex 필요)")
@@ -858,7 +901,7 @@ def main(argv: Sequence[str] | None = None, connect_fn: Callable[[str], Any] | N
         print(DAILY_BACKUP_NOTICE)
         stamp = utc_stamp()
         log = JsonlLog(LOG_DIR / f"be0504_reload_{stamp}.jsonl")
-        opts = ApplyOptions(args.backup, args.align_year, args.reindex, args.until, args.from_block)
+        opts = ApplyOptions(args.backup, not args.keep_year_mixed, args.reindex, args.until, args.from_block)
         conn = connect(connect_fn)
         try:
             t0 = time.time()

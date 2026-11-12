@@ -158,17 +158,49 @@ def _prmsn_dir(tmp_path: Path, table_html: str) -> Path:
     return d
 
 
-def test_build_default_keeps_old_rule_and_v2_changes_only_tables(tmp_path: Path):
+def test_build_default_is_v2_and_legacy_keeps_old_rule(tmp_path: Path):
     d = _prmsn_dir(tmp_path, RIPLOX)
-    old = L3.build_prmsn_chunks(d)
-    assert old == L3.build_prmsn_chunks(d, table_fn=L3.table_chunks)  # 기본값은 기존 규칙(기존 l3_prmsn.jsonl과 같음)
+    default = L3.build_prmsn_chunks(d)
     new = L3.build_prmsn_chunks(d, table_fn=L3.table_chunks_v2)
-    assert any("짝은 확인 필요" in c["text"] for c in old) and not any("짝은 확인 필요" in c["text"] for c in new)
-    assert [c["text"] for c in old if c["chunk_kind"] == "l3_prmsn_para"] == [c["text"] for c in new if c["chunk_kind"] == "l3_prmsn_para"]
-    ch = L3.change_list(old, new)
+    old = L3.build_prmsn_chunks(d, table_fn=L3.table_chunks)  # 옛 규칙은 명시할 때만(BE-05-09 B, `build --legacy-prmsn`)
+    assert default == new and default != old  # 기본값 = v2
+    assert any("짝은 확인 필요" in c["text"] for c in old) and not any("짝은 확인 필요" in c["text"] for c in default)
+    assert [c["text"] for c in old if c["chunk_kind"] == "l3_prmsn_para"] == [c["text"] for c in default if c["chunk_kind"] == "l3_prmsn_para"]
+    ch = L3.change_list(old, default)
     assert ch["replaced"] and all(x["locator"].startswith("허가상세 item_seq 111") for x in ch["replaced"])
     assert ch["unchanged"] >= 1  # 표 앞 문단 청크
-    assert new == L3.build_prmsn_chunks(d, table_fn=L3.table_chunks_v2)  # 결정적
+    assert default == L3.build_prmsn_chunks(d)  # 결정적
+
+
+def test_build_cmd_default_v2_legacy_option_and_keeps_old(tmp_path: Path, monkeypatch):
+    d = _prmsn_dir(tmp_path, RIPLOX)
+    out = tmp_path / "out"
+    out.mkdir()
+    monkeypatch.setattr(L3, "OUT_DIR", out)
+    monkeypatch.setattr(L3, "build_all", lambda lf="all", legacy_prmsn=False: {
+        "eyak": [], "notice": [],
+        "prmsn": sorted(L3.build_prmsn_chunks(d, table_fn=L3.table_chunks if legacy_prmsn else None), key=lambda c: (c["chunk_kind"], c["chunk_id"]))})
+    monkeypatch.setattr(L3, "manifest_for", lambda sets, lf: {"total": 0, "files": {}, "sha256": ""})
+    monkeypatch.setattr(L3.build_all, "info", {}, raising=False)
+    assert L3.main(["build", "--legacy-prmsn"]) == 0
+    legacy_bytes = (out / "l3_prmsn.jsonl").read_bytes()
+    assert not (out / L3.OLD_KEEP_NAME).exists()  # 기존 파일이 없으면 보관할 것도 없다
+    assert L3.main(["build"]) == 0  # 기본 = v2, 덮어쓰기 전에 옛 파일을 보관
+    assert (out / L3.OLD_KEEP_NAME).read_bytes() == legacy_bytes
+    v2_bytes = (out / "l3_prmsn.jsonl").read_bytes()
+    assert v2_bytes != legacy_bytes and "짝은 확인 필요".encode() not in v2_bytes
+    assert L3.main(["build", "--legacy-prmsn"]) == 0  # 보관본이 이미 있으면 덮어쓰지 않는다
+    assert (out / L3.OLD_KEEP_NAME).read_bytes() == legacy_bytes
+
+
+def test_keep_old_prmsn_states(tmp_path: Path):
+    lines = ["a", "b"]
+    assert L3.keep_old_prmsn(tmp_path, lines) == "none"
+    (tmp_path / "l3_prmsn.jsonl").write_text("a\nb\n", encoding="utf-8")
+    assert L3.keep_old_prmsn(tmp_path, lines) == "same" and not (tmp_path / L3.OLD_KEEP_NAME).exists()
+    assert L3.keep_old_prmsn(tmp_path, ["c"]) == "kept" and (tmp_path / L3.OLD_KEEP_NAME).read_text(encoding="utf-8") == "a\nb\n"
+    (tmp_path / "l3_prmsn.jsonl").write_text("z\n", encoding="utf-8")
+    assert L3.keep_old_prmsn(tmp_path, ["c"]) == "exists" and (tmp_path / L3.OLD_KEEP_NAME).read_text(encoding="utf-8") == "a\nb\n"
 
 
 def test_change_list_pairs_by_locator():

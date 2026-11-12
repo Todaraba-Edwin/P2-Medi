@@ -86,11 +86,12 @@ def env(tmp_path, monkeypatch):
         "OLD_KEEP_PATH": corpus / "l3_prmsn.before_be0504.jsonl", "CHANGES_PATH": corpus / "l3_prmsn.v2.changes.json",
         "EMB_DIR": corpus / "embeddings", "EMB_KEEP_DIR": corpus / "embeddings.before_be0504", "WORK_DIR": review / "be0504",
         "MANIFEST_PATH": review / "be0504" / "manifest.json", "EMBED_TODO_PATH": review / "be0504" / "embed_todo.jsonl",
-        "APPROVAL_FLAG": review / "be05_04c_approved.flag", "BACKUP_DIR": tmp_path / "backup", "LOG_DIR": tmp_path / "logs",
+        "APPROVAL_FLAG": review / "be05_04c_approved.flag", "YEAR_APPROVAL_FLAG": review / "be05_04c_year_approved.flag", "BACKUP_DIR": tmp_path / "backup", "LOG_DIR": tmp_path / "logs",
     }
     for k, v in paths.items():
         monkeypatch.setattr(m, k, v)
     monkeypatch.setenv(m.DSN_ENV, DSN)
+    monkeypatch.setattr(m, "render_default_prmsn", lambda: paths["V2_PATH"].read_bytes())  # 기본 build 결과(= v2) 흉내, 스냅샷 없이
     return {"tmp": tmp_path, "corpus": corpus, "vecs": vecs, **paths}
 
 
@@ -266,6 +267,7 @@ def prepared(env, approve=True):
     if approve:
         env["APPROVAL_FLAG"].parent.mkdir(parents=True, exist_ok=True)
         env["APPROVAL_FLAG"].write_text("ok")
+        env["YEAR_APPROVAL_FLAG"].write_text("ok")  # 승인 A8(S3b)
     return vecs
 
 
@@ -320,8 +322,11 @@ def test_plan_blocks_show_expected_rows(env):
     blocks = {b["block"]: b for b in m.plan_blocks(scope, E)}
     assert blocks["S3"]["rows"]["post_total"] == 8 and blocks["S3"]["rows"]["delete_batches"] == [5]
     assert "실행 안 함" in blocks["S5"]["remote"]
-    assert "S3b" not in blocks
-    assert "S3b" in {b["block"] for b in m.plan_blocks(scope, E, align_year=True)}
+    assert "S3b" in blocks  # BE-05-11 B 기본
+    assert blocks["S3b"]["rows"]["updated"] == E.keep == blocks["S3b"]["rows"]["pre_year_null(유지 행)"]
+    assert "S3b" not in {b["block"] for b in m.plan_blocks(scope, E, align_year=False)}
+    names = [b["block"] for b in m.plan_blocks(scope, E, reindex=True)]
+    assert names.index("S3b") < names.index("S5")  # year UPDATE는 반드시 REINDEX 앞
 
 
 def test_prepare_writes_manifest_without_text(env):
@@ -367,6 +372,7 @@ def test_apply_refused_when_new_vectors_missing(env, capsys):
     assert m.main(["prepare"], connect_fn=boom, exp=E) == 0
     env["APPROVAL_FLAG"].parent.mkdir(parents=True, exist_ok=True)
     env["APPROVAL_FLAG"].write_text("ok")
+    env["YEAR_APPROVAL_FLAG"].write_text("ok")
     code, calls = run(env, ["apply", "--yes"])
     assert code == 2 and calls == [] and "embed_corpus" in capsys.readouterr().err
 
@@ -535,17 +541,17 @@ def test_from_s5_reindex_only_checks_post_state(env):
     assert m.S5_REINDEX not in fresh.executed
 
 
-def test_align_year_option_updates_kept_rows_before_measure(env):
+def test_year_is_aligned_by_default_before_measure(env):
     db = FakeDB(prepared(env))
-    assert run(env, ["apply", "--yes", "--align-year"], db)[0] == 0
+    assert run(env, ["apply", "--yes"], db)[0] == 0
     rows = db.committed["rows"]
     assert all(rows[k]["year"] == m.V2_YEAR for k in rows if k.startswith("l3p-"))
     assert db.executed.index(m.S3B_UPDATE) < db.executed.index(m.S4_ANALYZE)
 
 
-def test_default_apply_leaves_year_mixed(env):
+def test_keep_year_mixed_option_leaves_year_mixed(env):
     db = FakeDB(prepared(env))
-    assert run(env, ["apply", "--yes"], db)[0] == 0
+    assert run(env, ["apply", "--yes", "--keep-year-mixed"], db)[0] == 0
     rows = db.committed["rows"]
     assert rows["l3p-o6"]["year"] is None and rows["l3p-n1"]["year"] == 2026 and m.S3B_UPDATE not in db.executed
 
@@ -574,3 +580,60 @@ def test_keyboard_interrupt_in_s3_rolls_back(env):
     assert "l3p-n1" not in db.committed["rows"] and len(db.committed["rows"]) == E.total_before and db.closed
     log = next(env["LOG_DIR"].glob("*.jsonl")).read_text(encoding="utf-8")
     assert '"KeyboardInterrupt"' in log
+
+
+# --------------------------------------------------------------------------- BE-05-09 B·BE-05-11 B
+
+def test_plan_output_has_year_block_and_b_options(env, capsys):
+    code, calls = run(env, ["plan"])
+    out = capsys.readouterr().out
+    assert code == 0 and calls == []
+    assert m.S3B_UPDATE in out and "BE-05-11" in out and "B(유지 행 year UPDATE" in out and "+40~50" in out and "A8" in out
+    assert "BE-05-09" in out
+    code, _ = run(env, ["plan", "--keep-year-mixed"])
+    assert code == 0 and m.S3B_UPDATE not in capsys.readouterr().out
+
+
+def test_default_expect_year_rows_equal_keep():
+    assert m.DEFAULT_EXPECT.keep == 7_466
+
+
+def test_apply_refused_without_year_flag_unless_keep_year_mixed(env, capsys):
+    db = FakeDB(prepared(env))
+    env["YEAR_APPROVAL_FLAG"].unlink()
+    code, calls = run(env, ["apply", "--yes"], db)
+    assert code == 2 and calls == [] and "A8" in capsys.readouterr().err
+    assert run(env, ["apply", "--yes", "--keep-year-mixed"], db)[0] == 0
+
+
+def test_year_update_count_mismatch_rolls_back_and_stops(env):
+    db = FakeDB(prepared(env))
+    db.committed["rows"]["l3p-o6"]["year"] = 2025  # 유지 행 하나가 이미 year가 있어 기대 2행 ≠ 실제 1행
+    db.work = copy.deepcopy(db.committed)
+    code, _ = run(env, ["apply", "--yes"], db)
+    assert code == 3
+    assert m.S4_ANALYZE not in db.executed and m.S5_REINDEX not in db.executed
+    assert db.committed["rows"]["l3p-o7"]["year"] is None  # S3b 롤백(S3 교체는 이미 커밋)
+    assert "l3p-n1" in db.committed["rows"] and "l3p-o1" not in db.committed["rows"]
+
+
+def test_from_s5_stops_when_year_not_aligned(env):
+    vecs = prepared(env)
+    db = FakeDB(vecs)
+    assert run(env, ["apply", "--yes", "--keep-year-mixed"], db)[0] == 0  # year 혼재 상태로 재적재
+    assert run(env, ["apply", "--yes", "--from", "S5", "--reindex"], db)[0] == 3  # year 미정렬이면 REINDEX 거부
+    assert m.S5_REINDEX not in db.executed
+    assert run(env, ["apply", "--yes", "--from", "S5", "--reindex", "--keep-year-mixed"], db)[0] == 0
+
+
+def test_switch_input_refuses_when_default_build_differs_from_v2(env, monkeypatch):
+    monkeypatch.setattr(m, "render_default_prmsn", lambda: b"x\n")
+    before = env["CUR_PATH"].read_bytes()
+    assert m.main(["prepare", "--switch-input"], connect_fn=boom, exp=E) == 3
+    assert env["CUR_PATH"].read_bytes() == before and not env["OLD_KEEP_PATH"].exists() and not env["EMB_KEEP_DIR"].exists()
+
+
+def test_plan_and_prepare_without_switch_do_not_touch_local_input(env):
+    before = env["CUR_PATH"].read_bytes()
+    assert m.main(["plan"], connect_fn=boom, exp=E) == 0 and m.main(["prepare"], connect_fn=boom, exp=E) == 0
+    assert env["CUR_PATH"].read_bytes() == before and not env["OLD_KEEP_PATH"].exists()
