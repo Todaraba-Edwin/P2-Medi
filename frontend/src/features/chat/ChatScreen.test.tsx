@@ -106,6 +106,7 @@ describe("ChatScreen 흐름", () => {
     await ask("다음 합성 질문");
     await screen.findByTestId("result-slot");
     expect(first()).toBe(screen.getByRole("alert"));
+    expect(screen.queryByTestId("mascot")).toBeNull(); // 119가 떠 있는 동안 화면 어디에도 마스코트가 없다
   });
 
   it("오류: 다시 시도는 눌렀을 때만 요청한다", async () => {

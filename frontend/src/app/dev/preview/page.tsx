@@ -13,6 +13,11 @@ export default function PreviewPage() {
             채팅
           </Link>
         </li>
+        <li>
+          <Link href="/dev/preview/brand" className="underline">
+            브랜드 이미지
+          </Link>
+        </li>
       </ul>
     </main>
   );

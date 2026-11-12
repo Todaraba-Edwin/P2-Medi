@@ -19,7 +19,7 @@ export function ProgressSteps({ stage, label, hideMascot = false }: ProgressStep
   const current = stage ? ORDER.indexOf(stage) : -1;
   return (
     <div role="status" aria-label={PROGRESS_LABEL} className="flex flex-col items-start gap-2.5">
-      {!hideMascot && <Mascot className="block h-16 w-16" />}
+      {!hideMascot && <Mascot variant="search" size={72} />}
       <ol className="m-0 flex w-full max-w-xs list-none flex-col gap-2 rounded-[18px] bg-bg-soft px-4 py-3">
         {ORDER.map((item, index) => {
           const state = index < current ? "done" : index === current ? "now" : "todo";
