@@ -95,17 +95,40 @@ done: 2026-11-02
 - **미확인**: `ToolNode`가 한 번에 여러 도구 호출을 병렬로 실행하는지, `gpt-6-luna`가 병렬 도구 호출을 내는지는 확인하지 못했다(RFP-15에서 소량 호출로 확인).
 
 ### 4.4 상태(State) 필드 초안
-| 필드 | 내용 | 갱신 방식 |
-|---|---|---|
-| `messages` | 대화·도구 호출·도구 결과 메시지 | `add_messages` 누적 |
-| `emergency` | 응급 키워드 감지 여부 | `guardrail_in`이 쓰고 `finalize`가 읽음 |
-| `route` | 정상 / 거절 / 안내 전환 | `guardrail_in`·`validator` |
-| `profile` | 연령, 임신 여부(대화 입력, 저장하지 않음) | `router` |
-| `drug_mentions` | 질문에서 뽑은 약 이름 목록 | `router` |
-| `evidence` | 도구가 돌려준 근거(청크 ID, 계층, 출처, 기준일) | 누적(reducer로 이어 붙임) |
-| `steps` | 모델 호출 횟수(상한 8회, RFP-22-05) | `model`이 증가 |
-| `verdict` | 검증 결과(통과/수정/실패) | `validator` |
-| `answer` | 최종 응답(요약, 근거 상세, 고정 문구) | `finalize` |
+> 2026-11-12 갱신(사용자 결정 "0-A 상태 필드 반영 승인"): 이름과 타입은 코드 `backend/app/agent/graph/state.py`의 `AgentState`를 따른다. 처음 초안의 `steps`·`verdict`는 코드에서 각각 `call_count`·`validation`이 되었다. AG-05가 더한 여섯 필드(`entities`·`branch_label`·`ambiguous`·`clarify`·`truncated`·`required_claims`)는 아래 표에 `AG-05 추가`로 표시했다. 필드 소유는 같은 파일의 `NODE_WRITABLE`이 정하며, 노드가 자기 몫 밖의 키를 반환하면 버려진다(H8).
+
+| 필드 | 타입(코드 그대로) | 쓰는 노드 | 읽는 노드 | 뜻 |
+|---|---|---|---|---|
+| `question` | `str` | 입력(그래프 시작 값) | `guardrail_in`·`router`·`model` | 사용자 질문 원문. 로그에는 넣지 않는다(H13) |
+| `emergency` | `bool`(한 번 올라가면 내려가지 않는 reducer) | `guardrail_in` | `router`·`finalize` | 응급 키워드 감지 여부. 119 안내를 맨 위에 붙이는 근거 |
+| `route` | `str`(`REFUSE`는 덮이지 않는 reducer) | `guardrail_in` | `router` 앞 분기·`finalize` | 정상 또는 거절 분기 표시 |
+| `refuse_reason` | `str \| None` | `guardrail_in` | `finalize` | 거절 사유 |
+| `injection` | `bool` | `guardrail_in` | (코드에서 읽는 노드를 확인하지 못함) | 프롬프트 주입 의심 표시 |
+| `proceed_tools` | `bool` | `guardrail_in` | `router` 앞 분기·`finalize` | 거절이어도 도구 조회를 이어 갈지 표시 |
+| `profile` | `dict[str, Any]` | `router` | `model`(ROUTER_NOTE) | 연령·임신 여부(대화 입력, 저장하지 않음) |
+| `drug_mentions` | `list[str]` | `router` | (코드에서 읽는 노드를 확인하지 못함) | 질문에서 뽑은 약 이름 목록 |
+| `intent` | `list[str]` | `router` | `model`(ROUTER_NOTE) | 질문 의도 라벨(한 질문에 여러 개 가능) |
+| `entities` | `list[dict[str, Any]]` | `router` (AG-05 추가) | `model`(ROUTER_NOTE의 `drug_candidates`) | 약 이름 후보와 사전 조회 결과(상태·품목 번호·일치 방식). 후보가 여럿이면 하나로 고르지 않는다(H11) |
+| `branch_label` | `str` | `router` (AG-05 추가) | 읽는 노드 없음(trace 기록용) | 분기 유형 라벨: 정상, 오탈자, 모호, 근거 없음 |
+| `ambiguous` | `bool` | `router` (AG-05 추가) | router 뒤 분기·`finalize` | 되묻기가 필요한지. 참이면 `model`로 가지 않고 `finalize`로 가서 되묻기로 끝낸다 |
+| `clarify` | `dict[str, Any] \| None` | `router` (AG-05 추가) | `finalize` | 되묻기 질문·후보 목록(한 번에 한 약만 묻는다). 질문 문장은 코드 템플릿이다 |
+| `truncated` | `bool` | `router` (AG-05 추가) | 읽는 노드 없음(코드에서 확인하지 못함) | 약이 6개(`MAX_DRUGS`)를 넘어 앞의 6개만 남겼는지 |
+| `required_claims` | `list[str]` | `router` (AG-05 추가, 쓰는 쪽은 `router`뿐) | 아직 없음(후속 AG-07 누락 검사·AG-03 분해 검색이 읽을 예정) | 질문에 필요한 주장 유형 중 코드 규칙으로 정할 수 있는 것만 담은 목록(금기 여부·제품 주의·한계 고지·기준일). 금기 사유·등급 정의·용어 절차는 담지 않는다 |
+| `messages` | `list[Any]`(`add_messages` 누적) | `model`·`tools`·`validator` | `model` | 대화·도구 호출·도구 결과 메시지 |
+| `call_count` | `int` | `model` | `model`·`tools`·`validator`·trace | 모델 호출 횟수(상한 8회, RFP-22-05). 처음 초안의 `steps` |
+| `limit_reached` | `bool` | `model` | `finalize`·`validator` 앞 분기 | 호출 상한에 닿았는지 |
+| `draft` | `Any` | `model`·`validator` | `validator` | 모델이 낸 답 초안 |
+| `evidence` | `list[dict[str, Any]]`(`evidence_id` 기준 중복 없이 이어 붙임) | `tools` | `validator`·`finalize` | 도구가 돌려준 근거(청크 ID, 계층, 출처, 기준일) |
+| `known_ids` | `set[str]`(합집합) | `tools` | (코드에서 읽는 노드를 확인하지 못함) | 도구가 돌려준 근거·식별자 ID 집합 |
+| `input_units` | `dict[str, Any]`(병합) | `tools` | (코드에서 읽는 노드를 확인하지 못함) | 입력 단위 정보 |
+| `events` | `list[dict[str, Any]]`(`operator.add` 누적) | 모든 노드 | trace | 규칙 이벤트 기록. 내용 없이 키 이름만 남긴다 |
+| `validation` | `dict[str, Any]` | `validator` | 분기 함수·`finalize` | 검증 결과와 다음 길(`rewind`·`fallback` 등). 처음 초안의 `verdict` |
+| `rewind_count` | `int` | `validator` | trace | 검증 실패 되감기 횟수(기준선 상한 1회) |
+| `final_sentences` | `list[dict[str, Any]]` | `validator` | `finalize` | 검증을 통과한 최종 문장 |
+| `end_reason` | `str` | `finalize` | trace·호출한 쪽 | 끝난 이유: NORMAL·CLARIFY·REFUSE·LIMIT·VALIDATION_FALLBACK |
+| `answer` | `dict[str, Any]` | `finalize` | 호출한 쪽 | 최종 응답(요약, 근거 상세, 고정 문구) |
+
+가정: 위 "읽는 노드" 칸은 2026-11-12에 `nodes.py`·`router.py`·`trace.py`를 검색해 확인한 범위다. "확인하지 못함"으로 적은 칸은 그 필드를 읽는 코드를 찾지 못했다는 뜻이며, 읽는 노드가 없다고 단정하지 않는다.
 
 ### 4.5 간선(엣지) 초안
 ```
@@ -262,6 +285,7 @@ START → guardrail_in ─(거절·범위 외)→ finalize → END
 ## 9. 메모
 - 2026-11-02 사용자 요청으로 만듦. Pre-Week를 11-06까지 늘리고 W1은 11-09에 시작한다.
 - 2026-11-02 종결: RFP-23-01·02·03 모두 A. 이 결과가 AG-01의 노드 구성, AG-04·AG-12·AG-14·AG-16·BE-08·PRD-03의 평가 조건, PJ2-RFP.md 9장(9.1~9.6)과 `CLAUDE.md` 5장 평가 기준 유지 규칙에 반영되었다. 종결 전 평가 이슈 점검 3회는 §10에 있다.
+- 2026-11-12 (Recap 0-A, 사용자 승인): §4.4 상태 필드 표를 코드 `AgentState`에 맞춰 갱신하고 AG-05 추가 필드 6개를 반영했다. §4.2 노드 표의 `router` 행(쓰는 상태)과 `validator` 행(`verdict`)은 당시 초안 그대로이며, 코드 이름은 §4.4를 따른다.
 - 미확인: `gpt-6-luna`의 병렬 도구 호출과 `ToolNode` 병렬 실행, 평가 세트 최종 문항 수(당시 기록; RFP-15-02 완료 2026-11-02로 총 약 150 확정), Upstage 생성 API 이용 가능 여부(당시 기록; RFP-15-01 완료, RFP-28-04로 `solar-pro4`가 주 생성기).
 
 ## 10. 평가 이슈 점검 코멘트 (done 전 3회, 2026-11-02)

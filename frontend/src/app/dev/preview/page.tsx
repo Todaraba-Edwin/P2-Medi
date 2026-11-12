@@ -23,6 +23,11 @@ export default function PreviewPage() {
             결과 카드
           </Link>
         </li>
+        <li>
+          <Link href="/dev/preview/evidence" className="underline">
+            근거 상세·응급
+          </Link>
+        </li>
       </ul>
     </main>
   );
