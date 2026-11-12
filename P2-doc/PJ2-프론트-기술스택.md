@@ -19,7 +19,7 @@
   - [(1) 요청과 줄 단위 파싱](#1-요청과-줄-단위-파싱)
   - [(2) 이벤트별 화면 처리](#2-이벤트별-화면-처리)
   - [(3) 연결 끊김과 재시도 규칙 제안](#3-연결-끊김과-재시도-규칙-제안)
-  - [(4) BE-06과 정할 이벤트 형식 초안](#4-be-06과-정할-이벤트-형식-초안)
+  - [(4) 확정한 이벤트 형식 chat_event v1](#4-확정한-이벤트-형식-chat_event-v1)
 - [5. 폴더 구조 제안](#5-폴더-구조-제안)
 - [6. 환경변수 이름 규칙](#6-환경변수-이름-규칙)
 - [7. 화면·정책 규칙 요약](#7-화면정책-규칙-요약)
@@ -180,10 +180,10 @@ FE-01-07 B에 따른 프런트 쪽 소비 방식이다. (1)·(2)는 FE-01-07·11
 
 | 이벤트 | 화면 처리 |
 |---|---|
-| `progress` | 진행 표시 문구를 바꾼다(약 찾는 중·금기 확인 중·근거 찾는 중). 문구는 `stage` 값에 대응하는 프론트 상수이며 가짜 진행을 만들지 않는다 |
-| `emergency` | 받는 즉시 119 배너를 **맨 위**에 띄운다(전화 걸기 링크). 이후 이벤트가 와도 내리지 않는다. 진행 표시의 마스코트를 숨긴다(7장 마스코트 행) |
+| `progress` | 진행 표시 문구를 바꾼다(약 찾는 중·금기 확인 중·근거 찾는 중). **문구는 서버가 이벤트에 싣는 `label`을 그대로 쓴다**(BE-06-09 A, 값은 백엔드 상수 `PROGRESS_LABELS[stage]`라 프런트에 문구 상수를 두지 않는다). 가짜 진행을 만들지 않는다 |
+| `emergency` | 받는 즉시 119 배너를 **맨 위**에 띄운다(전화 걸기 링크, 링크 주소는 서버가 주는 `tel:119` 값 그대로). 이후 이벤트가 와도 내리지 않는다. 진행 표시의 마스코트를 숨긴다(7장 마스코트 행) |
 | `answer` | 최종 응답(`ChatResponse`)을 zod로 검증한 뒤 결과 카드·근거 상세·고정 안내를 그린다. 응답 안의 `emergency`는 이미 띄운 배너와 같은 자리 하나로만 보인다(중복 표시 없음, 제안) |
-| `error` | 오류 상태를 보인다. 문구는 받은 코드 문구를 그대로 쓰고, 이미 띄운 119 배너는 유지한다 |
+| `error` | 오류 상태를 보인다. `message`는 문구 승인 전이라 **`null`일 수 있고**(BE-06 문구 대기) 값이 있으면 그대로, `null`이면 승인된 화면 문구 상수(`src/lib/fixed/`)를 쓴다. 이미 띄운 119 배너는 유지한다 |
 | `done` | 스트림 정상 종료. 입력창을 다시 연다 |
 
 - 순서 규칙(BE-06 완료 조건): 응급이면 `emergency`가 첫 이벤트다. 프론트는 순서를 바꾸거나 기다리지 않고 받은 순서대로 반영한다.
@@ -203,40 +203,43 @@ FE-01-07 B에 따른 프런트 쪽 소비 방식이다. (1)·(2)는 FE-01-07·11
 - POST 자동 재시도를 끄는 이유(가정): 같은 질문이 두 번 처리되면 LLM 비용이 두 번 들고 결과가 섞일 수 있다.
 - "다시 시도"는 사용자의 명시적 행동으로만 한다. 재시도해도 이미 받은 119 안내를 지우지 않는다.
 
-### (4) BE-06과 정할 이벤트 형식 초안
+### (4) 확정한 이벤트 형식 chat_event v1
 
-확정 아님. 로컬 mock `m1-v1`의 이벤트 이름(`progress`·`emergency`·`answer`·`error`·`done`)을 그대로 쓰고 필드 이름만 제안한다. BE-06이 응답 스키마(`schemas.py`)와 함께 확정한다.
+BE-06이 응답 스키마 `chat_response@v1`과 함께 확정했다(코드 `backend/app/api/events.py`·`schemas.py`, 커밋 `4e7dff7`·병합 `6104798`, 근거 보고 `data/mock/briefs/reports/be06-v1.md`(로컬) 4·5절). 아래는 그 형식이며 초안(`chat_event@v0`)에서 달라진 곳을 굵게 표시했다. 값이 가정인 곳은 가정이라고 적었다.
 
-- 전송 형식: `Content-Type: application/x-ndjson`, UTF-8, 한 줄에 JSON 객체 하나, 줄 끝 `\n`.
-- 공통 필드(제안):
+- 전송 형식: `Content-Type: application/x-ndjson`, UTF-8, 한 줄에 JSON 객체 하나, 줄 끝 `\n`. 이벤트는 `type`+평평한 필드이며 mock의 `event`+`data` 모양은 쓰지 않는다.
+- 공통 필드:
 
 | 필드 | 타입 | 뜻 |
 |---|---|---|
-| `type` | `"progress"` \| `"emergency"` \| `"answer"` \| `"error"` \| `"done"` | 이벤트 종류(zod 판별 키) |
+| `type` | `"progress"` \| `"emergency"` \| `"answer"` \| `"error"` \| `"done"` | 이벤트 종류(zod 판별 키, OpenAPI `oneOf` + `discriminator: type`) |
 | `seq` | 정수(0부터 1씩 증가) | 이벤트 순번. 빠짐·순서 확인용 |
-| `schema_version` | 문자열(예: `chat_event@v0`) | 이벤트 형식 버전. `ChatResponse`의 `chat_response@v0`와 별개 |
+| `schema_version` | **`chat_event@v1`** | 이벤트 형식 버전. 최종 응답 `answer.response.schema_version`은 **`chat_response@v1`**로 별개 |
 
-- 종류별 필드(제안):
+- 종류별 필드:
 
 | `type` | 필드 | 뜻 |
 |---|---|---|
-| `progress` | `stage`: `drug_lookup` \| `contraindication_check` \| `evidence_search` | 진행 단계(약 찾는 중·금기 확인 중·근거 찾는 중) |
-| `emergency` | `emergency`: `{text, tel}` | 119 안내. `ChatResponse.emergency`와 같은 모양 |
-| `answer` | `response`: `ChatResponse` | 최종 응답 전체(8장 필드) |
-| `error` | `code`: 문자열, `message`: 문자열(코드 상수 문구) | 오류. 내부 정보·질문 내용은 싣지 않는다 |
-| `done` | `end_reason`: `ChatResponse.end_reason`과 같은 값 또는 없음 | 정상 종료 |
+| `progress` | `stage`: `drug_lookup` \| `contraindication_check` \| `evidence_search`, **`label`: 문자열** | 진행 단계와 서버가 주는 표시 문구(`PROGRESS_LABELS[stage]`와 다르면 서버 검증 실패, BE-06-09 A) |
+| `emergency` | `emergency`: `{text, tel}` | 119 안내. **`tel`은 필수이고 `tel:119` 상수만 허용**(예시 `119`는 초안이었음), `text`는 `EMERGENCY_119` 상수만 허용 |
+| `answer` | `response`: `ChatResponse`(`chat_response@v1`) | 최종 응답 전체. 최상위 `badges`는 없고 `findings[].badges[]`로 옮겨졌다 |
+| `error` | `code`: `INTERNAL_ERROR` \| `TIMEOUT` \| `UPSTREAM_UNAVAILABLE`, **`message`: `null`**(문구 승인 대기) | 오류. 내부 정보·질문 내용은 싣지 않는다. 서버가 `message`에 다른 값을 넣으면 검증 실패 |
+| `done` | `end_reason`: `ChatResponse.end_reason`과 같은 값, `error` 뒤에는 `null` | 정상 종료 |
 
-- 예시(형식 초안, 값은 합성):
+- **순서 규칙**(코드 `check_event_order`, `EventSequence`가 seq를 매기며 검사): ① `seq`는 0부터 1씩(빠짐·역순은 서버 버그, 프런트는 `invalid_event`로 처리 권장) ② 응급이면 `emergency`가 seq 0이고 한 번·첫 자리만(응답의 `emergency` 유무와 일치) ③ `progress`는 `answer`·`error` 전에만 ④ `answer`·`error`는 둘 중 하나만 한 번(`answer` 뒤 `error`는 보내지 않음) ⑤ `done`은 마지막·한 번이고 `answer` 없는 `done`은 `error` 뒤에만 ⑥ `done` 없이 끝나면 전송 끊김이다.
+- **하트비트**: 서버가 연결 유지용 **빈 줄(`\n`)**을 보낸다(주기 `HEARTBEAT_INTERVAL_S` = 15초, **가정**). **프런트는 빈 줄도 무응답 시계를 다시 돌린다**(BE-06-10 A). 무응답 상한 60초(`CLIENT_IDLE_TIMEOUT_S`, **가정**, BE-13 Vercel rewrites 상한 확인 뒤 확정)는 하트비트 주기보다 길어야 한다(서버가 코드로 강제).
+- 요청 본문은 `ChatRequest{question, context{age{lower,upper,unit}|null, pregnant, confirmed_drugs[]}}`이고 4xx는 422, 501 본문은 `{code, fields}` JSON이다(입력 값·문구 없음, 화면 문구는 상태 코드로 정함).
+- 예시(형식, 값은 합성):
 
 ```
-{"type":"emergency","seq":0,"schema_version":"chat_event@v0","emergency":{"text":"…","tel":"119"}}
-{"type":"progress","seq":1,"schema_version":"chat_event@v0","stage":"drug_lookup"}
-{"type":"progress","seq":2,"schema_version":"chat_event@v0","stage":"contraindication_check"}
-{"type":"answer","seq":3,"schema_version":"chat_event@v0","response":{"schema_version":"chat_response@v0","route":"AGENT","…":"…"}}
-{"type":"done","seq":4,"schema_version":"chat_event@v0","end_reason":"NORMAL"}
+{"type":"emergency","seq":0,"schema_version":"chat_event@v1","emergency":{"text":"…","tel":"tel:119"}}
+{"type":"progress","seq":1,"schema_version":"chat_event@v1","stage":"drug_lookup","label":"약 찾는 중"}
+{"type":"progress","seq":2,"schema_version":"chat_event@v1","stage":"contraindication_check","label":"금기 확인 중"}
+{"type":"answer","seq":3,"schema_version":"chat_event@v1","response":{"schema_version":"chat_response@v1","route":"AGENT","…":"…"}}
+{"type":"done","seq":4,"schema_version":"chat_event@v1","end_reason":"NORMAL"}
 ```
 
-- BE-06과 확인할 것: 이벤트 이름과 필드 이름, `stage` 값 목록, `answer`가 `ChatResponse` 전체를 담는지, 오류 코드 목록, 서버가 연결 유지용 빈 줄(하트비트)을 보낼지, mock `m1-v1`의 `answer` 모양(골격과 다름)을 어떻게 맞출지.
+- 남은 것: 실제 스트림·Vercel rewrites 경유 하트비트는 그래프 연결(BE-06 남은 조건)과 BE-13에서 확인한다. 프런트 이행은 `FE-IMPL-03-contract-v1`이 맡는다(이 장 (1)·(3)의 규칙 중 빈 줄 처리는 위 하트비트 규칙에 맞춰 그때 고친다).
 
 ## 5. 폴더 구조 제안
 
