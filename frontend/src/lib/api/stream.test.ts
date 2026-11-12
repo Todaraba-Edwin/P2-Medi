@@ -93,16 +93,44 @@ describe("parseNdjsonStream", () => {
   });
 
   it("다른 이벤트 schema_version은 오류로 낸다", async () => {
-    const bad = { ...foundEvents[0], schema_version: "chat_event@v1" };
+    const bad = { ...foundEvents[0], schema_version: "chat_event@v0" };
     const { error } = await failure(byteStream([encoder.encode(`${JSON.stringify(bad)}\n`)]));
     expect(error.kind).toBe("invalid_event");
   });
 
   it("answer 안의 다른 응답 schema_version은 오류로 낸다", async () => {
     const answer = foundEvents.find((e) => e.type === "answer");
-    const bad = { ...answer, response: { ...(answer as { response: object }).response, schema_version: "chat_response@v1" } };
-    const { error } = await failure(byteStream([encoder.encode(`${JSON.stringify(bad)}\n`)]));
+    const bad = { ...answer, response: { ...(answer as { response: object }).response, schema_version: "chat_response@v0" } };
+    const { error } = await failure(byteStream([encoder.encode(`${JSON.stringify({ ...bad, seq: 0 })}\n`)]));
     expect(error.kind).toBe("invalid_event");
+  });
+
+  it("v0 문서(옛 이벤트 형식·옛 응답 형식)는 오류로 낸다", async () => {
+    const v0Event = { type: "progress", seq: 0, schema_version: "chat_event@v0", stage: "drug_lookup" };
+    expect((await failure(byteStream([encoder.encode(`${JSON.stringify(v0Event)}\n`)]))).error.kind).toBe("invalid_event");
+    const mockShape = { event: "progress", seq: 0, data: { stage: "drug_lookup", label: "약 찾는 중" } }; // 로컬 mock m1-v1 모양
+    expect((await failure(byteStream([encoder.encode(`${JSON.stringify(mockShape)}\n`)]))).error.kind).toBe("invalid_event");
+  });
+
+  it.each([
+    ["빠짐(0, 2)", [0, 2]],
+    ["역순(1, 0)", [1, 0]],
+    ["중복(0, 0)", [0, 0]],
+    ["0이 아닌 시작(1)", [1]],
+  ])("seq %s은 오류로 낸다", async (_name, seqs) => {
+    const lines = seqs.map((seq, i) => JSON.stringify({ ...foundEvents[i], seq })).join("\n");
+    const { error, seen } = await failure(byteStream([encoder.encode(`${lines}\n`)]));
+    expect(error.kind).toBe("invalid_event");
+    expect(seen.length).toBeLessThan(seqs.length);
+  });
+
+  it("빈 줄(하트비트)은 seq를 세지 않고, 줄마다 onActivity를 부른다", async () => {
+    const text = `\n${JSON.stringify(foundEvents[0])}\n\n\n${JSON.stringify(foundEvents[1])}\n\n`;
+    let activity = 0;
+    const out: ChatEvent[] = [];
+    for await (const event of parseNdjsonStream(byteStream([encoder.encode(text)]), { onActivity: () => (activity += 1) })) out.push(event);
+    expect(out).toEqual(foundEvents.slice(0, 2));
+    expect(activity).toBe(6); // 빈 줄 4 + 이벤트 2
   });
 
   it("읽는 중 연결이 끊기면 network 오류로 낸다", async () => {

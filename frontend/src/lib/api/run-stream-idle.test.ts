@@ -54,6 +54,33 @@ describe("runChatStream 무응답 상한", () => {
     expect(final.response).not.toBeNull();
   });
 
+  it("하트비트가 오는 동안은 끊지 않고, 하트비트마저 멎으면 상한으로 끊는다", async () => {
+    const encoder = new TextEncoder();
+    let beats = 0;
+    postChatStream.mockImplementation(async (_request: unknown, signal?: AbortSignal) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(scenarios.hang.events[0])}\n`));
+          const timer = setInterval(() => {
+            beats += 1;
+            if (beats <= 6) controller.enqueue(encoder.encode("\n")); // 20ms마다 빈 줄 6번, 그 뒤 멎음
+            else clearInterval(timer);
+          }, 20);
+          signal?.addEventListener("abort", () => {
+            clearInterval(timer);
+            controller.error(new DOMException("aborted", "AbortError"));
+          });
+        },
+      });
+      return new Response(body);
+    });
+    const started = Date.now();
+    const final = await runChatStream({ question: "합성 질문" }, { idleTimeoutMs: 60 });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(120 + 50); // 하트비트 6번(120ms) 동안은 살아 있었다
+    expect(final.status).toBe("interrupted");
+    expect(final.error?.kind).toBe("idle_timeout");
+  });
+
   it("응답 자체가 오지 않아도(첫 이벤트 전) 상한으로 끊는다", async () => {
     postChatStream.mockImplementation(
       (_request: unknown, signal?: AbortSignal) =>

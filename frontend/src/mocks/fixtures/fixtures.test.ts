@@ -36,13 +36,24 @@ describe("fixture 문구는 백엔드 상수 원문과 같다", () => {
     expect(router).toContain(`'{t.raw}'${phrases.CLARIFY_TAIL}`);
     expect(provenance).toContain(`"contra_pair": "${phrases.DATASET_CONTRA_PAIR}"`);
     expect(provenance).toContain(`"pregnancy": "${phrases.DATASET_PREGNANCY}"`);
+    expect(provenance).toContain(`"age": "${phrases.DATASET_AGE}"`);
+    expect(provenance).toContain(`"dur_ingr": "${phrases.DATASET_DUR_INGR}"`);
+    expect(provenance).toContain(`"prmsn": "${phrases.DATASET_PRMSN}"`);
+    expect(provenance).toContain(`"mfds": "${phrases.PUBLISHER_MFDS}"`);
+    expect(fixedPhrases).toContain(`BADGE_SOURCE_TAIL = {"FILE": "${phrases.BADGE_SOURCE_TAIL.FILE}", "API_DIRECT": "${phrases.BADGE_SOURCE_TAIL.API_DIRECT}"}`);
     expect(pyConst(loaders, "SRC_KIDS")).toBe(phrases.PUBLISHER_KIDS);
     expect(provenance).toContain('"kids": SRC_KIDS');
   });
 });
 
 describe("fixture 모양", () => {
-  it.each(Object.entries(responses))("%s는 chat_response@v0 zod를 통과한다", (_name, response) => {
+  it("진행 문구 대응은 PROGRESS_LABELS와 같다", () => {
+    const block = /^PROGRESS_LABELS\s*=\s*\{([\s\S]*?)\n\}/m.exec(fixedPhrases)?.[1] ?? "";
+    const pairs = [...block.matchAll(/"(\w+)":\s*(\w+)/g)].map((m) => [m[1], pyConst(fixedPhrases, m[2])]);
+    expect(Object.fromEntries(pairs)).toEqual(phrases.PROGRESS_LABELS);
+  });
+
+  it.each(Object.entries(responses))("%s는 chat_response@v1 zod를 통과한다", (_name, response) => {
     expect(ChatResponseSchema.parse(structuredClone(response))).toEqual(response);
     expect(response.fixed_notice).toContain(phrases.FIXED_NOTICE);
     expect(response.disclaimer).toBe(phrases.DISCLAIMER);
@@ -55,6 +66,48 @@ describe("fixture 모양", () => {
         expect(ChatEventSchema.parse(structuredClone(event))).toEqual(event);
         expect(event.seq).toBe(index);
       });
+    }
+  });
+
+  it("모든 시나리오가 서버 순서 규칙(events.py)을 지킨다", () => {
+    for (const [name, scenario] of Object.entries(scenarios)) {
+      if (scenario.kind !== "stream") continue;
+      const types = scenario.events.map((e) => e.type);
+      const answerAt = types.indexOf("answer");
+      const errorAt = types.indexOf("error");
+      const doneAt = types.indexOf("done");
+      const answered = scenario.events.find((e) => e.type === "answer");
+      expect(types.filter((t) => t === "emergency").length, name).toBeLessThanOrEqual(1);
+      if (types.includes("emergency")) expect(types[0], name).toBe("emergency"); // 응급은 seq 0
+      expect(answerAt >= 0 && errorAt >= 0, name).toBe(false); // answer·error는 둘 중 하나
+      const settled = Math.max(answerAt, errorAt);
+      if (settled >= 0) expect(types.slice(settled + 1).every((t) => t === "done"), name).toBe(true); // 그 뒤에는 done만
+      if (doneAt >= 0) {
+        expect(doneAt, name).toBe(types.length - 1);
+        expect(settled, name).toBeGreaterThanOrEqual(0); // done은 answer 또는 error 뒤
+        const done = scenario.events[doneAt];
+        expect(done.type === "done" && done.end_reason, name).toBe(answered?.type === "answer" ? answered.response.end_reason : null);
+      }
+      if (answered?.type === "answer") expect(answered.response.emergency !== null, name).toBe(types[0] === "emergency");
+      for (const e of scenario.events) if (e.type === "progress") expect(e.label, name).toBe(phrases.PROGRESS_LABELS[e.stage]);
+    }
+  });
+
+  it("되묻기 후보는 CLARIFY 응답에만 있고 이름을 갖는다", () => {
+    expect(responses.clarifyResponse.candidates.length).toBeGreaterThan(1);
+    for (const [name, response] of Object.entries(responses)) {
+      if (response.end_reason !== "CLARIFY") expect(response.candidates, name).toEqual([]);
+    }
+    for (const c of responses.clarifyResponse.candidates) expect(c.item_seq).toMatch(/^\d{9}$/);
+  });
+
+  it("쌍 줄은 두 약, 배지는 금기 발견 줄에만 있다", () => {
+    for (const response of Object.values(responses)) {
+      for (const f of response.findings) {
+        if (f.target === "pair") expect(f.drugs).toHaveLength(2);
+        if (f.badges.length) expect(f.bucket).toBe("found");
+        for (const b of f.badges) expect(b.text.startsWith("삐!")).toBe(true);
+      }
     }
   });
 

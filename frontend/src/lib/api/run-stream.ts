@@ -16,7 +16,7 @@ export interface RunChatStreamOptions {
 }
 
 function toFailure(error: unknown): StreamFailure {
-  if (error instanceof ChatStreamError && error.kind !== "aborted") return { kind: error.kind, status: error.status };
+  if (error instanceof ChatStreamError && error.kind !== "aborted") return { kind: error.kind, status: error.status, code: error.code };
   return { kind: "network" };
 }
 
@@ -49,8 +49,8 @@ export async function runChatStream(request: ChatRequest, options: RunChatStream
   dispatch({ type: "start", retry });
   armIdleTimer();
   try {
-    for await (const event of streamChat(request, { signal: controller.signal })) {
-      armIdleTimer();
+    // 이벤트 줄과 빈 줄(하트비트) 모두 무응답 시계를 다시 돌린다
+    for await (const event of streamChat(request, { signal: controller.signal, onActivity: armIdleTimer })) {
       dispatch({ type: "event", event });
       if (state.status !== "streaming") break; // done·error 뒤에는 더 읽지 않는다
     }
