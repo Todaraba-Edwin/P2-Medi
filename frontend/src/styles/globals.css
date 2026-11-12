@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/* 디자인 토큰 원본: P2-doc/PJ2-프론트-기술스택.md 10장 (1)(2). 다크모드 없음(FE-01-10 A). */
+@theme {
+  --color-bg: #ffffff;
+  --color-bg-soft: #fff8e1;
+  --color-bg-softer: #fffdf5;
+  --color-bubble-me: #ffd60a;
+  --color-yellow: #ffcc00;
+  --color-yellow-2: #ffe58f;
+  --color-tint: #fff4c2;
+  --color-fixed: #fff8d6;
+  --color-line: #f3e6b5;
+  --color-line-2: #e6d49a;
+  --color-ink: #000;
+  --color-ink-2: #3d3524;
+  --color-mute: #6b5f3f;
+  --color-faint: #a08c5b;
+  --color-link: #8a6500;
+  --color-red: #d70015;
+  --color-red-ink: #b0000f;
+  --color-warn-bg: #ffe8cc;
+  --color-warn-ink: #7a4100;
+  --color-blue-bg: #e3f2fd;
+  --color-blue-ink: #0d47a1;
+  --color-preg: #7b1fa2;
+  --color-preg-bg: #f3e5f5;
+  --color-preg-ink: #6a1b9a;
+  --color-combo-bg: #ffe5e7;
+  --font-sans: -apple-system, "SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
