@@ -34,7 +34,7 @@
 ## 1. 요약
 
 - **무엇을**: 프런트(Next.js, `frontend/`)를 작업 패키지(WP) 7개로 나눠 **VS Code의 Claude Code**에 한 개씩 맡긴다. WP마다 지시서(`data/mock/briefs/fe/{WP-id}.md`, 로컬 전용)가 있고 이 문서의 WP 이름과 1:1이다(3.2절).
-- **모델**: Fable 5.2(VS Code `/model`에서 확인한 ID, 사용자가 2026-11-12 VS Code 확장에서 사용 가능함을 확인). 사용자는 VS Code에서 Fable 5.2를 쓰며, brew로 받은 CLI에는 5.1까지만 보인다. 저장소 문서는 모델 ID 문자열을 지어 쓰지 않는다. 세션을 열 때 `/model`로 확인한 ID를 보고 파일에 적는다(6.4절).
+- **모델**: Fable 5.2, 모델 ID는 **`claude-fable-5-2`**(사용자가 VS Code에서 `/model claude-fable-5-2`로 선택, 보고 `FE-IMPL-00`·`FE-IMPL-01`에서 확인, 2026-11-12). 사용자는 VS Code에서 Fable 5.2를 쓰며, brew로 받은 CLI에는 5.1까지만 보인다. 세션을 열 때마다 `/model`로 확인한 ID를 보고 파일에 적는다(6.4절).
 - **FE-01-13**: 사용자 답 "권장대로"(A: 분할 5개 안, 화면 조립은 FE-07 디자인 반영 뒤)로 정해졌다. 원래 선택지 A의 "컴포넌트 단위까지 먼저 **병렬**"은 사용자 방침(2026-11-12, "병렬이 한꺼번에 돌면 따라가기 어렵다")에 따라 **직렬 기본, 파일 소유가 완전히 갈릴 때만 최대 2개 병렬**로 운용한다. 바뀐 것은 모델 표기와 실행 방식(herdr pane이 아니라 사용자가 연 VS Code 세션)뿐이다. FE-01 §6 결정 현황 표의 갱신은 `schedule-writer`가 한다(이 문서는 고치지 않음).
 - **시작할 수 있는 것**: 스캐폴드·토큰(`FE-IMPL-00`), API 클라이언트·NDJSON 파서·zod v0·MSW 틀(`FE-IMPL-01`), 채팅 입력·스토어·진행 표시(`FE-IMPL-02`). BE-06 v1을 기다리지 않는다. **시작 시점: 4차 디자인 반영 확인 뒤**(사용자 결정 2026-11-12, 2.3절). 그 전에는 `FE-IMPL-00`도 시작하지 않는다.
 - **기다려야 하는 것**: 계약 v1 이행(`FE-IMPL-03`, BE-06 v1 뒤), 결과 카드(`FE-IMPL-04`, `03` 뒤), 근거 상세·응급·고정 안내(`FE-IMPL-05`, `04` 뒤), 화면 조립(`FE-IMPL-06`, 사용자 승인 G4 뒤). **G1(디자인 반영 확인)은 2026-11-12 개방했다**(7장). 남은 선행은 BE-06 v1(`FE-IMPL-03`)뿐이다.
@@ -107,6 +107,8 @@ FE-01-13 A의 5개 안을 기본으로 하고, ⑤를 "지금 할 수 있는 골
 | `FE-IMPL-04-result` | FE-02, `feature/FE-02-impl04-result` | 대기 | 결과 카드·제품 줄·배지(`flex-wrap` 한 규칙)·성분 칩·"목록에 없음" 줄·날짜 줄 부품(`DateLines`) | `src/features/result/`, `src/components/DateLines.tsx`(+ 시험), `src/app/dev/preview/result/` | `src/features/evidence/`, `src/features/emergency/`, `src/features/chat/`, `src/lib/api/`, `src/mocks/`, `src/styles/` | `03`, FE-07-06 답((a)는 G1 개방 2026-11-12) | 측정 전 |
 | `FE-IMPL-05-evidence-emergency` | FE-02, `feature/FE-02-impl05-evidence` | 대기 | 근거 상세 패널(Radix Sheet/Accordion)·판정·사유 원문·허가사항 인용·출처 표(배열 순서 그대로)·등급 정의 블록·원문 미확보 박스·약사 확인 권고 박스(접히지 않음)·119 배너·고정 안내 박스·고지 | `src/features/evidence/`, `src/features/emergency/`, `src/app/dev/preview/evidence/` | `src/features/result/`, `src/components/DateLines.tsx`(쓰기만 금지, 가져다 씀), `src/features/chat/`, `src/lib/api/`, `src/mocks/`, `src/styles/` | `03`, `04`, FE-07-07·08 답((a)는 G1 개방 2026-11-12) | 측정 전 |
 | `FE-IMPL-06-assembly` | FE-01, `feature/FE-01-impl06-assembly` | 대기(사용자 승인 G4) | `src/app/page.tsx` 조립(채팅 → 결과 → 근거 상세), 응급 흐름, 근거 상세 열기·닫기를 들어온 결과에 고정, **반응형 셸(ChatGPT 웹 패턴, FE-07-09 B: 좁은 폭 사이드바 숨김·☰ 드로어, 넓은 폭 사이드바+가운데 열, 근거 상세는 넓으면 우측 패널·좁으면 모달·시트)**. **사이드바 상태는 사용자 토글이 유일한 원천이고 근거 상세 개폐가 바꾸지 않으며, 1024~1279 폭은 사이드바 오버레이이고, 이를 Playwright 시험 3개로 확인한다(FE-07-19)**. Playwright 흐름·폭 시험, BE-06 엔드포인트가 있으면 rewrites 실연결 시험(BE-13 점검 항목) | `src/app/page.tsx`, `src/app/(shell)/`(셸), `frontend/e2e/*.spec.ts` | 각 `src/features/*`는 결함만 보고로 요청(직접 고치지 않음), `src/lib/api/`, `src/styles/` | `04`, `05`, G4(FE-07-09는 2026-11-12 B로 답함, FE-07-19는 4차 반영 확인 뒤) | 측정 전 |
+
+**진행 현황(2026-11-12)**: `FE-IMPL-00`·`FE-IMPL-01` 완료(소요 약 25분·약 40분), 다음은 `FE-IMPL-02`.
 
 의존성 추가: 직렬로 도는 WP는 필요한 패키지를 `pnpm add`로 더할 수 있고(`package.json`·`pnpm-lock.yaml` 변경), 더한 패키지와 이유를 보고에 적는다. 그 밖의 루트 설정 파일 수정은 보고로 요청한다. 병렬 쌍(4.2절)에서는 `03`만 `package.json`을 고친다.
 
@@ -188,7 +190,7 @@ FE-IMPL-00-scaffold ──G3──▶ FE-IMPL-01-api-stream ──G3──▶ FE
 ### 6.1 세션 시작
 
 1. 사용자가 VS Code에서 **저장소 루트**(P2-Medi)를 연다(f1 A, 6.2절). 코드는 `frontend/` 아래에만 쓴다.
-2. Claude Code 패널에서 새 세션을 열고 `/model`로 Fable 5.2인지 확인한다. 확인한 ID를 보고 파일에 적게 한다(문서에는 ID를 지어 쓰지 않음).
+2. Claude Code 패널에서 새 세션을 열고 `/model`로 Fable 5.2(`claude-fable-5-2`)인지 **매 WP 시작 때** 확인한다(`FE-IMPL-00` 1차는 모델 전환 전 Sonnet 5.5로 돌았던 사례가 있다). 확인한 ID를 보고 파일에 적게 한다.
 3. 첫 메시지는 한 줄이다: "`<저장소 루트>/data/mock/briefs/fe/{WP-id}.md` 지시서를 읽고 수행하라". 지시서가 맨 먼저 `CLAUDE.md`(1·3·7장)와 이 문서 3·5·6장을 읽게 한다.
 4. 권한: 파일 수정은 자동 승인(acceptEdits) 수준을 쓰되, 셸 명령(`pnpm install` 등)은 사용자가 승인한다. 저장소의 `.claude/settings.json` deny 규칙(`.env` 읽기 차단)이 VS Code 세션에서도 걸리는지 첫 WP에서 확인한다(10장).
 5. 한 세션 = 한 WP. WP가 끝나면 세션을 닫고 다음 WP는 새 세션으로 연다(6.6절).
@@ -204,6 +206,7 @@ FE-IMPL-00-scaffold ──G3──▶ FE-IMPL-01-api-stream ──G3──▶ FE
   3. WP는 직렬이라 한 번에 체크아웃되는 WP 브랜치는 하나다. 병렬 쌍(4.2절)은 같은 작업 트리에서 두 브랜치를 동시에 체크아웃할 수 없으므로 **f1 A에서는 쓰지 않는 것을 기본으로 한다**. 쓰려면 두 WP를 한 브랜치에서 돌리고 커밋을 파일 소유별로 나눈다(메인이 정함).
   4. 백엔드 위임 작업(커밋이 필요한 일)과 겹치면 **WP 사이에** 처리한다: 진행 중 WP를 끝내고 검수·커밋·`develop` 병합 → 백엔드 커밋 → 다음 WP 브랜치 생성.
   5. 메인은 WP를 시작시키기 전과 커밋 전에 `git status`로 변경 경로가 WP 소유 목록(`frontend/` 아래) 안인지 본다. 밖의 변경이 섞였으면 `git-actor`가 경로별로 나눠 커밋한다.
+- **백엔드 등 다른 작업의 병렬 진행은 메인 트리가 아니라 별도 worktree에서 한다**(f1 A는 프런트 `frontend/` 한정, 2026-11-12 AG-05 후속이 `/Users/edwin/develop/P2-Medi-be`의 feature/AG-05-router-followup에서 병렬 진행: 자체 venv·`data/` 링크 필요, develop 병합은 worktree에서).
 
 ### 6.3 커밋과 병합
 
@@ -268,13 +271,13 @@ FE-IMPL-00-scaffold ──G3──▶ FE-IMPL-01-api-stream ──G3──▶ FE
 | R3 | 토큰 변경 | 색·간격이 여러 부품에 흩어지면 고칠 곳이 많다 | 색 값은 `src/styles/`의 `@theme` 한 곳에만 두고 컴포넌트는 유틸리티 이름만 쓴다(`PJ2-프론트-기술스택.md:401`). lint 또는 시험으로 `src/features/`의 hex 색 직접 사용을 막는다. 토큰 변경은 `00` 소유 파일만 고치는 작은 보완 WP로 한다 |
 | R4 | 직렬 운영으로 BE-06 v1이 늦으면 프런트가 멈춘다 | 일정 | 막히는 동안은 백엔드(BE-06 자체)를 먼저 진행한다. 4.2절 병렬 쌍은 BE-06 v1 도착 시점에만 쓴다. 3주 범위가 모자라면 CLAUDE.md 1장 축소 순서(사진·음성 → 프로필 → …)를 따른다 |
 | R5 | Vercel rewrites를 거친 스트리밍이 모였다가 한 번에 온다 | 119 첫 이벤트가 늦게 보임(S2) | `06`에서 실연결 시험을 하고 BE-13에 결과를 넘긴다. 문제가 있으면 FE-01-06을 바꾸는 결정을 새로 올린다(`PJ2-프론트-기술스택.md:92`) |
-| R6 | 같은 작업 트리 공유(f1 A)로 브랜치·커밋이 섞인다 | WP 브랜치에 백엔드 커밋이 들어가거나 세션 파일이 다른 브랜치 상태로 바뀜 | 6.2절 완화 규칙(브랜치 조작은 git-actor만, WP 체크아웃 중 다른 pane 커밋·전환 금지, 백엔드 커밋은 WP 사이, 커밋 전 `git status` 경로 확인) |
+| R6 | 같은 작업 트리 공유(f1 A)로 브랜치·커밋이 섞인다 | WP 브랜치에 백엔드 커밋이 들어가거나 세션 파일이 다른 브랜치 상태로 바뀜 | 6.2절 완화 규칙(브랜치 조작은 git-actor만, WP 체크아웃 중 다른 pane 커밋·전환 금지, 백엔드 커밋은 WP 사이, 커밋 전 `git status` 경로 확인), worktree 병렬로 완화(백엔드 등은 별도 worktree, 6.2절) |
 | R8 | VS Code 확장에서 `.claude/settings.json` deny 규칙이 CLI와 다르게 걸릴 수 있다 | 비밀값 노출 위험 | 지시서가 `.env` 열기를 금지하고, 첫 WP에서 deny 규칙이 걸리는지 확인해 보고한다. 걸리지 않으면 메인이 사용자에게 설정 추가를 제안한다 |
 | R7 | 세션이 지시서 범위를 넘어 다른 폴더를 고친다 | 파일 충돌 | 지시서에 소유·금지 목록을 적고, 메인 검수 때 `git status`로 변경 경로가 소유 목록 안인지 본다 |
 
 ## 10. 한계와 확인하지 못한 것
 
-- Fable 5.2는 사용자가 2026-11-12 VS Code 확장의 Claude Code에서 사용할 수 있음을 확인했다. 모델 ID 문자열은 받지 못했다(첫 WP 보고에 `/model` 표시 그대로 적게 한다).
+- Fable 5.2의 모델 ID는 `claude-fable-5-2`다(사용자 `/model claude-fable-5-2`, 보고 `FE-IMPL-00`·`FE-IMPL-01`에서 확인, 2026-11-12). 다만 매 WP 시작 때 `/model`로 다시 확인한다. `FE-IMPL-00` 1차는 모델 전환 전 Sonnet 5.5로 돌았던 사례가 있다.
 - VS Code 확장에서 저장소 `.claude/settings.json`의 deny 규칙이 CLI와 똑같이 동작하는지 확인하지 못했다(첫 WP에서 확인).
 - 3차까지 디자인 반영 결과는 스냅샷 원문으로 확인했으나(`V3-verify.md`) 렌더링은 보지 못했다(렌더 확인 13건은 `06`으로 넘김). 4차 반영과 BE-06 v1 필드 이름은 아직 없다. 대기 WP 지시서의 "보완 지점"은 그때 메인이 채운다.
 - 프로토타입·보드의 렌더링은 FE-07에서도 보지 못했다(`SCH-02-ui-review` 8장 `:490-499`). 화면 WP의 시험은 실제 브라우저(Playwright)가 첫 확인이다.
