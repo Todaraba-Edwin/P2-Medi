@@ -207,7 +207,7 @@ P2-Medi/
 ├── evaluation/         평가 코드와 mock 생성기                              (커밋)
 │   ├── mock_gen/       W1 개발용 mock 생성 스크립트 (비용 상한 20 USD, RFP-31)
 │   └── credit_use/     평가 후보 풀 생성 스크립트
-├── frontend/           프런트 (Vite + React). 아직 없음                      (커밋)
+├── frontend/           프런트 (Next.js + TypeScript, 2026-11-12 사용자 결정). 아직 없음 (커밋)
 ├── scripts/            거버넌스 도구: check_schedule.py, ambiguity_audit.py,
 │                       make_report_pdf.py, pdf_to_text.swift                (커밋)
 ├── data/               내려받은 원본 데이터                                  (로컬 전용)

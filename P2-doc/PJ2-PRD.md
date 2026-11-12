@@ -201,7 +201,7 @@ ID는 요구서 6장과 같다. "추적"은 구현·추적 티켓과 측정 지�
 | 에이전트 LLM | `gpt-6-luna` 우선 진행(시험으로 구조화 출력·병렬 도구 호출·비용 확인) | RFP-15-09 |
 | 평가 | judge **Claude Sonnet 5.5 고정**, 질문 문장 생성은 Upstage `solar-pro4` 주 + Haiku 4.5 보조, 정답은 코드가 산출 | RFP-26-01, RFP-28-04 |
 | 저장소 | Supabase Pro 플랜(Postgres + pgvector, 2026-11-11 BE-05-03 D, 월 $25, 프로젝트당 디스크 8GB). 2026-11-02 무료 플랜 결정 → 2026-11-11 코퍼스 용량 추정 약 970MB가 무료 한도를 넘어 Pro로 변경 | RFP-15-03 |
-| 배포 | 프론트 Vercel(Vite + React SPA), 백엔드 AWS 무료 인스턴스 1대(계정은 W3 개설), DB Supabase | RFP-15-06·07 |
+| 배포 | 프론트 Vercel(Next.js + TypeScript, Zustand·ky·Tailwind CSS), 백엔드 AWS 무료 인스턴스 1대(계정은 W3 개설), DB Supabase. 2026-11-12 사용자 결정(FE-01), RFP-15-07 대체(이전: Vite + React SPA) | RFP-15-06·07, FE-01 |
 | 백엔드 | FastAPI | RFP 8장 |
 - 임베딩 모델·표 파서·적재 크기는 시험으로 정한다(BE-10·BE-04·BE-09).
 
