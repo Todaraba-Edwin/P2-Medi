@@ -185,6 +185,8 @@ class FakeCur:
             self._res = [(sum(rows[k]["embedding"] is None for k in l3p),)]
         elif sql == m.Q_L3P_YEAR_NULL:
             self._res = [(sum(rows[k]["year"] is None for k in l3p),)]
+        elif sql == m.Q_L3P_YEAR_EQ:
+            self._res = [(sum(rows[k]["year"] == p[1] for k in l3p),)]
         elif sql == m.Q_IDS_PRESENT:
             self._res = [(sum(i in rows for i in p[0]),)]
         elif sql == m.Q_IDS_WITH_VEC:
@@ -871,3 +873,114 @@ def test_diagnose_is_read_only_and_explains_broken_parent(env, capsys):
     assert r["l2_effdate"]["remote_dist"] == {"None": 2} and r["l2_effdate"]["remote_present"] == 2
     out = capsys.readouterr()
     assert SECRET not in out.out + out.err and BODY_MARK not in out.out + out.err
+
+
+# --------------------------------------------------------------------------- --from S3b 이어하기(2026-11-12 S3 커밋 뒤 S3b·S3c·S4 미실행)
+
+def _after_s3_commit(env) -> tuple[FakeDB, Any]:
+    """2026-11-12 원격과 같은 상태: S3 본 교체·relink 커밋, 유지 행 year NULL, 백업 표 남음, S3b·S3c·S4 미실행."""
+    vecs = prepared(env)
+    db = FakeDB(vecs)
+    assert run(env, ["apply", "--yes", "--keep-year-mixed", "--until", "S3"], db)[0] == 0
+    rows = db.committed["rows"]
+    assert len(rows) == E.total_after and sum(r["year"] is None for k, r in rows.items() if k.startswith("l3p-")) == E.keep
+    assert m.S4_ANALYZE not in db.executed and m.BACKUP_TABLE in db.committed["tables"]
+    return db, vecs
+
+
+def _new_writes(db: FakeDB, n_before: int) -> list[str]:
+    return [s for s in db.executed[n_before:] if s.lstrip().upper().startswith(WRITE_PREFIX)]
+
+
+def test_from_s3b_resumes_year_effdate_and_analyze(env):
+    db, _ = _after_s3_commit(env)
+    _approve_l2(env)
+    n0 = len(db.executed)
+    assert run(env, ["apply", "--yes", "--from", "S3b", "--align-l2-effective-date"], db)[0] == 0
+    assert _new_writes(db, n0) == [m.S3B_UPDATE, m.S3C_UPDATE, m.S4_ANALYZE]  # 백업·TEMP·교체·REINDEX 없음
+    rows = db.committed["rows"]
+    assert not any(r["year"] is None for k, r in rows.items() if k.startswith("l3p-"))  # year NULL 0
+    assert {k for k, r in rows.items() if r.get("effective_date")} == set(L2_IDS)
+    assert all(rows[i]["effective_date"] == m.L2_EFF_DATE for i in L2_IDS)
+    assert len(rows) == E.total_after and rows["l3p-o7"]["parent_id"] == "l3p-n2"
+    rec = [json.loads(ln) for ln in sorted(env["LOG_DIR"].glob("be0504_reload_*.jsonl"))[-1].read_text(encoding="utf-8").splitlines()]
+    last = max(i for i, r in enumerate(rec) if r["event"] == "start")  # 같은 초에 돈 앞 실행과 한 파일일 수 있다
+    assert rec[last]["options"]["from_block"] == "S3b"
+    blocks = [r.get("block") for r in rec[last:] if r["event"] in ("read", "commit")]
+    assert blocks[0] == "S0' 교체 후 점검" and blocks[-1] == "S4 ANALYZE" and "S4 측정" in blocks
+
+
+@pytest.mark.parametrize(("tamper", "key"), [("delete_left", "delete_left"), ("year", "l3p_year_null"),
+                                             ("backup", "backup_table_exists"), ("parent", "broken_parent")])
+def test_from_s3b_precheck_mismatch_stops_without_writes(env, capsys, tamper, key):
+    db, vecs = _after_s3_commit(env)
+    rows = db.committed["rows"]
+    if tamper == "delete_left":  # 지워졌어야 할 옛 행이 남아 있음
+        rows["l3p-o4"] = {"chunk_kind": m.KIND_PARA, "parent_id": None, "year": None, "text": "x", "embedding": [0.0]}
+    elif tamper == "year":  # 이미 S3b가 일부 돌았음
+        rows["l3p-o6"]["year"] = m.V2_YEAR
+    elif tamper == "backup":
+        del db.committed["tables"][m.BACKUP_TABLE]
+    else:
+        rows["l3p-o7"]["parent_id"] = "l3p-o2"  # relink가 커밋되지 않은 상태
+    db.work = copy.deepcopy(db.committed)
+    before = copy.deepcopy(db.committed)
+    n0 = len(db.executed)
+    code, _ = run(env, ["apply", "--yes", "--from", "S3b"], db)
+    err = capsys.readouterr().err
+    assert code == 3 and "S0'" in err and key in err
+    assert _new_writes(db, n0) == [] and db.committed == before
+
+
+def test_from_s3b_refused_without_flags(env, capsys):
+    db, _ = _after_s3_commit(env)
+    n0 = len(db.executed)
+    env["YEAR_APPROVAL_FLAG"].unlink()
+    code, calls = run(env, ["apply", "--yes", "--from", "S3b"], db)
+    assert code == 2 and calls == [] and "A8" in capsys.readouterr().err
+    env["YEAR_APPROVAL_FLAG"].write_text("ok")
+    env["APPROVAL_FLAG"].unlink()
+    code, calls = run(env, ["apply", "--yes", "--from", "S3b"], db)
+    assert code == 2 and calls == [] and m.APPROVAL_FLAG.name in capsys.readouterr().err
+    env["APPROVAL_FLAG"].write_text("ok")
+    code, calls = run(env, ["apply", "--yes", "--from", "S3b", "--align-l2-effective-date"], db)  # l2effdate flag 없음
+    assert code == 2 and calls == [] and env["L2_EFF_APPROVAL_FLAG"].name in capsys.readouterr().err
+    code, calls = run(env, ["apply", "--from", "S3b"], db)  # --yes 없음
+    assert code == 2 and calls == []
+    assert len(db.executed) == n0
+
+
+@pytest.mark.parametrize(("extra", "msg"), [(["--reuse-backup"], "--reuse-backup"), (["--keep-year-mixed"], "--keep-year-mixed"),
+                                            (["--until", "S1"], "S1·S2")])
+def test_from_s3b_refuses_mixed_options(env, capsys, extra, msg):
+    db, _ = _after_s3_commit(env)
+    code, calls = run(env, ["apply", "--yes", "--from", "S3b", *extra], db)
+    assert code == 2 and calls == [] and msg in capsys.readouterr().err
+
+
+def test_from_s3b_until_s0_is_read_only(env):
+    db, _ = _after_s3_commit(env)
+    env["YEAR_APPROVAL_FLAG"].unlink()  # 점검만이면 A8 불필요
+    n0 = len(db.executed)
+    assert run(env, ["apply", "--yes", "--from", "S3b", "--until", "S0"], db)[0] == 0
+    assert _new_writes(db, n0) == [] and "COMMIT" not in db.executed[n0:] and m.SET_READ_ONLY in db.executed[n0:]
+
+
+def test_s0_without_from_s3b_stops_on_post_replace_state(env, capsys):
+    db, _ = _after_s3_commit(env)
+    n0 = len(db.executed)
+    code, _ = run(env, ["apply", "--yes"], db)
+    assert code == 3 and "S0 사전 점검 불일치" in capsys.readouterr().err
+    assert _new_writes(db, n0) == []
+
+
+def test_plan_from_s3b_shows_post_replace_block(env, capsys):
+    code, calls = run(env, ["plan", "--from", "S3b", "--align-l2-effective-date", "--reuse-backup"])
+    out = capsys.readouterr().out
+    assert code == 0 and calls == []
+    assert "[S0']" in out and m.Q_L3P_YEAR_EQ in out and m.S3B_UPDATE in out and m.S3C_UPDATE in out and m.S4_ANALYZE in out
+    assert m.S3_INSERT not in out and m.S1B_CREATE not in out and m.S2_CREATE not in out
+    assert '"delete_left": 0' in out and f'"l3p_year_null": {E.keep}' in out and f'"backup_table_rows": {E.delete}' in out
+    assert "--reuse-backup은 백업 단계를 지나므로" in out and BODY_MARK not in out
+    names = [b["block"] for b in m.plan_blocks(m.compute_scope()[0], E, from_block="S3b", reindex=True)]
+    assert names == ["S0'", "S3b", "S4", "S5"]

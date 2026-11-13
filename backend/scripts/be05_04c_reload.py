@@ -13,6 +13,10 @@
                        S3 한 트랜잭션(새 id 삽입 → 유지 행 parent 다시 잇기 → 옛 id 삭제 → 사후 검사 → 커밋) → S3b 유지 7,466행 year UPDATE(BE-05-11 B, 별도 승인 A8,
                        승인 파일 `be05_04c_year_approved.flag`가 따로 있어야 한다, REINDEX 앞) → S4 측정·ANALYZE(year NULL 0 확인) →
                        [S5 REINDEX, `--reindex`를 따로 줄 때만]. 블록마다 사전·사후 COUNT를 기대값과 비교하고 다르면 그 블록을 롤백하고 멈춘다.
+  apply --yes --from S3b   이어하기(S3 본 교체가 이미 커밋된 원격, 2026-11-12 로그 be0504_reload_20261112T120650Z). S0~S3을 건너뛰고
+                       S0' "교체 후 상태" 읽기 전용 점검(전체 68,687·l3p 9,553·삭제 목록 남은 0·삽입 2,087·끊긴 parent 0·
+                       l3p year NULL 7,466 + 2026 2,087·백업 표 2,218)부터 시작해 하나라도 다르면 쓰기 0으로 멈춘다. 그 뒤 S3b → [S3c] → S4.
+                       승인은 같다(--yes + approved.flag + year flag A8, S3c는 l2effdate flag). `--reuse-backup`·`--keep-year-mixed`와는 함께 쓰지 않는다.
 
 유지 행 parent 다시 잇기(relink): chunk_id가 같아 유지되는 표 청크라도 부모 청크(실데이터는 상위 표 청크, 셀 전개로 본문이 바뀜)가 새 id로 교체되면 v2의 parent_id가 달라진다.
 원격 유지 행은 옛 parent_id를 그대로 가지므로 S3에서 manifest `relink` 목록(유지 행, 옛 parent → v2 parent)대로 parent_id만 고친다
@@ -148,6 +152,7 @@ Q_L3P = "SELECT COUNT(*) FROM corpus_chunks WHERE chunk_id LIKE %s"
 Q_NOT_L3P = "SELECT COUNT(*) FROM corpus_chunks WHERE chunk_id NOT LIKE %s"
 Q_L3P_NULLVEC = "SELECT COUNT(*) FROM corpus_chunks WHERE chunk_id LIKE %s AND embedding IS NULL"
 Q_L3P_YEAR_NULL = "SELECT COUNT(*) FROM corpus_chunks WHERE chunk_id LIKE %s AND year IS NULL"
+Q_L3P_YEAR_EQ = "SELECT COUNT(*) FROM corpus_chunks WHERE chunk_id LIKE %s AND year = %s"
 Q_IDS_PRESENT = "SELECT COUNT(*) FROM corpus_chunks WHERE chunk_id = ANY(%s)"
 Q_IDS_WITH_VEC = "SELECT COUNT(*) FROM corpus_chunks WHERE chunk_id = ANY(%s) AND embedding IS NOT NULL"
 Q_IDS_NULLVEC = "SELECT COUNT(*) FROM corpus_chunks WHERE chunk_id = ANY(%s) AND embedding IS NULL"
@@ -202,7 +207,8 @@ S5_REINDEX = f"REINDEX INDEX {HNSW_INDEX}"
 S5_RESETS = ("RESET maintenance_work_mem", "RESET max_parallel_maintenance_workers", "RESET statement_timeout", "RESET lock_timeout")
 
 # 계획서 §7 예상 소요(추정, 이전 측정 비례)
-EST_TIME = {"S0": "2~3분", "S1": "1~3분", "S2": "1~2분", "S3": "10~60초", "S3b": "수 분(7,466행 비HOT 갱신, 측정 전 추정)",
+S0P = "S0'"  # --from S3b: 교체 후 상태 사전 점검(읽기 전용)
+EST_TIME = {"S0": "2~3분", S0P: "1~2분(읽기 전용)", "S1": "1~3분", "S2": "1~2분", "S3": "10~60초", "S3b": "수 분(7,466행 비HOT 갱신, 측정 전 추정)",
             "S3c": "수 초(211행, 측정 전 추정)",
             "S4": "1분 미만", "S5": "약 6~7분(첫 빌드 367초 기준, 벡터 검색 중단)"}
 DAILY_BACKUP_NOTICE = ("[확인] Supabase 대시보드 Database → Backups에서 최근 일일 백업 시각을 확인했는가(계획서 §2 P2). "
@@ -440,7 +446,15 @@ def compute_scope(old: Path | None = None, new: Path | None = None) -> tuple[Sco
 # --------------------------------------------------------------------------- plan
 
 def plan_blocks(scope: Scope, exp: Expect, backup: str = "both", align_year: bool = True, reindex: bool = False,
-                reuse_backup: bool = False, l2_effdate: int | None = None) -> list[dict[str, Any]]:
+                reuse_backup: bool = False, l2_effdate: int | None = None, from_block: str = "S0") -> list[dict[str, Any]]:
+    if from_block == "S3b":  # 이어하기: S0~S3 대신 교체 후 상태 점검(읽기 전용)
+        blocks = [{"block": S0P, "remote": "읽기 전용(교체 후 상태, 하나라도 다르면 쓰기 0으로 중단)",
+                   "rows": post_replace_want(exp, l2_effdate is not None),
+                   "sql": [SET_READ_ONLY, Q_TOTAL, Q_L3P, Q_L3P_NULLVEC, Q_IDS_PRESENT + " -- 삭제 목록(남은 행)",
+                           Q_IDS_PRESENT + " -- 삽입 목록", Q_BROKEN_PARENT, Q_L3P_YEAR_NULL, Q_L3P_YEAR_EQ + f" -- year={V2_YEAR}",
+                           Q_TABLE_EXISTS, Q_BACKUP_TABLE, Q_L3P_PARENTS + " -- relink 행이 새 parent인지",
+                           *([Q_EFFDATE_DIST + " -- 별표 2"] if l2_effdate is not None else []), Q_HNSW_BYTES, Q_TUPLES]}]
+        return _tail_blocks(blocks, exp, align_year, reindex, l2_effdate)
     nb = math.ceil(len(scope.delete) / DELETE_BATCH)
     sizes = [min(DELETE_BATCH, len(scope.delete) - i * DELETE_BATCH) for i in range(nb)]
     blocks = [
@@ -466,6 +480,12 @@ def plan_blocks(scope: Scope, exp: Expect, backup: str = "both", align_year: boo
          "sql": [SET_LOCK, SET_STMT_S3, Q_TOTAL, Q_L3P, S3_INSERT, Q_IDS_NULLVEC, S3_RELINK + f" -- 유지 행 {exp.relink}개", S3_DELETE + " -- 묶음마다",
                  Q_TOTAL, Q_L3P, Q_L3P_NULLVEC, Q_KINDS, Q_BROKEN_PARENT, Q_NOT_L3P, Q_IDS_PRESENT, "COMMIT"]},
     ]
+    return _tail_blocks(blocks, exp, align_year, reindex, l2_effdate)
+
+
+def _tail_blocks(blocks: list[dict[str, Any]], exp: Expect, align_year: bool, reindex: bool,
+                 l2_effdate: int | None) -> list[dict[str, Any]]:
+    """S3b·S3c·S4·S5(처음부터 실행과 `--from S3b` 이어하기가 같은 블록을 쓴다)."""
     if align_year:  # BE-05-11 B 기본
         blocks.append({"block": "S3b", "remote": "쓰기(BE-05-11 B, 승인 A8, REINDEX 앞, 별도 트랜잭션)",
                        "rows": {"pre_year_null(유지 행)": exp.keep, "updated": exp.keep, "post_year_null": 0, "post_total": exp.total_after,
@@ -499,8 +519,10 @@ def do_plan(args: argparse.Namespace, exp: Expect = DEFAULT_EXPECT, log: Callabl
     cost = embed_cost(scope)
     align = not args.keep_year_mixed
     l2e = l2_effdate_scope() if args.align_l2_effective_date else None
-    blocks = plan_blocks(scope, exp, args.backup, align, args.reindex, args.reuse_backup, len(l2e["ids"]) if l2e else None)
-    out = {"remote_connections": 0, "inputs": {"old": old_p.name, "new": new_p.name}, "local_counts": counted,
+    resume = args.from_block == "S3b"
+    blocks = plan_blocks(scope, exp, args.backup, align, args.reindex, args.reuse_backup and not resume,
+                         len(l2e["ids"]) if l2e else None, from_block="S3b" if resume else "S0")
+    out = {"remote_connections": 0, "from": args.from_block, "inputs": {"old": old_p.name, "new": new_p.name}, "local_counts": counted,
            "expect": exp.as_dict(), "embedding": cost, "max_usd": args.max_usd,
            "options": {"input_switch(BE-05-09)": "B(기본 build = v2)" if args.old is None and args.new is None else "사용자 지정",
                        "backup(BE-05-10)": "A(로컬+원격 표)" if args.backup == "both" else "B(로컬만)",
@@ -519,6 +541,10 @@ def do_plan(args: argparse.Namespace, exp: Expect = DEFAULT_EXPECT, log: Callabl
         out["year_block"] = {"rows_expected": exp.keep, "new_rows_year": scope.year_new, "before_reindex": True,
                              "hnsw_growth_mb_est": "+40~50(측정 전 추정, 원소당 5.4~6.8KB)", "mismatch": "ROLLBACK·중단"}
     log(f"== BE-05-04 C 재적재 계획(원격 연결 0) 입력: 옛 {old_p.name} → 새 {new_p.name} ==")
+    if resume:
+        log(f"이어하기(--from S3b): S0~S3(백업·TEMP·본 교체)을 건너뛰고 {S0P} 교체 후 상태 점검부터 시작한다(S3 커밋 뒤 원격 전제). "
+            + ("--reuse-backup은 백업 단계를 지나므로 쓰지 않는다(apply에서는 거부). " if args.reuse_backup else "")
+            + ("--keep-year-mixed와는 함께 쓸 수 없다(apply에서 거부). " if args.keep_year_mixed else ""))
     log(f"로컬 범위: {json.dumps(counted, ensure_ascii=False)}")
     log(f"임베딩(호출 안 함, 어림): {json.dumps(cost, ensure_ascii=False)} / 상한 ${args.max_usd}")
     log(f"옵션: {json.dumps(out['options'], ensure_ascii=False)}")
@@ -702,6 +728,16 @@ def gate(args: argparse.Namespace) -> None:
         raise Refused("--reuse-backup은 --backup both(원격 백업 표)일 때만 쓴다")
     if args.from_block == "S3c" and not args.align_l2_effective_date:
         raise Refused("--from S3c는 --align-l2-effective-date와 함께 쓴다")
+    if args.from_block == "S3b":  # 이어하기: S3 커밋 뒤 원격. 백업·year 혼재 옵션과 섞지 않는다
+        if args.reuse_backup:
+            raise Refused("--from S3b는 백업 단계(S1)를 지나므로 --reuse-backup이 필요 없다. 빼고 다시 실행한다"
+                          f"(백업 표 {BACKUP_TABLE} 존재·행 수는 {S0P}에서 확인한다)")
+        if args.keep_year_mixed:
+            raise Refused("--from S3b는 year 맞춤(S3b)을 이어 하는 경로다. --keep-year-mixed와 함께 쓰지 않는다")
+        if args.until in ("S1", "S2"):
+            raise Refused(f"--from S3b에는 S1·S2 블록이 없다. --until은 S0({S0P} 점검만)·S3·S4 중 하나다")
+        if args.until != "S0" and not YEAR_APPROVAL_FLAG.is_file():
+            raise Refused(f"year 맞춤(S3b, BE-05-11 B)은 별도 승인 A8 파일이 필요하다: {YEAR_APPROVAL_FLAG.name}")
     if args.align_l2_effective_date and not L2_EFF_APPROVAL_FLAG.is_file():
         raise Refused(f"별표 2 effective_date 맞춤(S3c, Recap 0-8)은 별도 승인 파일이 필요하다: {L2_EFF_APPROVAL_FLAG.name}")
     if not args.keep_year_mixed and args.from_block == "S0" and args.until not in ("S0", "S1", "S2") and not YEAR_APPROVAL_FLAG.is_file():
@@ -798,6 +834,48 @@ def s0_check(cur: Any, m: dict[str, Any], exp: Expect, backup: str, reuse_backup
     bad = {k: {"기대": want[k], "실제": got[k]} for k in want if got[k] != want[k]}
     if bad:
         raise ReloadAbort(f"S0 사전 점검 불일치(원격 상태가 계획과 다름, 다른 작업이 썼을 수 있음): {json.dumps(bad, ensure_ascii=False)}")
+    got["hnsw_mb"] = round(int(one(cur, Q_HNSW_BYTES, (HNSW_INDEX,))) / 1048576, 1)
+    cur.execute(Q_TUPLES)
+    t = cur.fetchone()
+    got["n_live_tup"], got["n_dead_tup"] = (int(t[0]), int(t[1])) if t else (None, None)
+    return got
+
+
+def post_replace_want(exp: Expect, l2_effdate: bool = False) -> dict[str, Any]:
+    """`--from S3b` 사전 점검(S0') 기대값: S3 본 교체가 커밋되고 S3b·S3c는 아직인 원격 상태."""
+    want: dict[str, Any] = {
+        "total": exp.total_after, "l3p": exp.l3p_after, "l3p_nullvec": 0, "delete_left": 0, "insert_present": exp.insert,
+        "broken_parent": 0, "l3p_year_null": exp.keep, f"l3p_year_{V2_YEAR}": exp.insert, "relink_done": exp.relink,
+        "backup_table_exists": True, "backup_table_rows": exp.delete, "backup_table_distinct": exp.delete,
+    }
+    if l2_effdate:
+        want["l2_effdate_pre"] = {None: exp.l2_effdate}
+    return want
+
+
+def s0_post_check(cur: Any, m: dict[str, Any], exp: Expect, l2_effdate: bool = False) -> dict[str, Any]:
+    """S0' 교체 후 상태 점검(SELECT만). 하나라도 기대와 다르면 ReloadAbort(호출자가 쓰기 전에 멈춘다)."""
+    ins = [r["chunk_id"] for r in m["insert"]]
+    got: dict[str, Any] = {
+        "total": int(one(cur, Q_TOTAL)), "l3p": int(one(cur, Q_L3P, (L3P,))), "l3p_nullvec": int(one(cur, Q_L3P_NULLVEC, (L3P,))),
+        "delete_left": int(one(cur, Q_IDS_PRESENT, (m["delete"],))), "insert_present": int(one(cur, Q_IDS_PRESENT, (ins,))),
+        "broken_parent": int(one(cur, Q_BROKEN_PARENT, (L3P,))), "l3p_year_null": int(one(cur, Q_L3P_YEAR_NULL, (L3P,))),
+        f"l3p_year_{V2_YEAR}": int(one(cur, Q_L3P_YEAR_EQ, (L3P, V2_YEAR))),
+        "backup_table_exists": bool(one(cur, Q_TABLE_EXISTS, (BACKUP_TABLE,))),
+    }
+    got["backup_table_rows"] = got["backup_table_distinct"] = None
+    if got["backup_table_exists"]:
+        cur.execute(Q_BACKUP_TABLE)
+        got["backup_table_rows"], got["backup_table_distinct"] = (int(x) for x in cur.fetchone())
+    parents = remote_parents(cur)
+    got["relink_done"] = sum(1 for r in m["relink"] if parents.get(r["chunk_id"], "\0") == r["new_parent_id"])
+    if l2_effdate:
+        got["l2_effdate_pre"] = effdate_dist(cur, m["l2_effdate"]["ids"])
+    want = post_replace_want(exp, l2_effdate)
+    bad = {k: {"기대": want[k], "실제": got[k]} for k in want if got[k] != want[k]}
+    if bad:
+        raise ReloadAbort(f"{S0P} 교체 후 상태 점검 불일치(이어하기 전제와 다름, 쓰기 0으로 중단): "
+                          f"{json.dumps(bad, ensure_ascii=False, default=str)}")
     got["hnsw_mb"] = round(int(one(cur, Q_HNSW_BYTES, (HNSW_INDEX,))) / 1048576, 1)
     cur.execute(Q_TUPLES)
     t = cur.fetchone()
@@ -1020,6 +1098,11 @@ def do_apply(conn: Any, m: dict[str, Any], stage_rows: list[tuple[Any, ...]], op
     if opts.from_block == "S3c":  # 재적재와 따로 별표 2 effective_date만 맞춘다(재적재 상태와 무관)
         rep["S3c"] = transaction(conn, "S3c 별표 2 effective_date", lambda c: s3c_align_l2_effdate(c, m, exp), log)
         return rep
+    if opts.from_block == "S3b":  # 이어하기: S3 커밋 뒤 원격. 교체 후 상태가 맞을 때만 S3b부터
+        rep[S0P] = read_only(conn, f"{S0P} 교체 후 점검", lambda c: s0_post_check(c, m, exp, opts.align_l2_effdate), log)
+        if opts.until == "S0":
+            return rep
+        return _after_replace(conn, m, opts, log, exp, rep)
 
     rep["S0"] = read_only(conn, "S0", lambda c: s0_check(c, m, exp, opts.backup, opts.reuse_backup, opts.align_l2_effdate), log)
     if opts.until == "S0":
@@ -1037,6 +1120,12 @@ def do_apply(conn: Any, m: dict[str, Any], stage_rows: list[tuple[Any, ...]], op
         log.event("note", block="S2", detail="TEMP 표는 연결을 닫으면 사라진다. 다음 실행은 S0부터 다시 한다")
         return rep
     rep["S3"] = transaction(conn, "S3 본 교체", lambda c: s3_replace(c, m, exp), log)
+    return _after_replace(conn, m, opts, log, exp, rep)
+
+
+def _after_replace(conn: Any, m: dict[str, Any], opts: ApplyOptions, log: JsonlLog, exp: Expect,
+                   rep: dict[str, Any]) -> dict[str, Any]:
+    """S3 본 교체 뒤 블록: S3b → [S3c] → S4 측정·ANALYZE → [S5]. 처음부터 실행과 `--from S3b` 이어하기가 같이 쓴다."""
     if opts.align_year:
         rep["S3b"] = transaction(conn, "S3b year 맞춤", lambda c: s3b_align_year(c, exp), log)
     if opts.align_l2_effdate:  # Recap 0-8: 본 교체 뒤·REINDEX 앞
@@ -1128,8 +1217,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--keep-year-mixed", action="store_true", help="BE-05-11 B 기본(유지 행 year UPDATE, S3b, 승인 A8)을 끄고 year를 혼재로 둔다")
     ap.add_argument("--reindex", action="store_true", help="S5 REINDEX 실행(기본 안 함, 승인 A7)")
     ap.add_argument("--until", choices=BLOCKS, default="S4", help="이 블록까지만 실행하고 멈춘다")
-    ap.add_argument("--from", dest="from_block", choices=("S0", "S3c", "S5"), default="S0",
-                    help="S5: 재적재 뒤 REINDEX만(--reindex 필요). S3c: 별표 2 effective_date만(--align-l2-effective-date 필요)")
+    ap.add_argument("--from", dest="from_block", choices=("S0", "S3b", "S3c", "S5"), default="S0",
+                    help="S3b: S3 본 교체가 커밋된 원격에서 이어하기(교체 후 상태 점검 S0' → S3b → [S3c] → S4). "
+                         "S5: 재적재 뒤 REINDEX만(--reindex 필요). S3c: 별표 2 effective_date만(--align-l2-effective-date 필요)")
     ap.add_argument("--reuse-backup", action="store_true",
                     help="이전 실행의 원격 백업 표가 삭제 목록과 같은 행(id 집합·내용 sha256)일 때만 S1b를 건너뛴다. 다르면 중단")
     ap.add_argument("--align-l2-effective-date", action="store_true",
