@@ -3,7 +3,7 @@ import type { StreamState } from "@/lib/api";
 import { Mascot } from "@/components/Mascot";
 import { NoMascotZone } from "@/components/NoMascotZone";
 import { DISCLAIMER, FIXED_NOTICE } from "@/lib/fixed/phrases.generated";
-import { ERROR_BODY_NO_RETRY, ERROR_BODY_RETRY, ERROR_TITLE, RETRY_LABEL } from "./copy";
+import { ERROR_BODY_NOT_READY, ERROR_BODY_NO_RETRY, ERROR_BODY_RETRY, ERROR_TITLE, RETRY_LABEL } from "./copy";
 
 export interface ErrorStateProps {
   /** 응답을 받지 못하고 끝난 스트림 상태(error·interrupted) */
@@ -23,6 +23,9 @@ export interface ErrorStateProps {
 export function ErrorState({ stream, onRetry, allowRetry = true, hideMascot = false }: ErrorStateProps) {
   const retryable = allowRetry && canRetry(stream);
   const received = stream.error?.kind === "server" ? stream.error.message : null;
+  // 서버가 아직 연결되지 않았을 때(501)는 그 문구를 쓴다. "다시 시도"는 그대로 둔다
+  const notReady = stream.error?.kind === "http" && stream.error.status === 501;
+  const fallback = notReady ? ERROR_BODY_NOT_READY : retryable ? ERROR_BODY_RETRY : ERROR_BODY_NO_RETRY;
   return (
     <section data-testid="error-state" aria-label={ERROR_TITLE} className="flex flex-col gap-2.5">
       <div className="flex items-center gap-3.5 rounded-2xl bg-bg-soft p-4">
@@ -30,7 +33,7 @@ export function ErrorState({ stream, onRetry, allowRetry = true, hideMascot = fa
         {!hideMascot && !stream.emergency && <Mascot variant="search" size={72} />}
         <div className="min-w-0">
           <b className="text-base">{ERROR_TITLE}</b>
-          <p className="mt-0.5 mb-2 text-sm break-words text-ink-2">{received ?? (retryable ? ERROR_BODY_RETRY : ERROR_BODY_NO_RETRY)}</p>
+          <p className="mt-0.5 mb-2 text-sm break-words text-ink-2">{received ?? fallback}</p>
           {retryable && (
             <button
               type="button"

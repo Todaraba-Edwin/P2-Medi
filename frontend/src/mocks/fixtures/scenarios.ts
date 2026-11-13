@@ -6,15 +6,20 @@ import {
   ageFoundResponse,
   clarifyResponse,
   emergencyResponse,
+  fallbackNoneResponse,
+  fallbackSomeResponse,
   foundResponse,
   gradeMismatchResponse,
   limitResponse,
+  missingCausesResponse,
   missingEvidenceResponse,
   notListedResponse,
+  pairNoEvidenceResponse,
   pairAndPregnancyResponse,
   pregnancyMResponse,
   pregnancyResponse,
   refuseResponse,
+  rxPermitResponse,
   unidentifiedResponse,
 } from "./responses";
 
@@ -122,6 +127,17 @@ export const scenarios = {
   missingEvidence: normal(missingEvidenceResponse),
   /** 상한 도달(상단 배너) */
   limit: normal(limitResponse),
+  // ---- FE-IMPL-06 추가(흐름 시험용. 질문 표시 글자(`mock:`)는 handlers.ts 소유라 붙이지 않았다)
+  /** 미확보 나머지 세 원인 + 박스 안 약사 확인 권고 */
+  missingCauses: normal(missingCausesResponse),
+  /** 검증 폴백(확인된 항목 없음) */
+  fallbackNone: normal(fallbackNoneResponse),
+  /** 검증 폴백(확인된 항목만) */
+  fallbackSome: normal(fallbackSomeResponse),
+  /** 쌍 확인 불가(배지 없는 쌍 줄) */
+  pairNoEvidence: normal(pairNoEvidenceResponse),
+  /** 허가사항 원문 인용 */
+  rxPermit: normal(rxPermitResponse),
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;

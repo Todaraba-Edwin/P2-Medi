@@ -131,6 +131,19 @@ describe("ResultSlot", () => {
 });
 
 describe("ErrorState", () => {
+  it("서버가 아직 연결되지 않았으면(501) 승인 문구를 보이고 다시 시도를 둔다", () => {
+    render(<ErrorState stream={failed({ kind: "http", status: 501, code: "NOT_IMPLEMENTED" })} onRetry={() => {}} />);
+    expect(screen.getByText("아직 준비 중이라 답을 드릴 수 없어요. 급하면 약국·약사에게 확인하세요.")).toBeInTheDocument();
+    expect(screen.queryByText(copy.ERROR_BODY_RETRY)).toBeNull();
+    expect(screen.getByRole("button", { name: copy.RETRY_LABEL })).toBeInTheDocument();
+  });
+
+  it("다른 5xx는 501 문구를 쓰지 않는다", () => {
+    render(<ErrorState stream={failed({ kind: "http", status: 500 })} onRetry={() => {}} />);
+    expect(screen.getByText(copy.ERROR_BODY_RETRY)).toBeInTheDocument();
+    expect(screen.queryByText(copy.ERROR_BODY_NOT_READY)).toBeNull();
+  });
+
   it("응답이 없으므로 생성한 고정 안내·고지를 보인다", () => {
     render(<ErrorState stream={failed({ kind: "network" })} onRetry={() => {}} />);
     expect(screen.getByText(FIXED_NOTICE)).toBeInTheDocument();

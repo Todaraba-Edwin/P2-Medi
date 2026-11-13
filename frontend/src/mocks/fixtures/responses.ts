@@ -354,6 +354,112 @@ export const missingEvidenceResponse = make(
   [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
 );
 
+// ---------------------------------------------------------------- FE-IMPL-06 추가(지시서 A2: 미확보 나머지 원인·폴백 2종·허가사항 원문)
+const labelMissing = (id: string, drug: string, section: string, reason: string, text: string): DetailInput => ({
+  evidence_id: id,
+  kind: "label",
+  status: "NO_EVIDENCE",
+  source_kind: null,
+  dataset_key: "prmsn",
+  dataset: DATASET_PRMSN,
+  publisher: PUBLISHER_MFDS,
+  dates: [{ label: "날짜 없음", value: null }],
+  drug_name: drug,
+  section,
+  drugs: [drug],
+  missing_reason: reason,
+  missing_text: text,
+});
+
+/** 근거 원문 미확보의 나머지 세 원인(범위 밖·항목 없음·불러오지 못함)과 박스 안 약사 확인 권고 줄 */
+export const missingCausesResponse = make(
+  {
+    route: "AGENT",
+    end_reason: "NORMAL",
+    summary: `${DRUG_A}과 ${DRUG_B}은 병용금기 목록에 함께 올라 있어요.`,
+    findings: [pairFinding],
+    detail: [
+      pairDetail,
+      labelMissing("ev-label-oos", DRUG_A, "효능·효과", "OUT_OF_SCOPE", PHRASES.MISSING_OUT_OF_SCOPE.replace("{drug}", DRUG_A)),
+      labelMissing("ev-label-absent", DRUG_B, "임부에 대한 투여", "ABSENT", PHRASES.MISSING_ABSENT.replace("{drug}", DRUG_B)),
+      labelMissing("ev-label-fail", DRUG_B, "상호작용", "FETCH_FAIL", PHRASES.MISSING_FETCH_FAIL),
+    ],
+    citations: [pairCitation],
+    pharmacist_advice: [PHRASES.PHARMACIST_ADVICE.replace("{drugs}", `${DRUG_A}·${DRUG_B}`)],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
+/** 검증 폴백: 확인된 항목이 없을 때(요약 문구만, 판정 줄 없음) */
+export const fallbackNoneResponse = make(
+  { route: "AGENT", end_reason: "NORMAL", summary: PHRASES.FALLBACK_NONE_NO_SCOPE },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
+/** 검증 폴백: 확인된 항목만 보여 줄 때(요약 문구 + 확인된 판정 줄) */
+export const fallbackSomeResponse = make(
+  {
+    route: "AGENT",
+    end_reason: "NORMAL",
+    summary: PHRASES.FALLBACK_SOME_NO_DATE,
+    findings: [pairFinding],
+    detail: [pairDetail],
+    citations: [pairCitation],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
+/** 허가사항 원문 인용(전문의약품 경로): 약 이름·항목과 원문 한 덩어리(합성 원문) */
+export const rxPermitResponse = make({
+  route: "AGENT",
+  end_reason: "NORMAL",
+  summary: `${DRUG_A}과 ${DRUG_B}은 병용금기 목록에 함께 올라 있어요.`,
+  findings: [pairFinding],
+  detail: [
+    pairDetail,
+    {
+      evidence_id: "ev-permit-1",
+      kind: "label",
+      status: "FOUND",
+      source_kind: "API_DIRECT",
+      dataset_key: "prmsn",
+      dataset: DATASET_PRMSN,
+      publisher: PUBLISHER_MFDS,
+      dates: [{ label: "조회", value: "2026-11-12" }],
+      drug_name: DRUG_A,
+      section: "사용상 주의사항",
+      rows: [{ row_key: "ev-permit-1#0", text: "(합성 원문) 다른 약을 복용하고 있는 사람은 이 약을 복용하기 전에 의사 또는 약사와 상의하십시오." }],
+      drugs: [DRUG_A],
+    },
+  ],
+  citations: [
+    { publisher: PUBLISHER_MFDS, dataset: DATASET_PRMSN, dates: [{ label: "조회", value: "2026-11-12" }], source_kind: "API_DIRECT", evidence_ids: ["ev-permit-1"] },
+    pairCitation,
+  ],
+});
+
+/** 쌍 확인 불가(Result-NoEvidence6c): 두 약을 함께 먹어도 되는지 확인하지 못한 쌍 줄. 배지 없음 */
+export const pairNoEvidenceResponse = make(
+  {
+    route: "AGENT",
+    end_reason: "NORMAL",
+    summary: null,
+    findings: [
+      {
+        target: "pair",
+        bucket: "unconfirmed",
+        evidence_id: null,
+        kind: "contra_pair",
+        drug: `${DRUG_A} · ${DRUG_C}`,
+        drugs: [DRUG_A, DRUG_C],
+        text: PHRASES.NO_EVIDENCE,
+        note: PHRASES.PAIR_NOT_CHECKED,
+      },
+    ],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
 /** 상한 도달: 상단 배너(`notice`)와 여기까지의 결과 */
 export const limitResponse = make({
   route: "AGENT",

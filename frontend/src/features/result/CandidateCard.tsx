@@ -9,13 +9,18 @@ export interface CandidateCardProps {
   onPick: (candidate: Candidate) => void;
   /** 주면 "목록에 없어요 · 직접 입력" 버튼이 보인다 */
   onOther?: () => void;
+  /**
+   * 지금 고른 후보(받은 후보 객체 그대로). 주면 후보 버튼이 선택 상태(`aria-pressed`)를 알린다(고른 것이 없으면 null).
+   * 누르면 `onPick`만 부른다: 보내거나 다른 결과로 가는 일은 이 카드가 하지 않는다
+   */
+  selected?: Candidate | null;
 }
 
 /**
  * 되묻기 후보 카드. 후보의 이름·업체·구분 글자를 받은 그대로 보이고, 먹어도 되는지는 말하지 않는다(판정 표시 없음).
  * 묻는 문장은 응답의 `summary`이며 이 카드 밖(조립하는 쪽)에서 그린다. 마스코트는 쓰지 않는다.
  */
-export function CandidateCard({ candidates, onPick, onOther }: CandidateCardProps) {
+export function CandidateCard({ candidates, onPick, onOther, selected }: CandidateCardProps) {
   if (candidates.length === 0) return null;
   // 되묻는 입력(`input_name`)별로 나눈다. 묶음과 후보의 순서는 받은 순서다
   const groups: { inputName: string; items: Candidate[] }[] = [];
@@ -36,8 +41,9 @@ export function CandidateCard({ candidates, onPick, onOther }: CandidateCardProp
                   <button
                     type="button"
                     data-testid="candidate"
+                    aria-pressed={selected === undefined ? undefined : selected === candidate}
                     onClick={() => onPick(candidate)}
-                    className="flex min-h-[54px] w-full flex-col items-start justify-center gap-0.5 px-3.5 py-2 text-left hover:bg-bg-softer"
+                    className="flex min-h-[54px] w-full flex-col items-start justify-center gap-0.5 px-3.5 py-2 text-left hover:bg-bg-softer aria-pressed:bg-bg-soft aria-pressed:shadow-[inset_3px_0_0_var(--color-yellow)]"
                   >
                     <b className="max-w-full text-[15px] leading-[21px] font-semibold [overflow-wrap:break-word] [word-break:keep-all]">{candidate.name}</b>
                     {(candidate.prescription || candidate.entp_name) && (

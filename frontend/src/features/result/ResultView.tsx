@@ -9,6 +9,8 @@ export interface ResultViewProps {
   footer?: React.ReactNode;
   onPickCandidate?: (candidate: Candidate) => void;
   onOtherCandidate?: () => void;
+  /** 되묻기에서 지금 고른 후보(선택 상태 표시용). `CandidateCard`의 `selected`로 넘긴다 */
+  selectedCandidate?: Candidate | null;
 }
 
 /**
@@ -16,7 +18,7 @@ export interface ResultViewProps {
  * 배너와 요약은 받은 글자를 가공 없이 그린다(요약에 용량 숫자를 만들거나 표로 쪼개지 않는다, S8).
  * 고정 안내·고지·119·근거 상세는 FE-IMPL-05, 화면 조립은 FE-IMPL-06이 한다.
  */
-export function ResultView({ response, basis, footer, onPickCandidate, onOtherCandidate }: ResultViewProps) {
+export function ResultView({ response, basis, footer, onPickCandidate, onOtherCandidate, selectedCandidate }: ResultViewProps) {
   const showCandidates = response.end_reason === "CLARIFY" && response.candidates.length > 0 && onPickCandidate;
   return (
     <NoMascotZone>
@@ -32,7 +34,7 @@ export function ResultView({ response, basis, footer, onPickCandidate, onOtherCa
           </p>
         )}
         <ResultCard response={response} basis={basis} footer={footer} />
-        {showCandidates ? <CandidateCard candidates={response.candidates} onPick={onPickCandidate} onOther={onOtherCandidate} /> : null}
+        {showCandidates ? <CandidateCard candidates={response.candidates} onPick={onPickCandidate} onOther={onOtherCandidate} selected={selectedCandidate} /> : null}
       </div>
     </NoMascotZone>
   );

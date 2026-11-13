@@ -43,6 +43,8 @@ export const ERROR_TITLE = "답을 만들지 못했어요";
 export const ERROR_BODY_RETRY = "잠시 뒤 다시 시도해 주세요. 보낸 질문은 그대로 있어요.";
 /** 오류 본문: 다시 보내도 같은 경우(4xx). 초안이다: 문서·디자인에 문구가 없어 승인이 필요하다 */
 export const ERROR_BODY_NO_RETRY = "질문을 다시 적어 보내 주세요.";
+/** 오류 본문: `/chat`이 아직 연결되지 않았을 때(501). 승인 문구 4-2 원문 그대로(tickets/agent/AG-08.md §5 승인 문구 표, 2026-11-12 0-E) */
+export const ERROR_BODY_NOT_READY = "아직 준비 중이라 답을 드릴 수 없어요. 급하면 약국·약사에게 확인하세요.";
 /** 다시 시도 버튼(디자인 반영본 오류 카드. 4장 (3) "다시 시도" 버튼) */
 export const RETRY_LABEL = "다시 시도";
 
