@@ -17,6 +17,18 @@ export const PHRASES = {
   UNIDENTIFIED_RETRIED: "표기를 바꿔 한 번 더 찾아봤어요",
   UNIDENTIFIED_NEXT: "봉투나 상자에 적힌 제품명을 그대로 다시 알려 주세요",
   MISSING_SEARCH_MISS: "허가사항에서 관련 문장을 찾지 못했어요",
+  // 미확보 나머지 원인(FE-IMPL-06 추가, `{drug}`는 fixture가 합성 이름으로 채운다)
+  MISSING_OUT_OF_SCOPE: "{drug}은 전문의약품이라 공공 자료로는 설명을 확인할 수 없어요",
+  MISSING_ABSENT: "{drug} 허가사항에는 이 항목이 따로 적혀 있지 않아요",
+  MISSING_FETCH_FAIL: "지금은 허가사항을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요",
+  // 미확보 박스 안의 약사 확인 권고(`{drugs}`는 fixture가 채운다)
+  PHARMACIST_ADVICE: "복용 전에 꼭 약국·약사에게 {drugs}을(를) 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요.",
+  // 검증 폴백 요약 2종(날짜·자료 이름이 없을 때의 문장)
+  FALLBACK_NONE_NO_SCOPE: "검색한 자료에서는 확인하지 못했어요. 정확한 확인은 약국·약사에게 하세요.",
+  FALLBACK_SOME_NO_DATE: "공공 자료에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요.",
+  // 쌍 확인 불가(Result-NoEvidence6c): 판정 줄 글자와 덧붙임 줄
+  NO_EVIDENCE: "근거 문장을 찾지 못함",
+  PAIR_NOT_CHECKED: "이 약과 함께 먹어도 되는지는 식약처·한국의약품안전관리원 자료에서 확인하지 못했어요. 안전하다는 뜻이 아니에요.",
   LIMIT_REACHED: "답을 정리하다 시간이 다 되어 여기까지 확인한 결과만 보여 드려요. 확인하지 못한 항목은 약국·약사에게 물어보세요.",
   // 진행 문구(`progress.label`): PROGRESS_LABELS[stage]
   PROGRESS_DRUG_LOOKUP: "약 찾는 중",

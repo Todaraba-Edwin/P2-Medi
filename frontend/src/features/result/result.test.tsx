@@ -240,6 +240,22 @@ describe("ResultCard·ResultView", () => {
 describe("CandidateCard", () => {
   const candidates = fixtures.clarifyResponse.candidates;
 
+  it("selected를 주면 고른 후보만 눌린 상태(aria-pressed)이고, 눌러도 onPick만 부른다", async () => {
+    const onPick = vi.fn();
+    const { rerender } = render(<CandidateCard candidates={candidates} onPick={onPick} selected={null} />);
+    expect(screen.getAllByTestId("candidate").map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false"]);
+    await userEvent.click(screen.getAllByTestId("candidate")[1]);
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick).toHaveBeenCalledWith(candidates[1]);
+    rerender(<CandidateCard candidates={candidates} onPick={onPick} selected={candidates[1]} />);
+    expect(screen.getAllByTestId("candidate").map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true", "false"]);
+  });
+
+  it("selected를 주지 않으면 눌린 상태 속성이 없다", () => {
+    render(<CandidateCard candidates={candidates} onPick={() => {}} />);
+    for (const button of screen.getAllByTestId("candidate")) expect(button.hasAttribute("aria-pressed")).toBe(false);
+  });
+
   it("후보의 이름·업체·구분을 받은 그대로, 받은 순서대로 보이고 판정 표시가 없다", () => {
     const { container } = render(<CandidateCard candidates={candidates} onPick={() => {}} />);
     const buttons = screen.getAllByTestId("candidate");

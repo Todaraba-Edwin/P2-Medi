@@ -48,7 +48,7 @@ export function SourceTable({ citations }: { citations: readonly Citation[] }) {
                 <Extra label={SOURCE_EXTRA_LABELS.edition} values={citation.edition ? [citation.edition] : []} />
                 <Extra label={SOURCE_EXTRA_LABELS.pages} values={citation.pages} />
               </span>
-              <DateLines dates={citation.dates} className="flex-none text-[13px] leading-[19px] text-ink-2" />
+              <DateLines dates={citation.dates} className="w-[10.5em] flex-none text-[13px] leading-[19px] text-ink-2" />
             </div>
           ))}
         </div>

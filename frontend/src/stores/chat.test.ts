@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { initialStreamState } from "@/lib/api";
+import { ChatRequestSchema, initialStreamState } from "@/lib/api";
 import type { RunChatStreamOptions, StreamState } from "@/lib/api";
 import { scenarios } from "@/mocks/fixtures/scenarios";
 import type { ScenarioName } from "@/mocks/fixtures/scenarios";
@@ -158,14 +158,17 @@ describe("대화 스토어", () => {
   });
 });
 
+const AGE_5 = { lower: 5, upper: 5, unit: "세" } as const;
+const AGE_70 = { lower: 70, upper: 70, unit: "세" } as const;
+
 describe("대화 상태 묶음", () => {
   it("메모리에만 두고 reset하면 비운다", () => {
     const storage = createMemoryContextStorage();
     const store = createChatStore({ contextStorage: storage });
     expect(store.getState().context).toEqual(emptyConversationContext);
-    store.getState().setContext({ age: "5세", pregnant: false });
-    store.getState().setContext({ confirmedDrugs: ["가나다정"] });
-    expect(store.getState().context).toEqual({ age: "5세", pregnant: false, confirmedDrugs: ["가나다정"] });
+    store.getState().setContext({ age: AGE_5, pregnant: false });
+    store.getState().setContext({ confirmedDrugs: [{ name: "가나다정", itemSeq: null }] });
+    expect(store.getState().context).toEqual({ age: AGE_5, pregnant: false, confirmedDrugs: [{ name: "가나다정", itemSeq: null }] });
     expect(storage.read()).toEqual(store.getState().context);
     store.getState().reset();
     expect(store.getState().context).toEqual(emptyConversationContext);
@@ -175,17 +178,17 @@ describe("대화 상태 묶음", () => {
     const written: unknown[] = [];
     const store = createChatStore({
       contextStorage: {
-        read: () => ({ age: "70세", pregnant: null, confirmedDrugs: [] }),
+        read: () => ({ age: AGE_70, pregnant: null, confirmedDrugs: [] }),
         write: (next) => written.push(next),
         clear: () => written.push("clear"),
       },
     });
-    expect(store.getState().context.age).toBe("70세");
+    expect(store.getState().context.age).toEqual(AGE_70);
     store.getState().setContext({ pregnant: true });
-    expect(written).toEqual([{ age: "70세", pregnant: true, confirmedDrugs: [] }]);
+    expect(written).toEqual([{ age: AGE_70, pregnant: true, confirmedDrugs: [] }]);
   });
 
-  it("요청 본문은 한 곳(buildChatRequest)에서 만들고 지금은 질문만 싣는다", async () => {
+  it("요청 본문은 한 곳(buildChatRequest)에서 만들고 묶음 값을 v1 context로 싣는다", async () => {
     const seen: unknown[] = [];
     const run = async (request: unknown, options?: RunChatStreamOptions): Promise<StreamState> => {
       seen.push(request);
@@ -193,9 +196,24 @@ describe("대화 상태 묶음", () => {
       return initialStreamState;
     };
     const store = createChatStore({ run });
-    store.getState().setContext({ age: "5세" });
     await store.getState().send(QUESTION);
-    expect(seen).toEqual([{ question: QUESTION }]);
-    expect(buildChatRequest(QUESTION, store.getState().context)).toEqual({ question: QUESTION });
+    expect(seen[0]).toEqual({ question: QUESTION, context: { age: null, pregnant: null, confirmed_drugs: [] } });
+    store.getState().setContext({ age: AGE_5, pregnant: true, confirmedDrugs: [{ name: "가나다정", itemSeq: "200000001" }] });
+    await store.getState().send(QUESTION);
+    const expected = {
+      question: QUESTION,
+      context: { age: AGE_5, pregnant: true, confirmed_drugs: [{ name: "가나다정", item_seq: "200000001" }] },
+    };
+    expect(seen[1]).toEqual(expected);
+    expect(ChatRequestSchema.safeParse(seen[1]).success).toBe(true);
+    expect(buildChatRequest(QUESTION, store.getState().context)).toEqual(expected);
+  });
+
+  it("품목 번호는 9자리 숫자일 때만 싣고, 확인한 약은 서버 상한(10개)까지만 싣는다", () => {
+    const drugs = Array.from({ length: 12 }, (_, i) => ({ name: `합성약${i}`, itemSeq: i === 11 ? "12345" : null }));
+    const request = buildChatRequest(QUESTION, { age: null, pregnant: null, confirmedDrugs: drugs });
+    expect(request.context?.confirmed_drugs).toHaveLength(10);
+    expect(request.context?.confirmed_drugs?.at(-1)).toEqual({ name: "합성약11", item_seq: null });
+    expect(ChatRequestSchema.safeParse(request).success).toBe(true);
   });
 });

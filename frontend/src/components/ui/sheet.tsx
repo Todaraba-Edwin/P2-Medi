@@ -25,7 +25,8 @@ function SheetContent({
       <SheetPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/50" />
       <SheetPrimitive.Content className={cn("fixed z-50 bg-bg p-4 shadow-lg", sideClass, className)} {...props}>
         {children}
-        <SheetPrimitive.Close className="absolute top-3 right-3 rounded p-1" aria-label="닫기">
+        {/* 누르는 영역 44px(FE-IMPL-06, 지시서 A7) */}
+        <SheetPrimitive.Close className="absolute top-1.5 right-1.5 grid size-11 place-items-center rounded" aria-label="닫기">
           <XIcon className="size-4" aria-hidden="true" />
         </SheetPrimitive.Close>
       </SheetPrimitive.Content>
