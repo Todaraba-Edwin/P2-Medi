@@ -62,7 +62,7 @@ done: -
 - [ ] 프런트 영향 칸 목록(`gen:api`·zod 갱신 필요)으로 FE 후속 WP 지시서가 작성됐다.
 
 ## 4. 하위 작업
-- [ ] 실행 전 메인이 worktree에 `feature/AG-08-impl` 브랜치를 만든다(`git-actor`).
+- [x] 실행 전 메인이 worktree에 `feature/AG-08-impl` 브랜치를 만든다(`git-actor`). (완료 2026-11-13, develop 5006fb0 기준)
 - [ ] 선행 점검: AG-05 후속 1차가 develop에 병합됐는지 확인한다(2026-11-12 병합됨, 커밋 3abe8b4·병합 698ff20)(§7 가정).
 - [ ] 사용자가 새 세션(또는 VS Code)에서 지시서 경로를 첫 메시지로 주고 아래 goal 명령을 실행한다.
 - [ ] 끝나면 메인이 보고를 가볍게 검수하고(ruff·pytest 재실행, `git status`) `git-actor`·후속 지시를 낸다.
