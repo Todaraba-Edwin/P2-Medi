@@ -23,6 +23,8 @@
 
 ## 종결 기록 (결정과 종결, 최신이 위)
 
+- **BE-04-02 A 출처 기록 기준(2026-11-16, 사용자 답, Recap 18 종결)**: BE-04 완료 조건의 출처 기록을 "발행기관·고시번호·고시일(시행일) 기록"으로 바꿨고 이미 충족한다(`backend/app/db/doc_meta.py:100-130`). URL은 아는 것만 적고 없는 4건(병용금기 지정 고시, 약사법 시행규칙, 심평원 「기능과 역할」 2021~2025)은 기관·날짜만 표시한다. 사용자 판단: 고시는 기간이 정해지지 않은 공지이므로 고지된 날짜가 기준이고 출처 기관은 이미 명시되어 있다. [BE-04](tickets/backend/BE-04.md) done(2026-11-16).
+- **RFP-29-03 A 등급 정의 기준(2026-11-16, 사용자 답, Recap 12 종결)**: 1·2등급 정의는 코드가 붙이는 방식(BE-06-16 A, `grade_defs.py`)을 기준으로 삼고 경로 평가도 맞춘다. RFP-26 §7.6 기대 경로에 `search_notice`를 넣지 않고 TC-21 c5는 `grade_defs` 출처로 채점, "정의 동반률" 지표는 신설하지 않는다. H22·H24는 기준선(AG-07 §3, AG-11 전), H23·H25·M L4 첨부는 개선 단계(AG-13 §5). 원본은 [RFP-29 §10](tickets/doc/RFP-29.md#10-결정-현황).
 - **Recap 1 시험셋 확인 종결과 AG-18-05(2026-11-16, 사용자 답)**: test-125는 "응급 아님"으로 행을 그대로 둔다(파일 변경 없음). 신규 결정 **AG-18-05 A**: test-147(제품 미특정 OTC 중단·용법)은 범위 외 그룹 유지 + 응답 유형 judgment→refuse 복귀(복용 결정 질문은 제품명을 받아도 거절이라 되묻기가 의미 없음, dev-143 AG-04-01 A 선례). 이행: 시험셋 1행(`required_elements`는 `ELEMENTS["refuse"]`), manifest 시험셋 sha256 갱신, 측정 시작 전이라 허용. 근거 [AG-18 §5](tickets/agent/AG-18.md#5-메모), 소비처 [AG-11 §2](tickets/agent/AG-11.md#2-완료-조건) 선행 조건 충족.
 
 - **Recap 3 문구 승인 종결(2026-11-16, 사용자 "문구 승인: 3 조사 자동, 나머지 승인")**: 승인 표 17줄(시작 화면 `START_EMERGENCY_119`·`START_EXTERNAL_AI_NOTICE`, `REFERENCE_ONLY_LINE`, `REFUSE_MESSAGES` 6줄, `CAUTION_LABELS` 3줄, `PHARMACIST_ADVICE_NO_NAMES`, `BLOCKED_NO_SOURCE_KIND`, `INVALID_CODE`, `PAIR_NOT_CHECKED`)을 승인했고 3번만 "{drug}은(는)" 조사 자동으로 고쳤다. `DRAFT_KEYS`는 빈 튜플이다(원문은 [AG-08 §5](tickets/agent/AG-08.md#5-메모)). 프런트는 시작 화면 문구 2개를 `gen-fixed-phrases.mjs`에 더해 재생성한다([FE-01 §3](tickets/frontend/FE-01.md#3-하위-작업)).
@@ -239,6 +241,7 @@ BE-06-14 A·15 A·16 A·17 A(2026-11-12, "권장대로"), BE-06-09 A·10 A·11 A
 | `[x]` | `PRD-14` | [미식별 약 결과·근거 상세 입력 약 이름 규칙(ISSUE-010)](tickets/doc/PRD-14.md) | 결정 PRD-14-01~04 완료(A, 02는 기관 이름 표기 수정 조건), 약 이름 박스·내부 용어 정리·버튼 축소·식별된 약 한 줄을 FE-01·FE-02·FE-05·AG-08·AG-09·BE-06·BE-10 완료 조건과 `P2-doc/` 두 곳에 반영 | 2026-11-09 |
 | `[x]` | `PRD-15` | [금기 배지 여러 개일 때 제목 침범 방지 배치 규칙(ISSUE-011)](tickets/doc/PRD-15.md) | 결정 PRD-15-01~03 완료(A): 배지는 제목 아래 줄·제목 전체 폭, 등급 불일치 배지 둘, 정의 블록 미확보 PRD-11 체계. FE-02·FE-01·AG-08·BE-06 완료 조건과 `P2-doc/` 두 곳에 반영 | 2026-11-09 |
 | `[x]` | `PRD-16` | [프롬프트 설계·골든 평가 기록 체계](tickets/doc/PRD-16.md) | 결정 PRD-16-01~03 완료(A): 프롬프트 파일 `<ID>@vN.md`·`prompt_set@vN`, 개발 골든 약 20 + 개발 안전 핵심 40, 채택 전 사용자 승인 + L2 필수. 첫 프롬프트는 AG-01 기준선, AG-01·AG-04·AG-06·AG-13·AG-14·BE-15 완료 조건에 이관 | 2026-11-10 |
+| `[x]` | `BE-04` | [핵심 PDF 수집·파싱(표 마크다운 보존)](tickets/backend/BE-04.md) | 표 파서 `pdfplumber`(BE-04-01 A)로 별표 1·2·3 변환·대조, 기준 시점 기록, 출처는 기관·고시번호·고시일(BE-04-02 A, URL은 아는 것만) | 2026-11-16 |
 
 ## W1·Pre-Week 기록 (schedule.md에서 이관, 2026-11-16)
 
