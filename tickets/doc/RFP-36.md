@@ -12,7 +12,7 @@ done: -
 
 # RFP-36 · Goal 모드 장시간 자율 작업 1회차 계획(AG-08 코드 이행 + BE-06-13~17 서버 상수)
 
-> **📌 이 티켓에서 사용자가 답할 것 (대기 0건)** — RFP-36-01~03은 2026-11-13 모두 완료했다(§5 결정 현황). 남은 일은 사용자가 VS Code에서 goal을 실행하는 것이다(§4.1 실행 순서).
+> **📌 이 티켓에서 사용자가 답할 것 (대기 0건)** — RFP-36-01~03은 2026-11-13 모두 완료했다(§5 결정 현황). goal 1회차는 2026-11-16 실행·병합(`6f8e5a5`·`678e093`)됐고 남은 일은 프런트 후속 WP 지시서(메인이 작성 중)뿐이다(§3).
 > 한눈에 보기: [schedule.md 지금 해야 할 일 (Top 5)](../../schedule.md#지금-해야-할-일-top-5)(이 티켓은 Top 5 밖이다).
 
 ## Index
@@ -54,18 +54,18 @@ done: -
 **하지 않는 것**: 원격 DB·LLM 실호출, 재적재, AG-06 코드, 프런트 코드, git.
 
 ## 3. 완료 조건
-- [ ] goal 세션 보고 `data/mock/briefs/reports/goal-ag08.md`를 메인이 검수했다(충족표의 파일:줄·시험 이름 확인).
-- [ ] 지시서 §2의 1~9번이 충족표에서 모두 "충족"이고 10·11번은 "충족" 또는 "보류+이유"다(항목별 대조).
-- [ ] worktree `/Users/edwin/develop/P2-Medi-be`에서 `backend/.venv/bin/ruff check backend` 오류 0, `backend/.venv/bin/python -m pytest backend -q` 실패 0(기준 1,988 passed·5 skipped·1 xfailed에서 늘어남만 허용)이 메인 재실행 결과와 보고가 일치한다.
-- [ ] `git-actor`가 커밋하고 develop에 병합했다(RFP-36-03에 따름).
-- [ ] AG-08·BE-06 티켓의 해당 체크가 `schedule-writer`로 반영됐다.
+- [x] (2026-11-16) goal 세션 보고 `data/mock/briefs/reports/goal-ag08.md`를 메인이 검수했다(충족표의 파일:줄·시험 이름 확인).
+- [x] (2026-11-16 충족표 1~12번 모두 충족, 11번은 확인만) 지시서 §2의 1~9번이 충족표에서 모두 "충족"이고 10·11번은 "충족" 또는 "보류+이유"다(항목별 대조).
+- [x] (2026-11-16 메인 재실행: ruff 0, pytest 2144 passed·5 skipped·1 xfailed, 보고와 일치) worktree `/Users/edwin/develop/P2-Medi-be`에서 `backend/.venv/bin/ruff check backend` 오류 0, `backend/.venv/bin/python -m pytest backend -q` 실패 0(기준 1,988 passed·5 skipped·1 xfailed에서 늘어남만 허용)이 메인 재실행 결과와 보고가 일치한다.
+- [x] (2026-11-16 커밋 `6f8e5a5`·병합 `678e093`) `git-actor`가 커밋하고 develop에 병합했다(RFP-36-03에 따름).
+- [x] (2026-11-16 지시서 `2026-11-16-sw-ag08-done.md`, AG-08-19~22·BE-06-18 등록 포함) AG-08·BE-06 티켓의 해당 체크가 `schedule-writer`로 반영됐다.
 - [ ] 프런트 영향 칸 목록(`gen:api`·zod 갱신 필요)으로 FE 후속 WP 지시서가 작성됐다.
 
 ## 4. 하위 작업
 - [x] 실행 전 메인이 worktree에 `feature/AG-08-impl` 브랜치를 만든다(`git-actor`). (완료 2026-11-13, develop 5006fb0 기준)
-- [ ] 선행 점검: AG-05 후속 1차가 develop에 병합됐는지 확인한다(2026-11-12 병합됨, 커밋 3abe8b4·병합 698ff20)(§7 가정).
-- [ ] 사용자가 새 세션(또는 VS Code)에서 지시서 경로를 첫 메시지로 주고 아래 goal 명령을 실행한다.
-- [ ] 끝나면 메인이 보고를 가볍게 검수하고(ruff·pytest 재실행, `git status`) `git-actor`·후속 지시를 낸다.
+- [x] (2026-11-16) 선행 점검: AG-05 후속 1차가 develop에 병합됐는지 확인한다(2026-11-12 병합됨, 커밋 3abe8b4·병합 698ff20)(§7 가정).
+- [x] (2026-11-16 시작) 사용자가 새 세션(또는 VS Code)에서 지시서 경로를 첫 메시지로 주고 아래 goal 명령을 실행한다.
+- [x] (2026-11-16) 끝나면 메인이 보고를 가볍게 검수하고(ruff·pytest 재실행, `git status`) `git-actor`·후속 지시를 낸다.
 
 ### 4.1 goal 명령 초안
 실행 순서(RFP-36-02 B, 사용자 2026-11-13):
