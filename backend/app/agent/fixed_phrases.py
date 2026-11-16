@@ -18,6 +18,14 @@ EMERGENCY_119 = "응급 상황일 수 있어요. 지금 바로 119에 전화하�
 EMERGENCY_119_WIDE = "컴퓨터로 보고 있다면 휴대폰으로 119에 전화하세요."
 EMERGENCY_119_TEL = "tel:119"
 
+# 시작 화면 안내 2종(FE-01-24 A, 2026-11-16, 초안·문구 승인 전). 프런트는 `frontend/scripts/gen-fixed-phrases.mjs`가 이 파일을
+# 읽어 생성한 값만 쓴다(FE-01-19 A). 생성기가 `^NAME = "..."` 한 줄 글자만 읽으므로 이어 붙이기·f-string으로 바꾸지 않는다.
+# 응급 안내: 승인된 `EMERGENCY_119` 말투에 맞춤, 119 외 연락처 금지(RFP-19-01 A)
+START_EMERGENCY_119 = "응급 상황이면 지금 바로 119에 전화하세요."
+# 외부 AI 전송 고지(RFP-24-01, PJ2-RFP.md 7장 고지 항목·FE-02 §2): 질문·프로필 전송, 이 서비스는 질문 비저장,
+# 제공자 쪽 보관은 "될 수 있어요"로만 쓴다(학습 사용 여부·보관 기간은 단정하지 않는다)
+START_EXTERNAL_AI_NOTICE = "질문과 입력한 프로필은 답을 만들기 위해 외부 AI(OpenAI)로 보내요. 이 서비스는 질문 내용을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요."
+
 # PJ2-RFP.md 7장 고지 항목(따옴표 안 문구 그대로)
 DISCLAIMER_PARTS = (
     "공공데이터 기반 정보 제공이며 진단·처방이 아님",
@@ -185,6 +193,7 @@ REFUSE_DRAFT_KEYS = tuple(k for k in REFUSE_MESSAGES if k not in REFUSE_APPROVED
 DRAFT_KEYS = (
     "REFERENCE_ONLY_LINE", "REFUSE_MESSAGES", "CAUTION_LABELS", "PHARMACIST_ADVICE_NO_NAMES",
     "BLOCKED_NO_SOURCE_KIND", "INVALID_CODE", "PAIR_NOT_CHECKED",
+    "START_EMERGENCY_119", "START_EXTERNAL_AI_NOTICE",  # 시작 화면(FE-01-24 A, 2026-11-16 초안)
 )
 
 # 상한 도달 안내(원문 승인, AG-08-09 A): 모델 호출 상한으로 끝났을 때 LLM 요약 없이 코드가 붙인다
