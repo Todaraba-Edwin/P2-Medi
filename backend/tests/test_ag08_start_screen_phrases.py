@@ -35,10 +35,10 @@ def test_start_external_ai_notice_text_exact():
     )
 
 
-# --------------------------------------------------------------------------- 초안 표시
-def test_start_constants_are_marked_draft():
+# --------------------------------------------------------------------------- 승인 표시(2026-11-16 문구 승인 1·2번)
+def test_start_constants_are_approved():
     for k in START_KEYS:
-        assert k in fp.DRAFT_KEYS, k
+        assert k not in fp.DRAFT_KEYS, k
         assert hasattr(fp, k), k
 
 

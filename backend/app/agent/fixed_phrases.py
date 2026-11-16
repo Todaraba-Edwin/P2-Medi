@@ -3,7 +3,7 @@
 - 원본: `P2-doc/PJ2-Agent-Harness.md` 3.4절 표, `P2-doc/PJ2-RFP.md` 7장(고지), `tickets/doc/PRD-11.md` §6.6~6.7,
   `tickets/doc/PRD-09.md`(표지), `tickets/doc/PRD-14.md`(미식별), `tickets/doc/PRD-15.md`(등급 정의 블록).
 - **초안 표시**: 사용자 승인 전인 문구는 아래 `DRAFT_KEYS`에 이름을 적었다. 2026-11-12 승인분(AG-08-04~18, Recap 0-1·0-E:
-  `tickets/agent/AG-08.md` §5 "승인 문구 원본" 표, 하네스 3.4절 표)은 목록에서 뺐다. 거절 문구는 `REFUSE_DRAFT_KEYS`가 초안인 이유 키다.
+  `tickets/agent/AG-08.md` §5 "승인 문구 원본" 표, 하네스 3.4절 표)과 2026-11-16 문구 승인 17줄은 목록에서 뺐다. 거절 문구는 `REFUSE_DRAFT_KEYS`가 초안인 이유 키다.
 - 내부 용어(상태명·`L3`·"약 이름 사전"·"공식 약 목록")는 화면 문구에 넣지 않는다(시험이 막는다).
 - 응급 안내는 119와 약국·약사 안내만 쓴다(RFP-19-01 A, 출처 미확인 연락처 금지).
 """
@@ -18,7 +18,7 @@ EMERGENCY_119 = "응급 상황일 수 있어요. 지금 바로 119에 전화하�
 EMERGENCY_119_WIDE = "컴퓨터로 보고 있다면 휴대폰으로 119에 전화하세요."
 EMERGENCY_119_TEL = "tel:119"
 
-# 시작 화면 안내 2종(FE-01-24 A, 2026-11-16, 초안·문구 승인 전). 프런트는 `frontend/scripts/gen-fixed-phrases.mjs`가 이 파일을
+# 시작 화면 안내 2종(FE-01-24 A, 2026-11-16 문구 승인 1·2번). 프런트는 `frontend/scripts/gen-fixed-phrases.mjs`가 이 파일을
 # 읽어 생성한 값만 쓴다(FE-01-19 A). 생성기가 `^NAME = "..."` 한 줄 글자만 읽으므로 이어 붙이기·f-string으로 바꾸지 않는다.
 # 응급 안내: 승인된 `EMERGENCY_119` 말투에 맞춤, 119 외 연락처 금지(RFP-19-01 A)
 START_EMERGENCY_119 = "응급 상황이면 지금 바로 119에 전화하세요."
@@ -41,7 +41,7 @@ FIXED_NOTICE = f"{NOT_SAFE_NOTICE} {PHARMACIST_CHECK_NOTICE}"
 
 # 미확보 항목의 약사 확인 권고(PRD-11 §6.7). `{drugs}`는 약 이름 나열. "을(를)"은 `josa.fill`이 받침으로 고른다(AG-08-15 B)
 PHARMACIST_ADVICE = "복용 전에 꼭 약국·약사에게 {drugs}을(를) 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요."
-PHARMACIST_ADVICE_NO_NAMES = "복용 전에 꼭 약국·약사에게 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요."  # 약 이름이 없을 때(초안)
+PHARMACIST_ADVICE_NO_NAMES = "복용 전에 꼭 약국·약사에게 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요."  # 약 이름이 없을 때(2026-11-16 승인)
 PHARMACIST_ADVICE_FIXED = "확인하지 못한 항목이 있어요. 복용 전에 꼭 약국·약사에게 확인하세요."  # 접히지 않는 고정 영역 한 줄(PRD-11 §6.7)
 
 # --------------------------------------------------------------------------- 상태별 항목 문구
@@ -77,7 +77,8 @@ AMBIGUOUS_NAME = FLAG_NOTES["AMBIGUOUS_NAME"]
 REFERENCE_ONLY = FLAG_NOTES["REFERENCE_ONLY"]
 LOOKUP_FAILED = "조회하지 못해 확인하지 못함. " + NOT_SAFE + ". 약사에게 확인하세요"  # 하네스 3.4절 표(2026-11-12 승인)
 TRUNCATED = "원문이 길어 일부만 보여 드려요. 전체는 약사에게 확인하세요"  # 하네스 3.4절 표(2026-11-12 승인)
-REFERENCE_ONLY_LINE = "참고: {drug}는 다른 제형에서 금기 목록에 있어요. 이 제품에 대한 판정은 아니에요"  # 판정 문구 아님(초안)
+# 판정 문구 아님. "은(는)"은 `josa.fill`이 받침으로 고른다(2026-11-16 문구 승인 3번 "조사 자동")
+REFERENCE_ONLY_LINE = "참고: {drug}은(는) 다른 제형에서 금기 목록에 있어요. 이 제품에 대한 판정은 아니에요"
 
 # 도구 꼬리표 → 한 줄(`FLAG_NOTES` 재사용). 키는 화면에 나가지 않는다
 FLAG_LINES = {
@@ -92,7 +93,7 @@ FLAG_LINES = {
     "LOOKUP_FAILED": LOOKUP_FAILED,
     "TRUNCATED": TRUNCATED,
 }
-# 입력 코드 형식 꼬리표(하네스 3.4절, 초안): 코드명은 화면에 노출하지 않는다
+# 입력 코드 형식 꼬리표(하네스 3.4절, 2026-11-16 승인): 코드명은 화면에 노출하지 않는다
 INVALID_CODE = "입력한 약을 식약처·한국의약품안전관리원 자료에서 찾지 못했어요. 약 이름을 다시 알려 주세요."
 PAIR_NOT_CHECKED = "이 약과 함께 먹어도 되는지는 식약처·한국의약품안전관리원 자료에서 확인하지 못했어요. 안전하다는 뜻이 아니에요."
 
@@ -141,8 +142,8 @@ BADGE_ORDER = ("contra_pair", "pregnancy", "age")  # `kind` 키 순서(화면이
 # 등급 불일치 출처 꼬리(파일 → 성분 API). 합친 배지는 만들지 않는다
 BADGE_SOURCE_TAIL = {"FILE": "(파일)", "API_DIRECT": "(성분 API)"}
 BADGE_TAIL_ORDER = ("FILE", "API_DIRECT")
-# 금기가 아닌 주의 종류(초안). "삐!"는 금기 발견 전용이라 쓰지 않는다
-# `dup_ingredient`는 PRD-09 §7.4 글자(AG-08-10 B, 확정). 나머지 셋은 초안이다
+# 금기가 아닌 주의 종류(2026-11-16 승인). "삐!"는 금기 발견 전용이라 쓰지 않는다
+# `dup_ingredient`는 PRD-09 §7.4 글자(AG-08-10 B, 확정). 나머지 셋은 2026-11-16 승인(문구 승인 11~13번)
 CAUTION_LABELS = {"dose": "용량 주의", "lactation": "수유부 주의", "elderly": "노인 주의", "dup_ingredient": "성분 중복"}
 
 # 성분 칩 상태 글자(BE-06-13 A, PRD-09 G11·§7.1, 디자인 보드 글자 그대로). 화면은 받은 글자를 그대로 그린다
@@ -167,7 +168,7 @@ def ingredient_state_labels(contra_kinds: list[str] | tuple[str, ...], dup: bool
     return out
 
 # --------------------------------------------------------------------------- 입구 거절(`guardrail.classify_scope` 이유 키)
-# `STOP_DOSE_CHANGE`·`ASSESS_STATE`는 2026-11-11 사용자 결정 문구다(하네스 4.4절, AG-08-07 A). 나머지 이유 키는 초안(`REFUSE_DRAFT_KEYS`)
+# `STOP_DOSE_CHANGE`·`ASSESS_STATE`는 2026-11-11 사용자 결정 문구다(하네스 4.4절, AG-08-07 A). 나머지 이유 키는 2026-11-16 승인(문구 승인 4~10번)
 REFUSE_MESSAGES = {
     "STOP_DOSE_CHANGE": "약을 줄이거나 끊는 방법과 시기는 알려 드릴 수 없어요. 의사가 줄이라고 했더라도 어떻게 줄일지는 처방한 그 의사나 약사에게 다시 확인하세요. 이 서비스는 지금 상태로 약을 줄여도 되는지 판단(진단·평가)해 드릴 수 없어요.",
     "ASSESS_STATE": "지금 상태로 약을 줄이거나 끊어도 되는지는 진찰과 검사가 필요한 판단이라 이 서비스가 해 드릴 수 없어요. 처방한 의사나 약사와 상의하세요.",
@@ -183,18 +184,16 @@ REFUSE_MESSAGES = {
 # 거절 이유가 여럿일 때 문구를 잇는 구분자(AG-08-08 A: 모두 보인다, 위 표의 정의 순서). 문장이 아니라 구분자다
 REFUSE_JOIN = " "
 
-REFUSE_APPROVED_KEYS = ("STOP_DOSE_CHANGE", "ASSESS_STATE")
+REFUSE_APPROVED_KEYS = tuple(REFUSE_MESSAGES)  # 2026-11-16 전부 승인(문구 승인 4~10번)
 REFUSE_DRAFT_KEYS = tuple(k for k in REFUSE_MESSAGES if k not in REFUSE_APPROVED_KEYS)
 
-# 사용자 승인 전인 상수 이름. `REFUSE_MESSAGES`는 `REFUSE_DRAFT_KEYS`의 이유 키만, `CAUTION_LABELS`는 `dup_ingredient`를 뺀 셋만 초안이다.
+# 사용자 승인 전인 상수 이름. 새 문구를 더하면 승인 전까지 여기에 적는다.
 # 2026-11-12 승인으로 뺀 것: EMERGENCY_119(AG-08-04)·UNIDENTIFIED_NEXT(05)·UNIDENTIFIED_NOT_SAFE(06)·LIMIT_REACHED(09)·
 # PHARMACIST_ADVICE_FIXED(11)·GRADE_DEF_MISSING_TEXT(14)·IDENTIFIED_LINE(12 B), LOOKUP_FAILED·TRUNCATED·FALLBACK_SOME_CONFIRMED·
-# FALLBACK_NONE_SCOPE_DOC(Recap 0-1, 하네스 3.4절 표). `PAIR_NOT_CHECKED`·`INVALID_CODE`는 하네스 표가 아직 초안으로 적어 남긴다.
-DRAFT_KEYS = (
-    "REFERENCE_ONLY_LINE", "REFUSE_MESSAGES", "CAUTION_LABELS", "PHARMACIST_ADVICE_NO_NAMES",
-    "BLOCKED_NO_SOURCE_KIND", "INVALID_CODE", "PAIR_NOT_CHECKED",
-    "START_EMERGENCY_119", "START_EXTERNAL_AI_NOTICE",  # 시작 화면(FE-01-24 A, 2026-11-16 초안)
-)
+# FALLBACK_NONE_SCOPE_DOC(Recap 0-1, 하네스 3.4절 표).
+# 2026-11-16 문구 승인 표 17줄(3번만 조사 자동, 나머지 원문 승인)로 뺀 것: START_EMERGENCY_119·START_EXTERNAL_AI_NOTICE·
+# REFERENCE_ONLY_LINE·REFUSE_MESSAGES·CAUTION_LABELS·PHARMACIST_ADVICE_NO_NAMES·BLOCKED_NO_SOURCE_KIND·INVALID_CODE·PAIR_NOT_CHECKED.
+DRAFT_KEYS: tuple[str, ...] = ()
 
 # 상한 도달 안내(원문 승인, AG-08-09 A): 모델 호출 상한으로 끝났을 때 LLM 요약 없이 코드가 붙인다
 LIMIT_REACHED = "답을 정리하다 시간이 다 되어 여기까지 확인한 결과만 보여 드려요. 확인하지 못한 항목은 약국·약사에게 물어보세요."
@@ -210,7 +209,7 @@ FALLBACK_SOME_CONFIRMED = "{datasets}에서 확인된 내용만 아래에 보여
 FALLBACK_SOME_DATASET_DATED = "{label}(기준일 {doc_date})"
 FALLBACK_SOME_DATASET_SEP = "·"
 FALLBACK_SOME_NO_DATE = "공공 자료에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요."  # 자료 이름을 모를 때
-BLOCKED_NO_SOURCE_KIND = "출처 종류를 알 수 없는 근거는 보여 드리지 않아요"  # 근거 항목 차단 안내(초안)
+BLOCKED_NO_SOURCE_KIND = "출처 종류를 알 수 없는 근거는 보여 드리지 않아요"  # 근거 항목 차단 안내(2026-11-16 승인)
 
 # --------------------------------------------------------------------------- 스트림 오류·상단 배너(0-E 1-1~1-3·2번 승인, BE-06 ⓐⓑ)
 # 오류 카드 본문. 키는 `events.ERROR_CODES`와 같다. 1-1은 프런트 `ERROR_BODY_RETRY`와 같은 문장이다(소유 위치는 승인 밖, 보고 선택지)
