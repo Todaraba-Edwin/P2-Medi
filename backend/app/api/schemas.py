@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.agent import fixed_phrases as fp
 from app.agent.finalize import _missing_text as _detail_missing_text  # finalize 항목 문구와 같은 규칙(사유 → 상수 문구)
-from app.tools.provenance import CITATION_DATE_LABELS, DATASET_LABELS, DATASET_PUBLISHER, PUBLISHER
+from app.tools.provenance import CITATION_DATE_LABELS, DATASET_LABELS, DATASET_PUBLISHER, PUBLISHER, SOURCE_KIND_PREFIX
 
 SCHEMA_VERSION = "chat_response@v1"
 
@@ -59,8 +59,12 @@ LABEL_DATASETS: tuple[str, ...] = ("eyak", "prmsn", "identify")
 _JUDGED_STATUS = ("FOUND", "NOT_LISTED")
 # 쌍(A × B) 판정 종류(BE-06-01 A). 이 종류의 항목은 제품 줄이 아니라 쌍 줄이다
 PAIR_KINDS: tuple[str, ...] = ("contra_pair",)
-# 상단 배너(`notice`)에 나갈 수 있는 값(BE-06-06 A). API 실패 배너 문구는 사용자 승인 전이라 아직 없다(문구 대기, 승인되면 여기에 더한다)
-NOTICE_TEXTS: tuple[str, ...] = (fp.LIMIT_REACHED,)
+# 상단 배너(`notice`)에 나갈 수 있는 값(BE-06-06 A). API 실패 배너는 0-E 2번 승인(2026-11-12)
+NOTICE_TEXTS: tuple[str, ...] = (fp.LIMIT_REACHED, fp.NOTICE_API_FAIL)
+# 허가사항 근거(허가정보 원문) 자료 키: 한 줄 설명(`label_help`)을 붙인다(BE-06-15 A)
+LABEL_HELP_DATASETS: tuple[str, ...] = ("prmsn",)
+DOSE_SECTION = "용법용량"  # 이 항목의 원문 인용 아래에 인용 고지(`quote_notice`)를 둔다(UI-611)
+_EASY_TEXT_MISSING_TAIL = fp.EASY_TEXT_MISSING.split("{drug}", 1)[1]
 
 Route = Literal["AGENT", "REFUSE"]
 EndReason = Literal["NORMAL", "CLARIFY", "REFUSE", "LIMIT", "VALIDATION_FALLBACK"]  # 응급 값 없음(BE-06-02 A)
@@ -68,6 +72,7 @@ SourceKind = Literal["API_DIRECT", "FILE", "CORPUS_QUOTE"]
 Bucket = Literal["found", "not_listed", "identified", "unconfirmed"]
 Target = Literal["product", "pair"]
 Grade = Literal["1", "2", "M"]
+GradeMissingReason = Literal["FETCH_FAIL", "OUT_OF_SCOPE"]  # 등급 정의는 청크 ID 조회라 SEARCH_MISS가 없다(PRD-15-03)
 
 
 class _Strict(BaseModel):
@@ -164,11 +169,28 @@ class DetailItem(_Strict):
     label_source: str | None = None
     missing_reason: str | None = None
     missing_text: str | None = None  # `missing_reason`을 코드 상수로 렌더한 문구(PRD-11-02)
+    # 서버 상수 글자 칸(화면은 받은 글자를 그대로 그린다)
+    source_kind_label: str | None = None  # 출처 종류 글자 `공식 파일` 등(BE-06-14 A, `provenance.SOURCE_KIND_PREFIX`)
+    label_help: str | None = None  # 허가사항 한 줄 설명(BE-06-15 A, `LABEL_ONE_LINE`). 허가정보 원문 근거에만
+    easy_text_missing_line: str | None = None  # 전문의약품 안내 줄(BE-06-15 A, `EASY_TEXT_MISSING`). 그 꼬리표가 있을 때만
+    quote_notice: str | None = None  # 용법용량 원문 인용 고지(UI-611, `DOSE_QUOTE_NOTICE`). 인용 바로 아래
 
     @model_validator(mode="after")
     def _missing_pair(self) -> DetailItem:
         if self.missing_text is not None and self.missing_reason is None:
             raise ValueError("missing_text는 missing_reason이 있을 때만 둔다")
+        expected = SOURCE_KIND_PREFIX.get(self.source_kind or "")
+        if self.source_kind_label is None:
+            self.source_kind_label = expected  # 출처 종류가 있으면 글자는 항상 서버가 채운다
+        elif self.source_kind_label != expected:
+            raise ValueError("source_kind_label은 출처 종류의 상수 글자(SOURCE_KIND_PREFIX) 그대로여야 한다")
+        if self.label_help not in (None, fp.LABEL_ONE_LINE):
+            raise ValueError("label_help는 상수 LABEL_ONE_LINE 그대로여야 한다")
+        if self.quote_notice not in (None, fp.DOSE_QUOTE_NOTICE):
+            raise ValueError("quote_notice는 상수 DOSE_QUOTE_NOTICE 그대로여야 한다")
+        if self.easy_text_missing_line is not None and not (
+                "EASY_TEXT_MISSING" in self.flags and self.easy_text_missing_line.endswith(_EASY_TEXT_MISSING_TAIL)):
+            raise ValueError("easy_text_missing_line은 그 꼬리표가 있을 때 상수 EASY_TEXT_MISSING으로만 만든다")
         return self
 
 
@@ -179,6 +201,21 @@ class Ingredient(_Strict):
     name: str  # 표시명
     contra_kinds: list[str] = Field(default_factory=list)  # 이 성분이 걸린 금기 종류 키(`BADGE_ORDER`)
     dup: bool = False  # 같은 성분 중복 여부
+    # 상태 글자(BE-06-13 A): `병용금기 원인`·`금기 원인`·`중복` 서버 상수. `contra_kinds`·`dup`에서 코드가 정하고 화면은 그대로 그린다
+    state_labels: list[str] = Field(default_factory=list)
+    code_missing_text: str | None = None  # 성분코드 미확보 안내(UI-021, `INGR_CODE_MISSING_TEXT`). 코드가 없을 때만
+
+    @model_validator(mode="after")
+    def _labels(self) -> Ingredient:
+        expected = fp.ingredient_state_labels(self.contra_kinds, self.dup)
+        if not self.state_labels:
+            self.state_labels = expected
+        elif self.state_labels != expected:
+            raise ValueError("state_labels는 contra_kinds·dup에서 정한 서버 상수 글자 그대로여야 한다")
+        if self.code_missing_text is not None and (
+                self.code is not None or self.code_missing_text not in fp.INGR_CODE_MISSING_TEXT.values()):
+            raise ValueError("code_missing_text는 성분코드가 없을 때 상수 INGR_CODE_MISSING_TEXT의 값만 쓴다")
+        return self
 
 
 class Badge(_Strict):
@@ -231,7 +268,8 @@ class Finding(_Strict):
     reference_line: str | None = None
     # 연령금기 나이 기준 값(FE-07-18): 원문 값 그대로(예: "만 12세 미만"). 나이를 특정할 수 없을 때 판정 대신 보이는 정보다
     age_criteria: list[str] = Field(default_factory=list)
-    age_info_line: str | None = None  # 위 정보 줄의 안내 문구 자리. 문구 대기(사용자 승인 전)라 지금은 항상 None
+    age_info_line: str | None = None  # 위 정보 줄의 안내 문구(상수 `AGE_INFO_LINE`, 0-E 3번 승인). 나이 기준 값이 있을 때만
+    sub_line: str | None = None  # 표지 아래 보조줄(코드가 만든 값: 식별된 약의 성분 이름, 근거 없음 카드의 `UNIDENTIFIED_SUB_LINE`)
 
     @model_validator(mode="after")
     def _check(self) -> Finding:
@@ -242,8 +280,8 @@ class Finding(_Strict):
         ranks = [_badge_rank(b) for b in self.badges]
         if ranks != sorted(ranks):
             raise ValueError("배지 순서는 병용 → 임부 → 연령, 등급 불일치는 파일 → 성분 API여야 한다")
-        if self.age_info_line is not None:
-            raise ValueError("age_info_line 문구는 승인 전이다(문구 대기)")
+        if self.age_info_line is not None and (self.age_info_line != fp.AGE_INFO_LINE or not self.age_criteria):
+            raise ValueError("age_info_line은 상수 AGE_INFO_LINE 그대로이고 나이 기준 값(age_criteria)이 있을 때만 둔다")
         return self
 
 
@@ -263,11 +301,41 @@ class Emergency(_Strict):
 
     text: str
     tel: str
+    wide_text: str = fp.EMERGENCY_119_WIDE  # 넓은 폭에서만 보이는 보조 문장(FE-07-15 A). 연락처가 아니라 방법 안내
 
     @model_validator(mode="after")
     def _const(self) -> Emergency:
-        if self.text != fp.EMERGENCY_119 or self.tel != fp.EMERGENCY_119_TEL:
-            raise ValueError("emergency는 상수 EMERGENCY_119·EMERGENCY_119_TEL 그대로여야 한다")
+        if self.text != fp.EMERGENCY_119 or self.tel != fp.EMERGENCY_119_TEL or self.wide_text != fp.EMERGENCY_119_WIDE:
+            raise ValueError("emergency는 상수 EMERGENCY_119·EMERGENCY_119_TEL·EMERGENCY_119_WIDE 그대로여야 한다")
+        return self
+
+
+class GradeDef(_Strict):
+    """등급 정의 블록 하나(BE-06-16 A, PRD-09-04·PRD-15-03). 원문(`text`)과 미확보 사유는 둘 중 하나만 있다.
+
+    제목·미확보 문구는 상수이고 원문·출처 줄은 코드가 청크에서 읽은 글자 그대로다. 원문이 없으면 출처 줄도 없다.
+    """
+
+    grade: Grade
+    title: str
+    text: str | None = None
+    source: str | None = None
+    missing_reason: GradeMissingReason | None = None
+    missing_text: str | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> GradeDef:
+        if self.title != fp.GRADE_DEF_TITLE.format(grade=self.grade):
+            raise ValueError("등급 정의 블록 제목은 상수 GRADE_DEF_TITLE 그대로여야 한다")
+        if (self.text is None) == (self.missing_reason is None):
+            raise ValueError("등급 정의 블록은 원문과 미확보 사유 중 하나만 가진다")
+        if self.missing_reason is not None:
+            if self.source is not None:
+                raise ValueError("원문이 없는 등급 정의 블록에는 출처 줄을 두지 않는다")
+            if self.missing_text != fp.GRADE_DEF_MISSING_TEXT[self.missing_reason].format(grade=self.grade):
+                raise ValueError("등급 정의 미확보 문구는 상수 GRADE_DEF_MISSING_TEXT 그대로여야 한다")
+        elif self.missing_text is not None or not (self.text or "").strip():
+            raise ValueError("원문이 있는 등급 정의 블록은 원문이 비지 않고 미확보 문구가 없다")
         return self
 
 
@@ -282,11 +350,14 @@ class ChatResponse(_Strict):
     summary: str | None
     findings: list[Finding] = Field(default_factory=list)
     candidates: list[Candidate] = Field(default_factory=list)
+    candidates_line: str | None = None  # 되묻기 카드 안내(상수 `CLARIFY_PICK_LINE`). 후보가 있을 때만, 있으면 항상
+    not_checked_lines: list[str] = Field(default_factory=list)  # 정보가 없어 확인하지 못한 종류의 줄(상수 `NOT_CHECKED_LINES`, FE-07-16 B)
     detail: list[DetailItem] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
     sentence_refs: list[SentenceRef] = Field(default_factory=list)
     grade_def_missing: list[str] = Field(default_factory=list)
-    pharmacist_advice: list[str] = Field(default_factory=list)
+    grade_defs: list[GradeDef] = Field(default_factory=list)  # 등급 정의 블록 구조(BE-06-16 A). 위 줄 목록은 그대로 둔다
+    pharmacist_advice: list[str] = Field(default_factory=list)  # 미확보 항목이 있으면 비지 않는다(BE-06-17 A)
     fixed_notice: list[str] = Field(min_length=1)  # 줄 목록: (미확보가 있으면) 약사 확인 권고 → 고정 문구
     disclaimer: str = Field(min_length=1)
 
@@ -307,6 +378,19 @@ class ChatResponse(_Strict):
             raise ValueError("notice는 상수 목록(NOTICE_TEXTS)의 값만 쓴다")
         if self.candidates and self.end_reason != "CLARIFY":
             raise ValueError("candidates는 되묻기(CLARIFY) 응답에만 둔다")
+        if self.candidates:
+            if self.candidates_line is None:
+                self.candidates_line = fp.CLARIFY_PICK_LINE
+            elif self.candidates_line != fp.CLARIFY_PICK_LINE:
+                raise ValueError("candidates_line은 상수 CLARIFY_PICK_LINE 그대로여야 한다")
+        elif self.candidates_line is not None:
+            raise ValueError("candidates_line은 후보가 있을 때만 둔다")
+        if any(x not in fp.NOT_CHECKED_LINES.values() for x in self.not_checked_lines):
+            raise ValueError("not_checked_lines는 상수 NOT_CHECKED_LINES의 값만 쓴다")
+        missing = (any(f.unresolved for f in self.findings) or any(d.missing_reason for d in self.detail)
+                   or bool(self.grade_def_missing) or any(g.missing_reason for g in self.grade_defs))
+        if missing and not any(isinstance(x, str) and x.strip() for x in self.pharmacist_advice):
+            raise ValueError("미확보 항목이 있으면 pharmacist_advice(약사 확인 권고)가 비어 있을 수 없다")  # BE-06-17 A
         return self
 
 
@@ -368,13 +452,18 @@ def _detail_item(d: dict[str, Any]) -> DetailItem:
     sk = d.get("source_kind") if d.get("source_kind") in ("API_DIRECT", "FILE", "CORPUS_QUOTE") else None
     drugs = [str(x) for x in d["drugs"]] if isinstance(d.get("drugs"), list) else None
     reason = d.get("missing_reason")
+    flags = list(d.get("flags") or [])
+    name = drugs[0] if drugs and len(drugs) == 1 else (str(d["name"]) if d.get("name") else None)
     return DetailItem(
         evidence_id=d.get("evidence_id"), kind=d.get("kind"), status=d.get("status"), source_kind=sk, dataset_key=d.get("dataset_key"),
         dataset=ds, publisher=pub, dates=date_lines(d) if sk else [DateLine(label=DATE_LABEL_NONE, value=None)],
-        drug_name=drugs[0] if drugs and len(drugs) == 1 else None, section=d.get("section"),
-        flags=list(d.get("flags") or []), notes=[str(x) for x in d.get("notes") or []], rows=[dict(r) for r in d.get("rows") or []],
+        drug_name=name, section=d.get("section"),
+        flags=flags, notes=[str(x) for x in d.get("notes") or []], rows=[dict(r) for r in d.get("rows") or []],
         drugs=drugs, item_seq=d.get("item_seq"), label_source=d.get("label_source"),
         missing_reason=reason, missing_text=_detail_missing_text(d) if reason else None,
+        label_help=fp.LABEL_ONE_LINE if sk and d.get("dataset_key") in LABEL_HELP_DATASETS else None,
+        easy_text_missing_line=fp.EASY_TEXT_MISSING.format(drug=name) if name and "EASY_TEXT_MISSING" in flags else None,
+        quote_notice=fp.DOSE_QUOTE_NOTICE if d.get("section") == DOSE_SECTION and d.get("rows") else None,
     )
 
 
@@ -429,7 +518,7 @@ def _badge(b: dict[str, Any]) -> Badge:
 
 
 _FINDING_PASS = ("bucket", "evidence_id", "kind", "drug", "text", "notes", "source_label", "unresolved", "grades", "notice_nos", "note",
-                 "input_name", "why", "next", "retried_line", "reference_line")
+                 "input_name", "why", "next", "retried_line", "reference_line", "sub_line", "age_criteria", "age_info_line")
 
 
 def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]]) -> Finding:
@@ -445,6 +534,7 @@ def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_i
         badges=badges_by_id.get(e.get("evidence_id") or "", []) if e.get("bucket") == "found" else [],
         searched=[Searched(dataset=s.get("dataset"), count=s.get("count")) for s in e.get("searched") or [] if isinstance(s, dict)],
         retried=bool(e.get("retried_line")) if unidentified else None,
+        ingredients=[Ingredient(**i) for i in e.get("ingredients") or [] if isinstance(i, dict) and i.get("name")],
         **{k: e[k] for k in _FINDING_PASS if e.get(k) is not None},
     )
 
@@ -478,6 +568,8 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
         end_reason=end_reason,  # type: ignore[arg-type]
         emergency=emergency,
         notice=resp.get("notice"),
+        not_checked_lines=list(resp.get("not_checked_lines") or []),
+        grade_defs=[GradeDef(**g) for g in resp.get("grade_defs") or [] if isinstance(g, dict)],
         summary=resp.get("summary"),
         findings=[_finding(e, detail_by_id, badges_by_id) for e in resp.get("entries") or [] if isinstance(e, dict)],
         candidates=_candidates(clarify) if end_reason == "CLARIFY" else [],

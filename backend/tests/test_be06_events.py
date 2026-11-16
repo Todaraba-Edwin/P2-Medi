@@ -89,12 +89,19 @@ def test_event_lines_are_flat_type_discriminated_ndjson():
 
 def test_error_event_codes_and_pending_message():
     e = ev.error(0, "INTERNAL_ERROR")
-    assert e.code in ERROR_CODES and e.message is None  # 문구 대기: 문구를 지어내지 않는다
+    # 2026-11-12 승인(0-E 1-1~1-3): 문구 대기(null)에서 상수 문구로 바뀌었다. 지어낸 문구는 여전히 거부한다
+    assert e.code in ERROR_CODES and e.message == fp.ERROR_INTERNAL
+    for code in ERROR_CODES:
+        assert ev.error(0, code).message == fp.ERROR_MESSAGES[code] and fp.ERROR_MESSAGES[code].strip()
+    with pytest.raises(ValidationError):
+        ErrorEvent(seq=0, code="INTERNAL_ERROR")  # 문구 없는 오류 이벤트도 거부(상수 그대로여야 한다)
+    with pytest.raises(ValidationError):
+        ErrorEvent(seq=0, code="TIMEOUT", message=fp.ERROR_INTERNAL)  # 다른 코드의 문구
     with pytest.raises(ValidationError):
         ErrorEvent(seq=0, code="INTERNAL_ERROR", message="지어낸 오류 문구")
     with pytest.raises(ValidationError):
         ErrorEvent(seq=0, code="SOMETHING")  # type: ignore[arg-type]
-    assert json.loads(encode_event(e)) == {"seq": 0, "schema_version": "chat_event@v1", "type": "error", "code": "INTERNAL_ERROR", "message": None}
+    assert json.loads(encode_event(e)) == {"seq": 0, "schema_version": "chat_event@v1", "type": "error", "code": "INTERNAL_ERROR", "message": fp.ERROR_INTERNAL}
 
 
 # --------------------------------------------------------------------------- 순서 규칙

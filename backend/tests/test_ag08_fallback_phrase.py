@@ -119,7 +119,9 @@ def test_phrases_never_assert_safety(items):
     assert not any(w in text for w in ("안전", "괜찮", "문제없", "문제 없")) and not any(t in text for t in fp.FORBIDDEN_SCREEN_TERMS)
     for const in (fp.FALLBACK_NONE_CONFIRMED, fp.FALLBACK_NONE_NO_SCOPE, fp.FALLBACK_SOME_CONFIRMED, fp.FALLBACK_SOME_NO_DATE):
         assert unsafe_reason(const.format(scope="x", datasets="x")) is None
-    assert "FALLBACK_SOME_CONFIRMED" in fp.DRAFT_KEYS and "FALLBACK_NONE_SCOPE_DOC" in fp.DRAFT_KEYS
+    # Recap 0-1 승인(2026-11-12, 하네스 3.4절 표): 폴백 문구는 초안 목록에서 해제됐다
+    assert "FALLBACK_SOME_CONFIRMED" not in fp.DRAFT_KEYS and "FALLBACK_NONE_SCOPE_DOC" not in fp.DRAFT_KEYS
+    assert "FALLBACK_NONE_CONFIRMED" not in fp.DRAFT_KEYS
     sent = Sentence(text=text, evidence_ids=[], claim_type="guidance", citations=[])
     assert unsafe_reason(sent.text) is None
     fr = filter_sentences(AnswerDraft(sentences=[sent]), items)  # 문장 필터·Validator가 0건 걸러낸다

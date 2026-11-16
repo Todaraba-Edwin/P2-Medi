@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agent import fixed_phrases as fp
+from app.agent import josa
 from app.agent.answer_schema import Sentence
 from app.agent.patterns import has_code
 from app.agent.renderer import render
@@ -29,6 +30,9 @@ _DEMOTE_FLAGS = ("CODE_NOT_LINKED", "LOOKUP_FAILED", "AMBIGUOUS_NAME", "REFERENC
 _JUDGED_STATUS = ("FOUND", "NOT_LISTED")
 _DEFAULT_NOTE_FLAGS = ("API_SAME", "FILE_ONLY", "API_ONLY", "API_FAIL", "API_PAIR_INCOMPLETE", "TRUNCATED")
 _FLAG_TEXT = {**fp.FLAG_LINES, "INVALID_CODE": fp.INVALID_CODE, "PAIR_NOT_CHECKED": fp.PAIR_NOT_CHECKED}
+# 실시간 확인 실패 꼬리표: 하나라도 있으면 상단 배너(`NOTICE_API_FAIL`)를 건다. 파일 판정은 그대로다
+_API_FAIL_FLAGS = ("API_FAIL", "API_PAIR_INCOMPLETE")
+_GRADES = ("1", "2", "M")
 
 
 def _kind_rank(kind: str | None) -> int:
@@ -99,6 +103,21 @@ def _source_label(it: dict[str, Any]) -> str | None:
     return fp.SOURCE_KIND_TEXT.get(sk) if sk else None
 
 
+def _age_criteria(it: dict[str, Any]) -> list[str]:
+    """연령금기 나이 기준 값(원문 값, PRD-09 §7.4 `{특정연령}{특정연령단위} {연령처리조건}`). 값이 빠진 행은 만들지 않는다(지어내지 않음).
+    도구가 원문 값 목록(`age_criteria`)을 직접 주면 그대로 쓴다. 같은 값은 한 번만."""
+    given = it.get("age_criteria")
+    if isinstance(given, list) and given:
+        return list(dict.fromkeys(str(x) for x in given if x))
+    out: list[str] = []
+    for m in it.get("matches") or []:
+        v, unit, cond = m.get("age_value"), m.get("age_unit"), m.get("age_cond")
+        if v is None or not unit or not cond:
+            continue
+        out.append(f"{v}{unit} {cond}")
+    return list(dict.fromkeys(out))
+
+
 def _entry(it: dict[str, Any], bucket: int) -> dict[str, Any]:
     st, kind = it.get("status"), it.get("kind")
     e: dict[str, Any] = {
@@ -113,17 +132,24 @@ def _entry(it: dict[str, Any], bucket: int) -> dict[str, Any]:
             e["note"] = fp.BADGE_PREGNANCY_M_NOTE
         e["grades"] = [g for g in dict.fromkeys(_grade_norm(m.get("grade")) for m in it.get("matches") or []) if g]
         e["notice_nos"] = [m["notice_no"] for m in it.get("matches") or [] if m.get("notice_no")]
+        if kind == "age":  # AG-08-17 A: 배지는 `BADGE_AGE` 그대로, 나이 값은 보조줄 값으로 따로 준다
+            e["age_criteria"] = _age_criteria(it)
     elif bucket == BUCKET_NOT_LISTED:
         e["text"] = fp.NOT_LISTED
     elif bucket == BUCKET_IDENTIFIED:
         ingr = [i.get("display") or i.get("name_ko") or i.get("name_en") for i in it.get("ingredients") or []]
         ingr = [str(x) for x in ingr if x]
-        e["text"] = (fp.IDENTIFIED_LINE.format(drug=e["drug"], ingredients=" · ".join(ingr)) if ingr
-                     else fp.IDENTIFIED_LINE_NO_INGR.format(drug=e["drug"]))
+        e["text"] = fp.IDENTIFIED_LINE  # AG-08-12 B: 표지 "찾음" + 보조줄(성분 이름). 문장은 만들지 않는다
+        e["sub_line"] = fp.IDENTIFIED_SUB_SEP.join(ingr) if ingr else None
+        e["ingredients"] = [{"name": n} for n in ingr]
     else:
         e["unresolved"] = True
         e["text"] = _unconfirmed_text(it, st, flags)
-        if kind == "identify" or st == "UNIDENTIFIED":
+        e["notes"] = [n for n in e["notes"] if n != e["text"]]  # 줄 글자와 같은 문구를 꼬리 안내로 한 번 더 내지 않는다
+        # 쌍을 조회하지 못한 줄은 약을 못 찾은 줄이 아니다: 미식별 안내(못 찾은 이유·다음 행동)를 붙이지 않는다
+        if (kind == "identify" or st == "UNIDENTIFIED") and "PAIR_NOT_CHECKED" not in flags:
+            if kind == "identify":  # 근거 없음 카드 보조줄(UI-019)
+                e["sub_line"] = josa.fill(fp.UNIDENTIFIED_SUB_LINE, drug=str(it.get("input_name") or e["drug"]))
             if it.get("input_name"):
                 e["input_name"] = it["input_name"]
             e["why"] = fp.UNIDENTIFIED_WHY
@@ -260,6 +286,8 @@ def finalize(
     refuse_reason: str | None = None,
     grade_def_missing: list[dict[str, Any]] | None = None,
     validation_fallback: bool = False,
+    grade_defs: list[dict[str, Any]] | None = None,
+    not_checked: list[str] | None = None,
 ) -> dict[str, Any]:
     """응답 딕셔너리를 만든다. 고정 문구는 인자·모델 출력과 무관하게 항상 들어간다.
 
@@ -267,6 +295,10 @@ def finalize(
     - `refuse_reason`: 입구 거절 이유 키(`guardrail.classify_scope`). 거절 문구가 요약 자리에 들어간다.
     - `validation_fallback`: 두 번째 검증 실패. 모델 요약은 없고 코드 폴백 문구(`fallback_summary`)가 요약 자리에 들어간다.
     - `grade_def_missing`: `[{"grade": "2", "missing_reason": "FETCH_FAIL"|"OUT_OF_SCOPE"}]` 등급 정의 블록 미확보(PRD-15-03).
+    - `grade_defs`: `[{"grade": "2", "text": 원문, "source": 출처 줄}]` 확보한 등급 정의 원문(코드가 청크에서 읽은 글자 그대로, BE-06-16 A).
+      미확보와 함께 구조(`grade_defs`: 제목·원문·출처·미확보 사유)로 나간다. 원문이 없는 블록에는 출처 줄이 없다.
+    - `not_checked`: 정보가 없어 확인하지 못한 금기 종류 키(예: 임신 여부 미입력 → `["pregnancy"]`, FE-07-16 B). 승인 문장이 있는 종류만 줄이 된다.
+      대상이 아닌 종류(임신 아님, 약 하나뿐인 병용)는 넘기지 않는다: 줄을 그리지 않는다(AG-08-18 A).
     """
     items = [it for it in items or [] if isinstance(it, dict)]
     buckets = [(it, _bucket(it)) for it in items]
@@ -283,17 +315,34 @@ def finalize(
     rendered = render([it for it in items if it.get("evidence_id") not in blocked_ids], sentences or [])
     warnings.extend(rendered.warnings)
     badges = _badges(found_items, rendered.badges)
+    mismatch_ids = {b["evidence_id"] for b in badges if b.get("source_tail_key")}
+    for d in rendered.detail:  # 등급 불일치 안내(UI-020): 근거 상세의 그 근거에만 붙인다
+        if d.get("evidence_id") in mismatch_ids:
+            d["notes"] = [*(d.get("notes") or []), fp.GRADE_MISMATCH_NOTE]
+    not_checked_lines = [fp.NOT_CHECKED_LINES[k] for k in dict.fromkeys(not_checked or []) if k in fp.NOT_CHECKED_LINES]
 
-    unresolved = any(e["unresolved"] for e in entries) or limit_reached
+    unresolved = any(e["unresolved"] for e in entries) or limit_reached or bool(not_checked_lines)
     names = list(dict.fromkeys(n for e in entries if e["unresolved"] for n in _names_of(e)))
     advice: list[str] = []
     if any(e["unresolved"] for e in entries):
-        advice.append(fp.PHARMACIST_ADVICE.format(drugs=" · ".join(names)) if names else fp.PHARMACIST_ADVICE_NO_NAMES)
+        advice.append(josa.fill(fp.PHARMACIST_ADVICE, drugs=" · ".join(names)) if names else fp.PHARMACIST_ADVICE_NO_NAMES)
     gd_lines: list[str] = []
+    gd_blocks: list[dict[str, Any]] = []
+    for g in grade_defs or []:
+        grade, text = _grade_norm(g.get("grade")), g.get("text")
+        if grade in _GRADES and isinstance(text, str) and text.strip():
+            src = g.get("source")
+            gd_blocks.append({"grade": grade, "title": fp.GRADE_DEF_TITLE.format(grade=grade), "text": text,
+                              "source": src if isinstance(src, str) and src.strip() else None, "missing_reason": None, "missing_text": None})
     for g in grade_def_missing or []:
         tmpl = fp.GRADE_DEF_MISSING_TEXT.get(g.get("missing_reason"))
         if tmpl:
-            gd_lines.append(tmpl.format(grade=_grade_norm(g.get("grade")) or ""))
+            grade = _grade_norm(g.get("grade")) or ""
+            gd_lines.append(tmpl.format(grade=grade))
+            if grade in _GRADES:  # 등급 값을 모르는 블록은 구조로 만들지 않는다(줄 문구는 위 목록에 그대로)
+                gd_blocks.append(
+                    {"grade": grade, "title": fp.GRADE_DEF_TITLE.format(grade=grade), "text": None, "source": None,
+                     "missing_reason": g["missing_reason"], "missing_text": gd_lines[-1]})
     if gd_lines:
         advice.append(fp.GRADE_DEF_PHARMACIST_ADVICE)
 
@@ -312,14 +361,19 @@ def finalize(
     resp: dict[str, Any] = {
         "emergency": fp.EMERGENCY_119 if emergency else None,
         "emergency_tel": fp.EMERGENCY_119_TEL if emergency else None,
+        "emergency_wide": fp.EMERGENCY_119_WIDE if emergency else None,
         "route": "REFUSE" if refuse_reason else "AGENT",
-        "notice": fp.LIMIT_REACHED if limit_reached else None,
+        # 배너 칸은 하나다(BE-06-06 A): 상한 도달이 먼저, 아니면 실시간 확인 실패
+        "notice": fp.LIMIT_REACHED if limit_reached else (
+            fp.NOTICE_API_FAIL if any(f in (it.get("flags") or []) for it in items for f in _API_FAIL_FLAGS) else None),
         "summary": summary,
         "entries": entries,
         "badges": badges,
         "detail": rendered.detail,
         "citations": rendered.citations,
+        "not_checked_lines": not_checked_lines,
         "grade_def_missing": gd_lines,
+        "grade_defs": gd_blocks,
         "pharmacist_advice": advice,
         "pharmacist_advice_fixed": fp.PHARMACIST_ADVICE_FIXED if unresolved else None,
         "fixed_notice": fp.FIXED_NOTICE,
@@ -348,10 +402,18 @@ def render_text(resp: dict[str, Any]) -> str:
     for e in resp["entries"]:
         head = f"[{e['drug']}] " if e.get("drug") else ""
         lines.append(head + e["text"])
-        for k in ("why", "retried_line", "next", "reference_line"):
+        for k in ("sub_line", "why", "retried_line", "next", "reference_line", "age_info_line"):
             if e.get(k):
                 lines.append("  " + e[k])
+        lines.extend("  " + c for c in e.get("age_criteria") or [])
         lines.extend("  " + n for n in e["notes"])
+    lines.extend(resp.get("not_checked_lines") or [])
+    for g in resp.get("grade_defs") or []:
+        if g.get("text"):
+            lines.append(g["title"])
+            lines.append("  " + g["text"])
+            if g.get("source"):
+                lines.append("  " + g["source"])
     lines.extend(resp.get("grade_def_missing") or [])
     lines.extend(resp.get("pharmacist_advice") or [])
     if resp.get("pharmacist_advice_fixed"):

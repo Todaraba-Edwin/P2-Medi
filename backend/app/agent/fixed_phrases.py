@@ -2,8 +2,8 @@
 
 - 원본: `P2-doc/PJ2-Agent-Harness.md` 3.4절 표, `P2-doc/PJ2-RFP.md` 7장(고지), `tickets/doc/PRD-11.md` §6.6~6.7,
   `tickets/doc/PRD-09.md`(표지), `tickets/doc/PRD-14.md`(미식별), `tickets/doc/PRD-15.md`(등급 정의 블록).
-- **초안 표시**: 문서에 문구가 없는 것(응급 안내 본문·거절 이유·상한 도달·미식별 다음 행동·`LOOKUP_FAILED`·`TRUNCATED`·
-  `DRAFT_ONLY` 목록)은 아래 `DRAFT_KEYS`에 이름을 적었다. 사용자·디자인 세션 승인 전이다.
+- **초안 표시**: 사용자 승인 전인 문구는 아래 `DRAFT_KEYS`에 이름을 적었다. 2026-11-12 승인분(AG-08-04~18, Recap 0-1·0-E:
+  `tickets/agent/AG-08.md` §5 "승인 문구 원본" 표, 하네스 3.4절 표)은 목록에서 뺐다. 거절 문구는 `REFUSE_DRAFT_KEYS`가 초안인 이유 키다.
 - 내부 용어(상태명·`L3`·"약 이름 사전"·"공식 약 목록")는 화면 문구에 넣지 않는다(시험이 막는다).
 - 응급 안내는 119와 약국·약사 안내만 쓴다(RFP-19-01 A, 출처 미확인 연락처 금지).
 """
@@ -13,7 +13,9 @@ from __future__ import annotations
 from app.tools.provenance import FLAG_NOTES, NOT_SAFE
 
 # --------------------------------------------------------------------------- 119·고지·약사 권고
-EMERGENCY_119 = "응급 상황일 수 있어요. 지금 바로 119에 전화하세요."  # 초안(문서에 본문 없음). 119 외 연락처·처치는 쓰지 않는다
+EMERGENCY_119 = "응급 상황일 수 있어요. 지금 바로 119에 전화하세요."  # 원문 승인(AG-08-04 A). 119 외 연락처·처치는 쓰지 않는다
+# 넓은 폭 응급 보조 문장(FE-07-15 A, 0-E 5번 승인). 연락처가 아니라 방법 안내이며 프런트가 넓은 폭에서만 보인다
+EMERGENCY_119_WIDE = "컴퓨터로 보고 있다면 휴대폰으로 119에 전화하세요."
 EMERGENCY_119_TEL = "tel:119"
 
 # PJ2-RFP.md 7장 고지 항목(따옴표 안 문구 그대로)
@@ -29,7 +31,7 @@ NOT_SAFE_NOTICE = "금기 목록에 없다는 것이 안전하다는 뜻이 아�
 PHARMACIST_CHECK_NOTICE = "근처 약국·약사에게 확인하세요."
 FIXED_NOTICE = f"{NOT_SAFE_NOTICE} {PHARMACIST_CHECK_NOTICE}"
 
-# 미확보 항목의 약사 확인 권고(PRD-11 §6.7). `{drugs}`는 약 이름 나열
+# 미확보 항목의 약사 확인 권고(PRD-11 §6.7). `{drugs}`는 약 이름 나열. "을(를)"은 `josa.fill`이 받침으로 고른다(AG-08-15 B)
 PHARMACIST_ADVICE = "복용 전에 꼭 약국·약사에게 {drugs}을(를) 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요."
 PHARMACIST_ADVICE_NO_NAMES = "복용 전에 꼭 약국·약사에게 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요."  # 약 이름이 없을 때(초안)
 PHARMACIST_ADVICE_FIXED = "확인하지 못한 항목이 있어요. 복용 전에 꼭 약국·약사에게 확인하세요."  # 접히지 않는 고정 영역 한 줄(PRD-11 §6.7)
@@ -45,17 +47,28 @@ LABEL_ONE_LINE = "허가사항: 식약처가 의약품을 허가할 때 정한 �
 # 미식별 박스(PRD-14-01·02·04)
 UNIDENTIFIED_WHY = "식약처·한국의약품안전관리원 자료에서 찾지 못했어요"
 UNIDENTIFIED_RETRIED = "표기를 바꿔 한 번 더 찾아봤어요"
-UNIDENTIFIED_NEXT = "봉투나 상자에 적힌 제품명을 그대로 다시 알려 주세요"  # 초안
-UNIDENTIFIED_NOT_SAFE = "찾지 못했다는 뜻이며 안전하다는 뜻이 아니에요"  # 초안
-IDENTIFIED_LINE = "{drug}: 약을 확인했어요(성분 {ingredients})"  # 금기 목록 문구 없음(PRD-14-04)
-IDENTIFIED_LINE_NO_INGR = "{drug}: 약을 확인했어요"
+UNIDENTIFIED_NEXT = "봉투나 상자에 적힌 제품명을 그대로 다시 알려 주세요"  # 원문 승인(AG-08-05 A)
+UNIDENTIFIED_NOT_SAFE = "찾지 못했다는 뜻이며 안전하다는 뜻이 아니에요"  # 원문 승인(AG-08-06 A)
+# 근거 없음 카드 보조줄(UI-019, 0-E 7-1 승인). "을(를)"은 `josa.fill`이 고른다
+UNIDENTIFIED_SUB_LINE = "{drug}을(를) 찾지 못해 금기를 확인하지 못했어요. 안전하다는 뜻이 아니에요."
+# 식별된 약 줄(AG-08-12 B, PRD-14 §5.2): 표지 글자 "찾음" + 보조줄(성분 이름을 `IDENTIFIED_SUB_SEP`로 이음). "금기 목록에 없음"은 쓰지 않는다
+IDENTIFIED_LINE = "찾음"
+IDENTIFIED_SUB_SEP = " · "
+# 정보가 없어 확인하지 못한 종류의 줄(FE-07-16 B, 0-E 6번 승인). 승인 문장은 임부금기 한 가지이고 틀은 기록용이다
+NOT_CHECKED_TEMPLATE = "{info}를 알 수 없어 {kind}는 확인하지 못했어요"
+PREGNANCY_NOT_CHECKED = "임신 여부를 알 수 없어 임부금기는 확인하지 못했어요."
+NOT_CHECKED_LINES = {"pregnancy": PREGNANCY_NOT_CHECKED}  # 금기 종류 키 → 줄. 승인 문장이 없는 종류는 줄을 만들지 않는다
+# 나이를 특정할 수 없을 때 나이별 연령금기 원문 값 위에 두는 안내(FE-07-18, 0-E 3번 승인). 판정이 아니다
+AGE_INFO_LINE = "나이를 특정할 수 없어 판정하지 않고, 이 약의 나이별 연령금기 기준을 원문 그대로 보여 드려요."
+# 되묻기·오탈자 카드 안내(UI-620, 0-E 7-5 승인)
+CLARIFY_PICK_LINE = "어느 제품인지 고르면 금기를 확인해 드려요."
 
 # 성분코드 없음·참고 전용·이름 모호·조회 실패·잘림: 판정 문구가 아니다
 CODE_NOT_LINKED = FLAG_NOTES["CODE_NOT_LINKED"]
 AMBIGUOUS_NAME = FLAG_NOTES["AMBIGUOUS_NAME"]
 REFERENCE_ONLY = FLAG_NOTES["REFERENCE_ONLY"]
-LOOKUP_FAILED = "조회하지 못해 확인하지 못함. " + NOT_SAFE + ". 약사에게 확인하세요"  # 초안(FLAG_NOTES에 없음)
-TRUNCATED = "원문이 길어 일부만 보여 드려요. 전체는 약사에게 확인하세요"  # 초안(FLAG_NOTES에 없음)
+LOOKUP_FAILED = "조회하지 못해 확인하지 못함. " + NOT_SAFE + ". 약사에게 확인하세요"  # 하네스 3.4절 표(2026-11-12 승인)
+TRUNCATED = "원문이 길어 일부만 보여 드려요. 전체는 약사에게 확인하세요"  # 하네스 3.4절 표(2026-11-12 승인)
 REFERENCE_ONLY_LINE = "참고: {drug}는 다른 제형에서 금기 목록에 있어요. 이 제품에 대한 판정은 아니에요"  # 판정 문구 아님(초안)
 
 # 도구 꼬리표 → 한 줄(`FLAG_NOTES` 재사용). 키는 화면에 나가지 않는다
@@ -93,6 +106,15 @@ GRADE_DEF_MISSING_TEXT = {
     "OUT_OF_SCOPE": "임부금기 {grade}등급의 뜻(고시 원문)을 아직 준비하지 못했어요.",
 }
 GRADE_DEF_PHARMACIST_ADVICE = "등급의 뜻이 궁금하면 약국·약사에게 물어보세요."
+GRADE_DEF_TITLE = "임부금기 {grade}등급이란?"  # 등급 정의 블록 제목(PRD-09 §7.2·§7.3 글자 그대로, BE-06-16 A)
+
+# 근거 상세 안내 줄(0-E 승인, AG-08-16 A)
+GRADE_MISMATCH_NOTE = "파일 자료와 실시간 조회의 등급이 달라요. 어느 쪽이 맞는지 정하지 않고 둘 다 출처와 함께 보여 드려요."  # UI-020, 7-2
+INGR_CODE_MISSING_TEXT = {  # UI-021, 7-3: 성분코드 미확보 원인별 2종
+    "ABSENT": "성분코드는 자료에 적혀 있지 않아요",
+    "FETCH_FAIL": "성분코드는 지금 불러오지 못했어요",
+}
+DOSE_QUOTE_NOTICE = "허가사항 원문 인용이며 복용 지시가 아닙니다. 복용량은 약사·의사에게 확인하세요."  # UI-611, 7-4(RFP-21-03 원문, 합니다체)
 
 # --------------------------------------------------------------------------- `source_kind` 표지(내부 용어 없음)
 SOURCE_KIND_TEXT = {
@@ -112,9 +134,32 @@ BADGE_ORDER = ("contra_pair", "pregnancy", "age")  # `kind` 키 순서(화면이
 BADGE_SOURCE_TAIL = {"FILE": "(파일)", "API_DIRECT": "(성분 API)"}
 BADGE_TAIL_ORDER = ("FILE", "API_DIRECT")
 # 금기가 아닌 주의 종류(초안). "삐!"는 금기 발견 전용이라 쓰지 않는다
-CAUTION_LABELS = {"dose": "용량 주의", "lactation": "수유부 주의", "elderly": "노인 주의", "dup_ingredient": "같은 성분 중복"}
+# `dup_ingredient`는 PRD-09 §7.4 글자(AG-08-10 B, 확정). 나머지 셋은 초안이다
+CAUTION_LABELS = {"dose": "용량 주의", "lactation": "수유부 주의", "elderly": "노인 주의", "dup_ingredient": "성분 중복"}
 
-# --------------------------------------------------------------------------- 입구 거절(초안, `guardrail.classify_scope` 이유 키)
+# 성분 칩 상태 글자(BE-06-13 A, PRD-09 G11·§7.1, 디자인 보드 글자 그대로). 화면은 받은 글자를 그대로 그린다
+INGR_STATE_CAUSE = "금기 원인"
+INGR_STATE_PAIR_CAUSE = "병용금기 원인"
+INGR_STATE_DUP = "중복"
+
+
+def ingredient_state_labels(contra_kinds: list[str] | tuple[str, ...], dup: bool) -> list[str]:
+    """성분 하나의 상태 글자 목록(없으면 빈 목록). 순서: 병용금기 원인 → 금기 원인(임부·연령) → 중복.
+
+    금기 종류 키(`BADGE_ORDER`)만 원인으로 본다. 주의 종류(용량·수유부 등)는 "금기 원인"이라고 하지 않는다.
+    """
+    kinds = [k for k in BADGE_ORDER if k in contra_kinds]
+    out: list[str] = []
+    if "contra_pair" in kinds:
+        out.append(INGR_STATE_PAIR_CAUSE)
+    if any(k != "contra_pair" for k in kinds):
+        out.append(INGR_STATE_CAUSE)
+    if dup:
+        out.append(INGR_STATE_DUP)
+    return out
+
+# --------------------------------------------------------------------------- 입구 거절(`guardrail.classify_scope` 이유 키)
+# `STOP_DOSE_CHANGE`·`ASSESS_STATE`는 2026-11-11 사용자 결정 문구다(하네스 4.4절, AG-08-07 A). 나머지 이유 키는 초안(`REFUSE_DRAFT_KEYS`)
 REFUSE_MESSAGES = {
     "STOP_DOSE_CHANGE": "약을 줄이거나 끊는 방법과 시기는 알려 드릴 수 없어요. 의사가 줄이라고 했더라도 어떻게 줄일지는 처방한 그 의사나 약사에게 다시 확인하세요. 이 서비스는 지금 상태로 약을 줄여도 되는지 판단(진단·평가)해 드릴 수 없어요.",
     "ASSESS_STATE": "지금 상태로 약을 줄이거나 끊어도 되는지는 진찰과 검사가 필요한 판단이라 이 서비스가 해 드릴 수 없어요. 처방한 의사나 약사와 상의하세요.",
@@ -127,13 +172,19 @@ REFUSE_MESSAGES = {
     "IGNORE_PREVIOUS": "지시를 바꾸라는 요청은 따르지 않아요. 약 이름과 궁금한 점만 다시 적어 주세요.",
 }
 
+REFUSE_APPROVED_KEYS = ("STOP_DOSE_CHANGE", "ASSESS_STATE")
+REFUSE_DRAFT_KEYS = tuple(k for k in REFUSE_MESSAGES if k not in REFUSE_APPROVED_KEYS)
+
+# 사용자 승인 전인 상수 이름. `REFUSE_MESSAGES`는 `REFUSE_DRAFT_KEYS`의 이유 키만, `CAUTION_LABELS`는 `dup_ingredient`를 뺀 셋만 초안이다.
+# 2026-11-12 승인으로 뺀 것: EMERGENCY_119(AG-08-04)·UNIDENTIFIED_NEXT(05)·UNIDENTIFIED_NOT_SAFE(06)·LIMIT_REACHED(09)·
+# PHARMACIST_ADVICE_FIXED(11)·GRADE_DEF_MISSING_TEXT(14)·IDENTIFIED_LINE(12 B), LOOKUP_FAILED·TRUNCATED·FALLBACK_SOME_CONFIRMED·
+# FALLBACK_NONE_SCOPE_DOC(Recap 0-1, 하네스 3.4절 표). `PAIR_NOT_CHECKED`·`INVALID_CODE`는 하네스 표가 아직 초안으로 적어 남긴다.
 DRAFT_KEYS = (
-    "EMERGENCY_119", "UNIDENTIFIED_NEXT", "UNIDENTIFIED_NOT_SAFE", "LOOKUP_FAILED", "TRUNCATED", "REFERENCE_ONLY_LINE",
-    "REFUSE_MESSAGES", "LIMIT_REACHED", "CAUTION_LABELS", "PHARMACIST_ADVICE_NO_NAMES", "PHARMACIST_ADVICE_FIXED",
-    "BLOCKED_NO_SOURCE_KIND", "FALLBACK_SOME_CONFIRMED", "FALLBACK_NONE_SCOPE_DOC", "GRADE_DEF_MISSING_TEXT", "INVALID_CODE", "PAIR_NOT_CHECKED", "IDENTIFIED_LINE",
+    "REFERENCE_ONLY_LINE", "REFUSE_MESSAGES", "CAUTION_LABELS", "PHARMACIST_ADVICE_NO_NAMES",
+    "BLOCKED_NO_SOURCE_KIND", "INVALID_CODE", "PAIR_NOT_CHECKED",
 )
 
-# 상한 도달 안내(초안): 모델 호출 상한으로 끝났을 때 LLM 요약 없이 코드가 붙인다
+# 상한 도달 안내(원문 승인, AG-08-09 A): 모델 호출 상한으로 끝났을 때 LLM 요약 없이 코드가 붙인다
 LIMIT_REACHED = "답을 정리하다 시간이 다 되어 여기까지 확인한 결과만 보여 드려요. 확인하지 못한 항목은 약국·약사에게 물어보세요."
 # 검증 폴백(두 번째 검증 실패) 요약 문구 2종(AG-01·AG-08, 사용자 승인 2026-11-11). 모델은 쓰지 않는다.
 # 확인된 항목(FOUND·NOT_LISTED) 0개 → NONE, 하나라도 있으면 SOME. 날짜·시각은 항목 값만 쓰고 없으면 해당 부분을 생략한다.
@@ -142,12 +193,21 @@ FALLBACK_NONE_SCOPE_API = "API 조회 {api_time}"
 FALLBACK_NONE_SCOPE_DOC = "{label} 기준일 {doc_date}"  # AG-08-03 B: 자료(`label`)마다 따로. 자료 이름을 모르면 아래 라벨
 FALLBACK_NONE_DOC_LABEL = "문서"
 FALLBACK_NONE_NO_SCOPE = "검색한 자료에서는 확인하지 못했어요. 정확한 확인은 약국·약사에게 하세요."  # 날짜·시각 모두 없을 때
-# SOME: 확인된 자료마다 이름과 기준일을 나열한다(AG-08-03 B, 사용자 2026-11-11: 자료마다 기준일이 달라 한쪽에 편승할 수 없다). 초안(사용자 승인 전)
+# SOME: 확인된 자료마다 이름과 기준일을 나열한다(AG-08-03 B, 사용자 2026-11-11: 자료마다 기준일이 달라 한쪽에 편승할 수 없다). 2026-11-12 승인(Recap 0-1)
 FALLBACK_SOME_CONFIRMED = "{datasets}에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요."
 FALLBACK_SOME_DATASET_DATED = "{label}(기준일 {doc_date})"
 FALLBACK_SOME_DATASET_SEP = "·"
 FALLBACK_SOME_NO_DATE = "공공 자료에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요."  # 자료 이름을 모를 때
 BLOCKED_NO_SOURCE_KIND = "출처 종류를 알 수 없는 근거는 보여 드리지 않아요"  # 근거 항목 차단 안내(초안)
+
+# --------------------------------------------------------------------------- 스트림 오류·상단 배너(0-E 1-1~1-3·2번 승인, BE-06 ⓐⓑ)
+# 오류 카드 본문. 키는 `events.ERROR_CODES`와 같다. 1-1은 프런트 `ERROR_BODY_RETRY`와 같은 문장이다(소유 위치는 승인 밖, 보고 선택지)
+ERROR_INTERNAL = "잠시 뒤 다시 시도해 주세요. 보낸 질문은 그대로 있어요."
+ERROR_TIMEOUT = "시간 안에 답을 마치지 못했어요. 잠시 뒤 다시 시도해 주세요."
+ERROR_UPSTREAM_UNAVAILABLE = "지금은 확인에 필요한 곳에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요."
+ERROR_MESSAGES = {"INTERNAL_ERROR": ERROR_INTERNAL, "TIMEOUT": ERROR_TIMEOUT, "UPSTREAM_UNAVAILABLE": ERROR_UPSTREAM_UNAVAILABLE}
+# 공공 API 실패 상단 배너(`notice`, BE-06-06 A). 파일 기준 결과는 그대로다
+NOTICE_API_FAIL = "실시간 확인을 하지 못해 아래 결과는 기준일 자료로 확인한 것이에요."
 
 # --------------------------------------------------------------------------- 스트림 진행 표시(BE-06-09 A, 2026-11-12)
 # `progress` 이벤트의 `label`은 이 표에서만 나간다(서버가 준다, 프런트 상수 없음). 문구는 `P2-doc/PJ2-PRD.md` 15.4절
