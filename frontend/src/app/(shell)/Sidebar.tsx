@@ -17,6 +17,7 @@ import {
   SIDEBAR_EXPAND_LABEL,
   SIDEBAR_LABEL,
 } from "./copy";
+import { EmergencyEntry } from "./EmergencyEntry";
 
 /** 아이콘 버튼. 누르는 영역 44×44(지시서 G-2) */
 export function IconButton({ label, className, children, ...props }: { label: string } & React.ComponentProps<"button">) {
@@ -46,10 +47,12 @@ interface SidebarBodyProps {
   onNewChat: () => void;
   /** 머리 오른쪽 버튼(접기 또는 닫기) */
   action: React.ReactNode;
+  /** 머리 아래에 둘 119 진입점(오버레이·드로어에서 배너가 없을 때만. 펼친 칸은 머리줄 진입점이 보이므로 넣지 않는다) */
+  emergencyEntry?: React.ReactNode;
 }
 
 /** 사이드바 안쪽. 칸·오버레이·드로어가 같은 내용을 쓴다. 대화는 저장하지 않으므로 지난 대화 목록이 없다 */
-function SidebarBody({ firstQuestion, onNewChat, action }: SidebarBodyProps) {
+function SidebarBody({ firstQuestion, onNewChat, action, emergencyEntry }: SidebarBodyProps) {
   return (
     <>
       <div className="flex min-h-11 items-center justify-between pb-2 pl-1.5">
@@ -58,6 +61,7 @@ function SidebarBody({ firstQuestion, onNewChat, action }: SidebarBodyProps) {
         </b>
         {action}
       </div>
+      {emergencyEntry}
       <button
         type="button"
         data-testid="new-chat"
@@ -123,6 +127,11 @@ interface LayerProps {
   onClose: () => void;
   /** 층을 그릴 자리(119 배너 아래 영역). 스크림은 이 영역 전체를 덮고 119 배너는 덮지 않는다 */
   container: HTMLElement | null;
+  /**
+   * 층 안에 119 진입점을 둘지(G-3). 배너가 없을 때 true: 스크림이 머리줄 진입점을 덮으므로 층 안에서 누를 수 있게 한다.
+   * 배너가 있으면 false(119는 배너 하나뿐이고 배너는 스크림 밖이다)
+   */
+  showEmergencyEntry: boolean;
 }
 
 /** 닫히면 초점을 연 버튼으로 돌려준다(Radix는 `Dialog.Trigger`가 없으면 돌려주지 않는다) */
@@ -139,7 +148,7 @@ const SCRIM_CLASS = "absolute inset-0 z-40 bg-ink/30";
  * 본문 위 오버레이로 펼친 사이드바(지시서 §9): 스크림이 근거 상세 패널까지 덮고, 스크림 클릭·Esc로 사이드바만 닫힌다.
  * Radix Dialog(모달)라 Tab이 뒤 요소에 닿지 않고 닫히면 초점이 누른 버튼으로 돌아간다.
  */
-export function SidebarOverlay({ open, onClose, container, firstQuestion, onNewChat }: LayerProps & Omit<SidebarProps, "onToggle">) {
+export function SidebarOverlay({ open, onClose, container, showEmergencyEntry, firstQuestion, onNewChat }: LayerProps & Omit<SidebarProps, "onToggle">) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Dialog.Portal container={container}>
@@ -161,6 +170,7 @@ export function SidebarOverlay({ open, onClose, container, firstQuestion, onNewC
                 <PanelLeftIcon className="size-5" aria-hidden="true" />
               </IconButton>
             }
+            emergencyEntry={showEmergencyEntry && <EmergencyEntry testId="layer-emergency-entry" className="self-start" />}
           />
         </Dialog.Content>
       </Dialog.Portal>
@@ -169,7 +179,7 @@ export function SidebarOverlay({ open, onClose, container, firstQuestion, onNewC
 }
 
 /** 좁은 폭의 ☰ 드로어. 폭은 디자인 반영본 `.drawer{width:min(320px,86%)}` */
-export function MenuDrawer({ open, onClose, container, firstQuestion, onNewChat }: LayerProps & Omit<SidebarProps, "onToggle">) {
+export function MenuDrawer({ open, onClose, container, showEmergencyEntry, firstQuestion, onNewChat }: LayerProps & Omit<SidebarProps, "onToggle">) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Dialog.Portal container={container}>
@@ -189,6 +199,7 @@ export function MenuDrawer({ open, onClose, container, firstQuestion, onNewChat 
                 <XIcon className="size-5" aria-hidden="true" />
               </IconButton>
             }
+            emergencyEntry={showEmergencyEntry && <EmergencyEntry testId="layer-emergency-entry" className="self-start" />}
           />
         </Dialog.Content>
       </Dialog.Portal>

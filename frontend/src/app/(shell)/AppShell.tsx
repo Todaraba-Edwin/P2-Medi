@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useReducer, useRef, useState } from "react";
-import { PhoneIcon } from "lucide-react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
 import { ChatInput, ExampleChips, HomeHero } from "@/features/chat";
-import { EMERGENCY_CALL_LABEL, EMERGENCY_TEL_HREF, EmergencyBanner, FixedNoticeBox, LegalFooter } from "@/features/emergency";
+import { EmergencyBanner, FixedNoticeBox, LegalFooter } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
 import { DISCLAIMER } from "@/lib/fixed/phrases.generated";
 import { cn } from "@/lib/utils";
 import { chatStore, useChatStore } from "@/stores/chat";
 import type { ChatStore } from "@/stores/chat";
 import { Conversation } from "./Conversation";
+import { EmergencyEntry } from "./EmergencyEntry";
 import { NOT_SAVED_SHORT } from "./copy";
 import { computeLayout, initialShellState, isDesktopWidth, shellReducer } from "./layout-rules";
 import { MenuButton, MenuDrawer, SidebarColumn, SidebarOverlay } from "./Sidebar";
@@ -21,7 +21,8 @@ import { useViewportWidth } from "./useViewportWidth";
  * 화면 조립(FE-IMPL-06): 119 배너(맨 위) → [사이드바 | 머리줄·대화·고정 영역·입력창 | 근거 상세].
  * 반응형(FE-07-09 B): 1023 이하는 사이드바 숨김·☰ 드로어·근거 상세 시트, 1024 이상은 사이드바 칸과 우측 패널.
  *
- * - 119 배너는 한 번 뜨면 내리지 않고, 사이드바 오버레이·드로어의 스크림 밖(위)에 둔다.
+ * - 119 배너는 한 번 뜨면 내리지 않고, 사이드바 오버레이·드로어·근거 상세 시트의 스크림 밖(위)에 둔다(층은 배너 아래 영역에만 그린다).
+ * - 배너가 없을 때 119 진입점은 머리줄에 있고, 머리줄을 덮는 층(드로어·오버레이·시트) 안에도 같은 진입점을 둔다(G-3).
  * - 고정 안내·고지는 근거 상세 틀 밖의 접히지 않는 영역(입력창 위)에 응답 값 그대로 둔다.
  * - 사이드바 상태는 사용자 토글이 원천이다. 근거 상세가 새로 열리는 순간의 판정만 예외다(`layout-rules.ts`).
  */
@@ -116,9 +117,10 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
 
   return (
     <div data-testid="app-shell" data-ready="true" className="flex h-dvh flex-col overflow-hidden">
-      {/* 119 안내는 화면의 첫 요소다. 한 번 뜨면 내리지 않고, 사이드바 오버레이·드로어가 열려 있어도 전화 링크를 누를 수 있다 */}
+      {/* 119 안내는 화면의 첫 요소다. 한 번 뜨면 내리지 않고, 사이드바 오버레이·드로어·근거 상세 시트가 열려 있어도 전화 링크를 누를 수 있다
+          (층은 아래 shell-body 안에만 그리고, Radix 모달이 body에 거는 pointer-events:none을 배너 행 전체에서 되살린다: 배너가 덮이지 않은 화면 요소로 남는다) */}
       {emergency && (
-        <div data-testid="emergency-row" className="flex-none px-3 pt-2 [&_a]:pointer-events-auto">
+        <div data-testid="emergency-row" className="pointer-events-auto flex-none px-3 pt-2">
           <EmergencyBanner emergency={emergency} />
         </div>
       )}
@@ -137,16 +139,7 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
             </div>
             {layout.desktop && !layout.panelOpen && turns.length > 0 && <span className="flex-none text-xs text-mute">{NOT_SAVED_SHORT}</span>}
             {/* 119 접근: 배너가 떠 있지 않을 때의 진입점(배너가 뜨면 119는 배너 하나뿐이다) */}
-            {!emergency && (
-              <a
-                href={EMERGENCY_TEL_HREF}
-                data-testid="emergency-entry"
-                className="flex min-h-11 flex-none items-center gap-1 rounded-full px-2 text-[13px] font-bold whitespace-nowrap text-red-ink no-underline"
-              >
-                <PhoneIcon className="size-4" strokeWidth={2.5} aria-hidden="true" />
-                {EMERGENCY_CALL_LABEL}
-              </a>
-            )}
+            {!emergency && <EmergencyEntry testId="emergency-entry" />}
           </header>
           <div className={cn("mx-auto flex min-h-0 w-full flex-1 flex-col gap-2", layout.desktop ? "max-w-[880px] px-6" : "max-w-[760px] px-3")}>
             {turns.length === 0 ? (
@@ -186,12 +179,19 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
           </div>
         )}
         {!layout.desktop && (
-          <EvidencePanel mode="sheet" open={evidenceResponse !== null} onOpenChange={(open) => !open && closeEvidence()}>
+          <EvidencePanel
+            mode="sheet"
+            open={evidenceResponse !== null}
+            onOpenChange={(open) => !open && closeEvidence()}
+            // 응급이면 배너 아래 영역에만 그린다(사용자 결정 2026-11-16 후보 5 B). 아니면 화면 전체(기존 동작)이고, 머리줄 119를 덮으므로 시트 안에 진입점을 둔다
+            container={emergency ? layer : undefined}
+            headerAction={!emergency && <EmergencyEntry testId="layer-emergency-entry" />}
+          >
             {evidenceResponse && <EvidenceDetail response={evidenceResponse} />}
           </EvidencePanel>
         )}
-        <SidebarOverlay open={layout.sidebarOverlay} onClose={() => dispatch({ type: "collapseSidebar" })} container={layer} {...sidebar} />
-        <MenuDrawer open={!layout.desktop && shell.drawerOpen} onClose={() => dispatch({ type: "closeDrawer" })} container={layer} {...sidebar} />
+        <SidebarOverlay open={layout.sidebarOverlay} onClose={() => dispatch({ type: "collapseSidebar" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
+        <MenuDrawer open={!layout.desktop && shell.drawerOpen} onClose={() => dispatch({ type: "closeDrawer" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
       </div>
     </div>
   );

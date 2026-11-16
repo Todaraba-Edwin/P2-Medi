@@ -13,17 +13,26 @@ function SheetContent({
   className,
   children,
   side = "right",
+  container,
   ...props
-}: React.ComponentProps<typeof SheetPrimitive.Content> & { side?: "left" | "right" | "bottom" }) {
+}: React.ComponentProps<typeof SheetPrimitive.Content> & {
+  side?: "left" | "right" | "bottom";
+  /**
+   * 그릴 자리. 주면 스크림·시트가 화면 전체(`fixed`)가 아니라 그 요소 안(`absolute`, 요소는 `relative`)에만 그려진다.
+   * 응급 119 배너 아래 영역에만 시트를 그려 배너를 덮지 않게 할 때 쓴다(FE-IMPL-06b, 사용자 결정 2026-11-16 후보 5 B)
+   */
+  container?: HTMLElement | null;
+}) {
   const sideClass = {
     right: "inset-y-0 right-0 h-full w-3/4 max-w-sm",
     left: "inset-y-0 left-0 h-full w-3/4 max-w-sm",
     bottom: "inset-x-0 bottom-0 max-h-[85dvh] w-full rounded-t-lg",
   }[side];
+  const position = container ? "absolute" : "fixed";
   return (
-    <SheetPrimitive.Portal>
-      <SheetPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/50" />
-      <SheetPrimitive.Content className={cn("fixed z-50 bg-bg p-4 shadow-lg", sideClass, className)} {...props}>
+    <SheetPrimitive.Portal container={container ?? undefined}>
+      <SheetPrimitive.Overlay data-testid="sheet-scrim" className={cn(position, "inset-0 z-50 bg-ink/50")} />
+      <SheetPrimitive.Content className={cn(position, "z-50 bg-bg p-4 shadow-lg", sideClass, className)} {...props}>
         {children}
         {/* 누르는 영역 44px(FE-IMPL-06, 지시서 A7) */}
         <SheetPrimitive.Close className="absolute top-1.5 right-1.5 grid size-11 place-items-center rounded" aria-label="닫기">
