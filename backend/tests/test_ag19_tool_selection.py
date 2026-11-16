@@ -85,6 +85,9 @@ def test_run_with_mock_transport_records_and_respects_cap(tmp_path, monkeypatch)
     assert res["n_ok"] == 3 and len(n_req) == 3 and all(b["reasoning_effort"] == "none" and b["parallel_tool_calls"] is True for b in n_req)
     assert all(b["max_completion_tokens"] == S.CALL_OUT_CAP for b in n_req)
     assert "sk-test" not in out.read_text(encoding="utf-8")
+    saved = json.loads(out.read_text(encoding="utf-8"))  # 결과 파일에 프롬프트 버전과 호출 설정을 남긴다
+    assert saved["prompt"] == S.PROMPT_NAME == "agent_system@v2"
+    assert saved["call_settings"] == {"model": "gpt-6-luna", "reasoning_effort": "none", "parallel_tool_calls": True, "max_completion_tokens": S.CALL_OUT_CAP}
     # 상한이 너무 낮으면 호출하지 않고 skipped
     n_req.clear()
     res2 = S.run(0.00001, CostLedger(tmp_path / "led2.json", cap_usd=1.0), http_client=httpx.Client(transport=httpx.MockTransport(handler)), out_path=out, queries=qs)
