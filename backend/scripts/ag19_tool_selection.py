@@ -2,7 +2,7 @@
 
 하위 명령(작업 위치 `backend/`):
   plan                          질의 수·예상 토큰·예상 비용만 출력(호출 0, 네트워크·키 사용 없음)
-  run --yes --max-usd 0.05      실호출(질의당 1회, 첫 단계 도구 호출만 본다). 이번 작업에서는 실행하지 않았다.
+  run --yes --max-usd 0.05      실호출(질의당 1회, 첫 단계 도구 호출만 본다). 실행 기록: 2026-11-11(초안 프롬프트)·2026-11-16(agent_system@v2), 각 30회(사용자 승인).
 
 규칙:
 - 질의는 템플릿 × 약 이름 풀로 코드가 만든다(평가 세트·시험셋·페르소나 질문 아님, RFP-26-04). 기대 경로도 같은 규칙에서 나온다.
@@ -44,6 +44,7 @@ install_excepthook()
 HARD_CAP_USD = 0.05
 EXPECTED_OUT_TOKENS = 150     # 도구 호출 응답 길이 어림(상한 추정에는 쓰지 않고 예상 비용에만 쓴다)
 CALL_OUT_CAP = 400            # 첫 단계 점검은 도구 호출만 보므로 출력 상한을 낮게 둔다(상한 추정에 쓴다)
+PROMPT_NAME = "agent_system@v2"  # 점검에 쓰는 시스템 프롬프트(결과 파일에 기록)
 OUT_PATH = Path(__file__).resolve().parents[2] / "data" / "mock" / "dict" / "ag19_tool_selection.json"
 
 DRUGS = ["타이레놀정", "부루펜정", "와파린정", "아스피린프로텍트정", "게보린정", "슈도에페드린정"]
@@ -168,8 +169,11 @@ def summarize(results: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- 요청·비용
+CALL_SETTINGS: dict[str, Any] = {"model": "gpt-6-luna", "reasoning_effort": "none", "parallel_tool_calls": True, "max_completion_tokens": CALL_OUT_CAP}
+
+
 def request_body(q: Query, system_prompt: str, tool_defs: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"model": "gpt-6-luna", "reasoning_effort": "none", "parallel_tool_calls": True, "max_completion_tokens": CALL_OUT_CAP,
+    return {**CALL_SETTINGS,
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": q.text}], "tools": tool_defs}
 
 
@@ -184,7 +188,7 @@ def _tool_defs() -> list[dict[str, Any]]:
 
 def plan(max_usd: float = HARD_CAP_USD) -> dict[str, Any]:
     qs = build_queries()
-    sp = load_system_prompt(allow_draft=True)  # 초안 프롬프트로 점검한다(사용자 승인 전, 채택 아님)
+    sp = load_system_prompt(PROMPT_NAME, allow_draft=True)
     defs = _tool_defs()
     bodies = [request_body(q, sp, defs) for q in qs]
     chars = [len(json.dumps(b, ensure_ascii=False)) for b in bodies]
@@ -193,14 +197,14 @@ def plan(max_usd: float = HARD_CAP_USD) -> dict[str, Any]:
     by_cat = {c: sum(1 for q in qs if q.cat == c) for c in CATS}
     return {"calls": len(qs), "by_cat": by_cat, "input_tokens_conservative": sum(chars), "expected_usd": round(expected, 5),
             "upper_bound_usd": round(upper, 5), "max_usd": max_usd, "within_cap": upper <= max_usd, "max_completion_tokens": CALL_OUT_CAP,
-            "parallel_tool_calls": True, "reasoning_effort": "none", "calls_per_query": 1}
+            "parallel_tool_calls": True, "reasoning_effort": "none", "calls_per_query": 1, "prompt": PROMPT_NAME}
 
 
 # --------------------------------------------------------------------------- 실행
 def run(max_usd: float, ledger: CostLedger, *, http_client: Any = None, out_path: Path = OUT_PATH, queries: Sequence[Query] | None = None) -> dict[str, Any]:
     """질의마다 1회 호출한다. 상한을 넘길 호출은 하지 않고 skipped로 둔다."""
     qs = list(queries) if queries is not None else build_queries()
-    sp = load_system_prompt(allow_draft=True)
+    sp = load_system_prompt(PROMPT_NAME, allow_draft=True)
     defs = _tool_defs()
     tools = build_tools(ToolContext(drug_dict=None))  # type: ignore[arg-type]
     cb = LedgerCallback(ledger, estimate_usd=CALL_OUT_CAP * PRICE_OUT / 1e6)
@@ -224,7 +228,7 @@ def run(max_usd: float, ledger: CostLedger, *, http_client: Any = None, out_path
         calls = [{"name": c["name"], "args": c["args"]} for c in msg.tool_calls]
         rows.append({"status": "ok", "calls": calls, **judge(q, calls)})
     done = [r for r in rows if r.get("status") == "ok"]
-    result = {"spent_usd": round(spent, 6), "n_ok": len(done), "n_skipped": len(rows) - len(done), "summary": summarize(done), "rows": rows,
+    result = {"prompt": PROMPT_NAME, "call_settings": dict(CALL_SETTINGS), "spent_usd": round(spent, 6), "n_ok": len(done), "n_skipped": len(rows) - len(done), "summary": summarize(done), "rows": rows,
               "note": "개발용 합성 질의, 소표본. 칸당 n≤8이면 유의성을 주장하지 않는다."}
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -253,7 +257,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("OPENAI_API_KEY를 찾지 못했다(환경변수 또는 작업 위치의 .env). 저장소 루트에서 실행한다.", file=sys.stderr)
         return 2
     res = run(a.max_usd, CostLedger())
-    print(json.dumps({k: res[k] for k in ("spent_usd", "n_ok", "n_skipped", "summary")}, ensure_ascii=False, indent=2))
+    print(json.dumps({k: res[k] for k in ("prompt", "call_settings", "spent_usd", "n_ok", "n_skipped", "summary")}, ensure_ascii=False, indent=2))
     return 0
 
 
