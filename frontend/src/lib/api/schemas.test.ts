@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import * as responses from "@/mocks/fixtures/responses";
 import { foundResponse, pregnancyResponse } from "@/mocks/fixtures/responses";
-import { ChatEventSchema, ChatRequestSchema, ChatResponseSchema, DateLineSchema, ErrorBodySchema } from "./schemas";
+import {
+  ChatEventSchema,
+  ChatRequestSchema,
+  ChatResponseSchema,
+  DateLineSchema,
+  DetailItemSchema,
+  ErrorBodySchema,
+  FindingSchema,
+  GradeDefSchema,
+} from "./schemas";
 
 const valid = () => structuredClone(foundResponse) as Record<string, unknown>;
 const finding = (patch: Record<string, unknown>, from = foundResponse) => {
@@ -118,10 +127,12 @@ describe("ChatEvent v1 zod", () => {
 
   it.each([
     [{ ...base, type: "progress", stage: "drug_lookup", label: "약 찾는 중" }, true],
-    [{ ...base, type: "emergency", emergency: { text: "t", tel: "tel:119" } }, true],
+    [{ ...base, type: "emergency", emergency: { text: "t", tel: "tel:119", wide_text: "w" } }, true],
+    [{ ...base, type: "emergency", emergency: { text: "t", tel: "tel:119" } }, false], // 넓은 폭 보조 문장은 항상 온다
     [{ ...base, type: "answer", response: foundResponse }, true],
-    [{ ...base, type: "error", code: "INTERNAL_ERROR", message: null }, true],
-    [{ ...base, type: "error", code: "TIMEOUT" }, true],
+    [{ ...base, type: "error", code: "INTERNAL_ERROR", message: null }, false], // 오류 문구는 항상 문자열이다
+    [{ ...base, type: "error", code: "TIMEOUT" }, false],
+    [{ ...base, type: "error", code: "TIMEOUT", message: "받은 문구" }, true],
     [{ ...base, type: "error", code: "UPSTREAM_UNAVAILABLE", message: "받은 문구" }, true],
     [{ ...base, type: "done" }, true],
     [{ ...base, type: "done", end_reason: "NORMAL" }, true],
@@ -166,5 +177,45 @@ describe("ChatRequest·ErrorBody zod", () => {
   it("오류 본문은 code와 fields뿐이다", () => {
     expect(ErrorBodySchema.parse({ code: "INVALID_REQUEST" })).toEqual({ code: "INVALID_REQUEST", fields: [] });
     expect(ErrorBodySchema.safeParse({ code: "INVALID_REQUEST", fields: ["question"], input: "질문" }).success).toBe(false);
+  });
+});
+
+describe("AG-08·BE-06-13~17 새 칸", () => {
+  const base = { schema_version: "chat_response@v1", route: "AGENT", summary: null, fixed_notice: ["줄"], disclaimer: "고지" };
+  const ok = (extra: object) => ChatResponseSchema.safeParse({ ...base, ...extra }).success;
+
+  it("새 칸이 빠져도 기본값으로 채운다", () => {
+    const parsed = ChatResponseSchema.parse(base);
+    expect(parsed).toMatchObject({ candidates_line: null, not_checked_lines: [], grade_defs: [] });
+    const finding = FindingSchema.parse({ bucket: "found", evidence_id: null, kind: null, drug: "d", text: "t", ingredients: [{ name: "성분" }] });
+    expect(finding).toMatchObject({ sub_line: null, age_info_line: null });
+    expect(finding.ingredients[0]).toMatchObject({ state_labels: [], code_missing_text: null });
+    const detail = DetailItemSchema.parse({ evidence_id: null, kind: null, status: null, source_kind: null, dataset_key: null, dataset: null, publisher: null, dates: [] });
+    expect(detail).toMatchObject({ source_kind_label: null, label_help: null, easy_text_missing_line: null, quote_notice: null });
+  });
+
+  it("새 칸에 값이 와도 받는다(모르는 칸으로 거절하지 않는다)", () => {
+    expect(ok({ not_checked_lines: ["줄"], grade_defs: [{ grade: "2", title: "제목", text: "원문", source: "출처" }] })).toBe(true);
+    expect(ok({ end_reason: "CLARIFY", candidates: [{ input_name: "가", name: "가나" }], candidates_line: "안내" })).toBe(true);
+    expect(ok({ emergency: { text: "t", tel: "tel:119", wide_text: "w" } })).toBe(true);
+  });
+
+  it("되묻기 안내는 후보가 있을 때만, 119 보조 문장은 항상 온다", () => {
+    expect(ok({ candidates_line: "안내" })).toBe(false);
+    expect(ok({ emergency: { text: "t", tel: "tel:119" } })).toBe(false);
+  });
+
+  it.each([
+    [{ grade: "2", title: "제목", text: "원문", source: "출처" }, true],
+    [{ grade: "1", title: "제목", missing_reason: "FETCH_FAIL", missing_text: "문구" }, true],
+    [{ grade: "M", title: "제목", missing_reason: "OUT_OF_SCOPE", missing_text: "문구" }, true],
+    [{ grade: "2", title: "제목" }, false], // 원문도 미확보 사유도 없음
+    [{ grade: "2", title: "제목", text: "원문", missing_reason: "FETCH_FAIL" }, false], // 둘 다 있음
+    [{ grade: "2", title: "제목", source: "출처", missing_reason: "FETCH_FAIL", missing_text: "문구" }, false], // 원문 없는 블록에 출처 줄
+    [{ grade: "2", title: "제목", missing_reason: "SEARCH_MISS", missing_text: "문구" }, false], // 사유 목록 밖
+    [{ grade: "3", title: "제목", text: "원문" }, false],
+    [{ grade: "2", title: "제목", text: "원문", extra: 1 }, false],
+  ])("등급 정의 블록 %j → %s", (def, expected) => {
+    expect(GradeDefSchema.safeParse(def).success).toBe(expected);
   });
 });

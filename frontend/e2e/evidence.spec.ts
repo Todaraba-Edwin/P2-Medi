@@ -144,7 +144,7 @@ for (const viewport of NARROW) {
       // 박스 안 권고는 응답의 pharmacist_advice 줄 그대로다(FE-IMPL-06b: 서버처럼 미확보가 있으면 권고 줄이 실려 오게 fixture를 맞췄다).
       // 고정 안내의 권고 줄(응답 값)은 접히지 않는 영역에 그대로 있다
       await expect(box.getByTestId("pharmacist-advice")).toHaveText([
-        "복용 전에 꼭 약국·약사에게 가나다정을(를) 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요.",
+        "복용 전에 꼭 약국·약사에게 가나다정을 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요.",
       ]);
       await expect(scope.getByTestId("fixed-notice").locator("p")).toHaveText([
         "확인하지 못한 항목이 있어요. 복용 전에 꼭 약국·약사에게 확인하세요.",

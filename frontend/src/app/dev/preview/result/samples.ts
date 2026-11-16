@@ -2,6 +2,7 @@
 // 새 문구를 짓지 않는다: 글자는 fixture(백엔드 상수 원문)의 값이고, 제품명·성분명만 가상 이름이다.
 import { ChatResponseSchema } from "@/lib/api";
 import type { ChatResponse } from "@/lib/api";
+import { PHRASES } from "@/mocks/fixtures/phrases";
 import * as fixtures from "@/mocks/fixtures/responses";
 
 export interface ResultSample {
@@ -44,12 +45,12 @@ const manyIngredients = check({
     {
       ...pregnancyLine,
       ingredients: [
-        { code: null, name: "하나성분", contra_kinds: [], dup: false },
-        { code: null, name: "두울성분", contra_kinds: ["pregnancy"], dup: false },
-        { code: null, name: "세엣성분", contra_kinds: [], dup: false },
-        { code: null, name: "네엣성분", contra_kinds: [], dup: true },
-        { code: null, name: "다섯성분", contra_kinds: [], dup: false },
-        { code: null, name: "여섯성분", contra_kinds: [], dup: false },
+        { code: null, name: "하나성분", contra_kinds: [], dup: false, state_labels: [], code_missing_text: null },
+        { code: null, name: "두울성분", contra_kinds: ["pregnancy"], dup: false, state_labels: [PHRASES.INGR_STATE_CAUSE], code_missing_text: null },
+        { code: null, name: "세엣성분", contra_kinds: [], dup: false, state_labels: [], code_missing_text: null },
+        { code: null, name: "네엣성분", contra_kinds: [], dup: true, state_labels: [PHRASES.INGR_STATE_DUP], code_missing_text: null },
+        { code: null, name: "다섯성분", contra_kinds: [], dup: false, state_labels: [], code_missing_text: null },
+        { code: null, name: "여섯성분", contra_kinds: [], dup: false, state_labels: [], code_missing_text: null },
       ],
     },
   ],

@@ -91,7 +91,7 @@ describe("ChatInput", () => {
 
 describe("EmergencySlot", () => {
   it("받은 문구를 그대로 보이고 role=alert, tel:119 링크를 둔다", () => {
-    render(<EmergencySlot emergency={{ text: "받은 응급 문구 그대로", tel: "tel:119" }} />);
+    render(<EmergencySlot emergency={{ text: "받은 응급 문구 그대로", tel: "tel:119", wide_text: "받은 보조 문장" }} />);
     const alert = screen.getByRole("alert");
     expect(within(alert).getByText("받은 응급 문구 그대로")).toBeInTheDocument();
     expect(within(alert).getByRole("link")).toHaveAttribute("href", "tel:119");
@@ -152,9 +152,10 @@ describe("ErrorState", () => {
   });
 
   it("서버가 보낸 오류 문구는 그대로 보인다", () => {
-    const stream = reduce({ type: "start" }, { type: "event", event: scenarios.serverError.events[1] });
+    // 서버 오류 문구 상수(외부 연결 실패). 화면 상수와 다른 문장이라 "받은 그대로"가 드러난다
+    const stream = reduce({ type: "start" }, { type: "event", event: scenarios.serverErrorNoMessage.events[1] });
     render(<ErrorState stream={stream} onRetry={() => {}} />);
-    expect(screen.getByText("[mock] 오류 문구 자리")).toBeInTheDocument();
+    expect(screen.getByText("지금은 확인에 필요한 곳에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.")).toBeInTheDocument();
     expect(screen.queryByText(copy.ERROR_BODY_RETRY)).toBeNull();
   });
 

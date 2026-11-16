@@ -4,20 +4,27 @@ import { ChatResponseSchema } from "@/lib/api/schemas";
 import type { ChatResponse, ChatResponseInput } from "@/lib/api/types";
 import {
   BADGE_SOURCE_TAIL,
+  CAUTION_DUP_INGREDIENT,
   CLARIFY_TAIL,
+  CODE_NOT_LINKED,
   DATASET_AGE,
   DATASET_CONTRA_PAIR,
   DATASET_DUR_INGR,
   DATASET_PREGNANCY,
   DATASET_PRMSN,
   DISCLAIMER,
+  DOSE_SECTION,
   FIXED_NOTICE,
+  GRADE_DEF_MISSING_FETCH_FAIL,
   NAME_JOIN,
   PHRASES,
   PUBLISHER_KIDS,
   PUBLISHER_MFDS,
   REFUSE_DOSAGE,
+  SOURCE_KIND_PREFIX,
   SOURCE_PREFIX_FILE,
+  fillJosa,
+  ingredientStateLabels,
 } from "./phrases";
 
 // 합성 약 이름·성분(실제 제품이 아니다)
@@ -34,11 +41,36 @@ type Body = Omit<ChatResponseInput, "schema_version" | "fixed_notice" | "disclai
 type DetailInput = NonNullable<Body["detail"]>[number];
 type CitationInput = NonNullable<Body["citations"]>[number];
 
+/**
+ * 서버가 스스로 채우는 상수 글자 칸을 같은 규칙으로 채운다(backend/app/api/schemas.py의 검증기·`_detail_item`):
+ * 성분 칩 상태 글자(`state_labels`), 출처 종류 글자(`source_kind_label`), 허가사항 한 줄 설명(`label_help`, 허가정보 원문 근거에만),
+ * 용법용량 인용 고지(`quote_notice`), 되묻기 안내(`candidates_line`, 후보가 있을 때만).
+ */
+function serverFill(body: Body): Body {
+  return {
+    ...body,
+    candidates_line: body.candidates && body.candidates.length > 0 ? PHRASES.CLARIFY_PICK_LINE : null,
+    findings: body.findings?.map((finding) => ({
+      ...finding,
+      ingredients: finding.ingredients?.map((ingredient) => ({
+        ...ingredient,
+        state_labels: ingredientStateLabels(ingredient.contra_kinds ?? [], ingredient.dup ?? false),
+      })),
+    })),
+    detail: body.detail?.map((item) => ({
+      ...item,
+      source_kind_label: item.source_kind ? SOURCE_KIND_PREFIX[item.source_kind] : null,
+      label_help: item.source_kind && item.dataset_key === "prmsn" ? PHRASES.LABEL_ONE_LINE : null,
+      quote_notice: item.section === DOSE_SECTION && (item.rows?.length ?? 0) > 0 ? PHRASES.DOSE_QUOTE_NOTICE : null,
+    })),
+  };
+}
+
 /** 고정 문구·고지를 붙이고 v1 zod를 통과시킨다(통과하지 못하면 가져오는 순간 실패한다). */
 function make(body: Body, fixedNotice: string[] = [FIXED_NOTICE]): ChatResponse {
   return ChatResponseSchema.parse({
     schema_version: "chat_response@v1",
-    ...body,
+    ...serverFill(body),
     fixed_notice: fixedNotice,
     disclaimer: DISCLAIMER,
   });
@@ -48,7 +80,8 @@ const pregnancyBadge = (grade: "1" | "2") => PHRASES.BADGE_PREGNANCY.replace("{g
 /** 판정 줄의 출처 표지: 서버 `finalize._source_label` → `provenance.badge` = `{종류} · {자료 약칭}`(FE-IMPL-06b: 서버와 일치) */
 const fileLabel = (dataset: string) => `${SOURCE_PREFIX_FILE} · ${dataset}`;
 /** 약사 확인 권고 줄: 확인하지 못한 줄의 약 이름을 `" · "`로 잇는다(finalize.py 291행, 같은 이름은 한 번) */
-const adviceFor = (...drugs: string[]) => PHRASES.PHARMACIST_ADVICE.replace("{drugs}", [...new Set(drugs)].join(NAME_JOIN));
+const adviceFor = (...drugs: string[]) => fillJosa(PHRASES.PHARMACIST_ADVICE, "drugs", [...new Set(drugs)].join(NAME_JOIN));
+const EMERGENCY = { text: PHRASES.EMERGENCY_119, tel: PHRASES.EMERGENCY_119_TEL, wide_text: PHRASES.EMERGENCY_119_WIDE };
 
 // ---------------------------------------------------------------- 근거·출처 조각
 const pairDates = [
@@ -229,7 +262,8 @@ export const gradeMismatchResponse = make({
     },
   ],
   detail: [
-    pregDetail("FOUND", DRUG_B),
+    // 등급이 다르다는 안내는 그 근거의 `notes`에 한 번만 온다(GRADE_MISMATCH_NOTE)
+    { ...pregDetail("FOUND", DRUG_B), notes: [PHRASES.GRADE_MISMATCH_NOTE] },
     {
       evidence_id: "ev-preg-api",
       kind: "pregnancy",
@@ -336,6 +370,7 @@ export const unidentifiedResponse = make(
         why: PHRASES.UNIDENTIFIED_WHY,
         next: PHRASES.UNIDENTIFIED_NEXT,
         retried_line: PHRASES.UNIDENTIFIED_RETRIED,
+        sub_line: fillJosa(PHRASES.UNIDENTIFIED_SUB_LINE, "drug", DRUG_UNKNOWN),
       },
     ],
     pharmacist_advice: [adviceFor(DRUG_UNKNOWN)],
@@ -457,20 +492,37 @@ export const rxPermitResponse = make({
       dates: [{ label: "조회", value: "2026-11-12" }],
       drug_name: DRUG_A,
       section: "사용상 주의사항",
+      flags: ["EASY_TEXT_MISSING"],
       rows: [{ row_key: "ev-permit-1#0", text: "(합성 원문) 다른 약을 복용하고 있는 사람은 이 약을 복용하기 전에 의사 또는 약사와 상의하십시오." }],
+      drugs: [DRUG_A],
+      easy_text_missing_line: PHRASES.EASY_TEXT_MISSING.replace("{drug}", DRUG_A),
+    },
+    {
+      // 용법용량 원문 인용: 바로 아래에 인용 고지(`quote_notice`)가 온다(표로 쪼개지 않는다)
+      evidence_id: "ev-permit-2",
+      kind: "label",
+      status: "FOUND",
+      source_kind: "API_DIRECT",
+      dataset_key: "prmsn",
+      dataset: DATASET_PRMSN,
+      publisher: PUBLISHER_MFDS,
+      dates: [{ label: "조회", value: "2026-11-12" }],
+      drug_name: DRUG_A,
+      section: DOSE_SECTION,
+      rows: [{ row_key: "ev-permit-2#0", text: "(합성 원문) 성인 1회 1정을 복용한다." }],
       drugs: [DRUG_A],
     },
   ],
   citations: [
-    { publisher: PUBLISHER_MFDS, dataset: DATASET_PRMSN, dates: [{ label: "조회", value: "2026-11-12" }], source_kind: "API_DIRECT", evidence_ids: ["ev-permit-1"] },
+    { publisher: PUBLISHER_MFDS, dataset: DATASET_PRMSN, dates: [{ label: "조회", value: "2026-11-12" }], source_kind: "API_DIRECT", evidence_ids: ["ev-permit-1", "ev-permit-2"] },
     pairCitation,
   ],
 });
 
 /**
- * 쌍 확인 불가(Result-NoEvidence6c): 식별하지 못한 약이 든 쌍(도구 `_pair_not_checked`, 상태 UNIDENTIFIED·꼬리표 PAIR_NOT_CHECKED).
- * 서버 모양 그대로다(2026-11-16 `finalize` → `to_chat_response`를 합성 항목으로 돌려 확인): 줄 글자와 `notes[]`가 같은 문장
- * (`_unconfirmed_text`·`_notes`), 상태가 UNIDENTIFIED라 미식별 줄의 `why`·`next`가 붙고 `retried`는 false, 배지 없음.
+ * 쌍 확인 불가(Result-NoEvidence6c): 식별된 약 줄(`찾음` + 성분 이름 보조줄)과 식별하지 못한 약이 든 쌍 줄.
+ * 서버 모양 그대로다(2026-11-16 AG-08 병합 뒤 `finalize` → `to_chat_response`를 합성 항목으로 돌려 확인):
+ * 쌍 줄은 줄 글자 한 번뿐이고 `notes[]`에 같은 문장·`why`·`next`가 오지 않는다. 식별된 약 줄의 성분은 이름만 온다.
  */
 export const pairNoEvidenceResponse = make(
   {
@@ -479,6 +531,18 @@ export const pairNoEvidenceResponse = make(
     summary: null,
     findings: [
       {
+        target: "product",
+        bucket: "identified",
+        evidence_id: "ev-ident-a",
+        kind: "identify",
+        drug: DRUG_A,
+        drugs: [DRUG_A],
+        text: PHRASES.IDENTIFIED_LINE,
+        ingredients: [{ name: INGR_A.name }, { name: INGR_C.name }],
+        source_label: `${SOURCE_PREFIX_FILE} · ${DATASET_PRMSN}`,
+        sub_line: [INGR_A.name, INGR_C.name].join(PHRASES.IDENTIFIED_SUB_SEP),
+      },
+      {
         target: "pair",
         bucket: "unconfirmed",
         evidence_id: "ev-pair-nc",
@@ -486,14 +550,21 @@ export const pairNoEvidenceResponse = make(
         drug: `${DRUG_A}${NAME_JOIN}${DRUG_C}`,
         drugs: [DRUG_A, DRUG_C],
         text: PHRASES.PAIR_NOT_CHECKED,
-        notes: [PHRASES.PAIR_NOT_CHECKED],
         unresolved: true,
-        retried: false,
-        why: PHRASES.UNIDENTIFIED_WHY,
-        next: PHRASES.UNIDENTIFIED_NEXT,
       },
     ],
     detail: [
+      {
+        evidence_id: "ev-ident-a",
+        kind: "identify",
+        status: "FOUND",
+        source_kind: "FILE",
+        dataset_key: "identify",
+        dataset: DATASET_PRMSN,
+        publisher: PUBLISHER_MFDS,
+        dates: [{ label: "기준일", value: "2026-11-01" }],
+        drug_name: DRUG_A,
+      },
       {
         evidence_id: "ev-pair-nc",
         kind: "contra_pair",
@@ -507,10 +578,156 @@ export const pairNoEvidenceResponse = make(
         drugs: [DRUG_A, DRUG_C],
       },
     ],
+    citations: [{ publisher: PUBLISHER_MFDS, dataset: DATASET_PRMSN, dates: [{ label: "기준일", value: "2026-11-01" }], source_kind: "FILE", evidence_ids: ["ev-ident-a"] }],
     pharmacist_advice: [adviceFor(`${DRUG_A}${NAME_JOIN}${DRUG_C}`)],
   },
   [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
 );
+
+// ---------------------------------------------------------------- FE-IMPL-08 추가(AG-08·BE-06-13~17의 새 칸)
+/**
+ * 나이를 특정할 수 없을 때(Result-Infant·Detail-Infant): 판정 대신 나이별 연령금기 원문 값과 안내 줄(`age_info_line`),
+ * 그리고 성분 중복 줄. **서버에는 아직 이 줄을 만드는 경로가 없다**(AG-02 대기). 모양은 백엔드 스키마 시험
+ * (`test_0e_age_info_line_is_constant_and_needs_criteria`)의 것을 따랐다: 확인하지 못한 연령 줄 + 나이 기준 값 + 안내 문구.
+ */
+export const ageInfoResponse = make(
+  {
+    route: "AGENT",
+    end_reason: "NORMAL",
+    summary: null,
+    findings: [
+      {
+        target: "product",
+        bucket: "unconfirmed",
+        evidence_id: "ev-age-1",
+        kind: "age",
+        drug: DRUG_C,
+        drugs: [DRUG_C],
+        text: PHRASES.NO_EVIDENCE,
+        ingredients: [{ ...INGR_C, dup: true }],
+        source_label: fileLabel(DATASET_AGE),
+        unresolved: true,
+        age_criteria: ["12세 미만", "6개월 미만"],
+        age_info_line: PHRASES.AGE_INFO_LINE,
+      },
+      {
+        target: "pair",
+        bucket: "found",
+        evidence_id: null,
+        kind: "dup_ingredient",
+        drug: `${DRUG_B}${NAME_JOIN}${DRUG_C}`,
+        drugs: [DRUG_B, DRUG_C],
+        text: CAUTION_DUP_INGREDIENT,
+      },
+    ],
+    detail: [
+      {
+        evidence_id: "ev-age-1",
+        kind: "age",
+        status: "FOUND",
+        source_kind: "FILE",
+        dataset_key: "age",
+        dataset: DATASET_AGE,
+        publisher: PUBLISHER_KIDS,
+        dates: [{ label: "기준일", value: "2026-07-21" }],
+        drug_name: DRUG_C,
+        rows: [{ row_key: "r0" }, { row_key: "r1" }],
+        drugs: [DRUG_C],
+      },
+    ],
+    citations: [{ publisher: PUBLISHER_KIDS, dataset: DATASET_AGE, dates: [{ label: "기준일", value: "2026-07-21" }], source_kind: "FILE", evidence_ids: ["ev-age-1"] }],
+    pharmacist_advice: [adviceFor(DRUG_C)],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
+/** 등급 정의 블록(BE-06-16): 원문이 있는 블록(제목·원문·출처 줄)과 미확보 블록(문구만, 출처 줄 없음) + 약사 권고 */
+export const gradeDefsResponse = make({
+  ...pregnancyResponse,
+  grade_defs: [
+    {
+      grade: "2",
+      title: PHRASES.GRADE_DEF_TITLE.replace("{grade}", "2"),
+      text: "(합성 고시 원문) 사람에서 태아에 대한 위해성이 나타날 수 있어 원칙적으로 사용금지.",
+      source: "(합성 출처 줄) 「의약품 병용금기 성분 등의 지정에 관한 규정」 제3조 제3호 나목",
+    },
+    {
+      grade: "1",
+      title: PHRASES.GRADE_DEF_TITLE.replace("{grade}", "1"),
+      missing_reason: "FETCH_FAIL",
+      missing_text: GRADE_DEF_MISSING_FETCH_FAIL.replace("{grade}", "1"),
+    },
+  ],
+  grade_def_missing: [GRADE_DEF_MISSING_FETCH_FAIL.replace("{grade}", "1")],
+  pharmacist_advice: [PHRASES.GRADE_DEF_PHARMACIST_ADVICE],
+});
+
+/** 정보가 없어 확인하지 못한 종류의 줄(`not_checked_lines[]`): 임신 여부를 몰라 임부금기를 확인하지 못함. 권고 줄이 고정 문구 앞에 온다 */
+export const notCheckedResponse = make(
+  {
+    route: "AGENT",
+    end_reason: "NORMAL",
+    summary: null,
+    findings: [
+      {
+        target: "pair",
+        bucket: "not_listed",
+        evidence_id: "ev-pair-1",
+        kind: "contra_pair",
+        drug: `${DRUG_A}${NAME_JOIN}${DRUG_B}`,
+        drugs: [DRUG_A, DRUG_B],
+        text: PHRASES.NOT_LISTED,
+        source_label: fileLabel(DATASET_CONTRA_PAIR),
+      },
+    ],
+    not_checked_lines: [PHRASES.PREGNANCY_NOT_CHECKED],
+    detail: [{ ...pairDetail, status: "NOT_LISTED", dates: [{ label: "기준일", value: "2026-07-31" }], rows: [] }],
+    citations: [{ ...pairCitation, dates: [{ label: "기준일", value: "2026-07-31" }], notice_nos: [] }],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
+/**
+ * 코드가 이어지지 않아 확인하지 못한 쌍 줄(꼬리표 CODE_NOT_LINKED). 서버 모양 그대로다(`finalize` → `to_chat_response` 표본):
+ * 줄 글자는 "약을 찾지 못해 확인하지 못함", 안내(`notes[]`)는 바뀐 문구 한 줄, 미식별 줄의 `why`·`next`가 붙는다.
+ */
+export const codeNotLinkedResponse = make(
+  {
+    route: "AGENT",
+    end_reason: "NORMAL",
+    summary: null,
+    findings: [
+      {
+        target: "pair",
+        bucket: "unconfirmed",
+        evidence_id: "ev-pair-1",
+        kind: "contra_pair",
+        drug: `${DRUG_A}${NAME_JOIN}${DRUG_B}`,
+        drugs: [DRUG_A, DRUG_B],
+        text: PHRASES.UNIDENTIFIED,
+        notes: [CODE_NOT_LINKED],
+        unresolved: true,
+        why: PHRASES.UNIDENTIFIED_WHY,
+        next: PHRASES.UNIDENTIFIED_NEXT,
+      },
+    ],
+    detail: [{ ...pairDetail, status: "UNIDENTIFIED", dates: [{ label: "기준일", value: "2026-07-31" }], rows: [], flags: ["CODE_NOT_LINKED"] }],
+    citations: [{ ...pairCitation, dates: [{ label: "기준일", value: "2026-07-31" }], notice_nos: [] }],
+    pharmacist_advice: [adviceFor(`${DRUG_A}${NAME_JOIN}${DRUG_B}`)],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
+/** 공공 API 실패: 상단 배너(`notice`의 새 값)와 파일 기준 결과 */
+export const apiFailResponse = make({
+  route: "AGENT",
+  end_reason: "NORMAL",
+  notice: PHRASES.NOTICE_API_FAIL,
+  summary: `${DRUG_A}과 ${DRUG_B}은 병용금기 목록에 함께 올라 있어요.`,
+  findings: [pairFinding],
+  detail: [pairDetail],
+  citations: [pairCitation],
+});
 
 /** 상한 도달: 상단 배너(`notice`)와 여기까지의 결과 */
 export const limitResponse = make(
@@ -530,7 +747,7 @@ export const limitResponse = make(
 /** 응급: 119 안내가 있고 금기 조회 결과가 이어진다 */
 export const emergencyResponse = make({
   ...foundResponse,
-  emergency: { text: PHRASES.EMERGENCY_119, tel: PHRASES.EMERGENCY_119_TEL },
+  emergency: EMERGENCY,
 });
 
 /** 되묻기: 질문 한 개와 후보 목록(이름만, 먹어도 되는지는 말하지 않는다) */

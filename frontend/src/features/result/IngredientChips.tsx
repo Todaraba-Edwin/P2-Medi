@@ -22,15 +22,13 @@ const stateOf = (ingredient: Ingredient): ChipState => (ingredient.contra_kinds.
 
 export interface IngredientChipProps {
   ingredient: Ingredient;
-  /**
-   * 상태 글자(`금기 원인`·`중복`·`병용금기 원인`)는 **응답 값**이어야 한다. 지금 계약(`chat_response@v1`)에는 글자 칸이 없어
-   * 넘겨받지 못하면 그리지 않는다(프런트가 판정 글자를 짓지 않는다). 서버가 글자를 주면 이 자리에 받은 그대로 그린다.
-   */
-  stateLabel?: string | null;
 }
 
-/** 성분 칩 하나. 표시명은 받은 그대로다. 상태는 색과 `data-state`로 구분한다 */
-export function IngredientChip({ ingredient, stateLabel }: IngredientChipProps) {
+/**
+ * 성분 칩 하나. 표시명과 상태 글자(`state_labels[]`: `병용금기 원인`·`금기 원인`·`중복`)는 **응답 값 그대로**, 받은 순서대로 그린다
+ * (BE-06-13 A: 프런트가 `contra_kinds`·`dup`에서 글자를 짓지 않는다). 색은 보조이고 상태는 글자로도 구분된다.
+ */
+export function IngredientChip({ ingredient }: IngredientChipProps) {
   const state = stateOf(ingredient);
   return (
     <span
@@ -45,7 +43,11 @@ export function IngredientChip({ ingredient, stateLabel }: IngredientChipProps) 
       )}
     >
       {ingredient.name}
-      {stateLabel ? <em className="font-bold not-italic">&nbsp;·&nbsp;{stateLabel}</em> : null}
+      {ingredient.state_labels.map((label, index) => (
+        <em key={index} data-slot="state-label" className="font-bold not-italic">
+          &nbsp;·&nbsp;{label}
+        </em>
+      ))}
     </span>
   );
 }
@@ -61,7 +63,10 @@ export function IngredientChips({ ingredients }: { ingredients: readonly Ingredi
   const flagged = ingredients.filter((ingredient) => stateOf(ingredient) !== "none");
   const shown = collapsed ? (flagged.length > 0 ? flagged : ingredients.slice(0, PLAIN_SHOWN)) : ingredients;
   const hidden = ingredients.length - shown.length;
+  // 성분코드 미확보 안내(서버 상수). 같은 문장은 한 번만, 받은 순서대로 칩 줄 아래에 둔다
+  const codeMissing = [...new Set(ingredients.map((ingredient) => ingredient.code_missing_text).filter((text): text is string => !!text))];
   return (
+    <>
     <div data-testid="ingredient-chips" className="flex flex-wrap items-center gap-1">
       <span className="mr-0.5 text-[11px] font-bold text-mute">{INGREDIENTS_LABEL}</span>
       {shown.map((ingredient, index) => (
@@ -76,5 +81,11 @@ export function IngredientChips({ ingredients }: { ingredients: readonly Ingredi
         </button>
       )}
     </div>
+    {codeMissing.map((text, index) => (
+      <p key={index} data-slot="code-missing" className="m-0 text-xs leading-[17px] break-words text-mute">
+        {text}
+      </p>
+    ))}
+    </>
   );
 }

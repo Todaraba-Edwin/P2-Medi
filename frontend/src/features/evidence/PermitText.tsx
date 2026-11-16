@@ -21,11 +21,23 @@ export function PermitText({ item }: { item: DetailItem }) {
   );
   return (
     <EvidenceBox testId="permit-text" title={title} tag={<SourceTag item={item} />}>
+      {/* 전문의약품 안내 줄(서버 상수, BE-06-15 A): 원문 앞에 받은 그대로 */}
+      {item.easy_text_missing_line && (
+        <p data-testid="easy-text-missing" className="m-0 text-[13px] leading-[19px] break-words text-ink-2">
+          {item.easy_text_missing_line}
+        </p>
+      )}
       {texts.map((text, index) => (
         <p key={index} className="m-0 text-sm leading-[21px] break-words whitespace-pre-wrap">
           <q className="[quotes:'“'_'”']">{text}</q>
         </p>
       ))}
+      {/* 용법용량 원문 인용 고지(서버 상수): 인용 바로 아래, 접히지 않는다 */}
+      {item.quote_notice && (
+        <p data-testid="quote-notice" className="m-0 rounded-[10px] bg-fixed px-2.5 py-2 text-[13px] leading-[19px] font-semibold break-words text-ink-2">
+          {item.quote_notice}
+        </p>
+      )}
       {item.notes.map((note, index) => (
         <p key={`note-${index}`} data-slot="notes" className="m-0 text-xs leading-[17px] break-words text-mute">
           {note}

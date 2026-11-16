@@ -26,7 +26,7 @@ describe("EmergencyBanner", () => {
   });
 
   it("받은 문구가 달라도 그대로 그린다(프런트가 문구를 갖지 않는다)", () => {
-    render(<EmergencyBanner emergency={{ text: "받은 응급 문구 그대로", tel: "tel:119" }} />);
+    render(<EmergencyBanner emergency={{ text: "받은 응급 문구 그대로", tel: "tel:119", wide_text: "받은 보조 문장 그대로" }} />);
     expect(screen.getByRole("alert")).toHaveTextContent("받은 응급 문구 그대로");
     expect(JSON.stringify(copy)).not.toContain("응급");
   });
@@ -124,5 +124,17 @@ describe("copy.ts", () => {
     expect(copy.EMERGENCY_TEL_HREF).toBe("tel:119");
     expect(Object.keys(copy).sort()).toEqual(["EMERGENCY_CALL_LABEL", "EMERGENCY_TEL_HREF"]);
     expect(JSON.stringify(copy)).not.toMatch(/안전|약국|약사|금기|단계/);
+  });
+});
+
+describe("EmergencyBanner 넓은 폭 보조 문장(FE-07-15)", () => {
+  it("보조 문장은 받은 글자 그대로이고 넓은 폭에서만 보이게 표시한다(좁은 폭에서는 숨김)", () => {
+    render(<EmergencyBanner emergency={{ text: "받은 응급 문구", tel: "tel:119", wide_text: "받은 보조 문장 그대로" }} />);
+    const wide = screen.getByTestId("emergency-wide");
+    expect(wide.textContent).toBe("받은 보조 문장 그대로");
+    expect(wide.className).toContain("hidden");
+    expect(wide.className).toContain("lg:block");
+    expect(screen.getAllByRole("link")).toHaveLength(1); // 보조 문장은 연락처가 아니다: 전화 링크는 하나뿐
+    expect(JSON.stringify(copy)).not.toContain("휴대폰");
   });
 });
