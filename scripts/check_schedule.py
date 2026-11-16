@@ -282,11 +282,12 @@ for line in s.split("\n"):
         errors.append(f"진행 현황 {sc}: 우선순위 합 {a}+{b}+{c}={a + b + c} != 전체 {tot}")
     if a != pri[sc]["필수"] or b + c != pri[sc]["권장"]:
         errors.append(f"진행 현황 {sc}: 필수 {a}·권장(확장 포함) {b + c} != 티켓 priority 필수 {pri[sc]['필수']}·권장 {pri[sc]['권장']}")
-# ② Recap 표의 번호는 1부터 차례로 늘어야 한다("Recap N번"으로 찾아가므로)
+# ② Recap 표의 번호는 겹치지 않고 오름차순이어야 한다("Recap N번"으로 찾아가므로).
+#    끝난 행을 지워 번호가 비는 것은 허용한다(남은 행 번호를 바꾸면 기존 인용이 어긋난다, 2026-11-16)
 rec = s.split("## Recap")[1].split("\n## ")[0] if "## Recap" in s else ""
 nums = [int(x) for x in re.findall(r"^\| (\d+) \|", rec, re.M)]
-if nums != list(range(1, len(nums) + 1)):
-    errors.append(f"Recap 표 번호가 1부터 차례가 아님: {nums}")
+if nums != sorted(set(nums)):
+    errors.append(f"Recap 표 번호가 겹치거나 오름차순이 아님: {nums}")
 # ③ 본문의 "대기 중인 결정 N건"·"대기 결정 N건"·"(대기 N건)". 카드와 위의 schedule.md 두 문구는 이미 검사하므로 뺀다.
 #    가리키는 대상: 같은 줄에서 앞선 마지막 티켓 번호(없으면 그 티켓 자신), schedule.md는 전체(SCH 행은 그 SCH). "N건 →"는 이력이라 뺀다.
 WAIT = re.compile(r"(대기 중인 결정|대기 결정|\(대기)\s*\*{0,2}(\d+)\s*건(?!\s*→)")

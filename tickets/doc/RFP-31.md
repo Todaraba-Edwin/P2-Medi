@@ -116,3 +116,4 @@ done: 2026-11-05
 - 사용자 지정: 상한 20 USD, `/mock` 폴더, `.gitignore` 등록(2026-11-04).
 - 이 mock은 **W1 개발·테스트용**이며 평가 측정(AG-11·12·14)의 결과 값으로 쓰지 않는다. 측정은 실제 에이전트·judge 호출로 한다.
 - 2026-11-05 종결(메인 pane 확인): 5개 세트 파일·`manifest.json`·`verify_report.json`·원장(2.717269 USD, 호출 662건)을 직접 확인했고 `evaluation/mock_gen/` 안 키·연결 문자열 0건, `data/mock/`는 `.gitignore` 대상임을 확인했다. **/chat 응답의 실제 JSON 모양은 제가 아닌 작업 에이전트가 정한 가정**(BE-06에 없는 필드: `summary_points`·`findings`·`notices`·`meta`·`clarify`·`corrected`, route 값 집합, 청크 ID 형식, 스트림 이벤트 이름)이라 BE-06·BE-05 구현 때 맞춰야 한다. 사용 안내: M1 → BE-06·FE-01·FE-02, M2·M3 → BE-08, M4 → AG-04, M5 → AG-07.
+- 2026-11-16 사용자 결정(Recap 4 닫음): Anthropic Console 사용액 비교는 하지 않고 내부 원장 값(2.72 USD, 호출 662건)을 유지한다.
