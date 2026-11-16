@@ -87,7 +87,7 @@ trace (요청 1건, trace_id)
 | 재시도 | `retry`, `error_type` | 공공 API·LLM 실패 | 형식 오류 재시도 포함 |
 | 상한 | `model_calls_so_far`(상한 8), `rollbacks_so_far`(상한 2) | NFR-10, H12 | RFP-22-05 |
 | 캐시 | `cache`(`off`/`hit`/`miss`/`stored`), `cache_key12` | 평가 오염 방지 | `llm_cache.py`의 키 앞 12자 |
-| 하네스 | `harness_event`(규칙 ID H1~H16 + 동작: block/rewrite/rollback/append) | 하네스가 막았나 | RFP-29 §6. 새 하네스 이벤트 이름은 RFP-33 참고 |
+| 하네스 | `harness_event`(규칙 ID H1~H29(RFP-29 §6, 2026-11-16 기준) + 동작: block/rewrite/rollback/append) | 하네스가 막았나 | RFP-29 §6. 새 하네스 이벤트 이름은 RFP-33 참고 |
 | 검증 | `verdict`(pass/fix/fail), `violations`(규칙 ID 목록) | Validator 효과 | AG-07 |
 | 데이터 | `source`(file/api/snapshot), `file_api_match`(일치/불일치/API 끔), `data_as_of`(파일별 기준일, 예: 병용금기 2026-07-31·임부금기 2026-07-21) | 근거·기준일 | 일치율은 평가 점수와 섞지 않는다(BE-08) |
 | 종료 | `end_reason`(정상/호출 상한/안내 전환/거절/오류) | 경로 평가 지표 | RFP-26 §7.6 "종료 사유" |
