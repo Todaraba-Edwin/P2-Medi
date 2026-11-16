@@ -14,6 +14,7 @@ import re
 import unicodedata
 from typing import Any
 
+from app.agent import fixed_phrases as fp
 from app.agent.tools.schemas import POST_WRITABLE_KEYS
 
 ROUTE_AGENT = "AGENT"
@@ -132,6 +133,19 @@ def classify_scope(text: str) -> str | None:
         if pat.search(n):
             return key
     return None
+
+
+def refuse_reasons(text: str) -> list[str]:
+    """거절 이유 키 **전부**(AG-08-08 A). 걸린 범위 외 이유와 인젝션(`IGNORE_PREVIOUS`)을 `REFUSE_MESSAGES` 정의 순서로 돌려준다.
+
+    거절 여부와 첫 키(`guardrail_in`의 `refuse_reason`)는 이 함수와 무관하게 그대로다. 걸린 것이 없으면 빈 목록이다.
+    """
+    n = normalize(text)
+    hit = {key for key, pat in _SCOPE_PATTERNS if pat.search(n)}
+    if detect_injection(text):
+        hit.add("IGNORE_PREVIOUS")
+    order = list(fp.REFUSE_MESSAGES)
+    return sorted(hit, key=lambda k: order.index(k) if k in order else len(order))
 
 
 def guardrail_in(text: str) -> dict[str, Any]:

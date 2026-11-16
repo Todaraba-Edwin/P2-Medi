@@ -1,8 +1,11 @@
-"""BE-06 `POST /chat` 라우트 선언(그래프 연결 전).
+"""BE-06 `POST /chat` 라우트.
 
-- **의도된 상태: 501 Not Implemented.** 요청 형식 검사(`ChatRequest`)까지만 하고 그래프를 부르지 않는다. 그래프 호출 연결은
-  선행 AG-05~09가 끝난 뒤 BE-06 하위 작업 "그래프 호출 연결"에서 한다. 이 상태는 TODO가 아니라 계약 고정 단계의 결과이며 시험이 고정한다.
-- 성공 응답(연결 뒤)은 `application/x-ndjson` 스트림이고 줄마다 `ChatEvent`(`app.api.events`)다. OpenAPI에는 200 응답 스키마로 `ChatEvent`를 싣는다.
+- **실행기가 주입되지 않았으면 501 Not Implemented**(의도된 상태). 실행기(`app.api.runner.ChatRunner`)는 `set_runner(app, runner)`로
+  `app.state`에 붙인다. 이 모듈은 실행기를 스스로 만들지 않는다(실제 모델·DB·API 의존성을 앱 시작 때 붙이는 일은 따로 정한다).
+- 실행기가 있으면 요청 묶음을 그래프 입력으로 옮겨(`runner.profile_from_context`) 그래프를 돌리고, 노드 갱신을 이벤트로 바꿔
+  (`app.api.stream.chat_events`) NDJSON으로 보낸다. 이벤트 사이가 길면 하트비트 빈 줄을 보낸다(BE-06-10 A).
+- 성공 응답은 `application/x-ndjson` 스트림이고 줄마다 `ChatEvent`(`app.api.events`)다. OpenAPI에는 200 응답 스키마로 `ChatEvent`를 싣는다.
+  스트림이 시작된 뒤의 실패는 HTTP 상태가 아니라 `error` 이벤트로 알린다(상태는 이미 200이다).
 - 오류 본문은 `ErrorBody{code, fields}`다. 4xx·5xx 본문에 **입력 값(질문 등)을 되돌려 주지 않는다**(FastAPI 기본 422 본문의 `input`을 쓰지 않음).
   오류 문구 상수는 승인 전이라 본문에 문구가 없다(문구 대기, 화면은 상태 코드로 처리한다).
 - 질문·대화 상태는 저장·로그하지 않는다(PRD-07-01 A, RFP 7장). 요청 본문을 로깅하는 미들웨어를 두지 않는다.
@@ -10,13 +13,23 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from app.api import events
 from app.api.events import NDJSON_MEDIA_TYPE, ChatEvent
 from app.api.request import AgeInput, ChatRequest, ConfirmedDrug, ConversationContext
+from app.api.runner import ChatRunner, profile_from_context
 from app.api.schemas import _Strict
+from app.api.stream import MetricsSink, chat_events
+from app.logging import SpanLogger
+
+RUNNER_STATE_KEY = "chat_runner"  # `app.state`의 실행기 자리. 없으면 501
+METRICS_STATE_KEY = "chat_metrics"  # `app.state`의 서비스 집계 기록기 자리(L4). None이면 집계하지 않는다
+_DEFAULT_METRICS: Any = object()
 
 CODE_INVALID_REQUEST = "INVALID_REQUEST"
 CODE_NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
@@ -59,9 +72,26 @@ router = APIRouter()
     },
     summary="질문을 받아 진행·응급·최종 응답 이벤트를 NDJSON으로 보낸다",
 )
-def chat(request: ChatRequest) -> JSONResponse:
-    del request  # 저장·로그하지 않는다. 그래프 연결 전이라 쓰지 않는다
-    return JSONResponse(status_code=501, content=ErrorBody(code=CODE_NOT_IMPLEMENTED).model_dump())
+async def chat(request: ChatRequest, http_request: Request) -> Response:
+    runner: ChatRunner | None = getattr(http_request.app.state, RUNNER_STATE_KEY, None)
+    if runner is None:  # 실행기 미주입(의도된 상태)
+        return JSONResponse(status_code=501, content=ErrorBody(code=CODE_NOT_IMPLEMENTED).model_dump())
+    # 질문·요청 묶음은 저장·로그하지 않고 그래프 입력으로만 쓴다(PRD-07-01 A). `context.confirmed_drugs`는 아직 쓰지 않는다
+    metrics: MetricsSink | None = getattr(http_request.app.state, METRICS_STATE_KEY, None)
+    stream = chat_events(runner, request.question, profile_from_context(request.context), metrics)
+    return NDJSONResponse(events.ndjson_with_heartbeat(stream, interval_s=events.HEARTBEAT_INTERVAL_S))
+
+
+def set_runner(app: FastAPI, runner: ChatRunner | None, *, metrics: MetricsSink | None = _DEFAULT_METRICS) -> None:
+    """`/chat`이 쓸 실행기를 붙인다(None이면 뗀다 → 501).
+
+    `metrics`를 주지 않으면 서비스 집계 기록기(`SpanLogger(mode="service")`: 내용 없는 분 단위 합계를 표준 출력으로, 파일 없음)를 붙인다.
+    None을 주면 집계하지 않는다.
+    """
+    setattr(app.state, RUNNER_STATE_KEY, runner)
+    if metrics is _DEFAULT_METRICS:
+        metrics = SpanLogger(mode="service") if runner is not None else None
+    setattr(app.state, METRICS_STATE_KEY, metrics)
 
 
 async def _validation_error(_: Request, exc: Exception) -> JSONResponse:
@@ -110,4 +140,4 @@ def register(app: FastAPI) -> None:
     app.openapi = openapi  # type: ignore[method-assign]
 
 
-__all__ = ["ErrorBody", "NDJSONResponse", "register", "router"]
+__all__ = ["ErrorBody", "NDJSONResponse", "register", "router", "set_runner"]

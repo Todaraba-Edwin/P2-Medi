@@ -41,9 +41,14 @@ def build_graph(deps: GraphDeps) -> Any:
     return g.compile().with_config({"recursion_limit": RECURSION_LIMIT})
 
 
-def run_question(graph: Any, question: str, profile: dict[str, Any] | None = None) -> dict[str, Any]:
-    """한 줄 호출. 질문 한 개를 끝까지 흘려 최종 상태를 돌려준다."""
+def initial_state(question: str, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    """그래프 시작 상태. `run_question`과 `/chat` 스트림 실행기가 같은 값을 쓴다."""
     init: dict[str, Any] = {"question": question, "call_count": 0, "rewind_count": 0}
     if profile:
         init["profile"] = profile
-    return graph.invoke(init)  # type: ignore[no-any-return]
+    return init
+
+
+def run_question(graph: Any, question: str, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    """한 줄 호출. 질문 한 개를 끝까지 흘려 최종 상태를 돌려준다."""
+    return graph.invoke(initial_state(question, profile))  # type: ignore[no-any-return]

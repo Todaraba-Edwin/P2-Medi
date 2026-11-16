@@ -224,9 +224,10 @@ def test_summary_parsing_error_is_raised_and_not_cached(dd, cache_env, monkeypat
     assert not list((cache_env / "cache").glob("*.json"))
 
 
-# --------------------------------------------------------------------------- ③ AG-02 MAX_API_CODES_PER_DRUG=2 점검(코드 불변, 현황 고정)
-# 합성 3성분 복합제(타이레놀콜드-에스정: API 성분코드 D_APAP·D_PSE·D_DXM)의 세 번째 성분 쌍은 API에 묻지 않는다.
-# 아래 시험은 **현재 동작을 고정**해 영향이 보이게 한다. 계약(한도·꼬리표) 변경은 사용자 결정(AG-02)이라 고치지 않는다.
+# --------------------------------------------------------------------------- ③ AG-02 MAX_API_CODES_PER_DRUG=2 점검
+# 합성 3성분 복합제(타이레놀콜드-에스정: API 성분코드 D_APAP·D_PSE·D_DXM)의 세 번째 성분 쌍은 API에 묻지 않는다(호출 수 그대로).
+# AG-01-04 A(2026-11-12 결정, 2026-11-16 이행): 잘린 성분이 있으면 `FILE_ONLY`·`API_SAME` 대신 `API_PAIR_INCOMPLETE`를 붙인다.
+# 한도를 3으로 올린 반사실 시험 2건은 그대로다.
 
 
 def _pair_calls(fd: FakeDur) -> set[frozenset[str]]:
@@ -240,16 +241,17 @@ def _run_tools_only(dd: DrugDict, key: str, fd: FakeDur) -> dict[str, Any]:
     return run_question(build_graph(deps), g["q"])
 
 
-def test_third_ingredient_pair_not_queried_gives_file_only_on_p3(dd):
-    """P3: 파일 병용금기 FOUND인데 API의 해당 쌍(D_DXM×D_RASA)은 세 번째 성분이라 묻지 않는다 → `FILE_ONLY`("해제되었을 수 있어요")."""
+def test_third_ingredient_pair_not_queried_gives_pair_incomplete_on_p3(dd):
+    """P3: 파일 병용금기 FOUND인데 API의 해당 쌍(D_DXM×D_RASA)은 세 번째 성분이라 묻지 않는다 → `API_PAIR_INCOMPLETE`
+    ("실시간 확인을 하지 못함"). `FILE_ONLY`("해제되었을 수 있어요")로 말하지 않는다(AG-01-04 A)."""
     assert cc.MAX_API_CODES_PER_DRUG == 2
     fd = FakeDur()
     st = _run_tools_only(dd, "P3", fd)
     assert frozenset({D_DXM, D_RASA}) not in _pair_calls(fd) and len(_pair_calls(fd)) == 2
     it = next(i for i in st["evidence"] if i["evidence_id"] == "contra_pair:254000ATB:625201ATB")
-    assert it["status"] == "FOUND" and "FILE_ONLY" in it["flags"]
-    assert not {"API_PAIR_INCOMPLETE", "TRUNCATED", "API_SAME"} & set(it["flags"])  # 잘렸다는 꼬리표는 없다
-    assert FLAG_NOTES["FILE_ONLY"] in it["notes"]
+    assert it["status"] == "FOUND" and "API_PAIR_INCOMPLETE" in it["flags"]
+    assert not {"FILE_ONLY", "TRUNCATED", "API_SAME"} & set(it["flags"])  # 대조가 끝나지 않았으므로 "파일에만 있음"·"같음"은 붙지 않는다
+    assert FLAG_NOTES["API_PAIR_INCOMPLETE"] in it["notes"] and FLAG_NOTES["FILE_ONLY"] not in it["notes"]
     assert not [i for i in st["evidence"] if i.get("source_kind") == "API_DIRECT" and i["kind"] == "contra_pair"]
 
 
@@ -273,13 +275,15 @@ class _DurThirdOnly(FakeDur):
         return res
 
 
-def test_third_ingredient_api_only_signal_is_lost_and_flag_says_same(dd):
-    """P2 쌍(파일 NOT_LISTED): API에만 있는 세 번째 성분 쌍을 묻지 않아 `API_ONLY`(새 지정 가능) 대신 `API_SAME`("같아요")이 붙는다."""
+def test_third_ingredient_api_only_signal_is_lost_but_flag_does_not_say_same(dd):
+    """P2 쌍(파일 NOT_LISTED): API에만 있는 세 번째 성분 쌍을 묻지 않아 `API_ONLY`(새 지정 가능)는 여전히 못 잡지만,
+    `API_SAME`("같아요") 대신 `API_PAIR_INCOMPLETE`가 붙는다(AG-01-04 A)."""
     fd = _DurThirdOnly()
     st = _run_tools_only(dd, "P2", fd)
     assert frozenset({D_DXM, D_APAP}) not in _pair_calls(fd)
     pair = next(i for i in st["evidence"] if i["kind"] == "contra_pair" and i.get("source_kind") != "API_DIRECT")
-    assert pair["status"] == "NOT_LISTED" and "API_SAME" in pair["flags"] and "API_ONLY" not in pair["flags"]
+    assert pair["status"] == "NOT_LISTED" and "API_PAIR_INCOMPLETE" in pair["flags"]
+    assert not {"API_SAME", "API_ONLY", "FILE_ONLY"} & set(pair["flags"])
 
 
 def test_third_ingredient_counterfactual_limit_3_surfaces_api_only(dd, monkeypatch):

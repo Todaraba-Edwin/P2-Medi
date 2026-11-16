@@ -17,6 +17,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from app.agent import guardrail
 from app.agent.answer_schema import AnswerDraft, Sentence, parse_draft
 from app.agent.finalize import finalize
+from app.agent.grade_defs import GradeDefFn, grade_def_inputs
 from app.agent.graph.metered import unwrap_summary
 from app.agent.graph.state import (
     END_CLARIFY,
@@ -60,6 +61,7 @@ class GraphDeps:
     max_calls: int = MAX_MODEL_CALLS
     max_rewind: int = MAX_REWIND
     tracer: Any = None              # L2 계측(`graph.trace.GraphTracer`). None이면 계측하지 않는다(RFP-34-02)
+    grade_def_fn: GradeDefFn | None = None  # 임부금기 등급 정의 원문 공급(BE-06-16 A). None이면 등급 정의 블록을 만들지 않는다
 
 
 # --------------------------------------------------------------------------- 보조
@@ -94,8 +96,9 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
     def guardrail_in(state: AgentState) -> dict[str, Any]:
         g = guardrail.guardrail_in(_question_of(state))
         ev = [{"rule": "H4", "event": "GUARDRAIL_IN", "emergency": g["emergency"], "route": g["route"], "reason": g["refuse_reason"]}]
-        return {"emergency": g["emergency"], "route": g["route"], "refuse_reason": g["refuse_reason"], "injection": g["injection"],
-                "proceed_tools": g["proceed_tools"], "events": ev}
+        reasons = guardrail.refuse_reasons(_question_of(state)) if g["route"] == guardrail.ROUTE_REFUSE else []  # 이유 전부(AG-08-08 A)
+        return {"emergency": g["emergency"], "route": g["route"], "refuse_reason": g["refuse_reason"], "refuse_reasons": reasons,
+                "injection": g["injection"], "proceed_tools": g["proceed_tools"], "events": ev}
 
     def router(state: AgentState) -> dict[str, Any]:
         res = route_input(_question_of(state), deps.drug_dict, state.get("profile"),
@@ -191,23 +194,41 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
         events.append({"rule": "H2", "event": "VALIDATION_FALLBACK", "reasons": reasons})  # 두 번째 실패: 모델 문장 없이 코드 문구로 종료
         return {"validation": {**base, "next": "fallback"}, "final_sentences": [], "events": events}
 
+    def finalize_extra(state: AgentState, items: list[dict[str, Any]]) -> dict[str, Any]:
+        """정상·상한·검증 폴백 경로에서 `finalize`에 더 넘기는 입력(표시만, 판정 불변). 거절·되묻기 경로에는 쓰지 않는다."""
+        extra: dict[str, Any] = {}
+        # 임신 여부를 모르고(질문에도 요청 묶음에도 없음) 임부금기 조회도 돌지 않았으면 "확인하지 못했어요" 줄(FE-07-16 B).
+        # 임신 아님(False)은 대상이 아니라 줄을 그리지 않는다(AG-08-18 A)
+        if (state.get("profile") or {}).get("pregnant") is None and not any(it.get("kind") == "pregnancy" for it in items):
+            extra["not_checked"] = ["pregnancy"]
+        if deps.grade_def_fn is not None:  # 함수가 주입되지 않았으면 아무것도 넘기지 않는다(기존 출력 불변)
+            defs, missing = grade_def_inputs(items, deps.grade_def_fn)
+            if defs:
+                extra["grade_defs"] = defs
+            if missing:
+                extra["grade_def_missing"] = missing
+        return extra
+
     def finalize_node(state: AgentState) -> dict[str, Any]:
         emergency = bool(state.get("emergency"))
         items = state.get("evidence") or []
         clar = state.get("clarify")
         if state.get("route") == guardrail.ROUTE_REFUSE and not state.get("proceed_tools"):
-            resp, why = finalize([], emergency=emergency, refuse_reason=state.get("refuse_reason") or "OUT_OF_SCOPE"), END_REFUSE
+            resp, why = finalize([], emergency=emergency, refuse_reason=state.get("refuse_reason") or "OUT_OF_SCOPE",
+                                 refuse_reasons=state.get("refuse_reasons")), END_REFUSE
         elif state.get("ambiguous") and clar:  # 되묻기 종료: 질문 문장은 라우터가 코드 템플릿으로 만든다
             resp, why = finalize([], model_summary=clar.get("question"), emergency=emergency), END_CLARIFY
         elif state.get("limit_reached"):
-            resp, why = finalize(items, emergency=emergency, limit_reached=True), END_LIMIT
+            resp, why = finalize(items, emergency=emergency, limit_reached=True, **finalize_extra(state, items)), END_LIMIT
         else:
             sents = [Sentence.model_validate(s) for s in state.get("final_sentences") or []]
             summary = " ".join(s.text for s in sents) or None
             refuse = state.get("refuse_reason") if state.get("route") == guardrail.ROUTE_REFUSE else None  # 응급+범위 외: 거절 문구와 119를 함께
             fell_back = (state.get("validation") or {}).get("next") == "fallback"
+            extra = {} if refuse else finalize_extra(state, items)  # 응급+범위 외도 거절 경로라 넘기지 않는다
             resp = finalize(items, model_summary=summary, emergency=emergency, sentences=sents, refuse_reason=refuse,
-                            validation_fallback=fell_back and not refuse)  # 거절 문구가 있으면 그대로 둔다
+                            refuse_reasons=state.get("refuse_reasons") if refuse else None,
+                            validation_fallback=fell_back and not refuse, **extra)  # 거절 문구가 있으면 그대로 둔다
             why = END_FALLBACK if fell_back else END_NORMAL
         return {"answer": resp, "end_reason": why, "events": [{"rule": "H3", "event": "FINALIZE", "end_reason": why}]}
 

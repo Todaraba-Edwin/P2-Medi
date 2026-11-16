@@ -74,6 +74,7 @@ def build_deps(
     registry: dict[str, Any] | None = None,
     tracer: Any = None,
     ledger: Any = None,
+    grade_def_fn: Any = None,
 ) -> GraphDeps:
     """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음)."""
     tools = build_tools(tool_ctx, registry)
@@ -99,4 +100,4 @@ def build_deps(
     if registry is not None:
         kwargs["registry"] = registry
     return GraphDeps(drug_dict=drug_dict, tool_model=tool_model, summary_model=summary_model, tools=tools, tool_ctx=tool_ctx,
-                     system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, **kwargs)
+                     system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, grade_def_fn=grade_def_fn, **kwargs)
