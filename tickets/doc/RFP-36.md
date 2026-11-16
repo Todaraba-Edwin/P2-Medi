@@ -12,7 +12,7 @@ done: -
 
 # RFP-36 · Goal 모드 장시간 자율 작업 1회차 계획(AG-08 코드 이행 + BE-06-13~17 서버 상수)
 
-> **📌 이 티켓에서 사용자가 답할 것 (대기 0건)** — RFP-36-01~03은 2026-11-13 모두 완료했다(§5 결정 현황). goal 1회차는 2026-11-16 실행·병합(`6f8e5a5`·`678e093`)됐고 남은 일은 프런트 후속 WP 지시서(메인이 작성 중)뿐이다(§3).
+> **📌 이 티켓에서 사용자가 답할 것 (대기 0건)** — RFP-36-01~03은 2026-11-13 모두 완료했다(§5 결정 현황). goal 1회차는 2026-11-16 실행·병합(`6f8e5a5`·`678e093`)됐고 2회차(AG-06 → AG-01 통합 → `/chat`)도 2026-11-16 실행·병합(`b82dbd4`·`0634adf`)됐다. 남은 일은 다음 백엔드 WP(앱 시작 배선)·프런트 후속 WP 지시서뿐이다(§3).
 > 한눈에 보기: [schedule.md 지금 해야 할 일 (Top 5)](../../schedule.md#지금-해야-할-일-top-5)(이 티켓은 Top 5 밖이다).
 
 ## Index
@@ -53,7 +53,7 @@ done: -
 
 **하지 않는 것**: 원격 DB·LLM 실호출, 재적재, AG-06 코드, 프런트 코드, git.
 
-**2회차(2026-11-16 준비 중)**: AG-06 Validator → AG-01 통합 → BE-06 `/chat` 연결을 같은 방식으로 자율 실행한다(메인 폴더 `/Users/edwin/develop/P2-Medi`, 브랜치 `feature/AG-06-impl`, goal 중 메인은 커밋하지 않음, VS Code·Fable 5.2, 지시서 `data/mock/briefs/goal/2026-11-16-goal-ag06-ag01.md` 작성 중, 보고 `data/mock/briefs/reports/goal-ag06-ag01.md`).
+**2회차(2026-11-16 완료, 커밋 `b82dbd4`·병합 `0634adf`)**: AG-06 Validator → AG-01 통합 → BE-06 `/chat` 연결을 같은 방식으로 자율 실행한다(메인 폴더 `/Users/edwin/develop/P2-Medi`, 브랜치 `feature/AG-06-impl`, goal 중 메인은 커밋하지 않음, VS Code·Fable 5.2, 지시서 `data/mock/briefs/goal/2026-11-16-goal-ag06-ag01.md`, 보고 `data/mock/briefs/reports/goal-ag06-ag01.md`).
 
 ## 3. 완료 조건
 - [x] (2026-11-16) goal 세션 보고 `data/mock/briefs/reports/goal-ag08.md`를 메인이 검수했다(충족표의 파일:줄·시험 이름 확인).
@@ -68,7 +68,8 @@ done: -
 - [x] (2026-11-16) 선행 점검: AG-05 후속 1차가 develop에 병합됐는지 확인한다(2026-11-12 병합됨, 커밋 3abe8b4·병합 698ff20)(§7 가정).
 - [x] (2026-11-16 시작) 사용자가 새 세션(또는 VS Code)에서 지시서 경로를 첫 메시지로 주고 아래 goal 명령을 실행한다.
 - [x] (2026-11-16) 끝나면 메인이 보고를 가볍게 검수하고(ruff·pytest 재실행, `git status`) `git-actor`·후속 지시를 낸다.
-- [ ] goal 2회차: AG-06 → AG-01 통합 → `/chat` 연결(지시서 `data/mock/briefs/goal/2026-11-16-goal-ag06-ag01.md`, 메인 폴더 브랜치 `feature/AG-06-impl`)
+- [x] (2026-11-16 완료: 커밋 `b82dbd4`, 병합 `0634adf`, 보고 `data/mock/briefs/reports/goal-ag06-ag01.md`(로컬), 메인 재검증 pytest 2218 passed·5 skipped·1 xfailed·ruff 0, 충족표 1·2·3·4·5·7·8·9·10번 충족·6번 보류+이유(나이 미특정 연령금기 항목 모양), 결정 BE-06-19~22·AG-01-05~09·AG-08-23은 사용자 "권장대로"로 완료) goal 2회차: AG-06 → AG-01 통합 → `/chat` 연결(지시서 `data/mock/briefs/goal/2026-11-16-goal-ag06-ag01.md`, 메인 폴더 브랜치 `feature/AG-06-impl`)
+- [ ] (후속, 2회차 결과) 다음 백엔드 WP(앱 시작 배선 BE-06-22 A + AG-01-09 A 코드 변경)와 프런트 실연결 WP의 지시서를 작성한다([BE-06 §3](../backend/BE-06.md#3-하위-작업), [AG-01 §3](../agent/AG-01.md#3-하위-작업), [FE-01 §3](../frontend/FE-01.md#3-하위-작업))
 
 ### 4.1 goal 명령 초안
 실행 순서(RFP-36-02 B, 사용자 2026-11-13):
