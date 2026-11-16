@@ -18,7 +18,7 @@ _ROW_FIELDS = ("row_key", "row_evidence_id", "grade", "notice_no", "notice_date"
 # 도구 항목 값을 그대로 통과시키는 부가 필드(없으면 None). 꼬리표만으로는 부족한 안내(`notes`: "안전하다는 뜻이 아님" 등),
 # 라벨 출처 이름(`label_source`: 쉬운 설명 ↔ 허가사항 원문, PRD-11-05)과 미확보 이유(`missing_reason`, H26)가 여기에 든다.
 _PASS_FIELDS = ("drugs", "notes", "cause_codes", "label_source", "missing_reason", "matched_by", "item_seq", "section", "truncated",
-                "input_name", "searched", "retried", "retry_hint", "candidates")
+                "input_name", "searched", "retried", "retry_hint", "candidates", "name")
 
 W_NO_SOURCE_KIND = "MISSING_SOURCE_KIND"
 W_BAD_QUOTE = "QUOTE_NOT_RESOLVED"

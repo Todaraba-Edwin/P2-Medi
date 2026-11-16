@@ -9,7 +9,7 @@
 | `progress` | `stage`(`drug_lookup`·`contraindication_check`·`evidence_search`), `label`(서버 상수 `fixed_phrases.PROGRESS_LABELS[stage]`, BE-06-09 A) |
 | `emergency` | `emergency`(`ChatResponse.emergency`와 같은 모양, 상수 그대로) |
 | `answer` | `response`(`ChatResponse` 전체, `chat_response@v1`) |
-| `error` | `code`(`ERROR_CODES`), `message`(오류 문구 상수. 승인 전이라 지금은 null, 문구 대기) |
+| `error` | `code`(`ERROR_CODES`), `message`(오류 문구 상수 `fixed_phrases.ERROR_MESSAGES[code]`, 2026-11-12 승인) |
 | `done` | `end_reason`(`answer`가 있으면 그 `response.end_reason`과 같은 값, `error` 뒤면 null) |
 
 ## 순서 규칙(`check_event_order`가 코드로 검사한다)
@@ -43,10 +43,10 @@ NDJSON_MEDIA_TYPE = "application/x-ndjson"
 Stage = Literal["drug_lookup", "contraindication_check", "evidence_search"]
 STAGES: tuple[str, ...] = tuple(fp.PROGRESS_LABELS)
 
-# 오류 코드(스트림 중 실패). 문구 상수는 사용자 승인 전이라 없다(문구 대기): `message`는 null로 보낸다
+# 오류 코드(스트림 중 실패). 문구는 `fixed_phrases.ERROR_MESSAGES` 상수 그대로다(0-E 1-1~1-3 승인, 2026-11-12)
 ErrorCode = Literal["INTERNAL_ERROR", "TIMEOUT", "UPSTREAM_UNAVAILABLE"]
 ERROR_CODES: tuple[str, ...] = ("INTERNAL_ERROR", "TIMEOUT", "UPSTREAM_UNAVAILABLE")
-ERROR_MESSAGES: dict[str, str | None] = dict.fromkeys(ERROR_CODES)  # 문구 대기: 승인되면 fixed_phrases 상수를 여기에 연결한다
+ERROR_MESSAGES: dict[str, str | None] = {code: fp.ERROR_MESSAGES[code] for code in ERROR_CODES}
 
 # 하트비트(BE-06-10 A)
 HEARTBEAT_LINE = b"\n"

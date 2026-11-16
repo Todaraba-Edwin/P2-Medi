@@ -142,7 +142,9 @@ def test_unidentified_says_not_confirmed_and_advises_pharmacist():
 def test_identified_line_has_no_not_listed_wording():
     resp = finalize([_ident(), _unid()], None, emergency=False)
     ident = next(e for e in resp["entries"] if e["bucket"] == "identified")
-    assert "금기 목록에 없" not in ident["text"] and "타이레놀정500" in ident["text"]
+    # AG-08-12 B: 줄 글자는 표지 "찾음"이고 약 이름은 줄 머리(`drug`)에 있다(PRD-14 §5.2)
+    assert "금기 목록에 없" not in ident["text"] and ident["drug"] == "타이레놀정500"
+    assert "[타이레놀정500] " + ident["text"] in resp["text"].splitlines()
 
 
 def test_order_found_kinds_pair_then_pregnancy_then_age():
@@ -403,6 +405,9 @@ _SCREEN_TEXTS = [
     fp.UNIDENTIFIED_WHY, fp.UNIDENTIFIED_RETRIED, fp.UNIDENTIFIED_NEXT, fp.UNIDENTIFIED_NOT_SAFE, fp.IDENTIFIED_LINE, fp.LIMIT_REACHED,
     fp.PHARMACIST_ADVICE, fp.PHARMACIST_ADVICE_FIXED, fp.LOOKUP_FAILED, fp.TRUNCATED, fp.REFERENCE_ONLY_LINE, fp.LABEL_ONE_LINE,
     fp.CODE_NOT_LINKED, fp.AMBIGUOUS_NAME, fp.REFERENCE_ONLY, fp.INVALID_CODE, fp.PAIR_NOT_CHECKED,
+    fp.EMERGENCY_119_WIDE, fp.UNIDENTIFIED_SUB_LINE, fp.PREGNANCY_NOT_CHECKED, fp.NOT_CHECKED_TEMPLATE, fp.AGE_INFO_LINE, fp.CLARIFY_PICK_LINE,
+    fp.GRADE_MISMATCH_NOTE, fp.DOSE_QUOTE_NOTICE, fp.GRADE_DEF_TITLE, fp.NOTICE_API_FAIL, *fp.INGR_CODE_MISSING_TEXT.values(),
+    *fp.ERROR_MESSAGES.values(), fp.INGR_STATE_CAUSE, fp.INGR_STATE_PAIR_CAUSE, fp.INGR_STATE_DUP,
     *fp.MISSING_TEXT.values(), *fp.GRADE_DEF_MISSING_TEXT.values(), *fp.REFUSE_MESSAGES.values(), *fp.SOURCE_KIND_TEXT.values(),
     fp.BADGE_PAIR, fp.BADGE_PREGNANCY, fp.BADGE_PREGNANCY_M, fp.BADGE_PREGNANCY_M_NOTE, fp.BADGE_AGE, *fp.CAUTION_LABELS.values(),
     *fp.FLAG_LINES.values(),
