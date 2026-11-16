@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from app.agent import fixed_phrases as fp
+from app.agent import josa
 from app.agent.answer_schema import Citation, Sentence
 from app.agent.finalize import finalize
 from app.tools.provenance import FLAG_NOTES
@@ -457,3 +458,24 @@ def test_harness_table_values_match_constants():
         assert c in txt, c
     for t in (fp.MISSING_OUT_OF_SCOPE, fp.MISSING_ABSENT, fp.EASY_TEXT_MISSING):
         assert t.replace("{drug}", "{약 이름}") in txt, t
+
+
+# --------------------------------------------------------------------------- 2026-11-16 문구 승인(3번 조사 자동, 나머지 원문 승인)
+@pytest.mark.parametrize("name,particle", [
+    ("타이레놀정", "은"), ("판콜에이", "는"), ("Advil", "은"), ("ABC", "는"), ("타이레놀정500mg", "은"), ("시럽5ml", "는"),
+])
+def test_reference_only_line_picks_topic_particle(name, particle):
+    assert josa.eun_neun(name) == particle
+    resp = finalize([_preg(drug=name, status="UNIDENTIFIED", flags=["REFERENCE_ONLY"])], None, emergency=False)
+    line = resp["entries"][0]["reference_line"]
+    assert line == f"참고: {name}{particle} 다른 제형에서 금기 목록에 있어요. 이 제품에 대한 판정은 아니에요"
+    assert "은(는)" not in line and "{drug}은(는)" in fp.REFERENCE_ONLY_LINE
+
+
+def test_fill_handles_both_particle_marks_independently():
+    assert josa.fill("{a}을(를) {b}은(는)", a="게보린", b="판콜에이") == "게보린을 판콜에이는"
+
+
+def test_phrase_approval_2026_11_16_clears_drafts():
+    assert fp.DRAFT_KEYS == () and fp.REFUSE_DRAFT_KEYS == ()
+    assert set(fp.REFUSE_APPROVED_KEYS) == set(fp.REFUSE_MESSAGES)

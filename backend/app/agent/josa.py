@@ -1,7 +1,7 @@
-"""약 이름 뒤 조사 "을/를"을 받침으로 고른다(AG-08-15 B). 순수 함수, 외부 호출 없음.
+"""약 이름 뒤 조사 "을/를"(AG-08-15 B)·"은/는"(2026-11-16 문구 승인 3번)을 받침으로 고른다. 순수 함수, 외부 호출 없음.
 
-고정 문구 원문은 `{drug}을(를)`처럼 적혀 있고(`fixed_phrases`), 화면에 나가기 전에 `fill`이 이름의 마지막 소리로 하나를 고른다.
-"을(를)"이 출력에 남지 않는다. 문장 자체는 바꾸지 않는다(조사 한 글자만 고른다).
+고정 문구 원문은 `{drug}을(를)`·`{drug}은(는)`처럼 적혀 있고(`fixed_phrases`), 화면에 나가기 전에 `fill`이 이름의 마지막 소리로
+하나를 고른다. "을(를)"·"은(는)"이 출력에 남지 않는다. 문장 자체는 바꾸지 않는다(조사 한 글자만 고른다).
 
 - 한글: 마지막 글자의 받침 유무.
 - 숫자: 한자어로 읽은 소리(0 영, 1 일, 3 삼, 6 육, 7 칠, 8 팔은 받침 있음).
@@ -17,6 +17,8 @@ import re
 
 MARK = "을(를)"
 _WITH, _WITHOUT = "을", "를"
+TOPIC_MARK = "은(는)"
+_TOPIC_WITH, _TOPIC_WITHOUT = "은", "는"
 _DIGIT_BATCHIM = frozenset("013678")
 _LETTER_BATCHIM = frozenset("lmnr")
 _UNIT_BATCHIM = re.compile(r"\d\s*(?:mg|mcg|µg|μg|kg|g)$", re.IGNORECASE)
@@ -53,9 +55,15 @@ def eul_reul(word: str) -> str:
     return _WITH if has_batchim(word) else _WITHOUT
 
 
+def eun_neun(word: str) -> str:
+    """`word` 뒤에 붙일 보조사 "은/는"."""
+    return _TOPIC_WITH if has_batchim(word) else _TOPIC_WITHOUT
+
+
 def fill(template: str, **values: str) -> str:
-    """`{key}을(를)` 자리를 값과 고른 조사로 채우고 나머지 `{key}`는 그대로 채운다."""
+    """`{key}을(를)`·`{key}은(는)` 자리를 값과 고른 조사로 채우고 나머지 `{key}`는 그대로 채운다."""
     out = template
     for key, val in values.items():
         out = out.replace("{" + key + "}" + MARK, "{" + key + "}" + eul_reul(val))
+        out = out.replace("{" + key + "}" + TOPIC_MARK, "{" + key + "}" + eun_neun(val))
     return out.format(**values)

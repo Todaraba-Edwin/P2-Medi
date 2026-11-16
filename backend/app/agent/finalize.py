@@ -158,7 +158,7 @@ def _entry(it: dict[str, Any], bucket: int) -> dict[str, Any]:
                 e["retried_line"] = fp.UNIDENTIFIED_RETRIED
             e["searched"] = [{"dataset": s.get("dataset"), "count": s.get("count")} for s in it.get("searched") or [] if isinstance(s, dict)]
         if "REFERENCE_ONLY" in flags:
-            e["reference_line"] = fp.REFERENCE_ONLY_LINE.format(drug=e["drug"])
+            e["reference_line"] = josa.fill(fp.REFERENCE_ONLY_LINE, drug=str(e["drug"]))
     return e
 
 
