@@ -32,8 +32,16 @@ export const SCENARIO_KEYWORDS: ReadonlyArray<readonly [string, ScenarioName]> =
   ["mock:상한", "limit"],
 ];
 
-export function pickScenario(question: string): ScenarioName {
-  return SCENARIO_KEYWORDS.find(([keyword]) => question.includes(keyword))?.[1] ?? "found";
+/** 되묻기 뒤 재전송(고른 약이 `context.confirmed_drugs`에 실려 옴)에 돌려줄 결과 시나리오 */
+export const CONFIRMED_SCENARIO: ScenarioName = "found";
+
+/**
+ * 질문의 표시 글자로 시나리오를 고른다. 되묻기(`mock:되묻기`)라도 고른 약이 실려 오면(`confirmedDrugs` > 0) 다시 묻지 않고
+ * 결과로 답한다(FE-IMPL-06b: 재전송 흐름을 워커로 끝까지 볼 수 있게. 실제 서버의 되묻기 판정과는 무관한 합성 규칙).
+ */
+export function pickScenario(question: string, confirmedDrugs = 0): ScenarioName {
+  const picked = SCENARIO_KEYWORDS.find(([keyword]) => question.includes(keyword))?.[1] ?? "found";
+  return picked === "clarify" && confirmedDrugs > 0 ? CONFIRMED_SCENARIO : picked;
 }
 
 /** 시나리오를 NDJSON 응답으로 바꾼다. 이벤트 사이에 `delayMs`만큼 쉰다. */
@@ -86,7 +94,8 @@ export function createChatHandler({ delayMs = 0, scenario }: ChatHandlerOptions 
       const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.join(".")))];
       return HttpResponse.json({ code: "INVALID_REQUEST", fields }, { status: 422 });
     }
-    return scenarioResponse(scenarios[scenario ?? pickScenario(parsed.data.question)], delayMs);
+    const name = scenario ?? pickScenario(parsed.data.question, parsed.data.context.confirmed_drugs.length);
+    return scenarioResponse(scenarios[name], delayMs);
   });
 }
 

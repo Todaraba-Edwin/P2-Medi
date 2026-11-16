@@ -1,166 +1,40 @@
 import { expect, test } from "@playwright/test";
-import type { Locator, Page } from "@playwright/test";
-import { scenarios } from "../src/mocks/fixtures/scenarios";
-import type { MockScenario, ScenarioName } from "../src/mocks/fixtures/scenarios";
+import type { Page } from "@playwright/test";
+import type { ScenarioName } from "../src/mocks/fixtures/scenarios";
+import {
+  ADVICE_FIXED,
+  EMERGENCY_TEXT,
+  FIXED_NOTICE,
+  HEIGHT,
+  QUESTION,
+  ask,
+  banner,
+  bannerTel,
+  dock,
+  expect119Reachable,
+  expectContained,
+  expectInFirstScreen,
+  expectNoHorizontalScroll,
+  expectOnTop,
+  expectTouchTarget,
+  input,
+  layerTel,
+  mockChat,
+  openApp,
+  overlaySidebar,
+  panel,
+  pushSidebar,
+  rail,
+  release,
+  requests,
+  scrim,
+  sheet,
+  tel,
+  waitHeld,
+} from "./helpers";
 
-// 첫 화면(/) 조립의 흐름·폭 시험(FE-IMPL-06). 통신은 mock 시나리오(src/mocks/fixtures)를 페이지 안의 fetch 대역이 **줄 단위 스트림**으로 낸다
-// (MSW 핸들러와 같은 fixture. 이벤트 사이에서 멈출 수 있어 "119가 답보다 먼저"·"끊김"을 순서대로 확인한다).
-// 실제 MSW 워커 연결은 맨 아래 묶음이 확인한다(E2E_MSW_BASE_URL을 줄 때만 돈다).
-
-const MIN_TOUCH = 44;
-const HEIGHT = 800;
-const QUESTION = "합성 질문 가나다정과 라마바캡슐을 같이 먹어도 되나요";
-const FIXED_NOTICE = "금기 목록에 없다는 것이 안전하다는 뜻이 아니에요. 근처 약국·약사에게 확인하세요.";
-const ADVICE_FIXED = "확인하지 못한 항목이 있어요. 복용 전에 꼭 약국·약사에게 확인하세요.";
-const EMERGENCY_TEXT = "응급 상황일 수 있어요. 지금 바로 119에 전화하세요.";
-
-type Hold = "answer" | "progress";
-type Step = ScenarioName | { name: ScenarioName; holdBefore: Hold };
-
-interface Plan {
-  kind: "stream" | "http";
-  lines: string[];
-  holdAt: number;
-  ending: string;
-  status: number;
-  body: string;
-}
-
-function toPlan(step: Step): Plan {
-  const name = typeof step === "string" ? step : step.name;
-  const scenario: MockScenario = scenarios[name];
-  if (scenario.kind === "http") {
-    const body = scenario.code ? JSON.stringify({ code: scenario.code, fields: scenario.fields ?? [] }) : "";
-    return { kind: "http", lines: [], holdAt: -1, ending: "close", status: scenario.status, body };
-  }
-  const holdBefore = typeof step === "string" ? null : step.holdBefore;
-  return {
-    kind: "stream",
-    lines: scenario.events.map((event) => JSON.stringify(event)),
-    holdAt: holdBefore ? scenario.events.findIndex((event) => event.type === holdBefore) : -1,
-    ending: scenario.ending,
-    status: 200,
-    body: "",
-  };
-}
-
-/** 요청 순서대로 시나리오를 돌려준다(마지막 것은 되풀이). `holdBefore`를 주면 그 이벤트 앞에서 `release()`를 기다린다 */
-async function mockChat(page: Page, ...steps: Step[]) {
-  await page.addInitScript((plans: Plan[]) => {
-    const state = { requests: [] as unknown[], held: false, release: () => {} };
-    (window as unknown as { __chat: typeof state }).__chat = state;
-    const original = window.fetch.bind(window);
-    window.fetch = async (input, init) => {
-      const request = input instanceof Request ? input : new Request(input, init);
-      if (!new URL(request.url).pathname.endsWith("/api/chat")) return original(input, init);
-      const index = state.requests.length;
-      state.requests.push(JSON.parse(await request.clone().text()));
-      const plan = plans[Math.min(index, plans.length - 1)];
-      if (plan.kind === "http") return new Response(plan.body, { status: plan.status, headers: { "Content-Type": "application/json" } });
-      const encoder = new TextEncoder();
-      const body = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          for (let i = 0; i < plan.lines.length; i += 1) {
-            if (i === plan.holdAt) {
-              state.held = true;
-              await new Promise<void>((resolve) => {
-                state.release = resolve;
-              });
-              state.held = false;
-            }
-            controller.enqueue(encoder.encode(`${plan.lines[i]}\n`)); // 한 줄씩 따로 보낸다
-            await new Promise((resolve) => setTimeout(resolve, 10));
-          }
-          if (plan.ending === "close") controller.close();
-          else if (plan.ending === "cut") controller.error(new TypeError("mock connection cut"));
-        },
-      });
-      return new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson; charset=utf-8" } });
-    };
-  }, steps.map(toPlan));
-}
-
-type ChatWindow = { __chat: { requests: Array<{ question: string; context?: unknown }>; held: boolean; release: () => void } };
-const requests = (page: Page) => page.evaluate(() => (window as unknown as ChatWindow).__chat.requests);
-const waitHeld = (page: Page) => page.waitForFunction(() => (window as unknown as ChatWindow).__chat.held);
-const release = (page: Page) => page.evaluate(() => (window as unknown as ChatWindow).__chat.release());
-
-async function openApp(page: Page, base = "") {
-  await page.goto(`${base}/`);
-  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-ready", "true");
-}
-
-async function ask(page: Page, question = QUESTION) {
-  await page.getByRole("textbox").fill(question);
-  await page.getByRole("button", { name: "보내기" }).click();
-}
-
-async function expectNoHorizontalScroll(page: Page) {
-  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
-  expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
-}
-
-/** 요소가 스크롤 없이 첫 화면 안에 다 들어와 있는가 */
-async function expectInFirstScreen(page: Page, target: Locator) {
-  await expect(target).toBeVisible();
-  const box = (await target.boundingBox())!;
-  const viewport = page.viewportSize()!;
-  expect(await page.evaluate(() => window.scrollY)).toBe(0);
-  expect(box.x).toBeGreaterThanOrEqual(0);
-  expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width + 0.5);
-  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 0.5);
-}
-
-async function expectTouchTarget(target: Locator, { widthToo = true } = {}) {
-  const box = (await target.boundingBox())!;
-  expect(box.height).toBeGreaterThanOrEqual(MIN_TOUCH);
-  if (widthToo) expect(box.width).toBeGreaterThanOrEqual(MIN_TOUCH);
-}
-
-/** 요소의 가운데를 눌렀을 때 그 요소(또는 그 안)가 맞는가: 다른 것에 덮여 있지 않다 */
-async function expectOnTop(target: Locator) {
-  expect(
-    await target.evaluate((el) => {
-      const rect = el.getBoundingClientRect();
-      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-      return hit !== null && (hit === el || el.contains(hit));
-    }),
-  ).toBe(true);
-}
-
-/** 안의 요소들이 틀 밖으로 넘치거나 잘리지 않는가 */
-async function expectContained(container: Locator, selector: string) {
-  const box = (await container.boundingBox())!;
-  const items = await container.locator(selector).evaluateAll((els) =>
-    els.map((el) => {
-      const rect = el.getBoundingClientRect();
-      return { text: el.textContent ?? "", left: rect.left, right: rect.right, clipped: el.scrollWidth > el.clientWidth + 1 };
-    }),
-  );
-  for (const item of items) {
-    expect(item.left, item.text).toBeGreaterThanOrEqual(box.x - 0.5);
-    expect(item.right, item.text).toBeLessThanOrEqual(box.x + box.width + 0.5);
-    expect(item.clipped, item.text).toBe(false);
-  }
-  return items.length;
-}
-
-const banner = (page: Page) => page.getByTestId("emergency-banner");
-const dock = (page: Page) => page.getByTestId("dock");
-const sheet = (page: Page) => page.getByRole("dialog", { name: "근거 상세" });
-// 사이드바 오버레이가 열리면 뒤 요소는 보조기기에서 숨겨지므로(역할로 찾을 수 없다) 패널·입력창은 요소로 집는다
-const panel = (page: Page) => page.locator('aside[data-testid="evidence-panel"][data-mode="panel"]');
-const input = (page: Page) => page.locator("textarea");
-const scrim = (page: Page) => page.getByTestId("sidebar-scrim");
-const pushSidebar = (page: Page) => page.locator('[data-testid="sidebar"][data-presentation="push"]');
-const overlaySidebar = (page: Page) => page.locator('[data-testid="sidebar"][data-presentation="overlay"]');
-const rail = (page: Page) => page.getByTestId("sidebar-rail");
-const tel = (page: Page) => page.locator('a[href="tel:119"]');
-
+// 첫 화면(/) 조립의 흐름·폭 시험(FE-IMPL-06, 06b 보완). 통신 대역·덮임 검사 규칙은 helpers.ts 머리 주석.
+// 실제 MSW 워커 연결은 msw.spec.ts(Playwright 프로젝트 `msw-worker`)가 확인한다.
 // ============================================================ 흐름(좁은 폭)
 for (const width of [360, 320]) {
   test.describe(`흐름 ${width}px`, () => {
@@ -401,9 +275,10 @@ test.describe("흐름 360px", () => {
     await expect(drawer.getByTestId("current-chat")).toHaveText(QUESTION);
     await expectTouchTarget(drawer.getByRole("button", { name: "메뉴 닫기" }));
     await expectTouchTarget(drawer.getByTestId("new-chat"));
-    // 드로어가 열려 있어도 119 배너는 스크림 밖에 있고 누를 수 있다
+    // 드로어가 열려 있어도 119 배너는 스크림 밖에 있고 덮이지 않는다(배너가 있으니 드로어 안 진입점은 없다)
     await expectInFirstScreen(page, banner(page));
-    await expectOnTop(tel(page));
+    await expectOnTop(bannerTel(page));
+    await expect(layerTel(page)).toHaveCount(0);
     const drawerBox = (await drawer.boundingBox())!;
     expect(drawerBox.y).toBeGreaterThanOrEqual((await banner(page).boundingBox())!.y + (await banner(page).boundingBox())!.height - 0.5);
     await drawer.getByTestId("new-chat").click();
@@ -478,25 +353,27 @@ for (const width of [360, 320]) {
       ]);
       const advice = sheet(page).getByTestId("pharmacist-advice");
       await expect(advice).toHaveCount(3);
-      await expect(advice.first()).toHaveText("복용 전에 꼭 약국·약사에게 가나다정·라마바캡슐을(를) 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요.");
+      // 약 이름은 서버처럼 " · "로 잇는다(finalize.py 291행, FE-IMPL-06b fixture 정정)
+      await expect(advice.first()).toHaveText("복용 전에 꼭 약국·약사에게 가나다정 · 라마바캡슐을(를) 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요.");
       expect(await sheet(page).locator("details").count()).toBe(0);
       await expect(sheet(page).getByTestId("mascot")).toHaveCount(0);
       await expectContained(sheet(page), '[data-testid="missing-text"], [data-testid="pharmacist-advice"]');
       await expectNoHorizontalScroll(page);
     });
 
-    test("검증 폴백 두 가지: 요약 문구는 응답 값 그대로이고 권고 줄이 고정 영역에 있다(Result-FallbackNone·FallbackSome)", async ({ page }) => {
+    test("검증 폴백 두 가지: 요약 문구와 고정 영역 줄이 응답 값 그대로다(Result-FallbackNone·FallbackSome)", async ({ page }) => {
       await mockChat(page, "fallbackNone", "fallbackSome");
       await openApp(page);
       await ask(page);
       await expect(page.getByTestId("result-summary")).toHaveText("검색한 자료에서는 확인하지 못했어요. 정확한 확인은 약국·약사에게 하세요.");
       await expect(page.getByTestId("result-card")).toHaveCount(0);
       await expect(page.getByTestId("evidence-entry")).toHaveCount(0);
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
+      // 확인하지 못한 줄이 없으면 서버는 권고 줄을 붙이지 않는다(finalize: unresolved일 때만, FE-IMPL-06b fixture 정정)
+      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([FIXED_NOTICE]);
       await ask(page, "둘째 질문");
       const second = page.locator('[data-turn="turn-2"]');
       await expect(second.getByTestId("result-summary")).toHaveText(
-        "공공 자료에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요.",
+        "병용금기 파일(기준일 2026-07-31)에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요.",
       );
       await expect(second.getByTestId("result-card")).toBeVisible();
       await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
@@ -542,12 +419,15 @@ for (const width of [360, 320]) {
       await expectNoHorizontalScroll(page);
     });
 
-    test("쌍 확인 불가: 배지·'삐!' 없이 확인하지 못했다는 줄과 안전 아님 문장이 접히지 않고 보인다(Result-NoEvidence6c)", async ({ page }) => {
+    test("쌍 확인 불가: 서버가 내는 모양 그대로 배지·'삐!' 없이 확인하지 못했다는 줄이 접히지 않고 보인다(Result-NoEvidence6c)", async ({ page }) => {
+      // fixture = backend finalize._unconfirmed_text(PAIR_NOT_CHECKED) → schemas.to_chat_response 출력(FE-IMPL-06b에서 서버와 일치시킴)
+      const PAIR_NOT_CHECKED = "이 약과 함께 먹어도 되는지는 식약처·한국의약품안전관리원 자료에서 확인하지 못했어요. 안전하다는 뜻이 아니에요.";
       await answered(page, "pairNoEvidence");
       const card = page.getByTestId("result-card");
       await expect(card.getByTestId("line-title")).toHaveText("가나다정 · 사아자시럽");
-      await expect(card.getByTestId("line-text")).toHaveText("근거 문장을 찾지 못함");
-      await expect(card.getByText("이 약과 함께 먹어도 되는지는 식약처·한국의약품안전관리원 자료에서 확인하지 못했어요. 안전하다는 뜻이 아니에요.")).toBeVisible();
+      await expect(card.getByTestId("line-text")).toHaveText(PAIR_NOT_CHECKED);
+      // 서버는 같은 문장을 notes[]에도 싣는다: 화면은 받은 대로 그린다(중복은 서버 몫으로 보고)
+      await expect(card.getByText(PAIR_NOT_CHECKED)).toHaveCount(2);
       await expect(card.getByTestId("status-badge")).toHaveCount(0);
       await expect(card).not.toContainText("삐!");
       expect(await card.evaluate((el) => el.querySelector("details") === null)).toBe(true);
@@ -705,11 +585,20 @@ async function askAndAutoOpen(page: Page, question = QUESTION) {
   await expect(panel(page)).toBeVisible();
 }
 
-async function expectSafetyVisible(page: Page) {
-  // 오버레이·밀기 어느 쪽이든 첫 화면 안에 있다
-  await expectInFirstScreen(page, input(page));
-  await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
-  await expectInFirstScreen(page, page.getByTestId("emergency-entry"));
+/**
+ * 입력창·고정 안내·119. 오버레이가 열려 있으면(사용자가 연 층) 입력창·고정 안내는 스크림 아래에서 흐려질 수 있으나 접히지 않고 첫 화면에 있으며,
+ * 119는 머리줄이 덮이므로 오버레이 안의 진입점이 덮이지 않고 눌린다. 닫힌 상태면 셋 다 덮임 없이 위에 있다.
+ */
+async function expectSafetyVisible(page: Page, { overlayOpen = false } = {}) {
+  await expectInFirstScreen(page, input(page), { underUserLayer: overlayOpen });
+  await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: overlayOpen });
+  if (overlayOpen) {
+    await expect(overlaySidebar(page).getByTestId("layer-emergency-entry")).toHaveCount(1);
+    await expectInFirstScreen(page, layerTel(page));
+    await expectOnTop(layerTel(page));
+  } else {
+    await expectInFirstScreen(page, page.getByTestId("emergency-entry"));
+  }
 }
 
 const COLLAPSE_WIDTHS = [1024, 1100, 1180, 1231];
@@ -751,9 +640,9 @@ for (const width of COLLAPSE_WIDTHS) {
       await expect(page.getByTestId("main")).toHaveAttribute("inert", "");
       await expect(page.getByTestId("panel-column")).toHaveAttribute("inert", "");
       expect(await page.evaluate(() => document.elementFromPoint(window.innerWidth - 20, window.innerHeight / 2)?.getAttribute("data-testid"))).toBe("sidebar-scrim");
-      // ③ 본문 칸은 그대로(레일 기준)이고 입력창·고정 안내·119가 첫 화면 안에 있다
+      // ③ 본문 칸은 그대로(레일 기준)이고 입력창·고정 안내가 첫 화면 안(접히지 않음), 119는 오버레이 안에서 덮이지 않는다
       expect((await page.getByTestId("main").boundingBox())!.width).toBe(width - 60 - 400);
-      await expectSafetyVisible(page);
+      await expectSafetyVisible(page, { overlayOpen: true });
       expect((await overlaySidebar(page).boundingBox())!.width).toBe(272);
 
       // Tab이 오버레이 뒤 요소에 닿지 않는다
@@ -768,6 +657,7 @@ for (const width of COLLAPSE_WIDTHS) {
       await expect(panel(page)).toBeVisible();
       await expect(expand).toBeFocused();
       await expect(page.getByTestId("main")).not.toHaveAttribute("inert", "");
+      await expectSafetyVisible(page); // 닫으면 고정 안내·입력창·머리줄 119가 다시 덮임 없이 위에 있다
 
       // 스크림 클릭(패널 위): 사이드바만 닫힌다
       await expand.click();
@@ -897,7 +787,7 @@ test.describe("사이드바 엣지 1100px", () => {
     expect(await scrimSeen(page)).toBe(0);
   });
 
-  test("E7: 되묻기 답에서는 패널을 열지 않고 사이드바도 그대로다(패널에 넣을 응답 값이 없다)", async ({ page }) => {
+  test("E7(사용자 결정 2026-11-16 후보 1 A): 되묻기 답에서는 근거 패널을 열지 않고 사이드바도 그대로다", async ({ page }) => {
     await mockChat(page, "clarify");
     await openApp(page);
     await ask(page);
@@ -914,12 +804,18 @@ test.describe("사이드바 엣지 1100px", () => {
     await page.getByRole("button", { name: "사이드바 펼치기" }).click();
     await expect(scrim(page)).toBeVisible();
     await expectInFirstScreen(page, banner(page));
-    await expectOnTop(tel(page));
     const bannerBox = (await banner(page).boundingBox())!;
     expect((await scrim(page).boundingBox())!.y).toBeGreaterThanOrEqual(bannerBox.y + bannerBox.height - 0.5);
     expect((await overlaySidebar(page).boundingBox())!.y).toBeGreaterThanOrEqual(bannerBox.y + bannerBox.height - 0.5);
+    // 배너가 있으면 119는 배너 하나뿐이다(오버레이 안 진입점 없음)
+    await expect(layerTel(page)).toHaveCount(0);
+    await expect(tel(page)).toHaveCount(1);
+    // 고정 안내·입력창은 사용자가 연 층 동안 흐려질 수 있으나 접히지 않고 첫 화면에 있다
+    await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: true });
+    await expectInFirstScreen(page, input(page), { underUserLayer: true });
+    await expect119Reachable(page, bannerTel(page)); // 실제 클릭이 배너 링크에 닿는다(스크림·오버레이를 지나지 않는다)
+    await expect(overlaySidebar(page)).toHaveCount(0); // 바깥 누름이라 오버레이는 닫힌다(Radix)
     await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
-    await expectInFirstScreen(page, input(page));
   });
 });
 
@@ -1016,23 +912,209 @@ test.describe("사이드바 엣지: 폭 변경", () => {
   });
 });
 
-// ============================================================ 실제 MSW 워커 연결(선택)
-// `NEXT_PUBLIC_API_MOCKING=enabled`로 띄운 서버 주소를 E2E_MSW_BASE_URL로 주면 돈다. 질문의 표시 글자(`mock:`)로 시나리오를 고른다.
-test.describe("MSW 워커 연결", () => {
-  const base = process.env.E2E_MSW_BASE_URL ?? "";
-  test.skip(base === "", "E2E_MSW_BASE_URL이 없으면 건너뛴다");
+// ============================================================ 119 덮임 방지(FE-IMPL-06b 할 일 1·2·3)
+// 규칙: 119는 어떤 오버레이·시트에서도 덮이지 않는다. 배너가 없으면 머리줄을 덮는 층 안에 같은 진입점이 있고,
+// 배너가 있으면 층은 배너 아래 영역에만 그려진다(사용자 결정 2026-11-16 후보 5 B). 고정 안내는 층 동안 덮일 수 있으나 닫으면 그대로다.
+const sheetScrim = (page: Page) => page.getByTestId("sheet-scrim");
+const drawer = (page: Page) => page.getByTestId("menu-drawer");
+
+async function expectBelowBanner(page: Page, layer: ReturnType<Page["getByTestId"]>) {
+  const bannerBox = (await banner(page).boundingBox())!;
+  expect((await layer.boundingBox())!.y).toBeGreaterThanOrEqual(bannerBox.y + bannerBox.height - 0.5);
+}
+
+for (const width of [360, 320]) {
+  test.describe(`119 덮임 ${width}px`, () => {
+    test.use({ viewport: { width, height: HEIGHT } });
+
+    test("드로어(배너 없음): 드로어 안 119 진입점이 덮이지 않고 눌린다(G-3)", async ({ page }) => {
+      await openApp(page);
+      await page.getByRole("button", { name: "메뉴 열기" }).click();
+      await expect(drawer(page)).toBeVisible();
+      await expect(drawer(page).getByTestId("layer-emergency-entry")).toHaveText("119 전화");
+      await expect119Reachable(page, layerTel(page));
+      await expect(drawer(page)).toBeVisible(); // 층 안의 링크라 눌러도 드로어는 그대로다
+      // 머리줄 진입점은 드로어 스크림 아래다(그래서 층 안에 진입점을 둔다)
+      expect(
+        await page.getByTestId("emergency-entry").evaluate((el) => {
+          const rect = el.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          return hit !== null && el.contains(hit);
+        }),
+      ).toBe(false);
+      await page.keyboard.press("Escape");
+      await expect(drawer(page)).toHaveCount(0);
+      await expect(layerTel(page)).toHaveCount(0);
+      await expect119Reachable(page, page.getByTestId("emergency-entry"));
+    });
+
+    test("근거 상세 시트(배너 없음): 시트 안 119 진입점이 덮이지 않고 눌린다. 고정 안내는 닫으면 그대로 위에 있다", async ({ page }) => {
+      await mockChat(page, "found");
+      await openApp(page);
+      await ask(page);
+      await page.getByTestId("evidence-entry").click();
+      await expect(sheet(page)).toBeVisible();
+      // 응급이 아닐 때 시트·스크림은 화면 전체다(기존 동작)
+      expect((await sheetScrim(page).boundingBox())!.y).toBe(0);
+      await expect(sheet(page).getByTestId("layer-emergency-entry")).toHaveCount(1);
+      await expect119Reachable(page, layerTel(page));
+      await expect(sheet(page)).toBeVisible();
+      // 시트 동안 고정 안내는 스크림 아래에서 흐려지지만 접히지 않고 첫 화면에 있다
+      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: true });
+      await sheet(page).getByRole("button", { name: "닫기" }).click();
+      await expect(sheet(page)).toHaveCount(0);
+      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expect119Reachable(page, page.getByTestId("emergency-entry"));
+    });
+
+    test("응급 + 근거 상세 시트(결정 5 B): 시트와 스크림이 배너 아래에만 그려져 119 배너가 덮이지 않고 눌린다", async ({ page }) => {
+      await mockChat(page, "emergency");
+      await openApp(page);
+      await ask(page);
+      await expect(page.getByTestId("result-card")).toBeVisible();
+      await page.getByTestId("evidence-entry").click();
+      await expect(sheet(page).getByTestId("evidence-section").first()).toBeVisible();
+      await expectBelowBanner(page, sheetScrim(page));
+      await expectBelowBanner(page, sheet(page));
+      const body = (await page.getByTestId("shell-body").boundingBox())!;
+      expect(await sheetScrim(page).boundingBox()).toEqual(body); // 스크림 = 배너 아래 영역 전체
+      await expect(layerTel(page)).toHaveCount(0); // 배너가 있으면 119는 배너 하나뿐
+      await expect(tel(page)).toHaveCount(1);
+      await expectInFirstScreen(page, banner(page));
+      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: true });
+      await expectNoHorizontalScroll(page);
+      await expect119Reachable(page, bannerTel(page));
+      // 배너는 시트 바깥이라 누르면 시트가 닫힌다(Radix 바깥 누름). 고정 안내는 다시 덮임 없이 위에 있다
+      await expect(sheet(page)).toHaveCount(0);
+      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectInFirstScreen(page, banner(page));
+    });
+
+    test("응급 + 드로어: 배너 링크가 덮이지 않고 실제 클릭이 닿는다", async ({ page }) => {
+      await mockChat(page, "emergency");
+      await openApp(page);
+      await ask(page);
+      await expect(page.getByTestId("result-card")).toBeVisible();
+      await page.getByRole("button", { name: "메뉴 열기" }).click();
+      await expect(drawer(page)).toBeVisible();
+      await expectBelowBanner(page, page.getByTestId("drawer-scrim"));
+      await expect(layerTel(page)).toHaveCount(0);
+      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: true });
+      await expect119Reachable(page, bannerTel(page));
+      await expect(drawer(page)).toHaveCount(0);
+      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+    });
+  });
+}
+
+test.describe("119 덮임 1100px(사이드바 오버레이)", () => {
+  test.use({ viewport: { width: 1100, height: HEIGHT } });
+
+  test("오버레이(배너 없음): 오버레이 안 119 진입점이 덮이지 않고 눌린다", async ({ page }) => {
+    await mockChat(page, "found");
+    await openApp(page);
+    await ask(page);
+    await expect(panel(page)).toBeVisible();
+    await page.getByRole("button", { name: "사이드바 펼치기" }).click();
+    await expect(overlaySidebar(page)).toBeVisible();
+    await expect(overlaySidebar(page).getByTestId("layer-emergency-entry")).toHaveCount(1);
+    await expect119Reachable(page, layerTel(page));
+    await expect(overlaySidebar(page)).toBeVisible();
+    await expect(page.getByTestId("main")).toHaveAttribute("inert", ""); // 머리줄 진입점은 오버레이 동안 쓸 수 없다
+    await page.keyboard.press("Escape");
+    await expect(overlaySidebar(page)).toHaveCount(0);
+    await expect119Reachable(page, page.getByTestId("emergency-entry"));
+    await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+  });
+});
+
+test.describe("119 덮임 1280px(패널)", () => {
+  test.use({ viewport: { width: 1280, height: HEIGHT } });
+
+  for (const name of ["found", "emergency"] as const) {
+    test(`근거 패널이 열린 채(${name}): 119와 고정 안내가 덮이지 않고 119 클릭이 닿는다`, async ({ page }) => {
+      await mockChat(page, name);
+      await openApp(page);
+      await ask(page);
+      await expect(panel(page)).toBeVisible();
+      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expect119Reachable(page, name === "emergency" ? bannerTel(page) : page.getByTestId("emergency-entry"));
+    });
+  }
+});
+
+// ============================================================ 작은 폭·높이(FE-IMPL-06b 할 일 7)
+for (const viewport of [
+  { width: 360, height: 640 },
+  { width: 320, height: 568 },
+]) {
+  test.describe(`작은 화면 ${viewport.width}×${viewport.height}`, () => {
+    test.use({ viewport });
+
+    test("응급 첫 화면: 119 배너·고정 안내·고지·입력창이 스크롤 없이 덮임 없이 들어온다", async ({ page }) => {
+      await mockChat(page, "emergency");
+      await openApp(page);
+      await ask(page);
+      await expect(page.getByTestId("result-card")).toBeVisible();
+      await expect119Reachable(page, bannerTel(page));
+      await expectInFirstScreen(page, banner(page));
+      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, input(page));
+      await expectNoHorizontalScroll(page);
+    });
+
+    test("시작 화면: 119 진입점·고지·입력창이 첫 화면에 있다", async ({ page }) => {
+      await openApp(page);
+      await expect119Reachable(page, page.getByTestId("emergency-entry"));
+      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, input(page));
+    });
+  });
+}
+
+// ============================================================ 약한 단언 보강(FE-IMPL-06b 할 일 8)
+test.describe("단언 보강 360px", () => {
   test.use({ viewport: { width: 360, height: HEIGHT } });
 
-  test("워커가 스트림으로 답한다: 응급은 119가 맨 위, 일반 질문은 결과와 근거 상세", async ({ page }) => {
-    await openApp(page, base);
-    await ask(page, "mock:응급 합성 질문");
-    await expect(banner(page)).toBeVisible();
+  test("결과 요약이 첫 화면에 있다(일반·응급)", async ({ page }) => {
+    await mockChat(page, "found", "emergency");
+    await openApp(page);
+    await ask(page);
+    await expectInFirstScreen(page, page.getByTestId("result-summary"));
+    await page.getByRole("button", { name: "메뉴 열기" }).click();
+    await page.getByTestId("new-chat").click();
+    await ask(page);
     await expect(page.getByTestId("result-card")).toBeVisible();
-    await expectInFirstScreen(page, banner(page));
-    await ask(page, "mock:미식별 합성 질문");
-    await expect(page.locator('[data-turn="turn-2"]').getByTestId("result-card")).toBeVisible();
-    await ask(page, "mock:501 합성 질문");
-    await expect(page.getByTestId("error-state")).toContainText("아직 준비 중이라 답을 드릴 수 없어요.");
-    expect(await page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+    await expectInFirstScreen(page, page.getByTestId("result-summary"));
+  });
+
+  test("근거 상세 출처 표: 기관·자료·고시 번호·날짜 줄이 받은 값 그대로다", async ({ page }) => {
+    await mockChat(page, "found");
+    await openApp(page);
+    await ask(page);
+    await page.getByTestId("evidence-entry").click();
+    const table = sheet(page).getByTestId("source-table");
+    await expect(table.getByTestId("source-publisher")).toHaveText(["한국의약품안전관리원"]);
+    await expect(table.getByTestId("source-dataset")).toHaveText(["병용금기 파일"]);
+    // 고시 번호(조항 칸): 이름과 값이 따로, 값은 받은 그대로
+    await expect(table.locator('[data-slot="source-extra"] span')).toHaveText(["고시 번호", "20260001"]);
+    // 날짜 줄: 한 날짜 = 한 줄, 라벨과 값이 받은 그대로(순서 포함)
+    const lines = table.getByTestId("date-lines").locator("li");
+    await expect(lines).toHaveCount(2);
+    await expect(lines.nth(0).locator("span")).toHaveText(["고시일", "2026-01-15"]);
+    await expect(lines.nth(1).locator("span")).toHaveText(["기준일", "2026-07-31"]);
+  });
+
+  test("되묻기 화면: 고정 안내와 고지가 접히지 않는 영역에 응답 값 그대로 있다", async ({ page }) => {
+    await mockChat(page, "clarify");
+    await openApp(page);
+    await ask(page);
+    await expect(page.getByTestId("candidate-card")).toBeVisible();
+    await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([FIXED_NOTICE]);
+    await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+    await expect(page.getByTestId("legal-footer")).toContainText("공공데이터 기반 정보 제공이며 진단·처방이 아님");
+    await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+    await expect119Reachable(page, page.getByTestId("emergency-entry"));
   });
 });

@@ -2,6 +2,7 @@
 
 import { XIcon } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { CLOSE_LABEL, ENTRY_LABELS, EVIDENCE_TITLE } from "./copy";
 
 export type EvidenceMode = "sheet" | "panel";
@@ -12,25 +13,40 @@ export interface EvidencePanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
+  /**
+   * 시트만: 그릴 자리. 주면 시트와 스크림이 그 요소 안에만 그려진다(조립이 119 배너 아래 영역을 넘겨 배너를 덮지 않게 한다,
+   * 사용자 결정 2026-11-16 후보 5 B). 없으면 화면 전체(응급이 아닐 때의 기존 동작)
+   */
+  container?: HTMLElement | null;
+  /** 시트만: 제목 줄 오른쪽(닫기 버튼 왼쪽)에 둘 요소. 조립이 119 진입점을 넣는다(시트가 머리줄 진입점을 덮을 때) */
+  headerAction?: React.ReactNode;
 }
 
 /**
  * 근거 상세를 담는 틀. 두 배치를 모두 그릴 수 있다. 폭 분기·사이드바 연동은 FE-IMPL-06이 한다.
  * 닫혀 있으면 내용을 그리지 않으므로 **고정 안내·고지·119는 이 틀 안에 넣지 않는다**(접히지 않는 영역에 따로 둔다, S5).
+ * 단 시트가 머리줄의 119 진입점을 덮는 동안 누를 수 있게, 조립이 `headerAction`으로 같은 진입점을 하나 더 넣을 수 있다(바깥 진입점을 대신하지 않는다).
  */
-export function EvidencePanel({ mode, open, onOpenChange, children }: EvidencePanelProps) {
+export function EvidencePanel({ mode, open, onOpenChange, children, container, headerAction }: EvidencePanelProps) {
   if (mode === "sheet") {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
+          container={container}
           aria-describedby={undefined}
           data-testid="evidence-panel"
           data-mode="sheet"
-          // 닫기 버튼(ui/sheet가 그린다)의 누르는 영역을 44px로 키운다
-          className="flex max-h-[88dvh] flex-col gap-3 overflow-y-auto rounded-t-[20px] px-[18px] pt-3.5 pb-[max(20px,env(safe-area-inset-bottom,0px))] [&>button]:top-1.5 [&>button]:right-1.5 [&>button]:grid [&>button]:size-11 [&>button]:place-items-center"
+          // 닫기 버튼(ui/sheet가 그린다)의 누르는 영역을 44px로 키운다. 자리를 받으면 그 높이를 넘지 않는다(배너를 덮지 않게)
+          className={cn(
+            "flex flex-col gap-3 overflow-y-auto rounded-t-[20px] px-[18px] pt-3.5 pb-[max(20px,env(safe-area-inset-bottom,0px))] [&>button]:top-1.5 [&>button]:right-1.5 [&>button]:grid [&>button]:size-11 [&>button]:place-items-center",
+            container ? "max-h-[min(88dvh,calc(100%-16px))]" : "max-h-[88dvh]",
+          )}
         >
-          <SheetTitle className="mr-11 text-[21px] leading-7">{EVIDENCE_TITLE}</SheetTitle>
+          <div className="mr-11 flex min-h-8 items-center justify-between gap-2">
+            <SheetTitle className="text-[21px] leading-7">{EVIDENCE_TITLE}</SheetTitle>
+            {headerAction}
+          </div>
           {children}
         </SheetContent>
       </Sheet>

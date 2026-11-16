@@ -33,6 +33,9 @@ describe("fixture 문구는 백엔드 상수 원문과 같다", () => {
   it("사전 값(거절·출처 종류)과 되묻기 템플릿·출처 표 값", () => {
     expect(fixedPhrases).toContain(`"DOSAGE": "${phrases.REFUSE_DOSAGE}"`);
     expect(fixedPhrases).toContain(`"FILE": "${phrases.SOURCE_KIND_FILE}"`);
+    expect(provenance).toContain(`SK_FILE: "${phrases.SOURCE_PREFIX_FILE}"`);
+    expect(provenance).toContain('return f"{SOURCE_KIND_PREFIX[source_kind]} · {DATASET_LABELS[dataset_key]}"');
+    expect(pyConst(fixedPhrases, "FALLBACK_SOME_DATASET_SEP")).toBe(phrases.FALLBACK_SOME_DATASET_SEP);
     expect(router).toContain(`'{t.raw}'${phrases.CLARIFY_TAIL}`);
     expect(provenance).toContain(`"contra_pair": "${phrases.DATASET_CONTRA_PAIR}"`);
     expect(provenance).toContain(`"pregnancy": "${phrases.DATASET_PREGNANCY}"`);

@@ -141,9 +141,11 @@ for (const viewport of NARROW) {
       await expect(box.getByTestId("missing-text")).toHaveText("허가사항에서 관련 문장을 찾지 못했어요");
       await expect(box.locator("b").first()).toHaveText("가나다정 · 상호작용");
       expect(await scope.locator("details").count()).toBe(0);
-      // 이 표본의 응답에는 pharmacist_advice 줄이 없다(fixture 값). 화면이 권고 문장을 짓지 않으므로 박스 안 권고는 없고,
+      // 박스 안 권고는 응답의 pharmacist_advice 줄 그대로다(FE-IMPL-06b: 서버처럼 미확보가 있으면 권고 줄이 실려 오게 fixture를 맞췄다).
       // 고정 안내의 권고 줄(응답 값)은 접히지 않는 영역에 그대로 있다
-      await expect(box.getByTestId("pharmacist-advice")).toHaveCount(0);
+      await expect(box.getByTestId("pharmacist-advice")).toHaveText([
+        "복용 전에 꼭 약국·약사에게 가나다정을(를) 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요.",
+      ]);
       await expect(scope.getByTestId("fixed-notice").locator("p")).toHaveText([
         "확인하지 못한 항목이 있어요. 복용 전에 꼭 약국·약사에게 확인하세요.",
         "금기 목록에 없다는 것이 안전하다는 뜻이 아니에요. 근처 약국·약사에게 확인하세요.",
