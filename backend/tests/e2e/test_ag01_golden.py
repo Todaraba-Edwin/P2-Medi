@@ -142,10 +142,16 @@ def test_golden_normal_path_reaches_judgement_with_zero_harness_blocks(dd, key):
 
 
 def test_golden_p2_file_and_api_both_shown(dd):
-    """P2 기대 동작 "두 출처 병기": 파일 임부금기 FOUND에 API 일치 꼬리표, 성분정보 API 항목(`API_DIRECT`)이 따로 있다."""
+    """P2 기대 동작 "두 출처 병기": 파일 임부금기 FOUND에 API 대조 꼬리표, 성분정보 API 항목(`API_DIRECT`)이 따로 있다.
+
+    AG-01-09 A: 콜드-에스정은 API 성분 코드가 3개라 한도(2)로 잘린다. 대조가 끝나지 않았으므로 꼬리표는 `API_SAME`이 아니라 `API_FAIL`이다
+    (파일 판정 FOUND·API 항목·호출 수는 그대로).
+    """
     st, fd, *_ = _run(dd, "P2")
     by_id = {it["evidence_id"]: it for it in st["evidence"]}
-    assert "API_SAME" in by_id["pregnancy:448001ATB"]["flags"]
+    cold = by_id["pregnancy:448001ATB"]
+    assert cold["status"] == "FOUND" and cold["api"]["codes_truncated"] is True
+    assert set(cold["flags"]) & {"API_SAME", "FILE_ONLY", "API_ONLY", "API_FAIL", "API_PAIR_INCOMPLETE"} == {"API_FAIL"}
     api_items = [it for it in st["evidence"] if it.get("source_kind") == "API_DIRECT" and it["kind"] == "pregnancy"]
     assert api_items and any(m.get("grade") == "2등급" for it in api_items for m in it["matches"])
     assert ("by_ingredient", "pregnancy", D_PSE) in fd.calls

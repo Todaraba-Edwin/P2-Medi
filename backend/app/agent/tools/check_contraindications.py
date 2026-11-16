@@ -34,7 +34,8 @@ from app.tools.provenance import FLAG_NOTES, SK_API_DIRECT, SK_FILE
 TOOL = "check_contraindications"
 MAX_CODES_PER_DRUG = 40          # 성분 단위 입력(모든 제형 코드)의 조회 폭주 상한
 MAX_API_CODES_PER_DRUG = 2       # 쌍당 API 호출 = 최대 4회
-# AG-01-04 A: 한 약의 API 성분 코드가 한도를 넘어 묻지 않은 성분이 있으면 "파일에만 있음"·"같음"을 말하지 않는다(이 꼬리표로 바꾼다)
+# AG-01-04 A·AG-01-09 A: 한 약의 API 성분 코드가 한도를 넘어 묻지 않은 성분이 있으면 "파일에만 있음"·"같음"을 말하지 않는다
+# (병용 쌍은 API_PAIR_INCOMPLETE로, 성분 단위 연령·임부는 API_FAIL로 바꾼다)
 _TRUNCATED_FORBIDDEN_FLAGS = ("FILE_ONLY", "API_SAME")
 FLAG_LOOKUP_FAILED = "LOOKUP_FAILED"
 
@@ -290,6 +291,10 @@ def _attach_api_single(ctx: ToolContext, d: Drug, kind: str, age: Age | None, fi
         flag = cc.api_flag
         api_info = {"outcome": cc.outcome, "dates_differ": cc.dates_differ, "file_notice_dates": cc.file_notice_dates,
                     "api_notice_dates": cc.api_notice_dates, "queried_at_utc": result.queried_at_utc, "request_hashes": result.request_hashes}
+    if _codes_truncated(d):  # AG-01-09 A: 묻지 않은 성분이 있다. "파일에만 있음"·"같음"으로 말하지 않는다(파일 판정·호출 수·outcome은 그대로)
+        api_info["codes_truncated"] = True
+        if flag in _TRUNCATED_FORBIDDEN_FLAGS:
+            flag = "API_FAIL"  # 성분 단위 항목은 계약상 API_PAIR_INCOMPLETE를 쓰지 못한다(H20). API_ONLY·API_FAIL은 그대로 둔다
     for it in file_items:
         it["api"] = api_info
         if flag:
