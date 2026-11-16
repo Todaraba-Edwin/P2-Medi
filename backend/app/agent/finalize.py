@@ -248,6 +248,19 @@ def _dataset_dates(items: list[dict[str, Any]]) -> list[tuple[str | None, str | 
     return list(seen)
 
 
+def pregnancy_found_grades(items: list[dict[str, Any]]) -> list[str]:
+    """임부금기 **발견으로 보이는** 항목(묶음 FOUND)의 등급 값(`1`·`2`·`M`)을 나온 순서로, 같은 값은 한 번만. 등급 정의 블록 입력용이다."""
+    out: dict[str, None] = {}
+    for it in items or []:
+        if not isinstance(it, dict) or it.get("kind") != "pregnancy" or _bucket(it) != BUCKET_FOUND:
+            continue
+        for m in it.get("matches") or []:
+            g = _grade_norm(m.get("grade")) if isinstance(m, dict) else None
+            if g in _GRADES:
+                out.setdefault(g, None)
+    return list(out)
+
+
 def fallback_summary(items: list[dict[str, Any]]) -> str:
     """검증 폴백 요약 문구를 코드가 고른다. 확인된 항목(FOUND·NOT_LISTED 묶음)이 있으면 SOME, 없으면 NONE.
     기준일은 자료마다 따로 나열한다(AG-08-03 B)."""
@@ -288,11 +301,14 @@ def finalize(
     validation_fallback: bool = False,
     grade_defs: list[dict[str, Any]] | None = None,
     not_checked: list[str] | None = None,
+    refuse_reasons: list[str] | None = None,
 ) -> dict[str, Any]:
     """응답 딕셔너리를 만든다. 고정 문구는 인자·모델 출력과 무관하게 항상 들어간다.
 
     - `limit_reached`: 모델 호출 상한으로 끝났다. 모델 요약은 쓰지 않고 지금까지의 항목을 코드 문구로 보인다(RFP-33-06).
     - `refuse_reason`: 입구 거절 이유 키(`guardrail.classify_scope`). 거절 문구가 요약 자리에 들어간다.
+    - `refuse_reasons`: 거절 이유 키 전부(`guardrail.refuse_reasons`, AG-08-08 A). 주면 이유마다 문구를 받은 순서로 모두 싣는다
+      (같은 문구는 한 번만, 모르는 키는 대체 문구). 주지 않으면 `refuse_reason` 하나만 쓴다.
     - `validation_fallback`: 두 번째 검증 실패. 모델 요약은 없고 코드 폴백 문구(`fallback_summary`)가 요약 자리에 들어간다.
     - `grade_def_missing`: `[{"grade": "2", "missing_reason": "FETCH_FAIL"|"OUT_OF_SCOPE"}]` 등급 정의 블록 미확보(PRD-15-03).
     - `grade_defs`: `[{"grade": "2", "text": 원문, "source": 출처 줄}]` 확보한 등급 정의 원문(코드가 청크에서 읽은 글자 그대로, BE-06-16 A).
@@ -346,8 +362,10 @@ def finalize(
     if gd_lines:
         advice.append(fp.GRADE_DEF_PHARMACIST_ADVICE)
 
-    if refuse_reason:
-        summary: str | None = fp.REFUSE_MESSAGES.get(refuse_reason, fp.REFUSE_MESSAGES["OUT_OF_SCOPE"])
+    refuse_keys = list(refuse_reasons or []) or ([refuse_reason] if refuse_reason else [])
+    if refuse_keys:
+        texts = dict.fromkeys(fp.REFUSE_MESSAGES.get(k, fp.REFUSE_MESSAGES["OUT_OF_SCOPE"]) for k in refuse_keys)
+        summary: str | None = fp.REFUSE_JOIN.join(texts)
     elif limit_reached:
         summary = None  # LLM 요약 없이 코드로만
     elif validation_fallback:
@@ -362,7 +380,7 @@ def finalize(
         "emergency": fp.EMERGENCY_119 if emergency else None,
         "emergency_tel": fp.EMERGENCY_119_TEL if emergency else None,
         "emergency_wide": fp.EMERGENCY_119_WIDE if emergency else None,
-        "route": "REFUSE" if refuse_reason else "AGENT",
+        "route": "REFUSE" if refuse_keys else "AGENT",
         # 배너 칸은 하나다(BE-06-06 A): 상한 도달이 먼저, 아니면 실시간 확인 실패
         "notice": fp.LIMIT_REACHED if limit_reached else (
             fp.NOTICE_API_FAIL if any(f in (it.get("flags") or []) for it in items for f in _API_FAIL_FLAGS) else None),

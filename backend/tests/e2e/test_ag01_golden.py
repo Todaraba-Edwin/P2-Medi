@@ -155,7 +155,8 @@ def test_golden_p3_contra_found_with_reason_and_api_cross_check(dd):
     st, fd, *_ = _run(dd, "P3")
     it = next(i for i in st["evidence"] if i["evidence_id"] == "contra_pair:254000ATB:625201ATB")
     assert it["matches"][0]["reason"] == "경련, 반사항진, 이상고열, 혼수 등" and it["matches"][0]["notice_no"] == "20250046"
-    assert set(it["flags"]) & {"API_SAME", "FILE_ONLY", "API_ONLY"}  # 파일↔API 대조 꼬리표가 붙는다(값은 API 쌍 범위에 따라 다름, 보고서 참고)
+    # 파일↔API 대조 꼬리표가 하나 붙는다. 콜드-에스정은 API 성분 코드가 3개라 한도(2)로 잘려 `API_PAIR_INCOMPLETE`다(AG-01-04 A)
+    assert set(it["flags"]) & {"API_SAME", "FILE_ONLY", "API_ONLY", "API_FAIL", "API_PAIR_INCOMPLETE"} == {"API_PAIR_INCOMPLETE"}
     assert any(c[0] == "usjnt_pair_by_ingredient" for c in fd.calls)
 
 

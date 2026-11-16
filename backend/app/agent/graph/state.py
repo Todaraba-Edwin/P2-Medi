@@ -60,6 +60,7 @@ class AgentState(TypedDict, total=False):
     emergency: Annotated[bool, _or]
     route: Annotated[str, _sticky_route]
     refuse_reason: str | None
+    refuse_reasons: list[str]  # 거절 이유 키 전부(AG-08-08 A, `REFUSE_MESSAGES` 정의 순서). `refuse_reason`은 그중 첫 판정 키 그대로
     injection: bool
     proceed_tools: bool
     # router(AG-05)
@@ -92,7 +93,7 @@ class AgentState(TypedDict, total=False):
 
 # 노드가 쓸 수 있는 키(이 밖의 키는 `restrict_update`가 버린다)
 NODE_WRITABLE: dict[str, frozenset[str]] = {
-    "guardrail_in": frozenset({"emergency", "route", "refuse_reason", "injection", "proceed_tools", "events"}),
+    "guardrail_in": frozenset({"emergency", "route", "refuse_reason", "refuse_reasons", "injection", "proceed_tools", "events"}),
     "router": frozenset(ROUTER_WRITABLE_KEYS | {"events"}),
     "model": frozenset({"messages", "call_count", "limit_reached", "draft", "events"}),
     "tools": frozenset(POST_WRITABLE_KEYS | {"messages"}),

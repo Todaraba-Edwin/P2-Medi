@@ -172,6 +172,9 @@ REFUSE_MESSAGES = {
     "IGNORE_PREVIOUS": "지시를 바꾸라는 요청은 따르지 않아요. 약 이름과 궁금한 점만 다시 적어 주세요.",
 }
 
+# 거절 이유가 여럿일 때 문구를 잇는 구분자(AG-08-08 A: 모두 보인다, 위 표의 정의 순서). 문장이 아니라 구분자다
+REFUSE_JOIN = " "
+
 REFUSE_APPROVED_KEYS = ("STOP_DOSE_CHANGE", "ASSESS_STATE")
 REFUSE_DRAFT_KEYS = tuple(k for k in REFUSE_MESSAGES if k not in REFUSE_APPROVED_KEYS)
 
