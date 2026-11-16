@@ -1,5 +1,6 @@
 import type { ChatResponse } from "@/lib/api";
 import { NoMascotZone } from "@/components/NoMascotZone";
+import { cn } from "@/lib/utils";
 import { ProductLine } from "@/features/result";
 import { SECTION_TITLES } from "./copy";
 import { EvidenceBox, SourceTag } from "./EvidenceBox";
@@ -29,7 +30,9 @@ function Section({ id, title, children }: { id: string; title: string; children:
 export function EvidenceDetail({ response }: { response: ChatResponse }) {
   const sections = buildSections(response);
   const advice = response.pharmacist_advice;
-  const hasGradeDef = response.grade_def_missing.length > 0;
+  const hasGradeDef = response.grade_def_missing.length > 0 || response.grade_defs.length > 0;
+  // 허가사항 한 줄 설명(서버 상수, BE-06-15 A): 구역 맨 위에 한 번만. 같은 문장은 한 번만 보인다
+  const labelHelp = [...new Set(sections.labels.map((item) => item.label_help).filter((text): text is string => !!text))];
   return (
     <NoMascotZone>
       <div data-testid="evidence-detail" className="flex flex-col gap-4">
@@ -37,14 +40,17 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
           <Section id="judgment" title={SECTION_TITLES.judgment}>
             {sections.judgments.map(({ finding, item }, index) => (
               <EvidenceBox key={index} testId="judgment-box" tag={item ? <SourceTag item={item} /> : null} className="gap-1">
-                {/* 결과 카드와 같은 줄 부품. 근거 상세에서는 줄 여백을 박스에 맡기고 배지를 왼쪽에 붙인다(디자인 반영본) */}
-                <ul className="m-0 list-none p-0 [&_[data-testid=line-status]]:ml-0 [&>li]:p-0">
+                {/*
+                  결과 카드와 같은 줄 부품. 근거 상세에서는 줄 여백을 박스에 맡기고 배지를 왼쪽에 붙인다(디자인 반영본).
+                  박스 표지가 `{출처 종류} · {자료 이름}`을 이미 보이므로(같은 글자) 줄의 출처 표지는 박스 표지가 있을 때 한 번 더 그리지 않는다(PRD-12-04)
+                */}
+                <ul className={cn("m-0 list-none p-0 [&_[data-testid=line-status]]:ml-0 [&>li]:p-0", item?.dataset && "[&_[data-slot=source]]:hidden")}>
                   <ProductLine finding={finding} />
                 </ul>
                 {isLookupFinding(finding) && <LookupPairs finding={finding} />}
               </EvidenceBox>
             ))}
-            <GradeDefBlock missing={response.grade_def_missing} advice={advice} />
+            <GradeDefBlock definitions={response.grade_defs} missing={response.grade_def_missing} advice={advice} />
           </Section>
         )}
         {(sections.reasons.length > 0 || sections.reasonsMissing.length > 0) && (
@@ -75,6 +81,11 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
         )}
         {sections.labels.length > 0 && (
           <Section id="label" title={SECTION_TITLES.label}>
+            {labelHelp.map((text, index) => (
+              <p key={index} data-testid="label-help" className="m-0 rounded-[10px] bg-bg-soft px-2.5 py-2 text-[13px] leading-[19px] break-words text-mute">
+                {text}
+              </p>
+            ))}
             {sections.labels.map((item, index) =>
               item.missing_text !== null ? <MissingBox key={index} item={item} advice={advice} /> : <PermitText key={index} item={item} />,
             )}

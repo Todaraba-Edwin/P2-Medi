@@ -59,14 +59,21 @@ export function ProductLine({ finding }: { finding: Finding }) {
           )}
         </span>
       </div>
-      <IngredientChips ingredients={finding.ingredients} />
-      {/* 보조줄: 받은 값을 한 값에 한 줄씩, 받은 그대로 */}
+      {/* 표지 아래 보조줄(서버가 만든 값: 식별된 약의 성분 이름, 약을 찾지 못한 줄의 안내). 받은 그대로 */}
+      {finding.sub_line && (
+        <p data-slot="sub-line" className="m-0 text-[13px] leading-[19px] break-words text-ink-2">
+          {finding.sub_line}
+        </p>
+      )}
+      {/* 식별된 약 줄은 보조줄이 성분 이름을 이미 보이므로(서버가 이은 글자) 같은 이름의 칩을 한 번 더 그리지 않는다 */}
+      {!(finding.bucket === "identified" && finding.sub_line) && <IngredientChips ingredients={finding.ingredients} />}
+      {/* 보조줄: 받은 값을 한 값에 한 줄씩, 받은 그대로. 나이 안내 줄은 나이 기준 값 위에 둔다(판정이 아니라 원문 값이라는 안내) */}
+      {finding.age_info_line && <SubLine slot="age-info">{finding.age_info_line}</SubLine>}
       {finding.age_criteria.map((value, index) => (
         <SubLine key={`age-${index}`} slot="age-criteria">
           {value}
         </SubLine>
       ))}
-      {finding.age_info_line && <SubLine slot="age-info">{finding.age_info_line}</SubLine>}
       {finding.note && <SubLine slot="note">{finding.note}</SubLine>}
       {badgeNotes.map((note, index) => (
         <SubLine key={`badge-note-${index}`} slot="badge-note">

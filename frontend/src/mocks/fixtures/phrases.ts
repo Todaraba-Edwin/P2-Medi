@@ -3,6 +3,7 @@
 export const PHRASES = {
   EMERGENCY_119: "응급 상황일 수 있어요. 지금 바로 119에 전화하세요.",
   EMERGENCY_119_TEL: "tel:119",
+  EMERGENCY_119_WIDE: "컴퓨터로 보고 있다면 휴대폰으로 119에 전화하세요.", // 넓은 폭 보조 문장(`emergency.wide_text`)
   NOT_SAFE_NOTICE: "금기 목록에 없다는 것이 안전하다는 뜻이 아니에요.",
   PHARMACIST_CHECK_NOTICE: "근처 약국·약사에게 확인하세요.",
   PHARMACIST_ADVICE_FIXED: "확인하지 못한 항목이 있어요. 복용 전에 꼭 약국·약사에게 확인하세요.",
@@ -16,12 +17,37 @@ export const PHRASES = {
   UNIDENTIFIED_WHY: "식약처·한국의약품안전관리원 자료에서 찾지 못했어요",
   UNIDENTIFIED_RETRIED: "표기를 바꿔 한 번 더 찾아봤어요",
   UNIDENTIFIED_NEXT: "봉투나 상자에 적힌 제품명을 그대로 다시 알려 주세요",
+  // 미식별 카드 보조줄(`sub_line`). "을(를)"은 서버 `josa.fill`이 받침으로 고른다(fixture는 `fillJosa`)
+  UNIDENTIFIED_SUB_LINE: "{drug}을(를) 찾지 못해 금기를 확인하지 못했어요. 안전하다는 뜻이 아니에요.",
+  // 식별된 약 줄: 표지 글자와 보조줄의 성분 이름 사이 글자
+  IDENTIFIED_LINE: "찾음",
+  IDENTIFIED_SUB_SEP: " · ",
+  // 정보가 없어 확인하지 못한 종류의 줄(`not_checked_lines[]`), 나이 미특정 안내(`age_info_line`), 되묻기 안내(`candidates_line`)
+  PREGNANCY_NOT_CHECKED: "임신 여부를 알 수 없어 임부금기는 확인하지 못했어요.",
+  AGE_INFO_LINE: "나이를 특정할 수 없어 판정하지 않고, 이 약의 나이별 연령금기 기준을 원문 그대로 보여 드려요.",
+  CLARIFY_PICK_LINE: "어느 제품인지 고르면 금기를 확인해 드려요.",
+  // 근거 상세 안내 줄·등급 정의 블록
+  GRADE_DEF_TITLE: "임부금기 {grade}등급이란?",
+  GRADE_DEF_PHARMACIST_ADVICE: "등급의 뜻이 궁금하면 약국·약사에게 물어보세요.",
+  GRADE_MISMATCH_NOTE: "파일 자료와 실시간 조회의 등급이 달라요. 어느 쪽이 맞는지 정하지 않고 둘 다 출처와 함께 보여 드려요.",
+  DOSE_QUOTE_NOTICE: "허가사항 원문 인용이며 복용 지시가 아닙니다. 복용량은 약사·의사에게 확인하세요.",
+  LABEL_ONE_LINE: "허가사항: 식약처가 의약품을 허가할 때 정한 효능·효과, 용법·용량, 사용상 주의사항이에요.",
+  EASY_TEXT_MISSING: "{drug}은 전문의약품이라 쉬운 설명(e약은요)이 없어서 허가사항 원문을 그대로 보여 드려요",
+  // 성분 칩 상태 글자(`ingredients[].state_labels[]`)
+  INGR_STATE_CAUSE: "금기 원인",
+  INGR_STATE_PAIR_CAUSE: "병용금기 원인",
+  INGR_STATE_DUP: "중복",
+  // 스트림 오류 문구(`error.message`)와 공공 API 실패 배너(`notice`)
+  ERROR_INTERNAL: "잠시 뒤 다시 시도해 주세요. 보낸 질문은 그대로 있어요.",
+  ERROR_TIMEOUT: "시간 안에 답을 마치지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+  ERROR_UPSTREAM_UNAVAILABLE: "지금은 확인에 필요한 곳에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+  NOTICE_API_FAIL: "실시간 확인을 하지 못해 아래 결과는 기준일 자료로 확인한 것이에요.",
   MISSING_SEARCH_MISS: "허가사항에서 관련 문장을 찾지 못했어요",
   // 미확보 나머지 원인(FE-IMPL-06 추가, `{drug}`는 fixture가 합성 이름으로 채운다)
   MISSING_OUT_OF_SCOPE: "{drug}은 전문의약품이라 공공 자료로는 설명을 확인할 수 없어요",
   MISSING_ABSENT: "{drug} 허가사항에는 이 항목이 따로 적혀 있지 않아요",
   MISSING_FETCH_FAIL: "지금은 허가사항을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요",
-  // 미확보 박스 안의 약사 확인 권고(`{drugs}`는 fixture가 채운다)
+  // 미확보 박스 안의 약사 확인 권고(`{drugs}`는 fixture가 채우고 "을(를)"은 받침으로 고른다)
   PHARMACIST_ADVICE: "복용 전에 꼭 약국·약사에게 {drugs}을(를) 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요.",
   // 검증 폴백 요약 2종(날짜·자료 이름이 없을 때의 문장)
   FALLBACK_NONE_NO_SCOPE: "검색한 자료에서는 확인하지 못했어요. 정확한 확인은 약국·약사에게 하세요.",
@@ -30,7 +56,7 @@ export const PHRASES = {
   FALLBACK_SOME_CONFIRMED: "{datasets}에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요.",
   FALLBACK_SOME_DATASET_DATED: "{label}(기준일 {doc_date})",
   NO_EVIDENCE: "근거 문장을 찾지 못함",
-  // 쌍 확인 불가(Result-NoEvidence6c): `_unconfirmed_text`가 줄 글자로 쓰고 `_notes`도 같은 글자를 덧붙인다(finalize.py:139-149, :82-86)
+  // 쌍 확인 불가(Result-NoEvidence6c): 줄 글자로 한 번만 온다(AG-08 뒤 `notes[]`에 같은 문장이 오지 않는다)
   PAIR_NOT_CHECKED: "이 약과 함께 먹어도 되는지는 식약처·한국의약품안전관리원 자료에서 확인하지 못했어요. 안전하다는 뜻이 아니에요.",
   LIMIT_REACHED: "답을 정리하다 시간이 다 되어 여기까지 확인한 결과만 보여 드려요. 확인하지 못한 항목은 약국·약사에게 물어보세요.",
   // 진행 문구(`progress.label`): PROGRESS_LABELS[stage]
@@ -82,3 +108,31 @@ export const PUBLISHER_MFDS = "식약처"; // PUBLISHER["mfds"]
 export const FALLBACK_SOME_DATASET_SEP = "·";
 /** finalize의 약 이름 잇기(`" · ".join(names)`): 쌍 줄 머리·약사 확인 권고의 `{drugs}` */
 export const NAME_JOIN = " · ";
+
+// ---- AG-08·BE-06-13~17 반영(FE-IMPL-08)
+/** provenance.SOURCE_KIND_PREFIX: 근거 항목의 출처 종류 글자(`detail[].source_kind_label`) */
+export const SOURCE_KIND_PREFIX = { API_DIRECT: "공식 자료", FILE: "공식 파일", CORPUS_QUOTE: "공식 문서" } as const;
+/** fixed_phrases.GRADE_DEF_MISSING_TEXT["FETCH_FAIL"](`{grade}`는 fixture가 채운다) */
+export const GRADE_DEF_MISSING_FETCH_FAIL = "지금은 임부금기 {grade}등급의 뜻(고시 원문)을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요.";
+/** fixed_phrases.CAUTION_LABELS["dup_ingredient"](성분 중복 줄의 글자, AG-08-10 B) */
+export const CAUTION_DUP_INGREDIENT = "성분 중복";
+/** provenance.FLAG_NOTES["CODE_NOT_LINKED"](= fixed_phrases.CODE_NOT_LINKED): 코드가 이어지지 않아 확인하지 못한 줄의 안내(AG-08에서 문구 변경) */
+export const CODE_NOT_LINKED = "금기 목록에서 확인하지 못했지만, 안전하다는 뜻이 아니에요. 약사에게 확인하세요";
+/** schemas.DOSE_SECTION: 이 항목의 원문 인용 아래에만 인용 고지(`quote_notice`)가 온다 */
+export const DOSE_SECTION = "용법용량";
+
+/** `josa.fill`과 같은 규칙(한글 이름만: 마지막 글자의 받침 유무). fixture의 합성 이름은 모두 한글로 끝난다 */
+export function fillJosa(template: string, key: string, value: string): string {
+  const last = value.charCodeAt(value.length - 1);
+  const batchim = last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 !== 0;
+  return template.replace(`{${key}}을(를)`, `${value}${batchim ? "을" : "를"}`).replace(`{${key}}`, value);
+}
+
+/** `fixed_phrases.ingredient_state_labels`와 같은 규칙: 병용금기 원인 → 금기 원인(임부·연령) → 중복 */
+export function ingredientStateLabels(contraKinds: readonly string[], dup: boolean): string[] {
+  const out: string[] = [];
+  if (contraKinds.includes("contra_pair")) out.push(PHRASES.INGR_STATE_PAIR_CAUSE);
+  if (contraKinds.some((kind) => kind === "pregnancy" || kind === "age")) out.push(PHRASES.INGR_STATE_CAUSE);
+  if (dup) out.push(PHRASES.INGR_STATE_DUP);
+  return out;
+}

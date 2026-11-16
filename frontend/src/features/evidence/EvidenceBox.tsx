@@ -2,10 +2,11 @@ import type { DetailItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
- * 근거 박스의 표지: 자료 이름(`dataset`)을 받은 그대로 보인다. 출처 표의 자료 열과 같은 글자다(PRD-12-03).
- * 출처 종류(`source_kind`)는 속성으로만 남긴다: 종류 문구("공식 파일" 등)는 근거 항목에 실려 오지 않아 그리지 않는다.
+ * 근거 박스의 표지 `{출처 종류 글자} · {자료 이름}`(PRD-12-03). 두 글자 모두 응답 값 그대로다:
+ * 종류 글자는 `source_kind_label`(`공식 파일` 등, BE-06-14 A), 자료 이름은 `dataset`이고 출처 표의 자료 열과 같은 글자다.
+ * 종류 글자가 오지 않으면(출처 종류가 없는 근거) 자료 이름만 보인다. 색만으로 구분하지 않는다.
  */
-export function SourceTag({ item }: { item: Pick<DetailItem, "dataset" | "source_kind"> }) {
+export function SourceTag({ item }: { item: Pick<DetailItem, "dataset" | "source_kind" | "source_kind_label"> }) {
   if (!item.dataset) return null;
   return (
     <span
@@ -13,7 +14,13 @@ export function SourceTag({ item }: { item: Pick<DetailItem, "dataset" | "source
       data-source-kind={item.source_kind ?? undefined}
       className="max-w-full flex-none rounded-md bg-tint px-[7px] py-0.5 text-[11px] leading-[15px] font-semibold text-link [word-break:keep-all]"
     >
-      {item.dataset}
+      {item.source_kind_label ? (
+        <>
+          <span data-slot="source-kind-label">{item.source_kind_label}</span>
+          {" · "}
+        </>
+      ) : null}
+      <span data-slot="source-dataset">{item.dataset}</span>
     </span>
   );
 }

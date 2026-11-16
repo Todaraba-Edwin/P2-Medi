@@ -126,40 +126,59 @@ describe("ProductLine", () => {
   });
 });
 
+/** 칩의 성분 이름(상태 글자를 뺀 첫 글자 덩어리) */
+const chipNames = () => screen.getAllByTestId("ingredient-chip").map((el) => el.firstChild?.textContent);
+
 describe("IngredientChips", () => {
   const finding = fixtures.pregnancyResponse.findings[0];
 
   it("4개까지는 받은 순서 그대로 모두 보이고 표시명은 받은 그대로다", () => {
     render(<IngredientChips ingredients={finding.ingredients} />);
-    expect(texts(screen.getAllByTestId("ingredient-chip"))).toEqual(finding.ingredients.map((i) => i.name));
+    expect(chipNames()).toEqual(finding.ingredients.map((i) => i.name));
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("상태는 칩마다 data-state로 구분하고, 판정 글자를 프런트가 짓지 않는다", () => {
-    const { container } = render(<IngredientChips ingredients={finding.ingredients} />);
-    expect(screen.getAllByTestId("ingredient-chip").map((el) => el.getAttribute("data-state"))).toEqual(["cause", "dup"]);
-    expect(container.textContent).not.toMatch(/금기 원인|중복|병용금기 원인/); // 응답에 글자 칸이 없으면 그리지 않는다
+  it("상태는 칩마다 data-state로 구분하고, 상태 글자는 응답의 state_labels 그대로다(BE-06-13)", () => {
+    render(<IngredientChips ingredients={finding.ingredients} />);
+    const chips = screen.getAllByTestId("ingredient-chip");
+    expect(chips.map((el) => el.getAttribute("data-state"))).toEqual(["cause", "dup"]);
+    // fixture 값: 임부금기 원인 성분 = "금기 원인", 중복 성분 = "중복"
+    expect(chips.map((el) => [...el.querySelectorAll("[data-slot='state-label']")].map((label) => label.textContent?.replace(/[\s·\u00a0]/g, "")))).toEqual([
+      ["금기원인"],
+      ["중복"],
+    ]);
   });
 
-  it("상태 글자가 응답 값으로 오면 받은 그대로 그린다", () => {
-    render(<IngredientChip ingredient={finding.ingredients[0]} stateLabel="받은 상태 글자" />);
-    expect(screen.getByTestId("ingredient-chip")).toHaveTextContent(`${finding.ingredients[0].name} · 받은 상태 글자`);
+  it("상태 글자는 프런트가 짓지 않는다: 글자 칸이 비면 그리지 않고, 다른 글자가 오면 그 글자를 받은 순서대로 그린다", () => {
+    const base = finding.ingredients[0]; // contra_kinds가 있는 성분
+    const { rerender } = render(<IngredientChip ingredient={{ ...base, state_labels: [] }} />);
+    expect(screen.getByTestId("ingredient-chip").textContent).toBe(base.name);
+    rerender(<IngredientChip ingredient={{ ...base, contra_kinds: [], dup: false, state_labels: ["받은 글자 하나", "받은 글자 둘"] }} />);
+    expect(screen.getByTestId("ingredient-chip")).toHaveTextContent(`${base.name} · 받은 글자 하나 · 받은 글자 둘`);
+  });
+
+  it("성분코드 미확보 안내는 받은 글자를 한 번만 칩 줄 아래에 그린다", () => {
+    const list = finding.ingredients.map((ingredient) => ({ ...ingredient, code: null, code_missing_text: "받은 코드 미확보 안내" }));
+    const { container, rerender } = render(<IngredientChips ingredients={list} />);
+    expect(texts([...container.querySelectorAll("[data-slot='code-missing']")])).toEqual(["받은 코드 미확보 안내"]);
+    rerender(<IngredientChips ingredients={finding.ingredients} />);
+    expect(container.querySelector("[data-slot='code-missing']")).toBeNull();
   });
 
   it("5개 이상이면 원인·중복 성분만 먼저 보이고 '외 N개'를 누르면 받은 순서 그대로 모두 보인다", async () => {
     const all = sample("many-ingredients").findings[0].ingredients;
     render(<IngredientChips ingredients={all} />);
-    expect(texts(screen.getAllByTestId("ingredient-chip"))).toEqual(["두울성분", "네엣성분"]);
+    expect(chipNames()).toEqual(["두울성분", "네엣성분"]);
     const more = screen.getByRole("button", { name: copy.moreIngredientsLabel(4) });
     await userEvent.click(more);
-    expect(texts(screen.getAllByTestId("ingredient-chip"))).toEqual(all.map((i) => i.name));
+    expect(chipNames()).toEqual(all.map((i) => i.name));
     expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("5개 이상인데 원인·중복이 없으면 앞의 3개만 먼저 보인다", () => {
     const plain = sample("many-ingredients").findings[0].ingredients.map((i) => ({ ...i, contra_kinds: [], dup: false }));
     render(<IngredientChips ingredients={plain} />);
-    expect(texts(screen.getAllByTestId("ingredient-chip"))).toEqual(plain.slice(0, 3).map((i) => i.name));
+    expect(chipNames()).toEqual(plain.slice(0, 3).map((i) => i.name));
     expect(screen.getByRole("button", { name: copy.moreIngredientsLabel(3) })).toBeInTheDocument();
   });
 
@@ -319,5 +338,80 @@ describe("T1: 진행 표시는 서버가 준 문구(label)를 쓴다", () => {
   it("label이 없으면(이벤트 전) 기존 상수 문구다", () => {
     render(<ChatThread turns={turn(streaming)} hasEmergency={false} onRetry={() => {}} />);
     expect(texts(screen.getAllByRole("listitem"))).toEqual(["약 찾는 중", "금기 확인 중", "근거 찾는 중"]);
+  });
+});
+
+describe("AG-08 새 칸(받은 값 그대로)", () => {
+  it("식별된 약 줄: 표지 `찾음`과 보조줄(성분 이름)을 그리고 같은 이름의 칩은 한 번 더 그리지 않는다", () => {
+    const line = fixtures.pairNoEvidenceResponse.findings[0];
+    render(<ul><ProductLine finding={line} /></ul>);
+    expect(screen.getByTestId("line-text").textContent).toBe(PHRASES.IDENTIFIED_LINE);
+    expect(screen.getByTestId("product-line").querySelector("[data-slot='sub-line']")?.textContent).toBe(line.sub_line);
+    expect(screen.queryByTestId("ingredient-chips")).toBeNull();
+    expect(screen.getByTestId("product-line").textContent).not.toContain("금기 목록에 없음");
+  });
+
+  it("쌍 확인 불가 줄: 문장은 줄 글자로 한 번만 보인다(notes·why·next가 오지 않는다)", () => {
+    const line = fixtures.pairNoEvidenceResponse.findings[1];
+    render(<ul><ProductLine finding={line} /></ul>);
+    expect(screen.getAllByText(PHRASES.PAIR_NOT_CHECKED)).toHaveLength(1);
+    expect(screen.getByTestId("product-line").querySelector("[data-slot='notes'], [data-slot='why'], [data-slot='next']")).toBeNull();
+  });
+
+  it("약을 찾지 못한 줄: 보조줄은 서버가 조사까지 고른 글자 그대로다", () => {
+    const line = fixtures.unidentifiedResponse.findings[0];
+    render(<ul><ProductLine finding={line} /></ul>);
+    const sub = screen.getByTestId("product-line").querySelector("[data-slot='sub-line']");
+    expect(sub?.textContent).toBe(line.sub_line);
+    expect(sub?.textContent).toMatch(/^차카타파정을 /);
+    expect(sub?.textContent).not.toContain("을(를)");
+  });
+
+  it("나이 안내 줄은 나이 기준 값 위에 받은 글자로, 값은 한 값에 한 줄씩 받은 순서로 보인다(판정 배지 없음)", () => {
+    const line = fixtures.ageInfoResponse.findings[0];
+    render(<ul><ProductLine finding={line} /></ul>);
+    const slots = [...screen.getByTestId("product-line").querySelectorAll("[data-slot='age-info'], [data-slot='age-criteria']")];
+    expect(slots.map((el) => [el.getAttribute("data-slot"), el.textContent])).toEqual([
+      ["age-info", PHRASES.AGE_INFO_LINE],
+      ["age-criteria", "12세 미만"],
+      ["age-criteria", "6개월 미만"],
+    ]);
+    expect(screen.queryByTestId("status-badge")).toBeNull();
+    expect(screen.getByTestId("product-line").closest("details")).toBeNull();
+  });
+
+  it("나이 안내 줄이 오지 않으면 그리지 않는다(프런트가 안내 문구를 갖지 않는다)", () => {
+    render(<ul><ProductLine finding={fixtures.ageFoundResponse.findings[0]} /></ul>);
+    expect(screen.getByTestId("product-line").querySelector("[data-slot='age-info']")).toBeNull();
+    expect(JSON.stringify(copy)).not.toContain("나이");
+  });
+
+  it("확인하지 못한 종류의 줄: 받은 순서·글자 그대로, 접히지 않는 자리에 보인다", () => {
+    const response = { ...fixtures.notCheckedResponse, not_checked_lines: ["받은 줄 하나", "받은 줄 둘"] };
+    render(<ResultView response={response} />);
+    const list = screen.getByTestId("not-checked-lines");
+    expect(texts([...list.querySelectorAll("li")])).toEqual(["받은 줄 하나", "받은 줄 둘"]);
+    expect(list.closest("details, [data-state='closed']")).toBeNull();
+    expect(screen.queryByTestId("mascot")).toBeNull();
+  });
+
+  it("확인하지 못한 줄이 없으면 그 자리를 그리지 않는다", () => {
+    render(<ResultView response={fixtures.foundResponse} />);
+    expect(screen.queryByTestId("not-checked-lines")).toBeNull();
+    expect(screen.queryByTestId("candidates-line")).toBeNull();
+  });
+
+  it("되묻기 안내는 받은 글자 그대로 후보 카드 아래에 보인다", () => {
+    const response = { ...fixtures.clarifyResponse, candidates_line: "받은 되묻기 안내" };
+    render(<ResultView response={response} onPickCandidate={() => {}} />);
+    const line = screen.getByTestId("candidates-line");
+    expect(line.textContent).toBe("받은 되묻기 안내");
+    expect(screen.getByTestId("candidate-card").compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(fixtures.clarifyResponse.candidates_line).toBe(PHRASES.CLARIFY_PICK_LINE);
+  });
+
+  it("공공 API 실패 배너(notice의 새 값)도 받은 글자 그대로 보인다", () => {
+    render(<ResultView response={fixtures.apiFailResponse} />);
+    expect(screen.getByTestId("result-notice").textContent).toBe(PHRASES.NOTICE_API_FAIL);
   });
 });

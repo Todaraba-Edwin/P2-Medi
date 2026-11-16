@@ -16,6 +16,7 @@ import type {
   DoneEventSchema,
   EmergencyEventSchema,
   EmergencySchema,
+  GradeDefSchema,
   EndReasonSchema,
   ErrorBodySchema,
   ErrorCodeSchema,
@@ -49,6 +50,7 @@ export type Searched = z.infer<typeof SearchedSchema>;
 export type Candidate = z.infer<typeof CandidateSchema>;
 export type SentenceRef = z.infer<typeof SentenceRefSchema>;
 export type Emergency = z.infer<typeof EmergencySchema>;
+export type GradeDef = z.infer<typeof GradeDefSchema>;
 export type EndReason = z.infer<typeof EndReasonSchema>;
 export type ProgressStage = z.infer<typeof ProgressStageSchema>;
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;

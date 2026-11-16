@@ -69,14 +69,14 @@ describe("streamReducer", () => {
   it("서버 error 이벤트는 코드·문구를 받은 그대로 담는다", () => {
     const state = run([start, ...ev(scenarios.serverError.events), { type: "end" }]);
     expect(state.status).toBe("error");
-    expect(state.error).toEqual({ kind: "server", status: null, code: "INTERNAL_ERROR", message: "[mock] 오류 문구 자리" });
+    expect(state.error).toEqual({ kind: "server", status: null, code: "INTERNAL_ERROR", message: "잠시 뒤 다시 시도해 주세요. 보낸 질문은 그대로 있어요." });
     expect(state.response).toBeNull();
   });
 
-  it("서버 오류 문구가 null이면 null로 둔다(문구는 화면 상수 몫)", () => {
+  it("다른 오류 코드도 받은 문구를 그대로 담는다(문구는 항상 온다)", () => {
     const state = run([start, ...ev(scenarios.serverErrorNoMessage.events), { type: "end" }]);
     expect(state.status).toBe("error");
-    expect(state.error).toEqual({ kind: "server", status: null, code: "UPSTREAM_UNAVAILABLE", message: null });
+    expect(state.error).toEqual({ kind: "server", status: null, code: "UPSTREAM_UNAVAILABLE", message: "지금은 확인에 필요한 곳에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요." });
   });
 
   it("진행 문구(label)는 받은 값 그대로 담고, 서버가 다른 문구를 보내면 그 값이 담긴다", () => {

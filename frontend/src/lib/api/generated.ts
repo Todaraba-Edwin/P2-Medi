@@ -133,6 +133,8 @@ export interface components {
         ChatResponse: {
             /** Candidates */
             candidates?: components["schemas"]["Candidate"][];
+            /** Candidates Line */
+            candidates_line?: string | null;
             /** Citations */
             citations?: components["schemas"]["Citation"][];
             /** Detail */
@@ -148,6 +150,10 @@ export interface components {
             fixed_notice: string[];
             /** Grade Def Missing */
             grade_def_missing?: string[];
+            /** Grade Defs */
+            grade_defs?: components["schemas"]["GradeDef"][];
+            /** Not Checked Lines */
+            not_checked_lines?: string[];
             /** Notice */
             notice?: string | null;
             /** Pharmacist Advice */
@@ -238,6 +244,8 @@ export interface components {
             drug_name?: string | null;
             /** Drugs */
             drugs?: string[] | null;
+            /** Easy Text Missing Line */
+            easy_text_missing_line?: string | null;
             /** Evidence Id */
             evidence_id: string | null;
             /** Flags */
@@ -246,6 +254,8 @@ export interface components {
             item_seq?: string | null;
             /** Kind */
             kind: string | null;
+            /** Label Help */
+            label_help?: string | null;
             /** Label Source */
             label_source?: string | null;
             /** Missing Reason */
@@ -256,6 +266,8 @@ export interface components {
             notes?: string[];
             /** Publisher */
             publisher: string | null;
+            /** Quote Notice */
+            quote_notice?: string | null;
             /** Rows */
             rows?: {
                 [key: string]: unknown;
@@ -264,6 +276,8 @@ export interface components {
             section?: string | null;
             /** Source Kind */
             source_kind: ("API_DIRECT" | "FILE" | "CORPUS_QUOTE") | null;
+            /** Source Kind Label */
+            source_kind_label?: string | null;
             /** Status */
             status: string | null;
         };
@@ -294,6 +308,11 @@ export interface components {
             tel: string;
             /** Text */
             text: string;
+            /**
+             * Wide Text
+             * @default 컴퓨터로 보고 있다면 휴대폰으로 119에 전화하세요.
+             */
+            wide_text: string;
         };
         /** EmergencyEvent */
         EmergencyEvent: {
@@ -396,6 +415,8 @@ export interface components {
             searched?: components["schemas"]["Searched"][];
             /** Source Label */
             source_label?: string | null;
+            /** Sub Line */
+            sub_line?: string | null;
             /**
              * Target
              * @default product
@@ -413,12 +434,37 @@ export interface components {
             why?: string | null;
         };
         /**
+         * GradeDef
+         * @description 등급 정의 블록 하나(BE-06-16 A, PRD-09-04·PRD-15-03). 원문(`text`)과 미확보 사유는 둘 중 하나만 있다.
+         *
+         *     제목·미확보 문구는 상수이고 원문·출처 줄은 코드가 청크에서 읽은 글자 그대로다. 원문이 없으면 출처 줄도 없다.
+         */
+        GradeDef: {
+            /**
+             * Grade
+             * @enum {string}
+             */
+            grade: "1" | "2" | "M";
+            /** Missing Reason */
+            missing_reason?: ("FETCH_FAIL" | "OUT_OF_SCOPE") | null;
+            /** Missing Text */
+            missing_text?: string | null;
+            /** Source */
+            source?: string | null;
+            /** Text */
+            text?: string | null;
+            /** Title */
+            title: string;
+        };
+        /**
          * Ingredient
          * @description 제품 줄의 성분 하나(PRD-09-05). 성분명으로만 식별한 약은 그 성분 하나만 담는다.
          */
         Ingredient: {
             /** Code */
             code?: string | null;
+            /** Code Missing Text */
+            code_missing_text?: string | null;
             /** Contra Kinds */
             contra_kinds?: string[];
             /**
@@ -428,6 +474,8 @@ export interface components {
             dup: boolean;
             /** Name */
             name: string;
+            /** State Labels */
+            state_labels?: string[];
         };
         /** ProgressEvent */
         ProgressEvent: {

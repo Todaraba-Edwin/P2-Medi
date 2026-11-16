@@ -97,6 +97,11 @@ export const DetailItemSchema = z
     label_source: optionalNullableString,
     missing_reason: optionalNullableString,
     missing_text: optionalNullableString, // 미확보 문구(서버 상수). 화면 상수를 쓰지 않는다
+    // 서버 상수 글자 칸: 화면은 받은 글자를 그대로 그린다(BE-06-14·15)
+    source_kind_label: optionalNullableString, // 출처 종류 글자(`공식 파일` 등). 출처 종류가 있으면 항상 온다
+    label_help: optionalNullableString, // 허가사항 한 줄 설명. 허가정보 원문 근거에만
+    easy_text_missing_line: optionalNullableString, // 전문의약품 안내 줄
+    quote_notice: optionalNullableString, // 용법용량 원문 인용 고지. 인용 바로 아래에 둔다
   })
   .refine((item) => item.missing_text === null || item.missing_reason !== null, "missing_text는 missing_reason이 있을 때만 온다");
 
@@ -106,6 +111,8 @@ export const IngredientSchema = z.strictObject({
   name: z.string(),
   contra_kinds: stringList, // 이 성분이 걸린 금기 종류 키
   dup: z.boolean().default(false),
+  state_labels: stringList, // 상태 글자(서버 상수, BE-06-13). 받은 순서 그대로 그린다
+  code_missing_text: optionalNullableString, // 성분코드 미확보 안내(서버 상수). 코드가 없을 때만
 });
 
 /** 판정 줄의 배지 하나. `source`는 등급 불일치일 때만 온다 */
@@ -151,7 +158,8 @@ export const FindingSchema = z
     reference_line: optionalNullableString,
     // 연령금기 나이 기준 값(원문 그대로). 나이를 특정할 수 없을 때 판정 대신 보이는 정보
     age_criteria: stringList,
-    age_info_line: optionalNullableString, // 문구 승인 전이라 지금 서버는 항상 null을 보낸다
+    age_info_line: optionalNullableString, // 나이 기준 값의 안내 문구(서버 상수). 나이 기준 값이 있을 때만 온다
+    sub_line: optionalNullableString, // 표지 아래 보조줄(서버가 만든 값: 식별된 약의 성분 이름 등)
   })
   .superRefine((finding, ctx) => {
     if (finding.target === "pair" && finding.drugs.length !== 2) ctx.addIssue({ code: "custom", message: "쌍 줄은 drugs에 두 약을 담는다" });
@@ -169,7 +177,28 @@ export const CandidateSchema = z.strictObject({
 });
 
 /** 119 안내. 문구·전화 링크는 서버 상수 그대로 온다 */
-export const EmergencySchema = z.strictObject({ text: z.string().min(1), tel: z.string().min(1) });
+export const EmergencySchema = z.strictObject({
+  text: z.string().min(1),
+  tel: z.string().min(1),
+  wide_text: z.string().min(1), // 넓은 폭에서만 보이는 보조 문장(FE-07-15). 항상 온다
+});
+
+export const GradeMissingReasonSchema = z.enum(["FETCH_FAIL", "OUT_OF_SCOPE"]);
+
+/** 등급 정의 블록 하나(BE-06-16). 원문(`text`)과 미확보 사유는 둘 중 하나만 있다. 원문이 없으면 출처 줄도 없다 */
+export const GradeDefSchema = z
+  .strictObject({
+    grade: GradeSchema,
+    title: z.string().min(1), // 블록 제목(서버 상수)
+    text: optionalNullableString, // 고시 원문(서버가 읽은 글자 그대로)
+    source: optionalNullableString, // 조항 출처 줄
+    missing_reason: GradeMissingReasonSchema.nullable().default(null),
+    missing_text: optionalNullableString, // 미확보 문구(서버 상수)
+  })
+  .superRefine((def, ctx) => {
+    if ((def.text === null) === (def.missing_reason === null)) ctx.addIssue({ code: "custom", message: "등급 정의 블록은 원문과 미확보 사유 중 하나만 가진다" });
+    if (def.missing_reason !== null && def.source !== null) ctx.addIssue({ code: "custom", message: "원문이 없는 등급 정의 블록에는 출처 줄이 없다" });
+  });
 
 export const ChatResponseSchema = z
   .strictObject({
@@ -181,16 +210,20 @@ export const ChatResponseSchema = z
     summary: nullableString,
     findings: z.array(FindingSchema).default([]),
     candidates: z.array(CandidateSchema).default([]),
+    candidates_line: optionalNullableString, // 되묻기 카드 안내(서버 상수). 후보가 있을 때만
+    not_checked_lines: stringList, // 정보가 없어 확인하지 못한 종류의 줄(서버 상수)
     detail: z.array(DetailItemSchema).default([]),
     citations: z.array(CitationSchema).default([]),
     sentence_refs: z.array(SentenceRefSchema).default([]),
     grade_def_missing: stringList,
-    pharmacist_advice: stringList,
+    grade_defs: z.array(GradeDefSchema).default([]), // 등급 정의 블록(구조). 위 줄 목록도 그대로 온다
+    pharmacist_advice: stringList, // 미확보 항목이 있으면 비지 않는다(BE-06-17, 서버가 강제)
     // 줄 목록: 1줄 이상, 빈 줄 불가. 줄 순서는 서버가 준 그대로 그린다
     fixed_notice: z.array(z.string().refine((s) => s.trim().length > 0, "fixed_notice 줄은 비어 있을 수 없다")).min(1),
     disclaimer: z.string().min(1),
   })
-  .refine((response) => response.candidates.length === 0 || response.end_reason === "CLARIFY", "candidates는 되묻기 응답에만 온다");
+  .refine((response) => response.candidates.length === 0 || response.end_reason === "CLARIFY", "candidates는 되묻기 응답에만 온다")
+  .refine((response) => response.candidates_line === null || response.candidates.length > 0, "candidates_line은 후보가 있을 때만 온다");
 
 // ---------------------------------------------------------------- 요청(`ChatRequest`, request.py)
 export const QUESTION_MAX_CHARS = 1000;
@@ -247,12 +280,12 @@ export const ProgressEventSchema = z.strictObject({
 });
 export const EmergencyEventSchema = z.strictObject({ type: z.literal("emergency"), ...eventBase, emergency: EmergencySchema });
 export const AnswerEventSchema = z.strictObject({ type: z.literal("answer"), ...eventBase, response: ChatResponseSchema });
-/** `message`는 서버 오류 문구 상수. 문구 승인 전에는 null이며 그때는 화면 상수를 쓴다 */
+/** `message`는 서버 오류 문구 상수이고 항상 온다(2026-11-12 승인 뒤). 화면은 받은 글자를 그대로 보인다 */
 export const ErrorEventSchema = z.strictObject({
   type: z.literal("error"),
   ...eventBase,
   code: ErrorCodeSchema,
-  message: z.string().min(1).nullable().default(null),
+  message: z.string().min(1),
 });
 export const DoneEventSchema = z.strictObject({
   type: z.literal("done"),

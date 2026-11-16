@@ -128,3 +128,116 @@ describe("fixture 모양", () => {
     expect(responses.adviceFirstResponse.fixed_notice).toEqual([phrases.PHRASES.PHARMACIST_ADVICE_FIXED, phrases.FIXED_NOTICE]);
   });
 });
+
+describe("AG-08·BE-06-13~17 새 칸의 fixture(서버 규칙과 같은 모양)", () => {
+  it("사전 값: 출처 종류 글자·등급 정의 미확보 문구·성분 중복 라벨·용법용량 항목 이름", () => {
+    expect(provenance).toContain(
+      `SOURCE_KIND_PREFIX = {SK_API_DIRECT: "${phrases.SOURCE_KIND_PREFIX.API_DIRECT}", SK_FILE: "${phrases.SOURCE_KIND_PREFIX.FILE}", SK_CORPUS_QUOTE: "${phrases.SOURCE_KIND_PREFIX.CORPUS_QUOTE}"}`,
+    );
+    expect(fixedPhrases).toContain(`"FETCH_FAIL": "${phrases.GRADE_DEF_MISSING_FETCH_FAIL}"`);
+    expect(fixedPhrases).toContain(`"dup_ingredient": "${phrases.CAUTION_DUP_INGREDIENT}"`);
+    expect(fixedPhrases).not.toContain("같은 성분 중복");
+    // provenance.FLAG_NOTES["CODE_NOT_LINKED"] = "금기 목록에서 확인하지 못했지만, " + NOT_SAFE + ". 약사에게 확인하세요"
+    expect(provenance).toContain('"CODE_NOT_LINKED": "금기 목록에서 확인하지 못했지만, " + NOT_SAFE + ". 약사에게 확인하세요"');
+    expect(phrases.CODE_NOT_LINKED).toBe(`금기 목록에서 확인하지 못했지만, ${pyConst(provenance, "NOT_SAFE")}. 약사에게 확인하세요`);
+    expect(responses.codeNotLinkedResponse.findings[0].notes).toEqual([phrases.CODE_NOT_LINKED]);
+    expect(responses.ageInfoResponse.findings[1].text).toBe(phrases.CAUTION_DUP_INGREDIENT);
+    const schemasPy = readFileSync(path.join(BACKEND, "api/schemas.py"), "utf8");
+    expect(pyConst(schemasPy, "DOSE_SECTION")).toBe(phrases.DOSE_SECTION);
+  });
+
+  it("조사 '을(를)'은 받침으로 고른 글자만 남는다(josa.fill과 같은 규칙)", () => {
+    expect(phrases.fillJosa("{drug}을(를) 찾지", "drug", "가나다정")).toBe("가나다정을 찾지");
+    expect(phrases.fillJosa("{drug}을(를) 찾지", "drug", "판콜에이")).toBe("판콜에이를 찾지");
+    for (const response of Object.values(responses)) expect(JSON.stringify(response)).not.toContain("을(를)");
+  });
+
+  it("성분 상태 글자는 contra_kinds·dup에서 서버 규칙으로 정한 값이고 순서는 병용금기 원인 → 금기 원인 → 중복이다", () => {
+    expect(phrases.ingredientStateLabels(["age", "contra_pair"], true)).toEqual(["병용금기 원인", "금기 원인", "중복"]);
+    expect(phrases.ingredientStateLabels([], false)).toEqual([]);
+    for (const response of Object.values(responses)) {
+      for (const ingredient of response.findings.flatMap((f) => f.ingredients)) {
+        expect(ingredient.state_labels).toEqual(phrases.ingredientStateLabels(ingredient.contra_kinds, ingredient.dup));
+        if (ingredient.code_missing_text !== null) expect(ingredient.code).toBeNull();
+      }
+    }
+  });
+
+  it("근거 항목: 출처 종류가 있으면 종류 글자가 있고, 한 줄 설명은 허가정보 원문 근거에만, 인용 고지는 용법용량 인용에만 있다", () => {
+    for (const [name, response] of Object.entries(responses)) {
+      for (const item of response.detail) {
+        expect(item.source_kind_label, name).toBe(item.source_kind ? phrases.SOURCE_KIND_PREFIX[item.source_kind] : null);
+        expect(item.label_help, name).toBe(item.source_kind && item.dataset_key === "prmsn" ? phrases.PHRASES.LABEL_ONE_LINE : null);
+        expect(item.quote_notice, name).toBe(item.section === phrases.DOSE_SECTION && item.rows.length > 0 ? phrases.PHRASES.DOSE_QUOTE_NOTICE : null);
+        if (item.easy_text_missing_line !== null) expect(item.flags, name).toContain("EASY_TEXT_MISSING");
+      }
+    }
+    expect(responses.rxPermitResponse.detail.filter((d) => d.quote_notice !== null)).toHaveLength(1);
+  });
+
+  it("미확보 항목이 있으면 약사 확인 권고가 비지 않는다(BE-06-17)", () => {
+    for (const [name, response] of Object.entries(responses)) {
+      const missing =
+        response.findings.some((f) => f.unresolved) ||
+        response.detail.some((d) => d.missing_reason !== null) ||
+        response.grade_def_missing.length > 0 ||
+        response.grade_defs.some((g) => g.missing_reason !== null);
+      if (missing) expect(response.pharmacist_advice.length, name).toBeGreaterThan(0);
+    }
+  });
+
+  it("쌍 확인 불가 줄은 줄 글자 한 번뿐이고, 식별된 약 줄은 `찾음` + 보조줄 + 이름만 든 성분이다", () => {
+    const [identified, pair] = responses.pairNoEvidenceResponse.findings;
+    expect(pair).toMatchObject({ target: "pair", text: phrases.PHRASES.PAIR_NOT_CHECKED, notes: [], why: null, next: null, retried: null });
+    expect(identified).toMatchObject({ bucket: "identified", text: phrases.PHRASES.IDENTIFIED_LINE });
+    expect(identified.sub_line).toBe(identified.ingredients.map((i) => i.name).join(phrases.PHRASES.IDENTIFIED_SUB_SEP));
+    for (const ingredient of identified.ingredients) expect(ingredient).toMatchObject({ code: null, contra_kinds: [], dup: false, state_labels: [] });
+  });
+
+  it("등급 불일치 안내는 그 근거의 notes에 한 번, 나이 안내 줄은 나이 기준 값이 있을 때만, 되묻기 안내는 후보가 있을 때만 있다", () => {
+    const notes = responses.gradeMismatchResponse.detail.flatMap((d) => d.notes);
+    expect(notes.filter((n) => n === phrases.PHRASES.GRADE_MISMATCH_NOTE)).toHaveLength(1);
+    for (const [name, response] of Object.entries(responses)) {
+      for (const f of response.findings) if (f.age_info_line !== null) expect(f.age_criteria.length, name).toBeGreaterThan(0);
+      expect(response.candidates_line, name).toBe(response.candidates.length > 0 ? phrases.PHRASES.CLARIFY_PICK_LINE : null);
+      expect(response.emergency === null || response.emergency.wide_text === phrases.PHRASES.EMERGENCY_119_WIDE, name).toBe(true);
+    }
+    expect(responses.ageInfoResponse.findings[0].age_info_line).toBe(phrases.PHRASES.AGE_INFO_LINE);
+  });
+
+  it("나이 안내 줄 fixture는 백엔드 계약(schemas.py Finding 검증기)의 규칙을 지킨다: 상수 그대로, 나이 기준 값이 있을 때만", () => {
+    const schemasPy = readFileSync(path.join(BACKEND, "api/schemas.py"), "utf8");
+    // 서버가 이 칸에 허용하는 값의 규칙(바뀌면 이 시험이 먼저 알린다)
+    expect(schemasPy).toContain("if self.age_info_line is not None and (self.age_info_line != fp.AGE_INFO_LINE or not self.age_criteria):");
+    expect(pyConst(fixedPhrases, "AGE_INFO_LINE")).toBe(phrases.PHRASES.AGE_INFO_LINE);
+    const withLine = Object.values(responses).flatMap((r) => r.findings).filter((f) => f.age_info_line !== null);
+    expect(withLine).toHaveLength(1);
+    expect(withLine[0]).toMatchObject({ kind: "age", age_info_line: phrases.PHRASES.AGE_INFO_LINE, age_criteria: ["12세 미만", "6개월 미만"], badges: [] });
+    // 나이가 있어 판정한 연령금기 줄(서버 `finalize` 출력 모양): 나이 기준 값은 있고 안내 줄은 없다
+    expect(responses.ageFoundResponse.findings[0]).toMatchObject({ bucket: "found", age_criteria: ["12세 미만"], age_info_line: null });
+  });
+
+  it("등급 정의 블록: 제목은 상수, 원문과 미확보 사유는 하나만, 줄 목록 칸은 미확보 문구와 같다", () => {
+    const { grade_defs: defs, grade_def_missing: lines } = responses.gradeDefsResponse;
+    for (const def of defs) expect(def.title).toBe(phrases.PHRASES.GRADE_DEF_TITLE.replace("{grade}", def.grade));
+    expect(lines).toEqual(defs.filter((d) => d.missing_reason !== null).map((d) => d.missing_text));
+  });
+
+  it("오류 이벤트의 문구는 코드별 상수이고 항상 있다", () => {
+    const expected: Record<string, string> = {
+      INTERNAL_ERROR: phrases.PHRASES.ERROR_INTERNAL,
+      TIMEOUT: phrases.PHRASES.ERROR_TIMEOUT,
+      UPSTREAM_UNAVAILABLE: phrases.PHRASES.ERROR_UPSTREAM_UNAVAILABLE,
+    };
+    let seen = 0;
+    for (const scenario of Object.values(scenarios)) {
+      if (scenario.kind !== "stream") continue;
+      for (const event of scenario.events) {
+        if (event.type !== "error") continue;
+        seen += 1;
+        expect(event.message).toBe(expected[event.code]);
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+});

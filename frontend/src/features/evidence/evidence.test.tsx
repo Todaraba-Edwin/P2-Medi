@@ -18,6 +18,9 @@ import { SourceTable } from "./SourceTable";
 const texts = (elements: Element[]) => elements.map((el) => el.textContent);
 const sample = (id: string) => EVIDENCE_SAMPLES.find((s) => s.id === id)!.response;
 const sections = () => screen.getAllByTestId("evidence-section").map((el) => el.getAttribute("data-section"));
+/** 표지 안의 자료 이름 글자(출처 종류 글자를 뺀 부분). 출처 표의 자료 열과 같은 글자여야 한다 */
+const tagDataset = (tag: Element) => tag.querySelector("[data-slot='source-dataset']")?.textContent;
+const tagKind = (tag: Element) => tag.querySelector("[data-slot='source-kind-label']")?.textContent ?? null;
 const CLOSED = "details:not([open]), [hidden], [aria-hidden='true'], [data-state='closed']";
 
 describe("EvidenceDetail", () => {
@@ -53,9 +56,15 @@ describe("EvidenceDetail", () => {
       expect(within(box).getByTestId("line-title").textContent).toBe(finding.drug);
       expect(texts(within(box).getAllByTestId("status-badge"))).toEqual(finding.badges.map((b) => b.text));
     });
-    const tags = new Set(texts(screen.getAllByTestId("source-tag")));
+    const tags = screen.getAllByTestId("source-tag");
     const datasets = new Set(texts(screen.getAllByTestId("source-dataset")));
-    for (const tag of tags) expect(datasets.has(tag)).toBe(true);
+    for (const tag of tags) expect(datasets.has(tagDataset(tag) ?? "")).toBe(true);
+    // 표지는 `{출처 종류 글자} · {자료 이름}`이고 종류 글자는 응답의 source_kind_label 그대로다(BE-06-14)
+    const byDataset = new Map(response.detail.map((item) => [item.dataset, item.source_kind_label]));
+    for (const tag of tags) {
+      expect(tagKind(tag)).toBe(byDataset.get(tagDataset(tag) ?? null) ?? null);
+      if (tagKind(tag)) expect(tag.textContent).toBe(`${tagKind(tag)} · ${tagDataset(tag)}`);
+    }
   });
 
   it("등급 불일치: 판정 박스의 배지 둘이 출처 꼬리와 함께 받은 순서대로 보인다", () => {
@@ -71,7 +80,57 @@ describe("EvidenceDetail", () => {
     const box = screen.getByTestId("reason-box");
     expect(texts([...box.querySelectorAll("p")])).toEqual(["합성 사유 문장", "둘째 합성 문장"]);
     expect(rowTexts(item)).toEqual(["합성 사유 문장", "둘째 합성 문장"]);
-    expect(within(box).getByTestId("source-tag").textContent).toBe(item.dataset);
+    expect(tagDataset(within(box).getByTestId("source-tag"))).toBe(item.dataset);
+  });
+
+  it("표지의 출처 종류 글자는 받은 글자 그대로이고, 오지 않으면 자료 이름만 보인다(프런트가 종류 글자를 짓지 않는다)", () => {
+    const item = { ...fixtures.foundResponse.detail[0], source_kind_label: "받은 종류 글자" };
+    const { rerender } = render(<EvidenceDetail response={{ ...fixtures.foundResponse, detail: [item] }} />);
+    for (const tag of screen.getAllByTestId("source-tag")) expect(tag.textContent).toBe(`받은 종류 글자 · ${item.dataset}`);
+    rerender(<EvidenceDetail response={{ ...fixtures.foundResponse, detail: [{ ...item, source_kind_label: null }] }} />);
+    for (const tag of screen.getAllByTestId("source-tag")) expect(tag.textContent).toBe(item.dataset);
+  });
+
+  it("등급 불일치 안내는 그 근거 박스에 받은 글자로 한 번만 보인다", () => {
+    render(<EvidenceDetail response={fixtures.gradeMismatchResponse} />);
+    expect(screen.getAllByText(PHRASES.GRADE_MISMATCH_NOTE)).toHaveLength(1);
+  });
+
+  it("등급 정의 블록(grade_defs): 원문 블록은 접힘, 미확보 블록은 문구와 권고만 접힘 밖에 보인다", async () => {
+    const response = fixtures.gradeDefsResponse;
+    render(<EvidenceDetail response={response} />);
+    const block = screen.getByTestId("grade-def");
+    const [quoted, missing] = response.grade_defs;
+    const trigger = within(block).getByRole("button", { name: quoted.title });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(within(block).queryByRole("button", { name: missing.title })).toBeNull();
+    const missingBox = within(block).getByTestId("grade-def-missing");
+    expect(texts([...missingBox.querySelectorAll(":scope > p")])).toEqual([missing.missing_text]);
+    expect(within(missingBox).getByTestId("pharmacist-advice").textContent).toBe(response.pharmacist_advice[0]);
+    expect(missingBox.closest(CLOSED)).toBeNull();
+    await userEvent.click(trigger);
+    expect(block.querySelector("blockquote")?.textContent).toBe(quoted.text);
+    expect(block.querySelector("[data-slot='grade-def-source']")?.textContent).toBe(quoted.source);
+    expect(block.querySelectorAll("[data-slot='grade-def-source']")).toHaveLength(1); // 미확보 블록에는 출처 줄이 없다
+  });
+
+  it("허가사항 구역: 한 줄 설명은 맨 위에 한 번, 전문의약품 안내 줄은 원문 앞, 인용 고지는 용법용량 인용 바로 아래(모두 받은 글자)", () => {
+    const response = fixtures.rxPermitResponse;
+    render(<EvidenceDetail response={response} />);
+    const section = screen.getAllByTestId("evidence-section").find((el) => el.getAttribute("data-section") === "label")!;
+    expect(texts(within(section).getAllByTestId("label-help"))).toEqual([PHRASES.LABEL_ONE_LINE]);
+    expect(section.children[1]).toBe(within(section).getByTestId("label-help")); // 소제목 바로 아래
+    const [caution, dose] = within(section).getAllByTestId("permit-text");
+    const easy = within(caution).getByTestId("easy-text-missing");
+    expect(easy.textContent).toBe(response.detail[1].easy_text_missing_line);
+    expect(easy.compareDocumentPosition(caution.querySelector("q")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(caution).queryByTestId("quote-notice")).toBeNull();
+    const notice = within(dose).getByTestId("quote-notice");
+    expect(notice.textContent).toBe(PHRASES.DOSE_QUOTE_NOTICE);
+    expect(dose.querySelector("q")!.closest("p")!.nextElementSibling).toBe(notice);
+    expect(within(dose).queryByTestId("easy-text-missing")).toBeNull();
+    expect(dose.querySelector("table, dl, ul, ol")).toBeNull();
+    expect(notice.closest(CLOSED)).toBeNull();
   });
 
   it("연령금기 판정 줄 뒤에 나이 기준 값이 원문 그대로 있고, 안내 문구 자리는 값이 올 때만 그려진다", () => {
@@ -119,7 +178,7 @@ describe("PermitText", () => {
     const box = screen.getByTestId("permit-text");
     expect(box.querySelector("b")?.textContent).toBe(`${caution.drug_name} 허가사항 원문(${caution.section})`);
     expect(box.querySelector("q")?.textContent).toBe(rowTexts(caution)[0]);
-    expect(within(box).getByTestId("source-tag").textContent).toBe(caution.dataset);
+    expect(tagDataset(within(box).getByTestId("source-tag"))).toBe(caution.dataset);
   });
 
   it("용법·용량도 표로 쪼개지 않고 원문 인용 그대로다(줄바꿈·숫자 가공 없음)", () => {
@@ -135,7 +194,7 @@ describe("PermitText", () => {
     const head = screen.getByTestId("permit-text").querySelector("b")?.textContent;
     expect(head).toBe(`${caution.drug_name} · ${caution.section}`);
     expect(head).not.toContain("허가사항 원문");
-    expect(screen.getByTestId("source-tag").textContent).toBe("받은 자료 이름");
+    expect(tagDataset(screen.getByTestId("source-tag"))).toBe("받은 자료 이름");
   });
 
   it("약 이름·항목이 비면 그 부분을 그리지 않는다", () => {
@@ -195,7 +254,10 @@ describe("GradeDefBlock", () => {
   it("정의 원문 블록은 기본으로 접혀 있고 누르면 원문이 받은 그대로 보인다. 미확보·권고는 그와 상관없이 보인다", async () => {
     render(
       <GradeDefBlock
-        definitions={[{ title: "받은 블록 제목", quote: "받은 고시 원문 인용", source: "받은 출처 표기" }]}
+        definitions={[
+          { grade: "2", title: "받은 블록 제목", text: "받은 고시 원문 인용", source: "받은 출처 표기", missing_reason: null, missing_text: null },
+          { grade: "1", title: "받은 미확보 블록 제목", text: null, source: null, missing_reason: "FETCH_FAIL", missing_text: "받은 등급 정의 미확보 문구" },
+        ]}
         missing={["받은 등급 정의 미확보 문구"]}
         advice={advice}
       />,
@@ -203,8 +265,12 @@ describe("GradeDefBlock", () => {
     const trigger = screen.getByRole("button", { name: "받은 블록 제목" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("받은 고시 원문 인용")).toBeNull();
+    // 구조 칸이 오면 미확보 문구는 그 칸의 값으로 한 번만 보인다(줄 목록 칸과 겹쳐 두 번 그리지 않는다)
+    expect(screen.getAllByText("받은 등급 정의 미확보 문구")).toHaveLength(1);
     expect(screen.getByText("받은 등급 정의 미확보 문구")).toBeVisible();
     expect(screen.getByTestId("pharmacist-advice")).toBeVisible();
+    // 원문이 없는 블록은 접힘 블록(버튼)도 조항 출처 줄도 없다
+    expect(screen.queryByRole("button", { name: "받은 미확보 블록 제목" })).toBeNull();
     await userEvent.click(trigger);
     expect(screen.getByText("받은 고시 원문 인용")).toBeInTheDocument();
     expect(screen.getByText("받은 출처 표기")).toBeInTheDocument();

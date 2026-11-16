@@ -44,7 +44,7 @@ describe("마스코트 허용 자리", () => {
 
 describe("마스코트 금지 영역: 이미지 0개", () => {
   it("응급 자리", () => {
-    const { container } = render(<EmergencySlot emergency={{ text: "받은 응급 문구", tel: "tel:119" }} />);
+    const { container } = render(<EmergencySlot emergency={{ text: "받은 응급 문구", tel: "tel:119", wide_text: "받은 보조 문장" }} />);
     expect(chicks(container)).toEqual([]);
     expect(container.querySelectorAll("img")).toHaveLength(0);
   });

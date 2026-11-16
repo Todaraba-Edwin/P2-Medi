@@ -4,15 +4,20 @@ import type { ChatEvent, ChatEventInput, ChatResponse, ProgressStage } from "@/l
 import { PHRASES, PROGRESS_LABELS } from "./phrases";
 import {
   ageFoundResponse,
+  ageInfoResponse,
+  apiFailResponse,
   clarifyResponse,
+  codeNotLinkedResponse,
   emergencyResponse,
   fallbackNoneResponse,
   fallbackSomeResponse,
   foundResponse,
+  gradeDefsResponse,
   gradeMismatchResponse,
   limitResponse,
   missingCausesResponse,
   missingEvidenceResponse,
+  notCheckedResponse,
   notListedResponse,
   pairNoEvidenceResponse,
   pairAndPregnancyResponse,
@@ -48,7 +53,10 @@ function events(...bodies: EventBody[]): ChatEvent[] {
 const progress = (stage: ProgressStage): EventBody => ({ type: "progress", stage, label: PROGRESS_LABELS[stage] });
 const answer = (response: ChatResponse): EventBody => ({ type: "answer", response });
 const done = (response: ChatResponse): EventBody => ({ type: "done", end_reason: response.end_reason });
-const emergency: EventBody = { type: "emergency", emergency: { text: PHRASES.EMERGENCY_119, tel: PHRASES.EMERGENCY_119_TEL } };
+const emergency: EventBody = {
+  type: "emergency",
+  emergency: { text: PHRASES.EMERGENCY_119, tel: PHRASES.EMERGENCY_119_TEL, wide_text: PHRASES.EMERGENCY_119_WIDE },
+};
 const threeSteps = [progress("drug_lookup"), progress("contraindication_check"), progress("evidence_search")];
 /** 진행 세 줄 → 답 → done */
 const normal = (response: ChatResponse): MockScenario => ({
@@ -78,20 +86,17 @@ export const scenarios = {
   clarify: { kind: "stream", ending: "close", events: events(progress("drug_lookup"), answer(clarifyResponse), done(clarifyResponse)) },
   /** 거절(진행 없이 바로 답) */
   refuse: { kind: "stream", ending: "close", events: events(answer(refuseResponse), done(refuseResponse)) },
-  /**
-   * 서버 오류 이벤트(문구가 실려 온 경우). 오류 문구 상수는 사용자 승인 전이라 **지금 서버는 null을 보낸다**(serverErrorNoMessage).
-   * 이 시나리오의 글자는 "받은 문구를 그대로 보인다"를 시험하려는 자리 글자이며 실제 문구가 아니다.
-   */
+  /** 서버 오류 이벤트. `message`는 오류 문구 상수(`ERROR_MESSAGES[code]`)이고 항상 온다(2026-11-12 승인 뒤). 화면은 받은 글자를 그대로 보인다 */
   serverError: {
     kind: "stream",
     ending: "close",
-    events: events(progress("drug_lookup"), { type: "error", code: "INTERNAL_ERROR", message: "[mock] 오류 문구 자리" }, { type: "done" }),
+    events: events(progress("drug_lookup"), { type: "error", code: "INTERNAL_ERROR", message: PHRASES.ERROR_INTERNAL }, { type: "done" }),
   },
-  /** 서버 오류 이벤트(지금 서버 모양: 문구 null → 화면 상수를 쓴다) */
+  /** 서버 오류 이벤트(다른 코드: 외부 연결 실패). 이름은 예전 것을 유지했다(지금은 이 코드도 문구가 온다) */
   serverErrorNoMessage: {
     kind: "stream",
     ending: "close",
-    events: events(progress("drug_lookup"), { type: "error", code: "UPSTREAM_UNAVAILABLE", message: null }, { type: "done" }),
+    events: events(progress("drug_lookup"), { type: "error", code: "UPSTREAM_UNAVAILABLE", message: PHRASES.ERROR_UPSTREAM_UNAVAILABLE }, { type: "done" }),
   },
   /** answer 전 끊김(읽기 오류) */
   cutBeforeAnswer: { kind: "stream", ending: "cut", events: events(progress("drug_lookup"), progress("contraindication_check")) },
@@ -127,7 +132,7 @@ export const scenarios = {
   missingEvidence: normal(missingEvidenceResponse),
   /** 상한 도달(상단 배너) */
   limit: normal(limitResponse),
-  // ---- FE-IMPL-06 추가(흐름 시험용. 질문 표시 글자(`mock:`)는 handlers.ts 소유라 붙이지 않았다)
+  // ---- FE-IMPL-06 추가(흐름 시험용)
   /** 미확보 나머지 세 원인 + 박스 안 약사 확인 권고 */
   missingCauses: normal(missingCausesResponse),
   /** 검증 폴백(확인된 항목 없음) */
@@ -136,8 +141,19 @@ export const scenarios = {
   fallbackSome: normal(fallbackSomeResponse),
   /** 쌍 확인 불가(배지 없는 쌍 줄) */
   pairNoEvidence: normal(pairNoEvidenceResponse),
-  /** 허가사항 원문 인용 */
+  /** 허가사항 원문 인용(한 줄 설명·전문의약품 안내 줄·용법용량 인용 고지) */
   rxPermit: normal(rxPermitResponse),
+  // ---- FE-IMPL-08 추가(AG-08·BE-06-13~17의 새 칸)
+  /** 나이를 특정할 수 없을 때: 나이별 연령금기 원문 값 + 안내 줄, 성분 중복 줄 */
+  ageInfo: normal(ageInfoResponse),
+  /** 등급 정의 블록(원문 블록 + 미확보 블록) */
+  gradeDefs: normal(gradeDefsResponse),
+  /** 정보가 없어 확인하지 못한 종류의 줄 */
+  notChecked: normal(notCheckedResponse),
+  /** 코드가 이어지지 않아 확인하지 못한 줄(바뀐 안내 문구) */
+  codeNotLinked: normal(codeNotLinkedResponse),
+  /** 공공 API 실패 배너 */
+  apiFail: normal(apiFailResponse),
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;
