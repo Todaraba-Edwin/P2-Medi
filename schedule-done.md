@@ -23,6 +23,8 @@
 
 ## 종결 기록 (결정과 종결, 최신이 위)
 
+- **Recap 0-B 완료(2026-11-16, 사용자 "0-B .env deny 확인함")**: VS Code 확장 세션에서 가짜 파일 `.env.test-deny`를 Read 도구로 열려 하자 "File is in a directory that is denied by your permission settings."로 거부됨(내용 읽힘 0). Bash 경로(cat 등) 차단은 우회 시도가 되므로 시험하지 않음(미시험). 시험 파일은 사용자가 직접 삭제함.
+
 - **FE-IMPL-08 결정 4건 완료(2026-11-16, 사용자 "FE-01-27~30 권장대로", 원본 [FE-01 §6](tickets/frontend/FE-01.md#6-결정-현황))**: `FE-01-27` A(`age_info_line`은 서버 출력이 없어 백엔드 스키마 계약 대조로 인정, AG-02 뒤 재대조 후속) · `FE-01-28` A(식별된 약 줄은 보조줄만, 성분 칩 생략) · `FE-01-29` A(zod `error.message` 필수) · `FE-01-30` A(프런트 `ERROR_BODY_RETRY`와 서버 `ERROR_INTERNAL` 둘 다 유지). 모두 현재 코드 그대로라 코드 변경 없음, FE-IMPL-08은 2026-11-16 완료(보고 `data/mock/briefs/reports/FE-IMPL-08-contract-ag08.md`, 로컬).
 
 - **AG-08 goal 1회차 결정 5건 완료(2026-11-16, 사용자 "①~⑤ 권장대로", 지시서 `2026-11-16-sw-ag08-done.md`, 근거 로컬 보고 `data/mock/briefs/reports/goal-ag08.md` §5)**: 보고의 임시 순번 ①②④⑤를 [AG-08-19](tickets/agent/AG-08.md#6-결정-현황)(1-1 오류 문장은 서버·프런트 둘 다, 프런트는 전송 끊김일 때만, B)·AG-08-20(등급 불일치 안내 "실시간 조회"와 배지 꼬리 `(성분 API)` 둘 다 유지, A)·AG-08-21(식별된 약 보조줄에 병용 확인 문장을 넣지 않음, A)·AG-08-22(연령금기 보조값은 원문 `12세 미만`, A)로, ③을 [BE-06-18](tickets/backend/BE-06.md#6-결정-현황)(`chat_response@v1` 유지·칸 추가만, A)로 등록했다. 모두 ★ 권장이고 현재 코드 상태와 같아 코드 변경은 없다. 코드는 커밋 `6f8e5a5`·병합 `678e093`(develop)으로 들어갔고 메인 재검증은 ruff 0, pytest 2144 passed·5 skipped·1 xfailed다. AG-08은 프롬프트 부분·k/n 등 미체크가 남아 `todo`, [RFP-36](tickets/doc/RFP-36.md) 완료 조건은 프런트 후속 WP 지시서 하나만 남았다. 사실 측정이 아니라 보고·재검증 값이다.
