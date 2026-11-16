@@ -58,7 +58,8 @@ def check_items(tool: str, items: list[dict[str, Any]]) -> list[str]:
         if "API_PAIR_INCOMPLETE" in api and it.get("kind") != "contra_pair":
             bad.append(f"{tag} API_PAIR_INCOMPLETE는 병용 쌍 항목에만 쓴다(성분 단위 연령·임부는 API_FAIL)")  # H20
         if isinstance(it.get("api"), dict) and it["api"].get("codes_truncated") and {"FILE_ONLY", "API_SAME"} & set(api):
-            bad.append(f"{tag} API 성분 코드가 한도로 잘렸는데 FILE_ONLY·API_SAME이 붙었다(API_PAIR_INCOMPLETE여야 한다)")  # AG-01-04 A
+            want = "API_PAIR_INCOMPLETE" if it.get("kind") == "contra_pair" else "API_FAIL"  # 쌍: AG-01-04 A, 성분 단위 연령·임부: AG-01-09 A
+            bad.append(f"{tag} API 성분 코드가 한도로 잘렸는데 FILE_ONLY·API_SAME이 붙었다({want}여야 한다)")
         if it.get("source_kind") == "API_DIRECT" and it.get("dataset_key") == "dur_ingr" and not it.get("queried_at_utc"):
             bad.append(f"{tag} API 항목에 조회 시각 없음")
         if it.get("missing_reason") is not None and it["missing_reason"] not in MISSING_REASONS:
