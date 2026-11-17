@@ -28,8 +28,8 @@ judge(AG-11-02·05): `--judge sonnet --judge-max-usd X`는 Claude Sonnet 5.5(`ev
 안전 응답 통과를 다시 계산한다. 근거 청크는 그래프가 받은 순서(`run.evidence_order`)로 준다. 결과 meta `judge`에 모델·루브릭 버전·judge 프롬프트
 sha256, `judge_usage`에 호출·재시도·오류율·비용이 남는다. judge 비용은 에이전트 상한(`--max-usd`)과 따로 센다. 기본(`--judge none`)은 코드 채점만이다.
 
-오탈자 보정(AG-10): 스위치는 **비교 조건이 정한다**(`resolve_typo_correct`). C1은 항상 끔, C1+는 항상 켬, C2는 기본 켬(서비스 배선과 같다,
-AG-10-04 A)이고 `--no-typo-correct`로만 끌 수 있다(보정 전 결과와 비교할 때). 조건과 어긋나는 플래그는 실행 없이 거부한다.
+오탈자 보정(AG-10): 스위치는 **비교 조건이 정한다**(`resolve_typo_correct`). C1은 항상 끔, C1+는 항상 켬, C2는 기본 켬(AG-10-04 A. 서비스 배선은
+BE-06-35 A로 FE-02 반영 전까지 끔)이고 `--no-typo-correct`로만 끌 수 있다(보정 전 결과와 비교할 때). 조건과 어긋나는 플래그는 실행 없이 거부한다.
 결과 meta `typo_correction`에 켰는지·고지 문구 상태·기준값이 남는다. `--ids dev-056,dev-057`은 개발셋에서 그 문항만 돌린다(시험셋에는 쓰지 못한다).
 
 L3(개발셋 전체): `--subset` 없이 150문항 1회, `--subset dev_reliability_core --repeats 3`으로 개발 안전 핵심 40문항 3회(`pass^3`·`pass@3`·판정 일치율).

@@ -817,7 +817,7 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
     """질문 하나를 정리한다. `emergency`·`guardrail_route`는 AG-08이 쓴 값을 읽어 그대로 돌려줄 뿐 결과에 영향이 없다.
 
     `typo_correct=True`이면 오탈자 의심 엔티티를 `correct_typo`로 보정해 본다(AG-10). 기본값 False는 지금까지와 같은 결과(되묻기)다.
-    보정 고지 문구가 사용자 승인 전(`fixed_phrases.DRAFT_KEYS`)이라 서비스 경로는 켜지 않는다(켜는 곳은 `GraphDeps.typo_correct`).
+    켜는 곳은 `GraphDeps.typo_correct`다(서비스 기본은 `wiring.SERVICE_TYPO_CORRECT_DEFAULT`, BE-06-35 A).
 
     `confirmed_item_seqs`는 같은 대화의 되묻기에서 사용자가 고른 약의 품목기준코드다(AG-05-03 A, `apply_confirmed`). 비어 있으면 지금과 같다
     (평가 경로는 늘 비어 있다). 값은 상태·이벤트·로그에 그대로 옮기지 않는다(확정된 엔티티의 `item_seq`는 일반 확정과 같은 자리에 들어간다)."""

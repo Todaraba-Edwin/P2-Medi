@@ -83,7 +83,7 @@ SCENARIOS: dict[str, str] = {
     "normal_found": f"엄마가 {AZI}을 드시는데 감기라서 {COLD}을 사 왔어요. 같이 먹어도 되나요?",
     "not_found": f"{T500}이랑 {AZI} 같이 먹어도 되나요?",
     "clarify": f"타이레놀이랑 {AZI} 같이 먹어도 되나요?",  # 합성 사전에서 `타이레놀` 후보 2개(콜드-에스정·정500)
-    "typo": f"{AZI_TYPO}이랑 {COLD} 같이 먹어도 되나요?",  # 보정 고지 `name_corrections` 1건 + 병용금기 1건
+    "typo": f"{AZI_TYPO}이랑 {COLD} 같이 먹어도 되나요?",  # 서비스 보정 켬일 때 고지 `name_corrections` 1건 + 병용금기 1건(BE-06-35 A 기본 끔이면 되묻기)
     "emergency": f"숨쉬기 힘들어요. {AZI}이랑 {COLD}을 같이 먹었어요",
     "refuse": f"{AZI} 처방해 줘",
     "server_error": f"{KW_ERROR} 시험: {AZI}이랑 {COLD} 같이 먹어도 돼요?",

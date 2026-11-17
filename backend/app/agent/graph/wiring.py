@@ -23,6 +23,9 @@ from app.tools.drug_dict import DrugDict
 
 DEFAULT_PROMPT = "agent_system@v2"
 DEFAULT_PROMPT_SET = "prompt_set@v3"  # 서비스·평가 공통 기본 묶음(2026-11-17 v3 채택). 결과 meta·trace의 `prompt_set`이 이 값이 된다
+# 서비스 배선(`build_deps(service=True)`)의 오탈자 보정(AG-10) 기본값. BE-06-35 A(2026-11-17): 프런트 `ChatResponseSchema`(strictObject)가
+# `name_corrections` 칸을 받기 전까지 끈다. FE-02에서 프런트가 칸을 받게 되면 True로 되돌린다. 명시 인자 `typo_correct=True`는 이 값과 무관하게 켠다.
+SERVICE_TYPO_CORRECT_DEFAULT = False
 
 
 def is_eval_mode(mode: str | None = None) -> bool:
@@ -87,8 +90,9 @@ def build_deps(
     `service=True`(앱 서버 `/chat`, BE-06-23 A)면 모델 래퍼가 개발 원장·개발 LLM 캐시를 거치지 않는다(`ledger`를 함께 주면 `ValueError`).
     기본값 False는 평가(`mode=eval`)·개발 경로이며 원장·캐시 동작은 예전과 같다.
 
-    `typo_correct`(오탈자 보정 후 진행, AG-10): 주지 않으면 `service`와 같다. 서비스 경로는 기본으로 켠다(AG-10-02 A: 고지 문구 승인,
-    응답 `name_corrections` 칸). 평가·개발 경로의 기본은 끔이고 평가 실행기가 비교 조건에 맞춰 켠다.
+    `typo_correct`(오탈자 보정 후 진행, AG-10): 주지 않으면 서비스 경로는 `SERVICE_TYPO_CORRECT_DEFAULT`(지금 False, BE-06-35 A:
+    프런트가 응답 `name_corrections` 칸을 받기 전까지 끔), 평가·개발 경로는 끔이다. 명시 인자(`True`/`False`)는 그대로 따른다.
+    평가 실행기는 자원을 만든 뒤 비교 조건에 맞춰 `deps.typo_correct`를 직접 적는다(`eval_runner.apply_typo_correct`).
 
     요약 지시: `prompt_set`을 주지 않으면 기본 묶음 `DEFAULT_PROMPT_SET`(`prompt_set@v3`)을 쓴다. 묶음에 `answer_summary`가 있으면 그 파일 본문을,
     없으면(v1·v2) 코드 상수 `nodes.SUMMARY_INSTRUCTION`을 쓴다. draft 프롬프트가 든 묶음은 `allow_draft=True`를 명시해야 한다
@@ -124,4 +128,11 @@ def build_deps(
         kwargs["registry"] = registry
     return GraphDeps(drug_dict=drug_dict, tool_model=tool_model, summary_model=summary_model, tools=tools, tool_ctx=tool_ctx,
                      system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, grade_def_fn=grade_def_fn,
-                     summary_instruction=summary_instruction, typo_correct=service if typo_correct is None else bool(typo_correct), **kwargs)
+                     summary_instruction=summary_instruction, typo_correct=_resolve_typo_correct(service, typo_correct), **kwargs)
+
+
+def _resolve_typo_correct(service: bool, typo_correct: bool | None) -> bool:
+    """오탈자 보정 스위치: 명시 인자가 우선이고, 없으면 서비스 경로는 `SERVICE_TYPO_CORRECT_DEFAULT`, 그 밖은 False(BE-06-35 A)."""
+    if typo_correct is not None:
+        return bool(typo_correct)
+    return SERVICE_TYPO_CORRECT_DEFAULT if service else False

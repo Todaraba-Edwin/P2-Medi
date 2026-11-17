@@ -65,7 +65,7 @@ class GraphDeps:
     grade_def_fn: GradeDefFn | None = None  # 임부금기 등급 정의 원문 공급(BE-06-16 A). None이면 등급 정의 블록을 만들지 않는다
     summary_instruction: str | None = None  # 요약 호출 지시(프롬프트 파일 본문). None이면 코드 상수 `SUMMARY_INSTRUCTION`(기본 묶음 v2)
     # 오탈자 보정 후 진행(AG-10, RFP-26-09 A). 이 dataclass의 기본값은 False(되묻기)이고, 켜는 곳은 배선이다:
-    # 서비스(`wiring.build_deps(service=True)`)는 기본으로 켠다(AG-10-02 A, 2026-11-17: 고지 문구 승인 + `/chat` 응답 `name_corrections` 칸).
+    # 서비스(`wiring.build_deps(service=True)`)는 `wiring.SERVICE_TYPO_CORRECT_DEFAULT`를 따른다(AG-10-02 A 승인, BE-06-35 A로 FE-02 반영 전까지 끔).
     # 평가 실행기는 비교 조건으로 정한다(C2·C1+ 켬, C1 끔. `eval_runner.resolve_typo_correct`).
     typo_correct: bool = False
 
