@@ -18,6 +18,9 @@ from typing import Any
 from app.db.loaders import _placeholder as placeholder
 
 SCHEMA_PATH = Path(__file__).with_name("schema_dict.sql")
+SCHEMA_PG_PATH = Path(__file__).with_name("schema_dict_pg.sql")  # Postgres 전용 RLS·REVOKE(BE-06-32 A)
+DIALECT_POSTGRES = "postgres"
+DIALECT_SQLITE = "sqlite"
 META_TABLE = "drug_dict_meta"
 ENTRY_TABLE = "drug_dict_entry"
 KIND_PRODUCT = "product"
@@ -68,9 +71,27 @@ def entry_rows(payload: dict[str, Any]) -> Iterator[tuple[str, str, int, str]]:
             yield version, kind, i, json.dumps(item, ensure_ascii=False, separators=(",", ":"))
 
 
-def apply_dict_schema(conn: Any) -> None:
-    """schema_dict.sql 실행(IF NOT EXISTS라 다시 돌려도 안전). 커밋은 호출자가 한다."""
+def _detect_dialect(conn: Any) -> str:
+    """psycopg 연결이면 postgres, 그 밖(sqlite3·시험 가짜)은 sqlite."""
+    return DIALECT_POSTGRES if type(conn).__module__.split(".")[0] in ("psycopg", "psycopg2") else DIALECT_SQLITE
+
+
+def schema_sql(dialect: str = DIALECT_POSTGRES) -> str:
+    """실행할 스키마 SQL. postgres는 공통 스키마 뒤에 RLS·권한 회수(schema_dict_pg.sql, BE-06-32 A)를 붙인다."""
+    if dialect not in (DIALECT_POSTGRES, DIALECT_SQLITE):
+        raise ValueError(f"알 수 없는 dialect: {dialect}")
     sql = SCHEMA_PATH.read_text(encoding="utf-8")
+    if dialect == DIALECT_POSTGRES:
+        sql += "\n" + SCHEMA_PG_PATH.read_text(encoding="utf-8")
+    return sql
+
+
+def apply_dict_schema(conn: Any, *, dialect: str | None = None) -> None:
+    """스키마 실행(다시 돌려도 안전). 커밋은 호출자가 한다(postgres는 RLS·REVOKE까지 같은 트랜잭션).
+
+    dialect를 주지 않으면 연결 종류로 정한다(psycopg → postgres). 원격 적재 스크립트는 명시적으로 postgres를 넘긴다.
+    """
+    sql = schema_sql(dialect or _detect_dialect(conn))
     if hasattr(conn, "executescript"):  # sqlite3
         conn.executescript(sql)
     else:

@@ -3,10 +3,11 @@
   plan             (기본, dry-run) 원격 연결 0. 로컬 사전 파일만 읽어 판(version)·행 수·sha256·바이트를 출력한다. 쓰기 0.
   plan --remote    읽기 전용 연결 1회. 원격에 테이블·같은 판이 있는지, 넣을 행 수(이미 있으면 0)를 출력한다. 쓰기 0.
   apply --yes      쓰기. `--yes`와 승인 파일 `data/mock/review/be06_dict_approved.flag`(사용자 승인 뒤 메인이 만든다)가 **둘 다** 있어야 한다.
-                   한 트랜잭션: 스키마(IF NOT EXISTS) → entry 삽입(ON CONFLICT DO NOTHING) → 행 수 확인 → meta 삽입 → 커밋.
+                   한 트랜잭션: 스키마(IF NOT EXISTS) → RLS 켜기·anon·authenticated 권한 회수(BE-06-32 A)
+                   → entry 삽입(ON CONFLICT DO NOTHING) → 행 수 확인 → meta 삽입 → 커밋.
                    같은 판이 이미 완전히 있으면 0행(멱등). 같은 판에 다른 원본이 있으면 롤백하고 거부한다.
   verify           읽기 전용. 원격 최신 판을 읽어 `DrugDict`를 만들고 판·행 수·원본 sha256이 로컬 파일과 같은지 확인한다.
-  --print-sql      `app/db/schema_dict.sql`을 출력한다(원격 연결 0).
+  --print-sql      원격에 실행할 스키마 SQL(`app/db/schema_dict.sql` + `schema_dict_pg.sql`의 RLS·REVOKE)을 출력한다(원격 연결 0).
 
 금지(이 스크립트는 하지 않는다): DROP·DELETE·TRUNCATE·UPDATE, 다른 테이블 변경.
 접속 문자열은 환경변수 SUPABASE_DB_URL(없으면 앱 Settings)에서 프로세스 안에서만 읽고 출력하지 않는다.
@@ -117,10 +118,14 @@ def remote_plan(conn: Any, payload: dict[str, Any], sha: str, *, paramstyle: str
     return out
 
 
-def apply(conn: Any, payload: dict[str, Any], sha: str, *, paramstyle: str = PARAMSTYLE, log: Callable[[str], None] = print) -> dict[str, Any]:
-    """한 트랜잭션으로 스키마 + 적재. 예외면 롤백하고 다시 올린다."""
+def apply(conn: Any, payload: dict[str, Any], sha: str, *, paramstyle: str = PARAMSTYLE, dialect: str = store.DIALECT_POSTGRES,
+          log: Callable[[str], None] = print) -> dict[str, Any]:
+    """한 트랜잭션으로 스키마(+ postgres면 RLS·REVOKE) + 적재. 예외면 롤백하고 다시 올린다.
+
+    dialect 기본은 postgres(원격 대상)다. RLS를 빠뜨리지 않도록 연결 종류로 추측하지 않고 명시한다. sqlite는 시험 전용.
+    """
     try:
-        store.apply_dict_schema(conn)
+        store.apply_dict_schema(conn, dialect=dialect)
         res = store.load_payload(conn, payload, sha, paramstyle=paramstyle)
         conn.commit()
     except Exception as exc:
@@ -165,10 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, connect_fn: Callable[[str], Any] | None = None, paramstyle: str = PARAMSTYLE,
          flag: Path = APPROVAL_FLAG, log: Callable[[str], None] = print,
-         present_fn: Callable[[Any], dict[str, bool]] = tables_present) -> dict[str, Any]:
+         present_fn: Callable[[Any], dict[str, bool]] = tables_present, dialect: str = store.DIALECT_POSTGRES) -> dict[str, Any]:
+    """dialect는 시험 전용 주입점이다(기본 postgres: RLS·REVOKE 포함)."""
     args = build_parser().parse_args(argv)
     if args.print_sql:
-        log(store.SCHEMA_PATH.read_text(encoding="utf-8"))
+        log(store.schema_sql(store.DIALECT_POSTGRES))
         return {"print_sql": True, "remote_connections": 0}
     if args.cmd == "apply":
         gate(args, flag)  # 파일을 읽거나 연결하기 전에 거부
@@ -186,7 +192,7 @@ def main(argv: list[str] | None = None, *, connect_fn: Callable[[str], Any] | No
         conn = connect(read_only=False, connect_fn=connect_fn)
         out["remote_connections"] = 1
         try:
-            out["apply"] = apply(conn, payload, sha, paramstyle=paramstyle, log=log)
+            out["apply"] = apply(conn, payload, sha, paramstyle=paramstyle, dialect=dialect, log=log)
         finally:
             conn.close()
     log(json.dumps(out, ensure_ascii=False, indent=2))

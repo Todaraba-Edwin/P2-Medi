@@ -5,6 +5,7 @@
 --     따라서 meta 행이 있으면 그 판은 완전하다(읽는 쪽이 행 수로 한 번 더 확인한다).
 --   * ord는 파일 안 순서(0부터)다. `DrugDict`는 목록 순서를 색인 번호로 쓰므로(ingredient_ids 등) 순서를 그대로 보존한다.
 --   * 판정 테이블(schema.sql)과 따로 둔다. 판정은 이 테이블을 읽지 않는다(이름 → 코드 식별용 사전).
+-- Postgres에서는 이 파일 바로 뒤에 schema_dict_pg.sql(RLS 켜기·anon·authenticated 권한 회수, BE-06-32 A)을 같은 트랜잭션에서 실행한다.
 -- 주의: 이 파일을 원격 DB에 실행하는 일은 사용자 승인 뒤다(`scripts/be06_dict_load.py apply --yes` + 승인 파일).
 
 CREATE TABLE IF NOT EXISTS drug_dict_meta (

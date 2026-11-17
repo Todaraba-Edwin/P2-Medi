@@ -363,8 +363,8 @@ def test_script_apply_with_yes_and_flag_is_idempotent(dict_file, tmp_path, monke
     raw = sqlite3.connect(":memory:")
     log: list[str] = []
     argv = ["apply", "--yes", "--dict-path", str(dict_file)]
-    first = mod.main(argv, connect_fn=lambda dsn: FmtConn(raw), flag=flag, log=log.append)
-    second = mod.main(argv, connect_fn=lambda dsn: FmtConn(raw), flag=flag, log=log.append)
+    first = mod.main(argv, connect_fn=lambda dsn: FmtConn(raw), flag=flag, log=log.append, dialect="sqlite")
+    second = mod.main(argv, connect_fn=lambda dsn: FmtConn(raw), flag=flag, log=log.append, dialect="sqlite")
     assert first["apply"]["status"] == "loaded" and first["apply"]["inserted_entries"] == 9
     assert second["apply"]["status"] == "already_loaded" and second["apply"]["inserted_entries"] == 0
     assert raw.execute("SELECT COUNT(*) FROM drug_dict_entry").fetchone()[0] == 9
@@ -386,8 +386,94 @@ def test_script_apply_conflict_rolls_back(dict_file, tmp_path, monkeypatch):
     flag.write_text("ok", encoding="utf-8")
     raw = _db(_payload())  # 같은 판, 다른 sha로 이미 있음
     with pytest.raises(store.DictConflict):
-        mod.main(["apply", "--yes", "--dict-path", str(dict_file)], connect_fn=lambda dsn: FmtConn(raw), flag=flag, log=lambda s: None)
+        mod.main(["apply", "--yes", "--dict-path", str(dict_file)], connect_fn=lambda dsn: FmtConn(raw), flag=flag, log=lambda s: None,
+                 dialect="sqlite")
     assert raw.execute("SELECT COUNT(*) FROM drug_dict_meta").fetchone()[0] == 1
+
+
+# --------------------------------------------------------------------------- RLS·권한 회수(BE-06-32 A)
+_RLS = ("ALTER TABLE drug_dict_meta ENABLE ROW LEVEL SECURITY", "ALTER TABLE drug_dict_entry ENABLE ROW LEVEL SECURITY")
+_REVOKE = "REVOKE ALL ON TABLE drug_dict_meta, drug_dict_entry FROM %I"
+
+
+def test_postgres_schema_sql_enables_rls_and_revokes_after_create():
+    sql = store.schema_sql("postgres")
+    for s in (*_RLS, _REVOKE, "pg_roles", "'anon'", "'authenticated'"):
+        assert s in sql
+    assert sql.index("CREATE TABLE IF NOT EXISTS drug_dict_entry") < sql.index(_RLS[0])
+    code = "\n".join(ln for ln in sql.splitlines() if not ln.lstrip().startswith("--"))
+    assert "CREATE POLICY" not in code and "FORCE ROW LEVEL SECURITY" not in code  # 정책 없음, 소유자(백엔드)는 우회
+
+
+def test_sqlite_schema_sql_has_no_postgres_only_statements():
+    sql = store.schema_sql("sqlite")
+    assert "ROW LEVEL SECURITY" not in sql and "REVOKE" not in sql
+    with pytest.raises(ValueError):
+        store.schema_sql("mysql")
+
+
+def test_print_sql_shows_rls_and_revoke(tmp_path):
+    seen: list[str] = []
+    _script().main(["--print-sql", "--dict-path", str(tmp_path / "none.json")], connect_fn=_no_connect, log=seen.append)
+    assert all(s in seen[0] for s in (*_RLS, _REVOKE))
+
+
+def test_dialect_is_detected_from_connection_module():
+    class PgConn:
+        pass
+
+    PgConn.__module__ = "psycopg"
+    assert store._detect_dialect(PgConn()) == "postgres"
+    assert store._detect_dialect(sqlite3.connect(":memory:")) == "sqlite"
+    assert store._detect_dialect(FmtConn(sqlite3.connect(":memory:"))) == "sqlite"
+
+
+class RecordingConn:
+    """psycopg 흉내: 실행한 SQL·커밋·롤백 순서만 기록하고, 적재 쿼리는 빈 결과를 돌려준다."""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+        self.counts: dict[str, int] = {}
+
+    def cursor(self) -> RecordingConn:
+        return self
+
+    def execute(self, sql: str, params: Any = None) -> None:
+        self.events.append(sql)
+        self._last = sql
+
+    def executemany(self, sql: str, seq: Any) -> None:
+        for row in seq:
+            self.counts[row[1]] = self.counts.get(row[1], 0) + 1
+        self.events.append("INSERT entries")
+
+    def fetchone(self) -> Any:
+        return None
+
+    def fetchall(self) -> Any:
+        return list(self.counts.items()) if "GROUP BY kind" in self._last else []
+
+    def commit(self) -> None:
+        self.events.append("COMMIT")
+
+    def rollback(self) -> None:
+        self.events.append("ROLLBACK")
+
+    def close(self) -> None:
+        self.events.append("CLOSE")
+
+
+def test_script_apply_default_runs_rls_in_same_transaction_before_load(dict_file, tmp_path, monkeypatch):
+    mod = _script()
+    monkeypatch.setenv("SUPABASE_DB_URL", "가짜")
+    flag = tmp_path / "f.flag"
+    flag.write_text("ok", encoding="utf-8")
+    conn = RecordingConn()
+    out = mod.main(["apply", "--yes", "--dict-path", str(dict_file)], connect_fn=lambda dsn: conn, flag=flag, log=lambda s: None)
+    assert out["apply"]["status"] == "loaded"
+    schema_i = next(i for i, e in enumerate(conn.events) if _RLS[0] in e and _REVOKE in e)
+    assert schema_i < conn.events.index("INSERT entries") < conn.events.index("COMMIT")
+    assert conn.events.count("COMMIT") == 1 and "ROLLBACK" not in conn.events
 
 
 # --------------------------------------------------------------------------- 평가 경로 그대로
