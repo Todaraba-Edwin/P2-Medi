@@ -340,7 +340,7 @@ judge에는 **정답 근거(코드가 산출한 사실)와 기대 응답 유형�
 | `required` | 반드시 불러야 하는 도구 집합. 빠지면 Fail |
 | `recommended` | 부르는 것이 바람직한 도구. 빠지면 Warn |
 | `forbidden` | 부르면 안 되는 도구(예: 범위 외 문항에서 금기 조회·검색 도구). 부르면 Fail |
-| `order` | 순서 제약(예: `identify_drug` → `check_contraindications`). 어기면 Fail |
+| `order` | 순서 제약(예: `identify_drug` → `check_contraindications`). 어기면 Fail. 식별 → 판정 순서는 2026-11-17부터 아래 "식별 단계와 판정 인자" 규칙으로 본다(RFP-26-08 A) |
 | `max_model_calls` | 호출 상한(기본 8, RFP-22-05). 상한에 닿아 끝나면 Fail |
 
 **예시(P2 임산부 질문, RFP-26 §6.1)**
@@ -353,13 +353,24 @@ judge에는 **정답 근거(코드가 산출한 사실)와 기대 응답 유형�
 ```
 
 - **등급 정의와 `search_notice`(RFP-29-03 A, 2026-11-16)**: 1·2등급 정의는 코드가 답에 붙인다(BE-06-16 A, `backend/app/agent/grade_defs.py`). 그래서 임부 등급 FOUND 문항의 기대 경로 `recommended`에도 **`search_notice`를 넣지 않는다**(LLM이 같은 원문을 중복 호출해 Warn만 부풀린다). TC-21 정답 근거 c5는 `grade_defs` 정의 블록 출처로 채점한다. 보조 지표 "정의 동반률"은 신설하지 않는다. 정의 원문 계층 검사(H23)·정의 누락 검사(H25)는 개선 단계(RFP-29 §6).
+  - **`multihop_m` 기대 경로 정정(AG-04-07 A, 2026-11-17)**: 같은 이유로 다중 홉 임부 M 틀(`multihop_m`)의 `required`에서도 `search_notice`를 뺐다(`required` = `identify_drug`·`check_contraindications`·`search_reason`, `recommended` 없음). 빌더 `evaluation/eval_set/build_eval_set.py` `path("multihop_m")`을 고치고, 이미 만든 세트는 문항을 다시 만들지 않고 `evaluation/eval_set/fix_multihop_m_path.py`로 해당 칸만 고쳤다(개발셋 dev-001·dev-059 2행, 시험셋은 열람 없이 1행. manifest sha256 갱신).
+- **식별 단계와 판정 인자(경로 규칙 `traj@v2`, RFP-26-08 A, 2026-11-17)**: 6노드 그래프에서는 약 이름 식별을 Router(코드, `DrugDict.lookup_name`)가 먼저 하고, 모델은 모호하거나 찾지 못한 약만 `identify_drug`로 찾는다. 기대 경로는 그보다 먼저(2026-11-10) 고정돼 `identify_drug` 호출만 식별로 셌다(근거: 로컬 보고 `data/mock/briefs/reports/l3-pathfail-rca.md` §2.1). 그래서 채점 규칙을 아래처럼 바꾼다. 세트 파일의 `identify_drug` required·order 칸은 그대로 두고 **채점기**(`evaluation/eval_metrics.py` `trajectory`)가 해석한다.
+  | 항목 | 이전(`traj@v1`) | 이후(`traj@v2`) |
+  |---|---|---|
+  | `required`의 `identify_drug` | 모델이 `identify_drug`를 불렀을 때만 충족 | `identify_drug` 호출 **또는** Router 확정(엔티티 하나 이상 RESOLVED) **또는** Router 되묻기 종료(`ambiguous` + 종료 사유 CLARIFY, 모델 0회) |
+  | `order` `identify_drug → check_contraindications` | `check`의 첫 호출이 `identify`보다 앞이거나 `identify` 없이 `check`만 부르면 위반(`ORDER_VIOLATION`) | 판정 도구(`check_contraindications`) 인자의 `item_seq`가 모두 **식별 결과**(Router 확정 `item_seq` + 그 호출보다 앞선 `identify_drug` 결과 후보의 `item_seq`) 안에 있어야 한다. 밖이면 `UNIDENTIFIED_ITEM`(Fail). 이름만 넘긴 판정은 도구가 사전으로 식별하므로 검사 대상이 없다. 이 검사는 `order`에 식별 쌍이 없는 문항에도 적용한다(지어낸 코드로 판정하는 것을 더 엄격히 막는다) |
+  | 다른 `order` 쌍 | 위와 같은 v1 규칙 | 그대로(v1 규칙) |
+  | 되묻기·거절 종료 | 구분하지 않음 | Router 되묻기는 식별 충족. 판정이 필요한 문항(정상·오탈자·응급 등)에서 되묻기로 끝나면 **판정 도구 생략으로 Fail 유지**(오탈자는 RFP-26-09 A: 9.3절 정답 = 짝 문항과 같은 판정). 입구 거절(Router 앞에서 끝남)은 식별로 치지 않는다. 종료 사유별 Pass/Warn 비율을 `by_end_reason_pass_or_warn`으로 따로 낸다 |
+  - 기록: `eval_runner.extract_trace`가 Router 결과(엔티티별 `status`·확정 `item_seq`, `ambiguous`, Router 실행 여부)와 `identify_drug` 결과의 `item_seq`를 실행 기록에 남긴다(질문 조각 `raw`는 남기지 않는다). 결과 파일 `meta.trajectory_rule`에 규칙 버전을 적고, 집계 `trajectory.rules`에 문항별 규칙 버전 수를 낸다. Router 기록이 없는 예전 실행은 `traj@v1-no-router`로 채점되며 v2 값과 섞지 않는다.
+  - 9.4 라우팅 정확도(필수 도구 호출률)도 같은 규칙으로 계산한다. **분모(문항 수)는 그대로이고 분자가 바뀐다**(식별 단계를 Router가 처리한 문항이 충족으로 들어간다). 이 변경 이전의 `l2-*`·`l3-*` 결과(2026-11-17 이전 실행, Router 기록 없음)와 섞지 않는다. 그 결과는 Router 기록이 없어 다시 채점할 수 없고(`eval_runner.py --rescore`가 종료 코드 3으로 거절), 비교하려면 다시 실행한다.
 
 **판정과 지표(모두 코드가 trace에서 계산)**
 | 지표 | 계산 | 판정 |
 |---|---|---|
 | 필수 도구 호출률 | 문항의 `required` 중 실제로 부른 비율(라우팅 정확도의 정의) | 100%가 아니면 Fail |
 | 금지 도구 호출 수 | `forbidden`을 부른 횟수 | 1회 이상이면 Fail |
-| 순서 위반 수 | `order` 제약을 어긴 횟수 | 1회 이상이면 Fail |
+| 순서 위반 수 | `order` 제약을 어긴 횟수(식별 → 판정 쌍은 `traj@v2`부터 아래 행으로 대신) | 1회 이상이면 Fail |
+| 식별 밖 판정 인자(`UNIDENTIFIED_ITEM`, 2026-11-17) | 판정 도구 인자 `item_seq` 중 식별 결과(Router 확정 + 앞선 `identify_drug` 결과) 밖에 있는 수 | 1개 이상이면 Fail |
 | 불필요·중복 호출률 | 같은 도구·같은 인자 반복, `required`·`recommended` 밖의 호출 | 있으면 Warn |
 | **판정 도구 생략** | 판정이 필요한 문항에서 `check_contraindications`를 안 부름 | **최종 답이 맞아도 Fail**(RFP-22 §9) |
 | **인용 청크 ID 검증** | 답변 근거 상세가 인용한 청크 ID가 도구가 돌려준 청크 ID 안에 있는가 | 밖이면 Fail(환각 인용) |

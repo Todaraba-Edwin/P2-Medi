@@ -16,6 +16,10 @@ L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden --pr
 
 L3(개발셋 전체): `--subset` 없이 150문항 1회, `--subset dev_reliability_core --repeats 3`으로 개발 안전 핵심 40문항 3회(`pass^3`·`pass@3`·판정 일치율).
 graph 에이전트 실행은 문항 오류가 3건 연속이면 멈추고 결과 `stopped`에 사유·위치를 남긴다(AG-06-09 A, 하네스 차단은 오류가 아님).
+개발셋 반복 실행은 2·N회차 문항별 행을 `items_repeats`에 남긴다(AG-06-11 A, 시험셋은 점수만).
+
+재채점: `--rescore RESULT.json [--out PATH]`은 저장된 개발셋 결과의 실행 기록을 지금 채점기(경로 규칙 `traj@v2`, RFP-26-08 A)로 다시
+채점해 새 파일로 쓴다(모델·도구 호출 0, 원본 보존). Router 기록이 없는 예전 결과는 재채점하지 않는다(종료 코드 3, 재측정 필요).
 """
 
 from __future__ import annotations
@@ -112,7 +116,24 @@ def extract_trace(state: dict[str, Any]) -> M.RunRecord:
     opts = _get(clar, "options") or _get(clar, "candidates") or []
     return M.RunRecord(answer=dict(state.get("answer") or {}), tool_calls=calls, model_calls=int(state.get("call_count") or 0),
                        end_reason=state.get("end_reason"), tool_evidence_ids=ids, clarify_options=len(opts),
+                       **router_trace(state),  # 식별 기록(RFP-26-08 A)
                        **source_missing_counts(state))  # 보조 집계(AG-06-07 A, 9장 지표 아님)
+
+
+ROUTER_ENTITY_KEYS = ("status", "item_seq")  # 질문 조각(raw·normalized)은 결과 파일에 남기지 않는다
+
+
+def router_trace(state: dict[str, Any]) -> dict[str, Any]:
+    """Router 결과(엔티티별 상태·확정 item_seq, 되묻기 여부)와 `identify_drug` 결과의 item_seq(RFP-26-08 A).
+    `ran`은 Router가 상태를 썼는지다(입구 거절로 Router 앞에서 끝나면 False). 종료 사유는 `end_reason`에 따로 있다."""
+    ents = [e for e in state.get("entities") or [] if isinstance(e, dict)]
+    router = {"ran": "entities" in state, "ambiguous": bool(state.get("ambiguous")),
+              "entities": [{k: e.get(k) for k in ROUTER_ENTITY_KEYS} for e in ents]}
+    seqs: list[str] = []
+    for it in state.get("evidence") or []:
+        if isinstance(it, dict) and it.get("kind") == "identify" and it.get("item_seq") and str(it["item_seq"]) not in seqs:
+            seqs.append(str(it["item_seq"]))
+    return {"router": router, "identify_item_seqs": seqs}
 
 
 class ProfileFormatError(ValueError):
@@ -273,7 +294,7 @@ def run_eval(
             "sealed": sealed, "repeats": max(1, repeats), "eval_mode_env": os.environ.get("MEDIAGENT_EVAL") or os.environ.get("MEDIAGENT_MODE"),
             "judge": {"model": getattr(judge, "model_id", None), "rubrics": getattr(judge, "rubric_versions", None),
                       "status": "not_called" if isinstance(judge, NotCalledJudge) else "called"},
-            "patterns": M.PATTERN_VERSION, **(meta or {}),
+            "patterns": M.PATTERN_VERSION, "trajectory_rule": M.TRAJ_RULE, **(meta or {}),
         },
         "metrics": M.aggregate(runs[0]),
     }
@@ -300,6 +321,8 @@ def run_eval(
         result["items"] = "omitted: sealed set (scores only, RFP-26-04)"
     else:
         result["items"] = runs[0]
+        if len(runs) > 1:  # AG-06-11 A: 개발셋 반복 실행은 2·N회차 문항별 행도 남긴다(시험셋은 위처럼 점수만)
+            result["items_repeats"] = [{"run": i + 1, "items": rows} for i, rows in enumerate(runs) if i > 0]
     return result
 
 
@@ -593,6 +616,70 @@ def format_compare(cmp: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------- 저장된 결과 다시 채점(실행 없음, RFP-26-08 A)
+
+class RescoreUnavailable(RunnerConfigError):
+    """다시 채점할 수 없는 결과(Router 기록이 없는 예전 실행 등). 재측정이 필요하다."""
+
+
+def rescore_result(result: dict[str, Any], items_by_id: dict[str, dict[str, Any]], *, set_sha256: str | None = None,
+                   phrases: M.Phrases | None = None, source: str | None = None) -> dict[str, Any]:
+    """저장된 개발셋 결과의 실행 기록(`run`)을 지금 채점기·지금 평가 세트로 다시 채점한 **새 결과**를 돌려준다(원본은 바꾸지 않는다).
+    모델·도구는 다시 부르지 않는다. 시험셋 결과(문항별 기록 없음)와 Router 기록이 없는 실행이 섞인 결과는 `RescoreUnavailable`."""
+    rows0 = result.get("items")
+    if not isinstance(rows0, list):
+        raise RescoreUnavailable("문항별 기록이 없는 결과(시험셋 결과)는 재채점하지 않는다")
+    runs_in = [rows0, *[r.get("items") or [] for r in result.get("items_repeats") or []]]
+    no_router = sum(1 for rs in runs_in for r in rs if "router" not in (r.get("run") or {}))
+    if no_router:
+        raise RescoreUnavailable(f"Router 기록이 없는 행 {no_router}개: {M.TRAJ_RULE}로 재채점할 수 없다(재측정 필요)")
+    ph = phrases or M.Phrases.from_backend()
+    runs: list[list[dict[str, Any]]] = []
+    for rs in runs_in:
+        out = []
+        for old in rs:
+            it = items_by_id.get(str(old.get("id")))
+            if it is None:
+                raise RescoreUnavailable(f"평가 세트에 없는 문항: {old.get('id')}")
+            row = M.score_item(it, M.RunRecord.from_json(old["run"]), ph)
+            for k in ("judge", "cost_usd"):  # 채점과 무관한 칸은 그대로 옮긴다
+                if k in old:
+                    row[k] = old[k]
+            row["run"] = old["run"]
+            out.append(row)
+        runs.append(out)
+    res = json.loads(json.dumps({k: v for k, v in result.items() if k not in ("items", "items_repeats", "metrics", "reliability")}))
+    meta = res.setdefault("meta", {})
+    meta["rescored"] = {"from": source, "from_created_utc": meta.get("created_utc"), "from_trajectory_rule": meta.get("trajectory_rule"),
+                        "from_set_sha256": meta.get("set_sha256"), "set_sha256": set_sha256,
+                        "note": "저장된 실행 기록을 다시 채점(모델·도구 호출 0). 이전 채점 결과와 섞지 않는다"}
+    meta["created_utc"] = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta["trajectory_rule"] = M.TRAJ_RULE
+    res["metrics"] = M.aggregate(runs[0])
+    res["items"] = runs[0]
+    if len(runs) > 1:
+        res["reliability"] = M.reliability(runs)
+        res["items_repeats"] = [{"run": i + 1, "items": rows} for i, rows in enumerate(runs) if i > 0]
+    elif result.get("reliability"):
+        res["reliability_not_recomputed"] = "원본에 2회차 이후 문항별 행이 없어 신뢰성을 다시 계산하지 못했다"
+    return res
+
+
+def rescore_file(src: Path, out: Path | None = None) -> Path:
+    """`src` 결과를 개발셋으로 다시 채점해 새 파일로 쓴다. 원본 경로·이미 있는 파일에는 쓰지 않는다."""
+    result = json.loads(src.read_text(encoding="utf-8"))
+    set_file = (result.get("meta") or {}).get("set_file")
+    if set_file != SET_FILES["dev"].name:
+        raise RescoreUnavailable(f"개발셋 결과만 재채점한다(set_file={set_file})")
+    dev = SET_FILES["dev"]
+    items = {str(x.get("id")): x for x in G.load_jsonl(dev)}
+    res = rescore_result(result, items, set_sha256=sha256_file(dev), source=src.name)
+    path = out or src.with_name(f"{src.stem}-rescored-{M.TRAJ_RULE.replace('@', '-')}.json")
+    if path.resolve() == src.resolve() or path.exists():
+        raise RunnerConfigError(f"원본·기존 파일은 덮어쓰지 않는다: {path.name}")
+    return save(res, path)
+
+
 AGENTS: dict[str, Callable[[], Any]] = {"offline-fixed": OfflineFixedAgent}
 
 
@@ -636,7 +723,17 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap.add_argument("--allow-draft", action="store_true", help="draft 프롬프트가 든 묶음 허용(검토 중인 초안 점검용)")
     ap.add_argument("--max-usd", type=float, help="graph 에이전트 비용 상한(필수). 닿으면 남은 문항을 건너뛴다")
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A.json", "B.json"), help="두 결과 파일을 나란히 본다(실행 없음)")
+    ap.add_argument("--rescore", type=Path, metavar="RESULT.json",
+                    help="저장된 개발셋 결과를 지금 채점기로 다시 채점해 새 파일로 쓴다(실행 없음, 원본 보존. --out으로 경로 지정)")
     a = ap.parse_args(argv)
+    if a.rescore:
+        try:
+            out = rescore_file(a.rescore, a.out)
+        except RescoreUnavailable as e:
+            print(f"재채점 불가: {e}")
+            return 3
+        print(f"재채점 → {out}")
+        return 0
     if a.compare:
         print(format_compare(compare_results(*(json.loads(p.read_text(encoding="utf-8")) for p in a.compare))))
         return 0

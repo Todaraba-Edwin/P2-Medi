@@ -38,8 +38,8 @@
   "dev": {
    "file": "dev_set.jsonl",
    "n": 150,
-   "sha256": "bc51d083b1df310f8d589475acde6a6dbf171935a770e8c3c217726e0dc26ee3",
-   "bytes": 329729,
+   "sha256": "ea45e974eab7de1e8549d8825b8a6262cf929d2253a1ea76426b4f03b0e196e4",
+   "bytes": 329695,
    "by_group": {
     "정상-임부": 10,
     "정상-병용": 15,
@@ -114,8 +114,8 @@
   "test": {
    "file": "test_set.SEALED.jsonl",
    "n": 151,
-   "sha256": "f2e353248955b6467fc16d7b2211a142f755e5fd8303bff6ee9912973c36988b",
-   "bytes": 334258,
+   "sha256": "ae70bb34cc0be03dcafbc71a2590553d46fcc8d779d0a0c20166c903b9ce180e",
+   "bytes": 334241,
    "by_group": {
     "정상-병용": 15,
     "정상-임부": 10,
@@ -164,6 +164,12 @@
    "golden_excluded": 4
   }
  },
- "last_updated": "2026-11-11",
- "last_change_reason": "BE-05-08 B 및 후속, 병용 기준일 파일명 20260731 반영(items·answer_evidence·reference 꼬리 날짜·files), 정답 판정 불변"
+ "last_updated": "2026-11-17",
+ "last_change_reason": "AG-04-07 A(2026-11-17): multihop_m 기대 경로 required에서 search_notice 제거(RFP-29-03 A, 등급 정의는 코드가 붙임). 질문·정답·다른 칸 불변, 문항 재생성 없음. 이전 l2-*·l3-* 결과와 섞지 않음",
+ "change_history": [
+  {
+   "date": "2026-11-11",
+   "reason": "BE-05-08 B 및 후속, 병용 기준일 파일명 20260731 반영(items·answer_evidence·reference 꼬리 날짜·files), 정답 판정 불변"
+  }
+ ]
 }
