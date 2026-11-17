@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from app.api import events
 from app.api.events import NDJSON_MEDIA_TYPE, ChatEvent
 from app.api.request import AgeInput, ChatRequest, ConfirmedDrug, ConversationContext
-from app.api.runner import ChatRunner, profile_from_context
+from app.api.runner import ChatRunner, confirmed_from_context, profile_from_context
 from app.api.schemas import _Strict
 from app.api.stream import MetricsSink, chat_events
 from app.logging import SpanLogger
@@ -76,9 +76,11 @@ async def chat(request: ChatRequest, http_request: Request) -> Response:
     runner: ChatRunner | None = getattr(http_request.app.state, RUNNER_STATE_KEY, None)
     if runner is None:  # 실행기 미주입(의도된 상태)
         return JSONResponse(status_code=501, content=ErrorBody(code=CODE_NOT_IMPLEMENTED).model_dump())
-    # 질문·요청 묶음은 저장·로그하지 않고 그래프 입력으로만 쓴다(PRD-07-01 A). `context.confirmed_drugs`는 아직 쓰지 않는다
+    # 질문·요청 묶음은 저장·로그하지 않고 그래프 입력으로만 쓴다(PRD-07-01 A).
+    # `context.confirmed_drugs`는 품목기준코드만 Router 확정 입력으로 넘긴다(AG-05-03 A, 이름은 넘기지 않는다)
     metrics: MetricsSink | None = getattr(http_request.app.state, METRICS_STATE_KEY, None)
-    stream = chat_events(runner, request.question, profile_from_context(request.context), metrics)
+    stream = chat_events(runner, request.question, profile_from_context(request.context), metrics,
+                         confirmed_item_seqs=confirmed_from_context(request.context))
     return NDJSONResponse(events.ndjson_with_heartbeat(stream, interval_s=events.HEARTBEAT_INTERVAL_S))
 
 

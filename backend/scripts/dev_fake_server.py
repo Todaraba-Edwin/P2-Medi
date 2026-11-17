@@ -23,16 +23,22 @@
 | 응급 | 응급 표현(예: `숨쉬기 힘들어요`) + 두 약 | 숨쉬기 힘들어요. 이지렉트정1.0밀리그램이랑 타이레놀콜드-에스정을 같이 먹었어요 | emergency(seq 0) → progress×2 → answer → done | NORMAL |
 | 범위 밖 거절 | `처방해 줘` | 이지렉트정1.0밀리그램 처방해 줘 | answer(route REFUSE) → done | REFUSE |
 | 되묻기(후보 2개) | 짧은 이름 `타이레놀` | 타이레놀이랑 이지렉트정1.0밀리그램 같이 먹어도 되나요? | answer(candidates 2개) → done | CLARIFY |
+| 되묻기 뒤 재전송 | 위 되묻기 질문 그대로 + `context.confirmed_drugs`에 고른 후보(`item_seq`) | 후보 `타이레놀정500밀리그람`(202106092)을 고름 | progress×2 → answer(조회됨 0건) → done | NORMAL |
+|  |  | 후보 `타이레놀콜드-에스정`(202106954)을 고름 | progress×2 → answer(found 1건) → done | NORMAL |
 | 금기 목록에 없음 | `타이레놀정500밀리그람` + `이지렉트정1.0밀리그램` | 타이레놀정500밀리그람이랑 이지렉트정1.0밀리그램 같이 먹어도 되나요? | progress×2 → answer(조회됨 0건) → done | NORMAL |
 | 정상(병용금기 1건) | `이지렉트정1.0밀리그램` + `타이레놀콜드-에스정` | 엄마가 이지렉트정1.0밀리그램을 드시는데 감기라서 타이레놀콜드-에스정을 사 왔어요. 같이 먹어도 되나요? | progress×2 → answer(found 1건) → done | NORMAL |
 
 거절·되묻기·응급은 실제 guardrail·router가 문장을 보고 정한다(모델 스크립트와 무관). 모델 스크립트는 router를 지난 질문에만 쓰인다.
+되묻기 뒤 재전송은 실제 router가 고른 코드로 약을 확정하고(AG-05-03 A), 가짜 도구 모델은 질문 문장에 더해 ROUTER_NOTE의 확정 코드에 해당하는
+합성 제품명을 보고 스크립트를 고른다(짧은 이름 `타이레놀`이 어느 약으로 확정됐는지 문장만으로는 알 수 없어서).
 `/health`는 200 `{"status": "ok"}`. 실행기가 붙어 있으므로 이 서버의 `/chat`은 501을 내지 않는다(501 확인은 실제 앱을 키 없이 띄우면 된다).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sys
 import time
 from collections.abc import Sequence
@@ -45,7 +51,7 @@ sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BACKEND / "tests" / "e2e"))  # 합성 재료(golden_synth)를 시험과 같이 쓴다(값을 복제하지 않는다)
 
 from fastapi import FastAPI  # noqa: E402
-from golden_synth import FakeDur, golden_conn, golden_dict  # noqa: E402
+from golden_synth import SEQ_AZI, SEQ_COLD, SEQ_T500, FakeDur, golden_conn, golden_dict  # noqa: E402
 from langchain_core.language_models import BaseChatModel  # noqa: E402
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage  # noqa: E402
 from langchain_core.outputs import ChatGeneration, ChatResult  # noqa: E402
@@ -114,11 +120,30 @@ def _pair_script(a: str, b: str) -> list[AIMessage]:
     ]
 
 
+_SEQ_NAMES = {SEQ_T500: T500, SEQ_COLD: COLD, SEQ_AZI: AZI}  # 합성 사전의 품목기준코드 → 제품명
+_NOTE_RE = re.compile(r"<<<ROUTER_NOTE\n(.*?)\nROUTER_NOTE>>>", re.S)
+
+
+def _note_product_names(text: str) -> list[str]:
+    """ROUTER_NOTE에서 확정(RESOLVED)된 약의 코드를 합성 제품명으로 바꾼다. 되묻기 뒤 재전송에서 짧은 이름이 어느 약으로 확정됐는지 본다."""
+    m = _NOTE_RE.search(text)
+    if not m:
+        return []
+    try:
+        cands = json.loads(m.group(1)).get("drug_candidates") or []
+    except (ValueError, AttributeError):
+        return []
+    return [_SEQ_NAMES[c["item_seq"]] for c in cands
+            if isinstance(c, dict) and c.get("status") == "RESOLVED" and c.get("item_seq") in _SEQ_NAMES]
+
+
 def _question(messages: Sequence[BaseMessage]) -> str:
-    """모델 입력에서 질문 문장(첫 사용자 메시지)을 꺼낸다. 요약 호출은 `질문: ...` 머리가 붙는다."""
+    """모델 입력에서 질문 문장(첫 사용자 메시지)을 꺼낸다. 요약 호출은 `질문: ...` 머리가 붙는다.
+    ROUTER_NOTE에 확정된 약이 있으면 그 합성 제품명을 뒤에 붙인다(스크립트 선택용, 응답에는 쓰지 않는다)."""
     for m in messages:
         if isinstance(m, HumanMessage):
-            return str(m.content).removeprefix("질문: ")
+            text = str(m.content).removeprefix("질문: ")
+            return " ".join([text, *_note_product_names(text)])
     return ""
 
 

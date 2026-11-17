@@ -23,7 +23,7 @@ from pydantic import PrivateAttr
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "e2e"))
 
-from golden_synth import FakeDur, golden_conn, golden_dict  # noqa: E402
+from golden_synth import Q_P3, SEQ_AZI, SEQ_COLD, SEQ_KID, FakeDur, golden_conn, golden_dict  # noqa: E402
 
 from app.agent import fixed_phrases as fp  # noqa: E402
 from app.agent.graph.build import build_graph, run_question  # noqa: E402
@@ -32,8 +32,8 @@ from app.agent.graph.trace import GraphTracer, ListSink  # noqa: E402
 from app.agent.graph.wiring import build_deps, build_tool_context  # noqa: E402
 from app.api import chat as chat_api  # noqa: E402
 from app.api import events as ev  # noqa: E402
-from app.api.request import AgeInput, ConversationContext  # noqa: E402
-from app.api.runner import GraphRunner, profile_from_context  # noqa: E402
+from app.api.request import AgeInput, ConfirmedDrug, ConversationContext  # noqa: E402
+from app.api.runner import GraphRunner, confirmed_from_context, profile_from_context  # noqa: E402
 from app.api.schemas import response_from_state  # noqa: E402
 from app.tools.drug_dict import DrugDict  # noqa: E402
 
@@ -188,7 +188,7 @@ class SlowRunner:
     def __init__(self, delay_s: float) -> None:
         self.delay_s = delay_s
 
-    def updates(self, question: str, profile: dict[str, Any] | None) -> Any:  # noqa: ARG002
+    def updates(self, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Any = ()) -> Any:  # noqa: ARG002
         from app.agent.finalize import finalize
 
         yield {"guardrail_in": {"emergency": False}}
@@ -257,11 +257,85 @@ def test_profile_from_context_age_only_when_single_value(age, expected):
     assert profile_from_context(ConversationContext(pregnant=False)) == {"age_years": None, "pregnant": False}
 
 
-def test_confirmed_drugs_in_context_are_not_used(dd):
-    """`context.confirmed_drugs`는 이번에 쓰지 않는다(결정 후보): 있어도 없어도 응답이 같다."""
+def test_confirmed_drugs_without_item_seq_or_already_resolved_change_nothing(dd):
+    """코드 없는 고른 약은 쓰지 않고(이름만으로는 확정하지 않는다), 이미 확정된 질문은 고른 약이 있어도 응답이 같다(AG-05-03 A)."""
     _, a = _stream(dd, Q_PAIR, _script(AZI, COLD), [PAIR_DRAFT])
     _, b = _stream(dd, Q_PAIR, _script(AZI, COLD), [PAIR_DRAFT], context={"confirmed_drugs": [{"name": T500}]})
+    _, c = _stream(dd, Q_PAIR, _script(AZI, COLD), [PAIR_DRAFT],
+                   context={"confirmed_drugs": [{"name": AZI, "item_seq": SEQ_AZI}, {"name": COLD, "item_seq": SEQ_COLD}]})
+    assert _answer(a) == _answer(b) == _answer(c)
+
+
+# --------------------------------------------------------------------------- ⑧-2 되묻기에서 고른 약(AG-05-03 A)
+def test_second_turn_with_confirmed_drugs_skips_clarify_and_runs_lookup(dd):
+    """(a) 턴 1은 되묻기, 턴 2(같은 질문 + 고른 약 두 개)는 되묻기 없이 조회로 진행해 병용금기를 찾는다."""
+    _, first = _stream(dd, Q_P3, [], [])
+    assert events_end(first) == "CLARIFY"
+    tm = RecordingToolModel(script=_script(AZI, COLD))
+    picked = {"confirmed_drugs": [{"name": AZI, "item_seq": SEQ_AZI}, {"name": COLD, "item_seq": SEQ_COLD}]}
+    _, second = _stream(dd, Q_P3, [], [PAIR_DRAFT], context=picked, tool_model=tm)
+    assert events_end(second) == "NORMAL"
+    assert [e.root.stage for e in second if e.root.type == "progress"] == ["drug_lookup", "contraindication_check"]
+    a = _answer(second)
+    assert not a.candidates and any(f.bucket == "found" and f.target == "pair" for f in a.findings)
+    note = json.loads(re.search(r"<<<ROUTER_NOTE\n(.*)\nROUTER_NOTE>>>", tm._seen[0], re.S).group(1))
+    assert [(d["status"], d["item_seq"]) for d in note["drug_candidates"]] == [("RESOLVED", SEQ_AZI), ("RESOLVED", SEQ_COLD)]
+
+
+def test_one_confirmed_drug_moves_clarify_to_the_next_ambiguous_name(dd):
+    """고른 약이 하나면 그 약만 확정하고, 남은 모호한 이름을 다음으로 되묻는다(한 번에 하나)."""
+    _, first = _stream(dd, Q_P3, [], [])
+    _, second = _stream(dd, Q_P3, [], [], context={"confirmed_drugs": [{"name": AZI, "item_seq": SEQ_AZI}]})
+    assert events_end(first) == events_end(second) == "CLARIFY"
+    assert {c.name for c in _answer(first).candidates} == {AZI}
+    assert AZI not in {c.name for c in _answer(second).candidates} and COLD in {c.name for c in _answer(second).candidates}
+
+
+@pytest.mark.parametrize("picked", [
+    [{"name": AZI, "item_seq": "999999999"}],  # 사전에 없는 코드
+    [{"name": "어린이타이레놀현탁액", "item_seq": SEQ_KID}],  # 사전에 있지만 질문 속 이름의 후보가 아닌 코드(질문에 없는 약은 더하지 않는다)
+    [{"name": AZI}],  # 코드 없음
+])
+def test_unusable_confirmed_drugs_keep_existing_clarify(dd, picked):
+    """(b) 확정에 쓸 수 없는 고른 약은 무시하고 지금처럼 되묻는다(응답이 고른 약 없을 때와 같다)."""
+    _, base = _stream(dd, Q_P3, [], [])
+    _, got = _stream(dd, Q_P3, [], [], context={"confirmed_drugs": picked})
+    assert events_end(got) == "CLARIFY" and _answer(got) == _answer(base)
+
+
+@pytest.mark.parametrize("question,script,drafts", [(Q_P3, [], []), (Q_PAIR, _script(AZI, COLD), [PAIR_DRAFT])])
+def test_empty_confirmed_drugs_is_same_as_no_context(dd, question, script, drafts):
+    """(c) 빈 `confirmed_drugs`는 요청 묶음이 없을 때와 같다(평가 경로는 늘 비어 있다)."""
+    _, a = _stream(dd, question, list(script), list(drafts))
+    _, b = _stream(dd, question, list(script), list(drafts), context={"confirmed_drugs": []})
     assert _answer(a) == _answer(b)
+
+
+def test_confirmed_drug_values_are_not_logged_or_measured(dd, caplog):
+    """(d) 고른 약의 이름·코드는 로그·서비스 지표에 남지 않는다(이름은 그래프로도 넘기지 않는다)."""
+    caplog.set_level(logging.DEBUG)
+    metrics = ListSink()
+    app = FastAPI()
+    chat_api.register(app)
+    chat_api.set_runner(app, GraphRunner.from_deps(_deps(dd, _script(AZI, COLD), [PAIR_DRAFT])), metrics=metrics)
+    body = {"question": Q_P3, "context": {"confirmed_drugs": [{"name": f"{MARKER}정", "item_seq": SEQ_AZI}, {"name": COLD, "item_seq": SEQ_COLD}]}}
+    r = TestClient(app).post("/chat", json=body)
+    assert r.status_code == 200 and MARKER not in r.text
+    logged = "\n".join(f"{x.getMessage()} {x.args!r}" for x in caplog.records)
+    assert MARKER not in logged and SEQ_AZI not in logged and SEQ_COLD not in logged
+    measured = json.dumps(metrics.records, ensure_ascii=False, default=str)
+    assert metrics.records and MARKER not in measured and SEQ_AZI not in measured and SEQ_COLD not in measured
+
+
+def test_confirmed_from_context_keeps_only_item_seqs_in_order():
+    ctx = ConversationContext(confirmed_drugs=[ConfirmedDrug(name="가", item_seq=SEQ_COLD), ConfirmedDrug(name="나"),
+                                               ConfirmedDrug(name="다", item_seq=SEQ_AZI), ConfirmedDrug(name="라", item_seq=SEQ_COLD)])
+    assert confirmed_from_context(ctx) == [SEQ_COLD, SEQ_AZI]
+    assert confirmed_from_context(ConversationContext()) == []
+
+
+def events_end(events: list[ev.ChatEvent]) -> str | None:
+    return events[-1].root.end_reason
 
 
 # --------------------------------------------------------------------------- ⑨ 실행기 미주입·trace 끔
@@ -287,7 +361,7 @@ class BoomRunner:
     def __init__(self, *, after: int = 0) -> None:
         self.after = after
 
-    def updates(self, question: str, profile: dict[str, Any] | None) -> Any:  # noqa: ARG002
+    def updates(self, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Any = ()) -> Any:  # noqa: ARG002
         if self.after:
             yield {"model": {"messages": [AIMessage("", tool_calls=[tool_call("identify_drug", {"name": "x"}, "c1")])]}}
         raise RuntimeError(f"폭발표지ZK9 {question}")
@@ -313,12 +387,12 @@ def test_runner_exception_ends_with_error_then_done(after, caplog):
 class BadAnswerRunner:
     """응답 변환이 실패하는 최종 상태(고정 문구가 빠진 answer)."""
 
-    def updates(self, question: str, profile: dict[str, Any] | None) -> Any:  # noqa: ARG002
+    def updates(self, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Any = ()) -> Any:  # noqa: ARG002
         yield {"finalize": {"answer": {"summary": "x", "disclaimer": "지어낸 고지"}, "end_reason": "NORMAL"}}
 
 
 class NoAnswerRunner:
-    def updates(self, question: str, profile: dict[str, Any] | None) -> Any:  # noqa: ARG002
+    def updates(self, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Any = ()) -> Any:  # noqa: ARG002
         yield {"guardrail_in": {"emergency": False}}
 
 

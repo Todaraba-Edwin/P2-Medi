@@ -33,6 +33,7 @@ from app.tools.drug_dict import (
     MATCH_NORMALIZED,
     MATCH_PREFIX,
     MATCHED_BY_INGREDIENT,
+    MATCHED_BY_PRODUCT,
     Candidate,
     DrugDict,
     LookupResult,
@@ -78,6 +79,12 @@ FLAG_NO_PRODUCT_INFO = "NO_PRODUCT_INFO"  # H17: 성분 단위 일치, 제품 �
 FLAG_CODE_NOT_LINKED = "CODE_NOT_LINKED"  # 사전이 KIDS 코드를 붙이지 못함 → 도구는 UNIDENTIFIED 처리(NOT_LISTED 아님)
 FLAG_SIMILAR_SHOWN = "SIMILAR_NAMES_SHOWN"  # NOT_FOUND이지만 비슷한 이름 후보를 보여 준다(근거 없음 가능, AG-05-02 A)
 FLAG_SAME_NAME_INGREDIENT = "ALSO_INGREDIENT_NAME"  # 제품명이면서 성분명이기도 함(제품 우선, 사전 노트)
+FLAG_USER_CONFIRMED = "USER_CONFIRMED"  # 되묻기에서 사용자가 고른 품목기준코드로 확정함(AG-05-03 A)
+
+# AG-05-03 A(2026-11-17): 되묻기에서 고른 약(요청 `context.confirmed_drugs`의 `item_seq`)으로 엔티티를 확정할 때 다시 볼 사전 후보 수 상한.
+# 되묻기 후보(상위 5개)보다 넓게 보되(같은 조회 문자열의 후보 집합 안에서만 찾는다), 접두·중간 일치가 수백 건인 이름에서 끝없이 넓히지 않는다.
+CONFIRM_LOOKUP_MAX = 200
+_ITEM_SEQ_RE = re.compile(r"^\d{9}$")  # 요청 모델(`ConfirmedDrug.item_seq`)과 같은 형식
 
 INTENT_CONTRA = "contraindication"
 INTENT_DRUG_INFO = "drug_info"
@@ -614,6 +621,40 @@ def _clarify(ents: list[Entity]) -> Clarify | None:
     return Clarify(question=q, target_raw=t.raw, options=t.options[:MAX_CLARIFY_OPTIONS], pending_raws=[e.raw for e in pending[1:]])
 
 
+# --------------------------------------------------------------------------- 되묻기에서 고른 약(AG-05-03 A)
+
+def confirmed_seqs(values: Any) -> list[str]:
+    """확정 약 입력(품목기준코드 문자열 목록)에서 형식이 맞는 값만 순서대로(중복 제거) 남긴다. 형식이 틀린 값은 조용히 버린다."""
+    out: list[str] = []
+    for v in values or ():
+        if isinstance(v, str) and _ITEM_SEQ_RE.match(v) and v not in out:
+            out.append(v)
+    return out
+
+
+def apply_confirmed(dd: DrugDict, e: Entity, seqs: list[str]) -> Entity:
+    """사용자가 되묻기에서 고른 품목기준코드(`seqs`, 앞이 먼저 고른 것)로 확정되지 않은 엔티티를 확정한다(AG-05-03 A).
+
+    매칭 규칙: 엔티티가 조회에 쓴 문자열(`e.raw`)을 사전에 다시 조회해 얻은 **제품 후보 집합**(상한 `CONFIRM_LOOKUP_MAX`)에 고른 코드가 있을 때만
+    확정한다. 고른 약의 이름은 보지 않는다(이름은 화면 표시용이라 바뀔 수 있고, 코드가 사전 키다). 여러 개가 맞으면 **가장 나중에 고른 것**을 쓴다.
+    - 이미 확정(RESOLVED)인 엔티티, 후보가 없는 NOT_FOUND, 성분명 후보만 있는 경우는 그대로 둔다.
+    - 사전에 없는 코드, 이 엔티티의 후보가 아닌 코드는 무시한다(지금 동작: 되묻기). 질문에 없는 약을 새로 더하지 않는다.
+    """
+    if not seqs or e.status == ST_RESOLVED or e.n_candidates == 0:
+        return e
+    top_k = min(max(MAX_CLARIFY_OPTIONS, e.n_candidates), CONFIRM_LOOKUP_MAX)
+    by_seq = {c.item_seq: c for c in dd.lookup_name(e.raw, top_k=top_k).candidates if c.item_seq and c.matched_by == MATCHED_BY_PRODUCT}
+    c = next((by_seq[s] for s in reversed(seqs) if s in by_seq), None)
+    if c is None:
+        return e
+    flags = [f for f in e.flags if f == FLAG_SAME_NAME_INGREDIENT]
+    flags.append(FLAG_USER_CONFIRMED)
+    if c.code_status == "none":
+        flags.append(FLAG_CODE_NOT_LINKED)
+    return e.model_copy(update=dict(status=ST_RESOLVED, branch=BRANCH_NORMAL, matched_by=MATCHED_BY_PRODUCT, resolved=True,
+                                    needs_clarification=False, code_status=c.code_status, item_seq=c.item_seq, flags=flags, options=[]))
+
+
 # --------------------------------------------------------------------------- 유형·프로필
 
 # "도 되/돼/될"(허락을 묻는 꼴: "줘도 되나요")과 "먹었"(이미 먹은 뒤 묻는 꼴)은 2026-11-12에 더했다. 잡음 엔티티가 줄면서 약 수(2개 이상이면 금기)에
@@ -719,8 +760,12 @@ def note_entities(entities: list[Entity] | list[dict[str, Any]] | None) -> list[
 # --------------------------------------------------------------------------- 진입점
 
 def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] | None = None, *,
-                emergency: bool = False, guardrail_route: str | None = None) -> RouterResult:
-    """질문 하나를 정리한다. `emergency`·`guardrail_route`는 AG-08이 쓴 값을 읽어 그대로 돌려줄 뿐 결과에 영향이 없다."""
+                emergency: bool = False, guardrail_route: str | None = None, confirmed_item_seqs: Any = None) -> RouterResult:
+    """질문 하나를 정리한다. `emergency`·`guardrail_route`는 AG-08이 쓴 값을 읽어 그대로 돌려줄 뿐 결과에 영향이 없다.
+
+    `confirmed_item_seqs`는 같은 대화의 되묻기에서 사용자가 고른 약의 품목기준코드다(AG-05-03 A, `apply_confirmed`). 비어 있으면 지금과 같다
+    (평가 경로는 늘 비어 있다). 값은 상태·이벤트·로그에 그대로 옮기지 않는다(확정된 엔티티의 `item_seq`는 일반 확정과 같은 자리에 들어간다)."""
+    seqs = confirmed_seqs(confirmed_item_seqs)
     mentions = extract_mention_details(text, dd)
     truncated = len(mentions) > MAX_DRUGS
     mentions = mentions[:MAX_DRUGS]
@@ -729,7 +774,7 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
     seen_seq: set[str] = set()
     for m in mentions:
         used, r, strength = lookup_mention(dd, m)
-        e = _entity(used, r, strength)
+        e = apply_confirmed(dd, _entity(used, r, strength), seqs)
         if e.item_seq and e.status == ST_RESOLVED:  # 같은 제품을 두 번 말한 경우(예: 약어와 정식명)는 한 번만
             if e.item_seq in seen_seq:
                 continue

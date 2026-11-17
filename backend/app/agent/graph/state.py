@@ -56,6 +56,7 @@ def _merge_dict(a: dict[str, Any] | None, b: dict[str, Any] | None) -> dict[str,
 class AgentState(TypedDict, total=False):
     # 입력
     question: str
+    confirmed_item_seqs: list[str]  # AG-05-03 A: 되묻기에서 고른 약의 품목기준코드(요청 묶음에서 옴, 이름은 싣지 않는다). 어느 노드도 쓰지 않는다
     # guardrail_in(AG-08)
     emergency: Annotated[bool, _or]
     route: Annotated[str, _sticky_route]

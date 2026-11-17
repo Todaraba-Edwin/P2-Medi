@@ -52,7 +52,7 @@ def _runner(script: list[AIMessage], drafts: list[Any]) -> GraphRunner:
 
 
 class Boom:
-    def updates(self, question: str, profile: Any) -> Any:  # noqa: ARG002
+    def updates(self, question: str, profile: Any, confirmed_item_seqs: Any = ()) -> Any:  # noqa: ARG002
         raise RuntimeError(f"폭발표지ZK9 {question}")
         yield  # pragma: no cover
 

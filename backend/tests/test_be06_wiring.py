@@ -269,7 +269,7 @@ class CountingSlowRunner:
         self.emitted = 0
         self.finished = threading.Event()
 
-    def updates(self, question: str, profile: dict[str, Any] | None) -> Any:  # noqa: ARG002
+    def updates(self, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Any = ()) -> Any:  # noqa: ARG002
         try:
             for _ in range(self.total):
                 self.emitted += 1

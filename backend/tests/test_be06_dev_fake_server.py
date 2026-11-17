@@ -77,6 +77,22 @@ def test_clarify_has_two_candidates(client):
     assert len(a.candidates) == 2 and a.candidates_line == fp.CLARIFY_PICK_LINE and not a.findings
 
 
+@pytest.mark.parametrize("seq,bucket", [("202106092", "not_listed"), ("202106954", "found")])
+def test_clarify_resend_with_picked_candidate_reaches_result(client, seq, bucket):
+    """되묻기 뒤 재전송(같은 질문 + 고른 후보 코드)은 다시 묻지 않고 고른 약으로 조회한다(AG-05-03 A)."""
+    _, first, _ = _post(client, dfs.SCENARIOS["clarify"])
+    picked = next(e.root.response for e in first if e.root.type == "answer").candidates
+    assert seq in {c.item_seq for c in picked}  # 첫 턴 후보에서 고른 코드다
+    body = {"question": dfs.SCENARIOS["clarify"], "context": {"confirmed_drugs": [{"name": "고른 약", "item_seq": seq}]}}
+    r = client.post("/chat", json=body)
+    events = [ev.ChatEvent.model_validate_json(x) for x in r.content.split(b"\n") if x]
+    ev.check_event_order(events, complete=True)
+    assert [e.root.type for e in events] == ["progress", "progress", "answer", "done"] and events[-1].root.end_reason == "NORMAL"
+    a = events[-2].root.response
+    assert not a.candidates and [f.bucket for f in a.findings if f.target == "pair"] == [bucket]
+    _fixed_phrases_ok(a)
+
+
 def test_emergency_is_first_event_and_lookup_still_runs(client):
     types, a, last = _run(client, "emergency")
     assert types[0] == "emergency" and types[-2:] == ["answer", "done"] and "progress" in types
