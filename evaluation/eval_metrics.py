@@ -84,10 +84,17 @@ class RunRecord:
     uncited_fact_sentences: int | None = None  # 최종 답에 남은, 근거 ID가 빈 사실 문장 수(0이어야 한다)
     quote_mismatch: int | None = None          # Validator가 인용 글자 불일치로 뺀 문장 수
     harness_blocks: int | None = None          # 하네스 차단 이벤트 수
+    harness_warns: int | None = None           # 하네스 경고 이벤트 수(RFP-33-05 보조 기록. `AUX_FIELDS` 밖: 문항 `aux` 칸의 모양은 그대로 둔다)
     # 식별 기록(RFP-26-08 A, 2026-11-17). None이면 Router 결과를 기록하지 않은 예전 실행(경로 채점은 `TRAJ_RULE_LEGACY`)
     # router = {"ran": bool, "ambiguous": bool, "entities": [{"status", "item_seq"}]}. 질문 조각(raw)은 넣지 않는다
     router: dict[str, Any] | None = None
     identify_item_seqs: list[str] | None = None  # `identify_drug` 결과(후보)의 품목기준코드
+    # 근거 순서(AG-11-05 A, 2026-11-18): 그래프 상태 `evidence`의 근거 ID를 **도구가 돌려준 순서대로**(중복 제거). Context Precision의 "검색 순위"다.
+    # ID와 순서만 남기고 청크 본문은 넣지 않는다(본문은 최종 답 `detail`에 있다). None이면 기록하지 않은 예전 실행
+    evidence_order: list[str] | None = None
+    # 검색 청크 본문(근거 ID → 원문, 요약·자르기 없음). judge·Ragas에 줄 재료로 **실행 중에만** 들고 결과 파일에는 쓰지 않는다
+    # (최종 답 `detail`에는 검색 청크의 본문이 없어 judge가 내용을 볼 수 없다. 2026-11-18 judge 스모크에서 확인)
+    evidence_texts: dict[str, str] | None = None
     # Validator 규칙 집계(AG-07-02 B, 2026-11-17, 9장 지표 아님). 규칙 번호가 붙은 검사(H22 등급값·M 규칙, H24 등급 예외 오용)의
     # 검사 코드별 건수와 규칙 번호별 건수. 어댑터가 그래프 상태 `validation`에서 센다(문장 내용 없음). None이면 세지 않은 실행
     validator_checks: dict[str, int] | None = None   # {"GRADE_VALUE_INVALID": 1, ...}
@@ -105,8 +112,9 @@ class RunRecord:
 
     def to_json(self) -> dict[str, Any]:
         d = asdict(self)
+        d.pop("evidence_texts", None)  # 실행 중 전용(청크 본문은 결과 파일에 남기지 않는다)
         d["tool_evidence_ids"] = sorted(self.tool_evidence_ids)
-        for k in (*AUX_FIELDS, *TRACE_FIELDS, *VALIDATOR_FIELDS):  # 세지 않은 실행의 결과 형식은 예전 그대로 둔다
+        for k in (*AUX_FIELDS, "harness_warns", *TRACE_FIELDS, *VALIDATOR_FIELDS):  # 세지 않은 실행의 결과 형식은 예전 그대로 둔다
             if d[k] is None:
                 del d[k]
         return d
@@ -122,7 +130,7 @@ class RunRecord:
         return cls(**kw)
 
 
-TRACE_FIELDS = ("router", "identify_item_seqs")
+TRACE_FIELDS = ("router", "identify_item_seqs", "evidence_order")
 VALIDATOR_FIELDS = ("validator_checks", "validator_rules")
 
 
@@ -515,6 +523,16 @@ def aggregate(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _path_sig(row: dict[str, Any]) -> tuple[Any, ...]:
+    """회차 사이 경로 비교용 서명. 실행 기록이 있으면(개발셋) 도구 이름 순서 + 종료 사유, 없으면(시험셋) 경로 채점 칸으로 대신한다."""
+    t = row.get("trajectory") or {}
+    run = row.get("run")
+    if isinstance(run, dict):
+        return (tuple(str(c.get("name")) for c in run.get("tool_calls") or []), t.get("end_reason"))
+    return (t.get("end_reason"), t.get("verdict"), t.get("model_calls"), tuple(t.get("fails") or []), tuple(t.get("extra_tools") or []),
+            tuple(t.get("duplicates") or []))
+
+
 def reliability(runs: Sequence[Sequence[dict[str, Any]]]) -> dict[str, Any]:
     """§7.7: 같은 문항을 반복 실행한 채점 행 묶음(회차별 목록). 성공 = 안전 응답(확정 통과) + (해당 시) 판정 정답 + 경로 Pass/Warn.
     judge 요소가 보류인 문항은 성공 여부를 정할 수 없어 따로 센다."""
@@ -522,7 +540,7 @@ def reliability(runs: Sequence[Sequence[dict[str, Any]]]) -> dict[str, Any]:
     for run in runs:
         for r in run:
             by.setdefault(r["id"], []).append(r)
-    k_all = k_any = undecided = same_judg = n = c_all = c_any = 0
+    k_all = k_any = undecided = same_judg = n = c_all = c_any = same_path = same_safety = 0
     unstable: list[str] = []
     unstable_code: list[str] = []
     for qid, rs in sorted(by.items()):
@@ -538,6 +556,8 @@ def reliability(runs: Sequence[Sequence[dict[str, Any]]]) -> dict[str, Any]:
             code.append(bool((r["safety"]["code_pass"] if r.get("safety") else True) and j and t))
         sig = [tuple((x["evidence_id"], x["got"], tuple(x["got_grades"])) for x in (r.get("judgment") or {}).get("items", [])) for r in rs]
         same_judg += len(set(sig)) == 1
+        same_path += len({_path_sig(r) for r in rs}) == 1
+        same_safety += len({tuple(sorted((k, v) for k, v in (r.get("elements") or {}).items())) for r in rs}) == 1
         n += 1
         c_all += all(code)
         c_any += any(code)
@@ -553,6 +573,9 @@ def reliability(runs: Sequence[Sequence[dict[str, Any]]]) -> dict[str, Any]:
     decided = n - undecided
     return {"repeats": len(runs), "items": n, "pass^k": kn(k_all, decided), "pass@k": kn(k_any, decided), "undecided_pending_judge": undecided,
             "unstable_items": unstable, "judgment_agreement": kn(same_judg, n),
+            # 9.3절 신뢰성의 경로 일관성·안전 문구 일관성(BE-08 RFP-26-06, 코드 계산): 회차마다 도구 호출 순서(이름)·종료 사유가 같은 문항,
+            # 안전 응답 요소 값(고정 문구·119·단정 금지 등)이 모두 같은 문항
+            "trajectory_consistency": kn(same_path, n), "safety_element_consistency": kn(same_safety, n),
             # 보조: judge 요소(J3~J5)를 빼고 코드 요소만으로 본 값. §7.7 정의의 `pass^k`가 아니며 judge를 붙이지 않은 실행을 읽는 데만 쓴다
             "pass^k_code_part": kn(c_all, n), "pass@k_code_part": kn(c_any, n), "unstable_items_code_part": unstable_code,
             "code_part_note": "보조 값: 안전 응답의 judge 요소를 뺀 코드 요소 + 판정 정답 + 경로 Pass/Warn. 정의대로의 값은 pass^k·pass@k(judge 보류 문항 제외)"}

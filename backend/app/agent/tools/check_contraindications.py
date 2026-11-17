@@ -29,7 +29,14 @@ from app.tools import lookup
 from app.tools.drug_dict import MATCHED_BY_INGREDIENT, Candidate
 from app.tools.dur import SOURCE_INGR, DurResult, cross_check
 from app.tools.lookup import FOUND, NOT_LISTED, UNIDENTIFIED, Age
-from app.tools.provenance import FLAG_NOTES, SK_API_DIRECT, SK_FILE
+from app.tools.provenance import (
+    API_REASON_NO_CODE,
+    API_REASON_PARTIAL,
+    API_REASON_TRUNCATED,
+    SK_API_DIRECT,
+    SK_FILE,
+    api_flag_note,
+)
 
 TOOL = "check_contraindications"
 MAX_CODES_PER_DRUG = 40          # 성분 단위 입력(모든 제형 코드)의 조회 폭주 상한
@@ -175,7 +182,8 @@ def _api_failed() -> DurResult:
 
 
 def _api_call(ctx: ToolContext, a: Drug, b: Drug) -> tuple[DurResult | None, str | None]:
-    """쌍의 API 결과 하나로 합친다. (결과, 미완결 사유). 한쪽 성분코드가 없으면 호출하지 않는다(H20)."""
+    """쌍의 API 결과 하나로 합친다. (결과, 미완결 꼬리표). 한쪽 성분코드가 없으면 호출하지 않는다(H20).
+    결과가 None이면 **한 번도 호출하지 않은 것**이다(조회용 코드가 없음, AG-01-10 A의 `NO_API_CODE`)."""
     if not a.api_codes or not b.api_codes:
         return None, "API_PAIR_INCOMPLETE"
     results: list[DurResult] = []
@@ -213,8 +221,8 @@ def _attach_api(ctx: ToolContext, a: Drug, b: Drug, file_items: list[dict[str, A
         flag, api_info = "API_FAIL", {"outcome": "API_UNAVAILABLE"}
     else:
         result, incomplete = _api_call(ctx, a, b)
-        if result is None:
-            flag, api_info = incomplete, {"outcome": "API_UNAVAILABLE"}
+        if result is None:  # 조회용 코드가 없어 호출 0회: 실패가 아니라 "묻지 않음"이다(AG-01-10 A)
+            flag, api_info = incomplete, {"outcome": "API_UNAVAILABLE", "reason": API_REASON_NO_CODE}
         else:
             file_item = lookup.Item("contra_pair", FOUND if any(i["status"] == FOUND for i in file_items) else NOT_LISTED, (a.key, b.key), "", None, None,
                                     matches=[m for i in file_items for m in i.get("matches", [])])
@@ -222,15 +230,19 @@ def _attach_api(ctx: ToolContext, a: Drug, b: Drug, file_items: list[dict[str, A
             flag = cc.api_flag
             api_info = {"outcome": cc.outcome, "dates_differ": cc.dates_differ, "file_notice_dates": cc.file_notice_dates,
                         "api_notice_dates": cc.api_notice_dates, "queried_at_utc": result.queried_at_utc, "request_hashes": result.request_hashes}
+            if flag == "API_PAIR_INCOMPLETE":  # 조회한 것 중 일부가 실패했다(쌍의 한쪽)
+                api_info["reason"] = API_REASON_PARTIAL
     if truncated:  # 묻지 않은 성분 쌍이 있다: 대조가 끝나지 않았으므로 "파일에만 있음"·"같음"으로 말하지 않는다(파일 판정은 그대로)
         api_info["codes_truncated"] = True
         if flag in _TRUNCATED_FORBIDDEN_FLAGS:
             flag = "API_PAIR_INCOMPLETE"
+            api_info["reason"] = API_REASON_TRUNCATED
+    note = api_flag_note(flag, api_info.get("reason")) if flag else None  # 사유별 노트(AG-01-10 A). 꼬리표 이름·계약은 그대로다
     for it in file_items:
         it["api"] = api_info
         if flag:
             it["flags"] = [*it["flags"], flag]
-            it["notes"] = [*it.get("notes", []), FLAG_NOTES[flag]]
+            it["notes"] = [*it.get("notes", []), note]
     if result is not None and result.ok and result.rows:
         codes = sorted(f"{x}" for x in {*a.api_codes[:MAX_API_CODES_PER_DRUG], *b.api_codes[:MAX_API_CODES_PER_DRUG]})
         eid = f"dur_ingr:{codes[0]}:{codes[-1]}"
@@ -240,7 +252,7 @@ def _attach_api(ctx: ToolContext, a: Drug, b: Drug, file_items: list[dict[str, A
             "kind": "contra_pair", "status": FOUND, "subject": [a.label, b.label], "evidence_id": eid, "source": SOURCE_INGR, "as_of": None,
             "queried_at_utc": result.queried_at_utc or "unknown", "flags": [flag] if flag else [], "matches": rows, "dataset_key": "dur_ingr",
             "source_kind": SK_API_DIRECT, "drugs": [a.label, b.label], "drug_keys": [a.key, b.key], "cause_codes": codes,
-            "notes": [FLAG_NOTES[flag]] if flag else [],
+            "notes": [note] if flag else [],
         })
 
 
@@ -285,6 +297,9 @@ def _attach_api_single(ctx: ToolContext, d: Drug, kind: str, age: Age | None, fi
         result = result.model_copy(update={"rows": [r for r in result.rows if _api_age_applies(r.age_base, age)]})
     if result is None or (not result.ok):
         flag, api_info = "API_FAIL", {"outcome": "API_UNAVAILABLE"}
+        # 조회 함수는 있는데 이 성분에 조회용 코드가 없어 호출 0회: 실패가 아니라 "묻지 않음"이다(AG-01-10 A). 조회를 끈 실행(fn 없음)에는 사유를 적지 않는다
+        if fn is not None and not any(DUR_CODE_RE.match(c) for c in d.api_codes[:MAX_API_CODES_PER_DRUG]):
+            api_info["reason"] = API_REASON_NO_CODE
     else:
         status = FOUND if any(i["status"] == FOUND for i in file_items) else NOT_LISTED
         cc = cross_check({"status": status, "matches": [m for i in file_items for m in i.get("matches", [])]}, result)
@@ -295,11 +310,13 @@ def _attach_api_single(ctx: ToolContext, d: Drug, kind: str, age: Age | None, fi
         api_info["codes_truncated"] = True
         if flag in _TRUNCATED_FORBIDDEN_FLAGS:
             flag = "API_FAIL"  # 성분 단위 항목은 계약상 API_PAIR_INCOMPLETE를 쓰지 못한다(H20). API_ONLY·API_FAIL은 그대로 둔다
+            api_info["reason"] = API_REASON_TRUNCATED
+    note = api_flag_note(flag, api_info.get("reason")) if flag else None  # 사유별 노트(AG-01-10 A)
     for it in file_items:
         it["api"] = api_info
         if flag:
             it["flags"] = [*it["flags"], flag]
-            it["notes"] = [*it.get("notes", []), FLAG_NOTES[flag]]
+            it["notes"] = [*it.get("notes", []), note]
     if result is not None and result.ok and result.rows:
         code = sorted(d.api_codes[:MAX_API_CODES_PER_DRUG])[0]
         eid = f"dur_ingr:{kind}:{code}"
@@ -309,7 +326,7 @@ def _attach_api_single(ctx: ToolContext, d: Drug, kind: str, age: Age | None, fi
             "kind": kind, "status": FOUND, "subject": [d.label], "evidence_id": eid, "source": SOURCE_INGR, "as_of": None,
             "queried_at_utc": result.queried_at_utc or "unknown", "flags": [flag] if flag else [], "matches": rows, "dataset_key": "dur_ingr",
             "source_kind": SK_API_DIRECT, "drugs": [d.label], "drug_keys": [d.key], "cause_codes": list(d.api_codes[:MAX_API_CODES_PER_DRUG]),
-            "notes": [FLAG_NOTES[flag]] if flag else [],
+            "notes": [note] if flag else [],
         })
 
 

@@ -47,13 +47,14 @@ def _settings() -> Settings:
     return Settings(_env_file=None, openai_api_key="fake-k", supabase_db_url="fake-d")
 
 
-class CountingToolModel(ScriptedToolModel):
-    """도구를 고르는 모델이 불렸는지 센다. C1에서는 한 번도 불리면 안 된다(도구 순서는 코드가 정한다)."""
+TOOL_MODEL_CALLS = [0]  # 도구를 고르는 모델이 불린 횟수(모듈 카운터: 가짜 모델은 pydantic 모델이라 클래스 속성으로 세지 않는다)
 
-    calls: int = 0
+
+class CountingToolModel(ScriptedToolModel):
+    """도구를 고르는 모델이 불렸는지 센다. C1·C1+에서는 한 번도 불리면 안 된다(도구 순서는 코드가 정한다)."""
 
     def _generate(self, messages: Any, stop: Any = None, run_manager: Any = None, **kwargs: Any) -> Any:
-        type(self).calls += 1
+        TOOL_MODEL_CALLS[0] += 1
         return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
 
@@ -97,10 +98,10 @@ def _run(tmp_path: Path, condition: str | None, fac: Factory | None = None) -> t
 
 
 def test_c1_runs_the_fixed_pipeline_and_code_chooses_the_tools(tmp_path):
-    CountingToolModel.calls = 0
+    TOOL_MODEL_CALLS[0] = 0
     rc, res, fac = _run(tmp_path, "C1")
     assert rc == 0 and res["meta"]["condition"] == "C1" and res["meta"]["n_items_run"] == 2
-    assert CountingToolModel.calls == 0  # 도구를 고르는 모델은 불리지 않는다
+    assert TOOL_MODEL_CALLS[0] == 0  # 도구를 고르는 모델은 불리지 않는다
     for row in res["items"]:
         names = [c["name"] for c in row["run"]["tool_calls"]]
         # 약마다 식별 → 판정 → 사유 검색 → 허가사항 검색(코드가 정한 순서, RFP-23 §5.2)
@@ -122,11 +123,11 @@ def test_c1_result_records_condition_versions_and_harness_table(tmp_path):
 
 
 def test_default_condition_is_still_the_react_graph(tmp_path):
-    CountingToolModel.calls = 0
+    TOOL_MODEL_CALLS[0] = 0
     rc, res, fac = _run(tmp_path, None)
     meta = res["meta"]
     assert rc == 0 and meta["condition"] == "C2" and meta["agent_info"]["run_id"].startswith("l2-")
-    assert CountingToolModel.calls >= 2  # ReAct: 문항마다 모델이 도구를 고른다
+    assert TOOL_MODEL_CALLS[0] >= 2  # ReAct: 문항마다 모델이 도구를 고른다
     assert meta["versions"]["graph"].startswith("graph-src@") and "pipeline_src" not in meta["versions"]
     assert meta["harness"]["version"] == HARNESS_VERSION and meta["harness"]["condition"] == "C2"
     assert {s.get("condition") for s in fac.sink.records} == {"C2"}
@@ -139,10 +140,26 @@ def test_c1_and_c2_share_the_same_baseline_harness(tmp_path):
     assert c1["meta"]["versions"]["harness"] == c2["meta"]["versions"]["harness"]  # 같은 하네스 소스
 
 
-def test_c1_plus_is_not_connected(tmp_path, capsys):
+def test_c1_plus_runs_the_pipeline_with_correction_on(tmp_path):
+    """AG-16-06 A: C1+는 C1과 같은 고정 파이프라인에 오탈자 보정만 켠다. 결과에 조건·규칙 버전·하네스 표·보정 스위치가 남는다."""
+    from app.agent.pipeline.build import PIPELINE_PLUS_VERSION
+
+    TOOL_MODEL_CALLS[0] = 0
     rc, res, fac = _run(tmp_path, "C1+")
+    meta = res["meta"]
+    assert rc == 0 and meta["condition"] == "C1+" and TOOL_MODEL_CALLS[0] == 0
+    assert meta["agent_info"]["run_id"].startswith("c1plus-") and meta["versions"]["graph"] == PIPELINE_PLUS_VERSION
+    assert meta["harness"]["condition"] == "C1+" and meta["harness"]["baseline"] == list(HARNESS_BASELINE)
+    assert meta["typo_correction"]["enabled"] is True
+    assert {s.get("condition") for s in fac.sink.records} == {"C1+"} and {s.get("graph_version") for s in fac.sink.records} == {PIPELINE_PLUS_VERSION}
+    for row in res["items"]:
+        assert [c["name"] for c in row["run"]["tool_calls"]][:3] == ["identify_drug", "identify_drug", "check_contraindications"]
+
+
+def test_unconnected_condition_stops_before_building_resources(tmp_path, capsys):
+    rc, res, fac = _run(tmp_path, "C3")
     assert rc == 2 and res == {} and fac.calls == []  # 자원을 만들기 전에 멈춘다
-    assert "C1+" in capsys.readouterr().out
+    assert "C3" in capsys.readouterr().out
 
 
 def test_graph_agent_builds_by_condition(tmp_path):
@@ -165,43 +182,55 @@ def _run_args(tmp_path: Path, *extra: str, fac: Factory | None = None, n: int = 
     return rc, (json.loads(out.read_text(encoding="utf-8")) if out.exists() else {}), fac
 
 
-def test_typo_correct_is_off_by_default_and_recorded(tmp_path):
-    seen: list[bool] = []
+class SpyFactory(Factory):
+    """만든 의존성을 붙잡아 둔다(러너가 적은 보정 스위치를 확인하려고)."""
 
-    class Spy(Factory):
-        def __call__(self, settings: Any, **kw: Any) -> Any:
-            res = super().__call__(settings, **kw)
-            seen.append(res.deps.typo_correct)
-            self.deps = res.deps
-            return res
+    def __call__(self, settings: Any, **kw: Any) -> Any:
+        res = super().__call__(settings, **kw)
+        self.deps = res.deps
+        return res
 
-    rc, res, fac = _run_args(tmp_path, fac=Spy())
-    assert rc == 0 and fac.deps.typo_correct is False
+
+@pytest.mark.parametrize("extra,enabled", [
+    ((), True),                                     # C2 기본: 서비스 배선과 같이 켠다(AG-10-04 A)
+    (("--typo-correct",), True),
+    (("--no-typo-correct",), False),                # 보정 전 결과와 비교할 때만 끈다
+    (("--condition", "C1"), False),                 # C1은 항상 끔
+    (("--condition", "C1+"), True),                 # C1+는 항상 켬
+    (("--condition", "C1", "--no-typo-correct"), False),
+    (("--condition", "C1+", "--typo-correct"), True),
+])
+def test_typo_switch_follows_the_condition_and_is_recorded(extra, enabled, tmp_path):
+    rc, res, fac = _run_args(tmp_path, *extra, fac=SpyFactory())
+    assert rc == 0
     tc = res["meta"]["typo_correction"]
-    assert tc["enabled"] is False and tc["notice"] == "TYPO_CORRECTED_LINE" and tc["notice_status"] == "draft"
+    assert tc["enabled"] is enabled and tc["notice"] == "TYPO_CORRECTED_LINE" and tc["notice_status"] == "approved"
+    assert tc["min_score"] == 0.9 and tc["min_gap"] == 0.05
+    if "C1" not in "".join(extra):  # C2는 주입된 의존성의 스위치를 러너가 적는다. C1·C1+는 파이프라인이 사본에 강제한다
+        assert fac.deps.typo_correct is enabled
+    assert all("RUN_ERROR" not in r["trajectory"]["fails"] for r in res["items"])
 
 
-def test_typo_correct_flag_turns_the_router_switch_on(tmp_path):
-    class Spy(Factory):
-        def __call__(self, settings: Any, **kw: Any) -> Any:
-            res = super().__call__(settings, **kw)
-            self.deps = res.deps
-            return res
-
-    rc, res, fac = _run_args(tmp_path, "--typo-correct", fac=Spy())
-    assert rc == 0 and fac.deps.typo_correct is True
-    tc = res["meta"]["typo_correction"]
-    assert tc["enabled"] is True and tc["min_score"] == 0.9 and tc["min_gap"] == 0.05
+@pytest.mark.parametrize("extra", [("--condition", "C1", "--typo-correct"), ("--condition", "C1+", "--no-typo-correct")])
+def test_flag_against_the_condition_is_refused_before_building_resources(extra, tmp_path, capsys):
+    """조건 표기와 실제 동작이 달라지지 않게 막는다(C1에 보정을 켜면 C1+가 되고, C1+에서 끄면 C1이 된다)."""
+    rc, res, fac = _run_args(tmp_path, *extra)
+    assert rc == 2 and res == {} and fac.calls == []
+    assert "오탈자 보정" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("extra", [("--condition", "C1"), ()])
-def test_typo_correct_is_refused_outside_react_graph(extra, tmp_path, capsys):
-    """C1은 보정이 없는 고정 파이프라인이다(보정을 더한 것은 C1+). offline-fixed는 그래프를 만들지 않는다. 둘 다 세트를 읽기 전에 막는다."""
-    args = ["--set", str(tmp_path / "none.jsonl"), "--typo-correct", "--out", str(tmp_path / "o.json"), *extra]
-    if extra:
-        args += ["--agent", "graph", "--max-usd", "1"]
-    assert R.main(args, settings_fn=_settings, resources_factory=Factory()) == 2
-    assert "--typo-correct" in capsys.readouterr().out and not (tmp_path / "o.json").exists()
+@pytest.mark.parametrize("flag", ["--typo-correct", "--no-typo-correct"])
+def test_typo_flag_is_refused_for_offline_agent(flag, tmp_path, capsys):
+    rc = R.main(["--set", str(tmp_path / "none.jsonl"), flag, "--out", str(tmp_path / "o.json")])
+    assert rc == 2 and "typo-correct" in capsys.readouterr().out and not (tmp_path / "o.json").exists()
+
+
+def test_resolve_typo_correct_table():
+    assert [R.resolve_typo_correct("C2", f) for f in (None, True, False)] == [True, True, False]
+    assert R.resolve_typo_correct("C1", None) is False and R.resolve_typo_correct("C1+", None) is True
+    for cond, flag in (("C1", True), ("C1+", False)):
+        with pytest.raises(R.RunnerConfigError):
+            R.resolve_typo_correct(cond, flag)
 
 
 def test_ids_select_only_those_items_in_set_order(tmp_path):

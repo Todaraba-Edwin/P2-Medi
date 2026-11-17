@@ -128,7 +128,10 @@ def test_stream_answer_equals_run_question_response(dd):
     r, events = _stream(dd, Q_PAIR, _script(AZI, COLD), [PAIR_DRAFT])
     assert _answer(events).model_dump(mode="json") == expected
     raw = next(json.loads(x) for x in r.content.split(b"\n") if x and json.loads(x)["type"] == "answer")
-    assert raw["response"] == expected  # 전송된 바이트 그대로도 같다
+    # 전송된 바이트 그대로도 같다. 단 `name_corrections`는 비어 있으면 줄에 싣지 않는다(AG-10-02 A: 칸을 더하기 전과 같은 글자,
+    # `events.encode_event`). 빠진 키는 읽는 쪽에서 기본값(빈 목록)이다.
+    assert expected["name_corrections"] == [] and "name_corrections" not in raw["response"]
+    assert raw["response"] == {k: v for k, v in expected.items() if k != "name_corrections"}
 
 
 # --------------------------------------------------------------------------- ③ 응급 첫 이벤트

@@ -419,6 +419,7 @@ class SonnetJudge:
         self.max_tokens = max_tokens
         self.prompt = load_prompt(prompt_path)
         self.usage = Usage()
+        self._max_call_cost = 0.0  # 지금까지 한 호출의 최대 비용(다음 호출이 상한을 넘길지 미리 보는 데 쓴다)
 
     def meta(self) -> dict[str, Any]:
         return {"judge_model": self.model_id, "rubric_versions": dict(self.rubric_versions), "prompt_file": self.prompt["file"],
@@ -427,8 +428,12 @@ class SonnetJudge:
 
     # ---- 호출 한 번(비용·상한) ----
     def _call(self, messages: list[dict[str, Any]]) -> TransportResult:
-        if self.max_usd is not None and self.usage.cost_usd >= self.max_usd - 1e-12:
-            raise JudgeBudgetExceeded(f"judge 비용 상한 도달: ${self.usage.cost_usd:.4f} ≥ ${self.max_usd}")
+        # 상한은 호출 **전에** 본다. 이미 닿았거나, 지금까지 가장 비쌌던 호출만큼 더 쓰면 넘길 때 막는다
+        # (2026-11-18 스모크: 누적만 보던 예전 규칙은 마지막 호출만큼 상한을 넘겼다. 첫 호출은 비용을 몰라 누적만 본다)
+        if self.max_usd is not None and (self.usage.cost_usd >= self.max_usd - 1e-12
+                                         or self.usage.cost_usd + self._max_call_cost > self.max_usd + 1e-12):
+            raise JudgeBudgetExceeded(f"judge 비용 상한 도달: 누적 ${self.usage.cost_usd:.4f}"
+                                      f"(+ 다음 호출 예상 ${self._max_call_cost:.4f}) / 상한 ${self.max_usd}")
         est = estimate_cost_usd(0, self.max_tokens)
         if self.ledger is not None:
             self.ledger.guard(est, "eval")
@@ -438,6 +443,7 @@ class SonnetJudge:
         self.usage.input_tokens += res.input_tokens
         self.usage.output_tokens += res.output_tokens
         self.usage.cost_usd += cost
+        self._max_call_cost = max(self._max_call_cost, cost)
         if self.ledger is not None:
             self.ledger.add(cost, "eval")
         return res

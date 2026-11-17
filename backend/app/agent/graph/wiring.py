@@ -80,11 +80,15 @@ def build_deps(
     allow_draft: bool = False,
     summary_instruction: str | None = None,
     service: bool = False,
+    typo_correct: bool | None = None,
 ) -> GraphDeps:
     """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음).
 
     `service=True`(앱 서버 `/chat`, BE-06-23 A)면 모델 래퍼가 개발 원장·개발 LLM 캐시를 거치지 않는다(`ledger`를 함께 주면 `ValueError`).
     기본값 False는 평가(`mode=eval`)·개발 경로이며 원장·캐시 동작은 예전과 같다.
+
+    `typo_correct`(오탈자 보정 후 진행, AG-10): 주지 않으면 `service`와 같다. 서비스 경로는 기본으로 켠다(AG-10-02 A: 고지 문구 승인,
+    응답 `name_corrections` 칸). 평가·개발 경로의 기본은 끔이고 평가 실행기가 비교 조건에 맞춰 켠다.
 
     요약 지시: `prompt_set`을 주지 않으면 기본 묶음 `DEFAULT_PROMPT_SET`(`prompt_set@v3`)을 쓴다. 묶음에 `answer_summary`가 있으면 그 파일 본문을,
     없으면(v1·v2) 코드 상수 `nodes.SUMMARY_INSTRUCTION`을 쓴다. draft 프롬프트가 든 묶음은 `allow_draft=True`를 명시해야 한다
@@ -120,4 +124,4 @@ def build_deps(
         kwargs["registry"] = registry
     return GraphDeps(drug_dict=drug_dict, tool_model=tool_model, summary_model=summary_model, tools=tools, tool_ctx=tool_ctx,
                      system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, grade_def_fn=grade_def_fn,
-                     summary_instruction=summary_instruction, **kwargs)
+                     summary_instruction=summary_instruction, typo_correct=service if typo_correct is None else bool(typo_correct), **kwargs)

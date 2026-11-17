@@ -3,8 +3,8 @@
 가상의 제품명으로 만든 합성 소사전을 쓴다(평가 세트·시험셋 문항이 아니다). 확인하는 것:
 - 후보가 하나로 뚜렷하면 보정 이름으로 다시 조회해 확정하고, 여럿·불확실이면 지금처럼 되묻는다(임의 선택 금지).
 - 숫자(함량)는 고치지 않는다. 가상의 약 이름은 실제 약으로 바뀌지 않는다.
-- 기본값(보정 끔)에서는 Router 결과가 지금까지와 같다. 서비스 배선은 보정을 켜지 않는다(고지 문구 승인 전).
-- 보정해 진행한 답에는 보정 고지가 붙는다(고지 없이 진행하지 않는다).
+- Router 함수의 기본값(보정 끔)에서는 결과가 지금까지와 같다. 서비스 배선은 보정을 기본으로 켠다(AG-10-02 A, 2026-11-17: 고지 문구 승인).
+- 보정해 진행한 답에는 보정 고지가 붙고 `/chat` 응답 `name_corrections`로 나간다(고지 없이 진행하지 않는다).
 """
 
 from __future__ import annotations
@@ -169,12 +169,21 @@ def test_normal_questions_are_identical_with_correction_on(dd):
         assert R.route_input(q, dd, typo_correct=True).model_dump() == R.route_input(q, dd).model_dump()
 
 
-def test_service_wiring_does_not_turn_correction_on(dd):
-    """보정 고지 문구가 승인 전이라 서비스 배선은 켜지 않는다(켜는 인자 자체가 `build_deps`에 없다)."""
-    assert "TYPO_CORRECTED_LINE" in fp.DRAFT_KEYS and hasattr(fp, "TYPO_CORRECTED_LINE")
-    deps = build_deps(dd, build_tool_context(dd, mode="eval", conn_factory=golden_conn), tool_model=ScriptedToolModel(script=[AIMessage("끝")]),
-                      summary_model=ScriptedSummary([{"sentences": [GUIDE]}]))
-    assert deps.typo_correct is False and GraphDeps.__dataclass_fields__["typo_correct"].default is False
+def _deps(dd: DrugDict, **kw: Any) -> GraphDeps:
+    return build_deps(dd, build_tool_context(dd, mode="eval", conn_factory=golden_conn), tool_model=ScriptedToolModel(script=[AIMessage("끝")]),
+                      summary_model=ScriptedSummary([{"sentences": [GUIDE]}]), **kw)
+
+
+def test_service_wiring_turns_correction_on_and_eval_default_stays_off(dd):
+    """AG-10-02 A(2026-11-17): 고지 문구가 승인 상수가 됐고 서비스 배선은 보정을 기본으로 켠다. 평가·개발 배선의 기본은 끔이다(실행기가 조건으로 정한다)."""
+    assert "TYPO_CORRECTED_LINE" not in fp.DRAFT_KEYS and hasattr(fp, "TYPO_CORRECTED_LINE")
+    assert _deps(dd, service=True).typo_correct is True
+    assert _deps(dd).typo_correct is False and GraphDeps.__dataclass_fields__["typo_correct"].default is False
+    assert _deps(dd, service=True, typo_correct=False).typo_correct is False and _deps(dd, typo_correct=True).typo_correct is True
+
+
+def test_approved_phrase_is_the_decided_sentence():
+    assert fp.TYPO_CORRECTED_LINE == "'{input}' → '{name}': 이름이 비슷한 이 약으로 보고 확인했어요. 찾으시는 약이 아니면 약 이름을 다시 알려 주세요."
 
 
 # --------------------------------------------------------------------------- 보정 고지(고지 없이 진행하지 않는다)
@@ -242,9 +251,52 @@ def test_graph_on_but_other_drug_ambiguous_still_asks(dd):
     assert st["end_reason"] == END_CLARIFY and "name_corrections" not in st["answer"]  # 되묻기는 조회 결과를 보이지 않는다
 
 
-def test_chat_response_refuses_to_drop_the_notice():
-    """`chat_response@v1`에는 보정 고지 칸이 없다. 고지가 빠진 채 결과만 나가지 않도록 변환에서 멈춘다(서비스는 보정을 켜지 않는다)."""
+def test_chat_response_carries_the_notice():
+    """`chat_response@v1`의 `name_corrections` 칸(AG-10-02 A): finalize의 고지가 그대로 응답에 실린다. 없으면 빈 목록(기존 응답과 호환)."""
+    resp = finalize([], model_summary="요약", name_corrections=[{"input": "가나메솔정", "name": "가나미솔정"}])
+    out = api_schemas.to_chat_response(resp, end_reason="NORMAL")
+    assert out.schema_version == "chat_response@v1"
+    assert [c.model_dump() for c in out.name_corrections] == resp["name_corrections"]
+    plain = api_schemas.to_chat_response(finalize([], model_summary="요약"), end_reason="NORMAL")
+    assert plain.name_corrections == [] and plain.summary == "요약"
+
+
+def test_stream_line_without_corrections_is_exactly_as_before():
+    """보정이 없는 응답의 스트림 줄에는 `name_corrections` 키가 없다(칸을 더하기 전과 같은 글자: 모르는 키를 거부하는 프런트 검증이 깨지지 않게).
+    보정이 있으면 키가 실리고, 다시 읽어도 같은 값이다. 스키마(모델 dump·OpenAPI)에는 칸이 항상 있다."""
+    from app.api import events as ev
+
+    plain = api_schemas.to_chat_response(finalize([], model_summary="요약"), end_reason="NORMAL")
+    line = ev.encode_event(ev.answer(1, plain))
+    assert b"name_corrections" not in line and line.endswith(b"\n")
+    assert ev.ChatEvent.model_validate_json(line).root.response == plain  # 빠진 키는 기본값(빈 목록)으로 읽힌다
+    assert plain.model_dump()["name_corrections"] == []
+    resp = finalize([], model_summary="요약", name_corrections=[{"input": "가나메솔정", "name": "가나미솔정"}])
+    fixed = api_schemas.to_chat_response(resp, end_reason="NORMAL")
+    line2 = ev.encode_event(ev.answer(1, fixed))
+    assert ev.ChatEvent.model_validate_json(line2).root.response.name_corrections == fixed.name_corrections != []
+    assert "name_corrections" in api_schemas.ChatResponse.model_json_schema(mode="serialization")["properties"]
+
+
+def test_chat_response_rejects_a_notice_that_is_not_the_constant_sentence():
+    """고지 문장은 화면이 조립하지 않고 서버 상수 그대로다. 모양이 어긋난 고지는 조용히 빠지지 않고 검증 오류가 된다."""
     resp = finalize([], model_summary="요약", name_corrections=[{"input": "가", "name": "나"}])
-    with pytest.raises(ValueError, match="보정 고지"):
-        api_schemas.to_chat_response(resp, end_reason="NORMAL")
-    assert api_schemas.to_chat_response(finalize([], model_summary="요약"), end_reason="NORMAL").summary == "요약"
+    for bad in ({"input": "가", "name": "나", "text": "아무 문장"}, {"input": "가", "name": "나"}, {"input": "", "name": "나", "text": "x"}):
+        with pytest.raises((ValueError, TypeError)):
+            api_schemas.to_chat_response({**resp, "name_corrections": [bad]}, end_reason="NORMAL")
+    with pytest.raises(ValueError, match="되묻기"):
+        api_schemas.to_chat_response(resp, end_reason="CLARIFY")
+
+
+def test_service_graph_never_shows_a_corrected_result_without_the_notice(dd):
+    """서비스 배선(보정 켬)으로 끝까지 돌린 응답: 보정으로 확정한 약이 있으면 `name_corrections`가 반드시 찬다(되묻기로 끝나면 둘 다 없다)."""
+    call = AIMessage("", tool_calls=[tool_call("check_contraindications", {"drugs": [{"item_seq": "300000001"}], "pregnancy": True}, "c1")])
+    for q, corrected in (("임신 중인데 가나메솔정10밀리그램 먹어도 되나요", True), ("임신 중인데 가나미솔정10밀리그램 먹어도 되나요", False),
+                         ("가나메솔정10밀리그램이랑 다라보톤캡슐 같이 먹어도 되나요", False)):
+        deps = build_deps(dd, build_tool_context(dd, mode="eval", conn_factory=golden_conn), service=True,
+                          tool_model=ScriptedToolModel(script=[call, AIMessage("조회를 마쳤다")], repeat_last=True),
+                          summary_model=ScriptedSummary([{"sentences": [GUIDE]}]))
+        st = run_question(build_graph(deps), q)
+        out = api_schemas.response_from_state(st)
+        used = any(e.get("corrected_from") for e in st["entities"]) and st["end_reason"] != END_CLARIFY
+        assert used is corrected and bool(out.name_corrections) is corrected, q

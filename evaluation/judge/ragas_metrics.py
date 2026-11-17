@@ -75,9 +75,11 @@ def ragas_applicable(item: Mapping[str, Any]) -> bool:
 
 
 def ragas_item(judge: SJ.SonnetJudge, item: Mapping[str, Any], answer: Mapping[str, Any], *, contexts: Sequence[SJ.Context] | None = None,
-               tool_evidence_ids: Iterable[str] = (), end_reason: str | None = None, mode: str = MODE_RETRIEVED) -> dict[str, Any]:
+               tool_evidence_ids: Iterable[str] = (), end_reason: str | None = None, mode: str = MODE_RETRIEVED,
+               j1: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """문항 하나의 3지표 + 청크 ID Recall. judge 호출: J1(주장이 있을 때) 1회 + J2(검색 청크가 있을 때, C0는 없음) 1회.
-    `contexts`를 주지 않으면 최종 답의 근거 상세에서 만든다(`sonnet_judge.contexts_from_answer`)."""
+    `contexts`를 주지 않으면 최종 답의 근거 상세에서 만든다(`sonnet_judge.contexts_from_answer`).
+    `j1`에 같은 문항·같은 청크로 이미 받은 J1 결과를 주면 다시 부르지 않는다(러너가 안전 응답 채점에서 받은 J1을 넘긴다: 같은 답을 두 번 채점하지 않게)."""
     if mode not in (MODE_RETRIEVED, MODE_REFERENCE):
         raise SJ.JudgeError(f"mode는 {MODE_RETRIEVED}|{MODE_REFERENCE}: {mode!r}")
     ctx = list(contexts) if contexts is not None else SJ.contexts_from_answer(answer)
@@ -87,8 +89,9 @@ def ragas_item(judge: SJ.SonnetJudge, item: Mapping[str, Any], answer: Mapping[s
     out: dict[str, Any] = {"version": RAGAS_VERSION, "mode": mode, "n_contexts": len(ctx),
                            "faithfulness": None, "context_precision": None, "context_recall": None, "judge": {}}
     if SJ.has_claims(answer, end_reason):
-        j1 = judge.score_rubric("J1", inp)
-        out["judge"]["J1"] = j1
+        reused = j1 is not None
+        j1 = j1 if j1 is not None else judge.score_rubric("J1", inp)
+        out["judge"]["J1"] = {"reused": True, "status": j1.get("status")} if reused else j1  # 재사용이면 원본은 `row["judge"]`에 있다
         if j1.get("status") == SJ.STATUS_OK:
             out["faithfulness"] = faithfulness([bool(c.get("supported")) for c in j1.get("claims") or []])
     if mode == MODE_RETRIEVED and ctx:
@@ -101,7 +104,7 @@ def ragas_item(judge: SJ.SonnetJudge, item: Mapping[str, Any], answer: Mapping[s
     ids = (item.get("answer_evidence") or {}).get("evidence_ids") or []
     cited = [c.get("evidence_id") for c in answer.get("citations") or [] if isinstance(c, Mapping)]
     out["chunk_id_recall"] = chunk_id_recall(ids, [*tool_evidence_ids, *cited])
-    out["judge_error"] = any(v.get("status") == SJ.STATUS_ERROR for v in out["judge"].values())
+    out["judge_error"] = any(v.get("status") == SJ.STATUS_ERROR for v in out["judge"].values())  # 재사용 J1의 오류도 센다
     return out
 
 

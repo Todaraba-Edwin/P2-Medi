@@ -10,7 +10,8 @@
 
 from __future__ import annotations
 
-from app.tools.provenance import FLAG_NOTES, NOT_SAFE
+from app.tools.provenance import API_REASON_NOTES as _API_REASON_NOTES
+from app.tools.provenance import API_REASON_NOTES_APPROVED, FLAG_NOTES, NOT_SAFE
 
 # --------------------------------------------------------------------------- 119·고지·약사 권고
 EMERGENCY_119 = "응급 상황일 수 있어요. 지금 바로 119에 전화하세요."  # 원문 승인(AG-08-04 A). 119 외 연락처·처치는 쓰지 않는다
@@ -193,12 +194,25 @@ REFUSE_DRAFT_KEYS = tuple(k for k in REFUSE_MESSAGES if k not in REFUSE_APPROVED
 # FALLBACK_NONE_SCOPE_DOC(Recap 0-1, 하네스 3.4절 표).
 # 2026-11-16 문구 승인 표 17줄(3번만 조사 자동, 나머지 원문 승인)로 뺀 것: START_EMERGENCY_119·START_EXTERNAL_AI_NOTICE·
 # REFERENCE_ONLY_LINE·REFUSE_MESSAGES·CAUTION_LABELS·PHARMACIST_ADVICE_NO_NAMES·BLOCKED_NO_SOURCE_KIND·INVALID_CODE·PAIR_NOT_CHECKED.
-# 2026-11-18 초안 추가: TYPO_CORRECTED_LINE(AG-10 오탈자 보정 고지, 사용자 승인 전).
-DRAFT_KEYS: tuple[str, ...] = ("TYPO_CORRECTED_LINE",)
+# 2026-11-17 AG-10-02 A 승인으로 뺀 것: TYPO_CORRECTED_LINE(오탈자 보정 고지, 원문 승인).
+# 2026-11-18 초안 추가: API_REASON_NOTES(AG-01-10 A 실시간 확인 못 한 사유별 노트 3종, 사용자 승인 전).
+# 2026-11-18 초안 추가: EMERGENCY_ASK_DRUG_NAME(AG-09 §2 TC-11 응급인데 약 이름이 없을 때 약 이름을 묻는 문장, 사용자 승인 전).
+DRAFT_KEYS: tuple[str, ...] = (*(() if API_REASON_NOTES_APPROVED else ("API_REASON_NOTES",)), "EMERGENCY_ASK_DRUG_NAME")
 
-# 오탈자 보정 고지(AG-10 §2 "OO로 보정하여 검색" 표시, RFP-26-09 A). **초안(사용자 승인 전)**: 승인 전에는 서비스 경로에서 보정을 켜지 않는다
-# (`GraphDeps.typo_correct` 기본 False → 지금처럼 되묻기). 평가 실행(`eval_runner --typo-correct`)에서만 이 초안이 답에 붙는다.
-# 이름 뒤에 조사를 붙이지 않는 꼴로 썼다(오탈자 조각은 받침 판단이 어긋날 수 있다). 가부·안전 표현 없음.
+# 응급 질문에 약 이름이 없을 때 119 안내 아래에 붙여 약 이름을 묻는 문장(AG-09 §2, `P2-doc/PJ2-가설검증.md` TC-11). **초안(사용자 승인 전)**:
+# `DRAFT_KEYS`에 있는 동안에는 답에 쓰지 않는다(`finalize(emergency_no_drug=True)`가 아무것도 더하지 않는다 = 지금까지와 같은 답).
+# 승인되면 `DRAFT_KEYS`에서 이름을 빼면 된다. 119 외 연락처·처치·가부 표현 없음(RFP-19-01 A).
+EMERGENCY_ASK_DRUG_NAME = "어떤 약을 먹었는지 약 이름을 알려 주시면 금기 여부를 확인해 드려요."
+
+# 실시간 확인을 하지 못한 사유별 노트(AG-01-10 A). **초안(사용자 승인 전)**: 승인 전에는 화면·모델 입력에 쓰지 않고, 이미 승인된 문구 중
+# 사실과 맞는 것으로 대신한다(`provenance.api_flag_note`: 코드 없음은 `API_FAIL` 문구, 한쪽 실패·잘림은 지금까지의 꼬리표 문구 그대로).
+# 승인되면 `provenance.API_REASON_NOTES_APPROVED`를 True로 바꾼다(그때 이 이름이 `DRAFT_KEYS`에서 빠지고 사유별 문구가 쓰인다).
+# 키(사유 코드)는 화면에 나가지 않는다: NO_API_CODE = 조회용 코드가 없어 묻지 않음, PARTIAL = 쌍의 한쪽 실패, TRUNCATED = 성분이 많아 일부만 물음.
+API_REASON_NOTES = dict(_API_REASON_NOTES)
+
+# 오탈자 보정 고지(AG-10 §2 "OO로 보정하여 검색" 표시, RFP-26-09 A). **원문 승인(AG-10-02 A, 2026-11-17 사용자 "권장대로")**.
+# 보정으로 확정한 약의 결과를 보이는 답에는 이 줄이 항상 함께 나간다(`finalize(name_corrections=...)` → `/chat` 응답 `name_corrections[].text`).
+# 이름 뒤에 조사를 붙이지 않는 꼴이다(오탈자 조각은 받침 판단이 어긋날 수 있다). 가부·안전 표현 없음.
 TYPO_CORRECTED_LINE = "'{input}' → '{name}': 이름이 비슷한 이 약으로 보고 확인했어요. 찾으시는 약이 아니면 약 이름을 다시 알려 주세요."
 
 # 상한 도달 안내(원문 승인, AG-08-09 A): 모델 호출 상한으로 끝났을 때 LLM 요약 없이 코드가 붙인다
