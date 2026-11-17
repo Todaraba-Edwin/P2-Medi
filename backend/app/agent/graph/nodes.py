@@ -30,7 +30,7 @@ from app.agent.graph.state import (
     AgentState,
     restrict_update,
 )
-from app.agent.router import FLAG_USER_CONFIRMED, note_entities, route_input
+from app.agent.router import FLAG_USER_CONFIRMED, corrections_of, note_entities, route_input
 from app.agent.sentence_filter import filter_sentences
 from app.agent.tools.context import ToolContext
 from app.agent.tools.registry import REGISTRY, ToolSpec, invoke
@@ -64,6 +64,9 @@ class GraphDeps:
     tracer: Any = None              # L2 계측(`graph.trace.GraphTracer`). None이면 계측하지 않는다(RFP-34-02)
     grade_def_fn: GradeDefFn | None = None  # 임부금기 등급 정의 원문 공급(BE-06-16 A). None이면 등급 정의 블록을 만들지 않는다
     summary_instruction: str | None = None  # 요약 호출 지시(프롬프트 파일 본문). None이면 코드 상수 `SUMMARY_INSTRUCTION`(기본 묶음 v2)
+    # 오탈자 보정 후 진행(AG-10, RFP-26-09 A). 기본 False = 지금처럼 되묻기. 보정 고지 문구(`TYPO_CORRECTED_LINE`)가 사용자 승인 전이고
+    # `/chat` 응답에 고지를 실을 칸이 없어 서비스 배선(`wiring.build_deps`)은 켜지 않는다. 평가 실행기가 `--typo-correct`로만 켠다.
+    typo_correct: bool = False
 
 
 # --------------------------------------------------------------------------- 보조
@@ -108,11 +111,15 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
     def router(state: AgentState) -> dict[str, Any]:
         confirmed = state.get("confirmed_item_seqs")  # AG-05-03 A: 되묻기에서 고른 약(입력 전용, 평가 경로에는 없다)
         res = route_input(_question_of(state), deps.drug_dict, state.get("profile"),
-                          emergency=bool(state.get("emergency")), guardrail_route=state.get("route"), confirmed_item_seqs=confirmed)
+                          emergency=bool(state.get("emergency")), guardrail_route=state.get("route"), confirmed_item_seqs=confirmed,
+                          typo_correct=deps.typo_correct)
         upd = res.state_update()
         ev: dict[str, Any] = {"rule": "H11", "event": "ROUTER", "branch": res.branch_label, "ambiguous": res.ambiguous, "n_entities": len(res.entities)}
         if confirmed:  # 개수만 남긴다(코드·이름 없음)
             ev["n_confirmed"] = sum(FLAG_USER_CONFIRMED in e.flags for e in res.entities)
+        n_corrected = sum(1 for e in res.entities if e.corrected_from)
+        if n_corrected:  # 개수만 남긴다(이름 없음). 보정 기능이 꺼져 있으면 이 키가 없다
+            ev["n_corrected"] = n_corrected
         upd["events"] = [ev]
         return upd
 
@@ -233,13 +240,17 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         emergency = bool(state.get("emergency"))
         items = state.get("evidence") or []
         clar = state.get("clarify")
+        # 오탈자 보정으로 확정한 약(AG-10): 조회 결과를 보이는 모든 경로(정상·상한·검증 폴백·응급+범위 외)에 고지를 함께 싣는다.
+        # 입구 거절·되묻기는 조회 결과를 보이지 않으므로 싣지 않는다
+        corrections = corrections_of(state.get("entities")) or None
         if state.get("route") == guardrail.ROUTE_REFUSE and not state.get("proceed_tools"):
             resp, why = finalize([], emergency=emergency, refuse_reason=state.get("refuse_reason") or "OUT_OF_SCOPE",
                                  refuse_reasons=state.get("refuse_reasons")), END_REFUSE
         elif state.get("ambiguous") and clar:  # 되묻기 종료: 질문 문장은 라우터가 코드 템플릿으로 만든다
             resp, why = finalize([], model_summary=clar.get("question"), emergency=emergency), END_CLARIFY
         elif state.get("limit_reached"):
-            resp, why = finalize(items, emergency=emergency, limit_reached=True, **finalize_extra(state, items)), END_LIMIT
+            resp, why = finalize(items, emergency=emergency, limit_reached=True, name_corrections=corrections,
+                                 **finalize_extra(state, items)), END_LIMIT
         else:
             sents = [Sentence.model_validate(s) for s in state.get("final_sentences") or []]
             summary = " ".join(s.text for s in sents) or None
@@ -248,7 +259,7 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
             extra = {} if refuse else finalize_extra(state, items)  # 응급+범위 외도 거절 경로라 넘기지 않는다
             resp = finalize(items, model_summary=summary, emergency=emergency, sentences=sents, refuse_reason=refuse,
                             refuse_reasons=state.get("refuse_reasons") if refuse else None,
-                            validation_fallback=fell_back and not refuse, **extra)  # 거절 문구가 있으면 그대로 둔다
+                            validation_fallback=fell_back and not refuse, name_corrections=corrections, **extra)  # 거절 문구가 있으면 그대로 둔다
             why = END_FALLBACK if fell_back else END_NORMAL
         return {"answer": resp, "end_reason": why, "events": [{"rule": "H3", "event": "FINALIZE", "end_reason": why}]}
 

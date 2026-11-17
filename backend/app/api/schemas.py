@@ -560,6 +560,10 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
 
     `clarify`(라우터의 되묻기 묶음 `{target_raw, options[]}`)는 `end_reason == CLARIFY`일 때만 `candidates[]`로 옮긴다.
     """
+    if resp.get("name_corrections"):
+        # 오탈자 보정 고지(AG-10)를 실을 칸이 `chat_response@v1`에 아직 없다(문구 승인·응답 칸은 사용자 결정 몫). 고지가 조용히 빠진 채
+        # 보정한 약의 결과만 나가지 않도록 여기서 멈춘다. 서비스 배선은 보정을 켜지 않으므로 정상 경로에서는 오지 않는다.
+        raise ValueError("오탈자 보정 고지를 실을 응답 칸이 없다: 서비스 경로에서는 보정(typo_correct)을 켜지 않는다")
     detail = [_detail_item(d) for d in resp.get("detail") or [] if isinstance(d, dict)]
     detail_by_id = {d.evidence_id: d for d in detail if d.evidence_id}
     badges_by_id: dict[str, list[Badge]] = {}

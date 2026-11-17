@@ -39,6 +39,7 @@ from app.tools.drug_dict import (
     LookupResult,
     normalize_name,
 )
+from app.tools.name_similarity import similar_names
 
 # --------------------------------------------------------------------------- 상수
 
@@ -80,6 +81,21 @@ FLAG_CODE_NOT_LINKED = "CODE_NOT_LINKED"  # 사전이 KIDS 코드를 붙이지 �
 FLAG_SIMILAR_SHOWN = "SIMILAR_NAMES_SHOWN"  # NOT_FOUND이지만 비슷한 이름 후보를 보여 준다(근거 없음 가능, AG-05-02 A)
 FLAG_SAME_NAME_INGREDIENT = "ALSO_INGREDIENT_NAME"  # 제품명이면서 성분명이기도 함(제품 우선, 사전 노트)
 FLAG_USER_CONFIRMED = "USER_CONFIRMED"  # 되묻기에서 사용자가 고른 품목기준코드로 확정함(AG-05-03 A)
+FLAG_TYPO_CORRECTED = "TYPO_CORRECTED"  # 오탈자 의심 이름을 비슷한 사전 이름 하나로 보정해 확정함(AG-10, RFP-26-09 A). 응답에 보정 고지가 붙는다
+
+# AG-10 오탈자 보정 기준(FR-07, RFP-26-09 A). BE-07 유사 후보(`name_similarity`, 자모 편집 거리 점수 0~1)가 **하나로 뚜렷할 때만** 보정한다.
+#   - `TYPO_CORRECT_MIN_SCORE`: 1위 점수 하한. 0.90 = 자모 10칸에 1칸 이하만 다르다(자모 1칸 차이면 이름이 10자모(약 4음절) 이상, 2칸이면 20자모 이상).
+#     짧은 이름은 한 칸 차이인 다른 약이 흔해 보정하지 않는다(되묻기 유지).
+#   - `TYPO_CORRECT_MIN_GAP`: 1위와 2위의 점수 차 하한. 0.05 = 20자모 이름에서 자모 1칸. 2위가 같은 거리(동점)거나 바짝 붙어 있으면 어느 약인지 모른다.
+#   - 숫자(함량)는 고치지 않는다: 후보는 질문에 적힌 숫자 열과 같은 이름만 본다(`same_numbers`). "…정40/5"를 "…정80/5"로 바꾸지 않는다.
+#   - 보정한 이름을 사전에 **다시 한 번 조회**해 정확·정규화 일치로 제품(또는 성분)이 하나로 확정될 때만 쓴다. 같은 이름의 제품이 여럿이면 되묻기 그대로다.
+# 근거(2026-11-18, AG-04 개발셋만, 시험셋 미열람. 수치는 시험 `backend/tests/test_ag10_typo_devset.py`가 고정): BM25 후보만 있던 엔티티 49개 중
+# 오탈자 변형 14문항의 약 이름은 12개가 자모 1칸 차이(점수 0.90~0.97, 2위와 차 0.055~0.28)이고 12개 모두 짝 문항의 제품으로 보정됐다. 나머지 2개는
+# 음절 순서 바뀜(0.82)·여러 글자 누락(0.74, 1위가 다른 제품)이라 보정하지 않는다. 가상 약(근거 없음) 엔티티의 최고 점수는 0.857(2위와 동점)이라
+# 0.90 미만이고, 오탈자가 아닌 130문항에서 보정된 엔티티는 0개다. 경계(0.90·0.05)가 개발셋 양성의 최솟값과 맞닿아 있어 **소표본 과적합 위험**이 있다
+# (n=14, 값을 올리면 보정이 줄 뿐 오보정은 늘지 않는다). 보정이 일어나지 않으면 지금까지와 똑같이 되묻는다.
+TYPO_CORRECT_MIN_SCORE = 0.90
+TYPO_CORRECT_MIN_GAP = 0.05
 
 # AG-05-03 A(2026-11-17): 되묻기에서 고른 약(요청 `context.confirmed_drugs`의 `item_seq`)으로 엔티티를 확정할 때 다시 볼 사전 후보 수 상한.
 # 되묻기 후보(상위 5개)보다 넓게 보되(같은 조회 문자열의 후보 집합 안에서만 찾는다), 접두·중간 일치가 수백 건인 이름에서 끝없이 넓히지 않는다.
@@ -149,6 +165,7 @@ class Entity(BaseModel):
     n_candidates: int = 0
     code_status: str | None = None  # resolved일 때만: linked | component_only | none
     item_seq: str | None = None  # resolved이고 제품 일치일 때만. 모호하면 None(임의 선택 금지)
+    corrected_from: str | None = None  # 오탈자 보정(AG-10)으로 확정했을 때만: 질문에 적힌 원래 이름 조각. 이때 `raw`는 보정한 사전 이름이다
     flags: list[str] = Field(default_factory=list)
     options: list[ClarifyOption] = Field(default_factory=list)  # 최대 5
 
@@ -655,6 +672,41 @@ def apply_confirmed(dd: DrugDict, e: Entity, seqs: list[str]) -> Entity:
                                     needs_clarification=False, code_status=c.code_status, item_seq=c.item_seq, flags=flags, options=[]))
 
 
+# --------------------------------------------------------------------------- 오탈자 보정(AG-10, FR-07, RFP-26-09 A)
+
+def correct_typo(dd: DrugDict, e: Entity) -> Entity:
+    """이름 일치 없이 BM25 후보만 있던 엔티티(오탈자 의심·점수 높은 모호)를, 비슷한 사전 이름이 **하나로 뚜렷하면** 그 이름으로 확정한다.
+
+    기준은 위 `TYPO_CORRECT_MIN_SCORE`·`TYPO_CORRECT_MIN_GAP` 주석 그대로다. 기준에 못 미치거나 다시 조회한 결과가 하나로 정해지지 않으면
+    엔티티를 그대로 돌려준다(되묻기 유지). 접두·중간 일치(줄여 쓴 이름)는 대상이 아니다(AG-05-01 A: 후보가 하나여도 되묻기).
+    확정한 엔티티는 `raw`가 보정한 사전 이름, `corrected_from`이 원래 조각이고 `TYPO_CORRECTED` 꼬리표가 붙는다. 판정은 하지 않는다."""
+    if e.status == ST_RESOLVED or e.match_type != MATCH_BM25:
+        return e
+    # 2위를 보려고 하한을 (기준 - 간격)으로 낮춰 받는다: 그 아래의 2위는 있어도 간격 기준을 이미 넘는다
+    cands = similar_names(dd, e.raw, top_k=2, min_score=TYPO_CORRECT_MIN_SCORE - TYPO_CORRECT_MIN_GAP, same_numbers=True)
+    if not cands or cands[0].score < TYPO_CORRECT_MIN_SCORE:
+        return e
+    if len(cands) > 1 and cands[0].score - cands[1].score < TYPO_CORRECT_MIN_GAP:
+        return e
+    r = dd.lookup_name(cands[0].key, top_k=MAX_CLARIFY_OPTIONS)  # 보정 이름으로 1회 재검색(사전 조회 계약 그대로: 여럿이면 확정하지 않는다)
+    if not r.resolved or r.match_type not in (MATCH_EXACT, MATCH_NORMALIZED):
+        return e
+    fixed = _entity(r.candidates[0].name, r, e.strength)
+    if fixed.status != ST_RESOLVED:
+        return e
+    return fixed.model_copy(update={"branch": BRANCH_TYPO, "corrected_from": e.raw, "flags": [*fixed.flags, FLAG_TYPO_CORRECTED]})
+
+
+def corrections_of(entities: list[Entity] | list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    """보정으로 확정한 엔티티의 (원래 조각, 보정한 이름) 목록. 응답의 보정 고지(`finalize(name_corrections=...)`)가 쓴다."""
+    out: list[dict[str, str]] = []
+    for e in entities or []:
+        d = e.model_dump() if isinstance(e, BaseModel) else dict(e)
+        if d.get("corrected_from") and d.get("status") == ST_RESOLVED and d.get("raw"):
+            out.append({"input": str(d["corrected_from"]), "name": str(d["raw"])})
+    return out
+
+
 # --------------------------------------------------------------------------- 유형·프로필
 
 # "도 되/돼/될"(허락을 묻는 꼴: "줘도 되나요")과 "먹었"(이미 먹은 뒤 묻는 꼴)은 2026-11-12에 더했다. 잡음 엔티티가 줄면서 약 수(2개 이상이면 금기)에
@@ -760,8 +812,12 @@ def note_entities(entities: list[Entity] | list[dict[str, Any]] | None) -> list[
 # --------------------------------------------------------------------------- 진입점
 
 def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] | None = None, *,
-                emergency: bool = False, guardrail_route: str | None = None, confirmed_item_seqs: Any = None) -> RouterResult:
+                emergency: bool = False, guardrail_route: str | None = None, confirmed_item_seqs: Any = None,
+                typo_correct: bool = False) -> RouterResult:
     """질문 하나를 정리한다. `emergency`·`guardrail_route`는 AG-08이 쓴 값을 읽어 그대로 돌려줄 뿐 결과에 영향이 없다.
+
+    `typo_correct=True`이면 오탈자 의심 엔티티를 `correct_typo`로 보정해 본다(AG-10). 기본값 False는 지금까지와 같은 결과(되묻기)다.
+    보정 고지 문구가 사용자 승인 전(`fixed_phrases.DRAFT_KEYS`)이라 서비스 경로는 켜지 않는다(켜는 곳은 `GraphDeps.typo_correct`).
 
     `confirmed_item_seqs`는 같은 대화의 되묻기에서 사용자가 고른 약의 품목기준코드다(AG-05-03 A, `apply_confirmed`). 비어 있으면 지금과 같다
     (평가 경로는 늘 비어 있다). 값은 상태·이벤트·로그에 그대로 옮기지 않는다(확정된 엔티티의 `item_seq`는 일반 확정과 같은 자리에 들어간다)."""
@@ -775,6 +831,8 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
     for m in mentions:
         used, r, strength = lookup_mention(dd, m)
         e = apply_confirmed(dd, _entity(used, r, strength), seqs)
+        if typo_correct:
+            e = correct_typo(dd, e)
         if e.item_seq and e.status == ST_RESOLVED:  # 같은 제품을 두 번 말한 경우(예: 약어와 정식명)는 한 번만
             if e.item_seq in seen_seq:
                 continue
@@ -793,6 +851,8 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
             label = BRANCH_NO_EVIDENCE  # 후보를 보여 주는 NOT_FOUND만 있는 경우(AG-05-02 A)
     elif any(e.status == ST_NOT_FOUND for e in ents):
         label = BRANCH_NO_EVIDENCE
+    elif any(e.corrected_from for e in ents):
+        label = BRANCH_TYPO  # 오탈자를 보정해 진행한다(되묻기 아님, `ambiguous=False`)
     else:
         label = BRANCH_NORMAL
     n_res = sum(1 for e in ents if e.status == ST_RESOLVED)

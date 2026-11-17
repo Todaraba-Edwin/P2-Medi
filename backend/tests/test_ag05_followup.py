@@ -202,7 +202,9 @@ class TestCopulaEnding:
 
 # =========================================================================== B. 비저장·비로깅
 
-_ALLOWED_IMPORTS = {"__future__", "dataclasses", "re", "typing", "pydantic", "app.tools.drug_dict"}
+# 2026-11-18 AG-10: `app.tools.name_similarity`(BE-07 유사 후보, 순수 계산)를 더했다. 그 모듈도 입출력 import가 없음을
+# `test_be07_name_similarity.py::test_module_has_no_io_imports`가 같은 방식으로 지킨다.
+_ALLOWED_IMPORTS = {"__future__", "dataclasses", "re", "typing", "pydantic", "app.tools.drug_dict", "app.tools.name_similarity"}
 _IO_CALLS = {"open", "print", "exec", "eval", "__import__"}
 _IO_ATTRS = {"write_text", "write_bytes", "write", "getLogger", "connect", "execute", "dump", "urlopen", "Popen", "system"}
 _AUDIT_PREFIXES = ("open", "os.", "socket.", "sqlite3.", "subprocess.", "shutil.", "urllib.", "http.", "ftplib.", "smtplib.")
