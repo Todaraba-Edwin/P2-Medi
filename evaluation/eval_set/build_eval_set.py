@@ -278,7 +278,8 @@ def path(kind: str) -> dict:
     table = {
         "judgment": judge,
         "judgment_m": {**judge, "recommended": ["search_reason", "search_notice"]},
-        "multihop_m": {**judge, "required": ["identify_drug", "check_contraindications", "search_reason", "search_notice"],
+        # AG-04-07 A(2026-11-17): 등급 정의는 코드가 붙이므로(RFP-29-03 A, grade_defs) `search_notice`를 required에서 뺐다
+        "multihop_m": {**judge, "required": ["identify_drug", "check_contraindications", "search_reason"],
                        "recommended": []},
         "multihop_pairs": {**judge, "required": ["identify_drug", "check_contraindications", "search_reason"],
                            "recommended": []},

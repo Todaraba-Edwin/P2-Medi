@@ -258,8 +258,11 @@ def test_offline_fixed_default_output_is_unchanged(tmp_path):
     res = _load(out)
     assert set(res) == {"meta", "metrics", "items"}
     assert res["meta"]["agent"] == "offline-fixed" and res["meta"]["versions"] == {"model": None, "prompt": None, "graph": None, "harness": None, "dict": None}
-    assert set(res["meta"]) == {"runner", "created_utc", "sealed", "repeats", "eval_mode_env", "judge", "patterns", "set", "set_file", "set_sha256",
-                                "manifest_set_version", "manifest_sha256", "match", "set_version", "n_items_run", "condition", "agent", "agent_info", "versions"}
+    # `trajectory_rule`은 RFP-26-08 A(2026-11-17)로 더한 칸: 경로 채점 규칙 버전을 결과에 남긴다(9.6절 동결 확인, 규칙이 바뀐 결과와 섞지 않게)
+    assert set(res["meta"]) == {"runner", "created_utc", "sealed", "repeats", "eval_mode_env", "judge", "patterns", "trajectory_rule", "set", "set_file",
+                                "set_sha256", "manifest_set_version", "manifest_sha256", "match", "set_version", "n_items_run", "condition", "agent",
+                                "agent_info", "versions"}
+    assert res["meta"]["trajectory_rule"] == "traj@v2"
     row = res["items"][0]
     assert set(row) == {"id", "branch_label", "composition_group", "expected_response_type", "pair_of", "reliability_core", "judgment", "elements",
                         "safety", "trajectory", "routing_required_all", "cost", "judge", "run"}
