@@ -30,7 +30,7 @@ from app.agent.graph.state import (
     AgentState,
     restrict_update,
 )
-from app.agent.router import note_entities, route_input
+from app.agent.router import FLAG_USER_CONFIRMED, note_entities, route_input
 from app.agent.sentence_filter import filter_sentences
 from app.agent.tools.context import ToolContext
 from app.agent.tools.registry import REGISTRY, ToolSpec, invoke
@@ -104,10 +104,14 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
                 "injection": g["injection"], "proceed_tools": g["proceed_tools"], "events": ev}
 
     def router(state: AgentState) -> dict[str, Any]:
+        confirmed = state.get("confirmed_item_seqs")  # AG-05-03 A: 되묻기에서 고른 약(입력 전용, 평가 경로에는 없다)
         res = route_input(_question_of(state), deps.drug_dict, state.get("profile"),
-                          emergency=bool(state.get("emergency")), guardrail_route=state.get("route"))
+                          emergency=bool(state.get("emergency")), guardrail_route=state.get("route"), confirmed_item_seqs=confirmed)
         upd = res.state_update()
-        upd["events"] = [{"rule": "H11", "event": "ROUTER", "branch": res.branch_label, "ambiguous": res.ambiguous, "n_entities": len(res.entities)}]
+        ev: dict[str, Any] = {"rule": "H11", "event": "ROUTER", "branch": res.branch_label, "ambiguous": res.ambiguous, "n_entities": len(res.entities)}
+        if confirmed:  # 개수만 남긴다(코드·이름 없음)
+            ev["n_confirmed"] = sum(FLAG_USER_CONFIRMED in e.flags for e in res.entities)
+        upd["events"] = [ev]
         return upd
 
     def model(state: AgentState) -> dict[str, Any]:

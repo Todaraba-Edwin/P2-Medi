@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import replace
 from typing import Any
 
@@ -106,9 +106,10 @@ class LazyGraphRunner:
                     self._base = self._factory(self._settings)
         return self._base
 
-    def updates(self, question: str, profile: dict[str, Any] | None) -> Iterator[NodeUpdate]:
+    def updates(self, question: str, profile: dict[str, Any] | None,
+                confirmed_item_seqs: Sequence[str] = ()) -> Iterator[NodeUpdate]:
         graph = build_graph(request_deps(self._resources()))
-        yield from GraphRunner(lambda: graph).updates(question, profile)
+        yield from GraphRunner(lambda: graph).updates(question, profile, confirmed_item_seqs)
 
 
 def make_service_runner(settings: Any, *, resources_factory: ResourcesFactory | None = None) -> ChatRunner | None:

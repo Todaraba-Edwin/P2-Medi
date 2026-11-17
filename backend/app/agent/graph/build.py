@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -41,14 +42,20 @@ def build_graph(deps: GraphDeps) -> Any:
     return g.compile().with_config({"recursion_limit": RECURSION_LIMIT})
 
 
-def initial_state(question: str, profile: dict[str, Any] | None = None) -> dict[str, Any]:
-    """그래프 시작 상태. `run_question`과 `/chat` 스트림 실행기가 같은 값을 쓴다."""
+def initial_state(question: str, profile: dict[str, Any] | None = None,
+                  confirmed_item_seqs: Sequence[str] | None = None) -> dict[str, Any]:
+    """그래프 시작 상태. `run_question`과 `/chat` 스트림 실행기가 같은 값을 쓴다.
+
+    `confirmed_item_seqs`(AG-05-03 A, 되묻기에서 고른 약의 품목기준코드)가 비어 있으면 키를 두지 않는다(평가 경로와 같은 시작 상태)."""
     init: dict[str, Any] = {"question": question, "call_count": 0, "rewind_count": 0}
     if profile:
         init["profile"] = profile
+    if confirmed_item_seqs:
+        init["confirmed_item_seqs"] = list(confirmed_item_seqs)
     return init
 
 
-def run_question(graph: Any, question: str, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+def run_question(graph: Any, question: str, profile: dict[str, Any] | None = None,
+                 confirmed_item_seqs: Sequence[str] | None = None) -> dict[str, Any]:
     """한 줄 호출. 질문 한 개를 끝까지 흘려 최종 상태를 돌려준다."""
-    return graph.invoke(initial_state(question, profile))  # type: ignore[no-any-return]
+    return graph.invoke(initial_state(question, profile, confirmed_item_seqs))  # type: ignore[no-any-return]

@@ -19,7 +19,7 @@ import asyncio
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from typing import Any, Protocol
 
 from app.agent.graph.trace import harness_events
@@ -67,8 +67,8 @@ def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reaso
         logger.error("chat metrics failed: %s", type(exc).__name__)
 
 
-def _run_in_thread(runner: ChatRunner, question: str, profile: dict[str, Any] | None, loop: asyncio.AbstractEventLoop,
-                   queue: asyncio.Queue[Any], stop: threading.Event) -> None:
+def _run_in_thread(runner: ChatRunner, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Sequence[str],
+                   loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[Any], stop: threading.Event) -> None:
     def put(item: Any) -> None:
         try:
             loop.call_soon_threadsafe(queue.put_nowait, item)
@@ -76,7 +76,7 @@ def _run_in_thread(runner: ChatRunner, question: str, profile: dict[str, Any] | 
             stop.set()
 
     try:
-        for chunk in runner.updates(question, profile):
+        for chunk in runner.updates(question, profile, confirmed_item_seqs):
             if stop.is_set():
                 return
             put(chunk)
@@ -96,8 +96,10 @@ def _tool_stages(update: dict[str, Any]) -> list[str]:
 
 
 async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any] | None,
-                      metrics: MetricsSink | None = None) -> AsyncIterator[AnyEvent]:
-    """질문 하나의 이벤트 스트림. 항상 `done`으로 끝난다(정상이면 `answer` 뒤, 실패면 `error` 뒤)."""
+                      metrics: MetricsSink | None = None, *, confirmed_item_seqs: Sequence[str] = ()) -> AsyncIterator[AnyEvent]:
+    """질문 하나의 이벤트 스트림. 항상 `done`으로 끝난다(정상이면 `answer` 뒤, 실패면 `error` 뒤).
+
+    `confirmed_item_seqs`(되묻기에서 고른 약의 품목기준코드, AG-05-03 A)는 실행기로만 넘기고 지표·로그에 싣지 않는다."""
     started = time.monotonic()
     block_rules: list[str] = []  # 하네스 차단 이벤트의 규칙 ID(내용 없음)
     error_type: str | None = None
@@ -106,7 +108,7 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[Any] = asyncio.Queue()
     stop = threading.Event()
-    threading.Thread(target=_run_in_thread, args=(runner, question, profile, loop, queue, stop), daemon=True, name="chat-graph").start()
+    threading.Thread(target=_run_in_thread, args=(runner, question, profile, tuple(confirmed_item_seqs), loop, queue, stop), daemon=True, name="chat-graph").start()
     final: dict[str, Any] = {}  # 응답 변환에 쓰는 값만 모은다(`answer`·`end_reason`·`clarify`)
     last_stage: str | None = None
     try:
