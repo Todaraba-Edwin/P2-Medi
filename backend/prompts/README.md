@@ -4,21 +4,22 @@
 
 ## 파일 이름·버전
 - 프롬프트 파일은 `<이름>@v<n>.md`다(예: `agent_system@v1.md`, `tool_check_contraindications@v1.md`). 내용을 바꾸면 새 버전 파일(`@v2`)을 만든다. 이미 채택한 파일을 고쳐 쓰지 않는다.
-- 묶음 파일은 `prompt_set@v<n>.yaml`이다. 실행 한 번에 쓰는 프롬프트 파일(`agent_system`·`answer_summary`·`router`·`validator` 등)을 나열한다. 한 묶음에는 같은 이름의 프롬프트를 하나만 둔다.
+- 묶음 파일은 `prompt_set@v<n>.yaml`이다. 실행 한 번에 쓰는 프롬프트 파일(`agent_system`·`answer_summary` 등)을 나열한다. 한 묶음에는 같은 이름의 프롬프트를 하나만 둔다.
 
 ```yaml
-name: prompt_set@v1          # 파일 이름과 같아야 한다
+name: prompt_set@v3          # 파일 이름과 같아야 한다
 prompts:
-  - agent_system@v1
+  - agent_system@v2
   - answer_summary@v1
-  - router@v1
-  - validator@v1
 ```
 
+- 현재 기본 묶음은 `prompt_set@v3`이다(`agent_system@v2` + `answer_summary@v1` adopted, 2026-11-17, `backend/app/agent/graph/wiring.py:25`). 이 폴더의 묶음은 `prompt_set@v1`(`agent_system@v1`만), `@v2`, `@v3` 세 개다.
+- 위 예시에 있던 `router@v1`·`validator@v1`은 파일이 없다(Router·Validator는 코드이고 프롬프트 파일을 쓰지 않는다). 프롬프트 파일을 새로 만들 때만 묶음에 더한다.
+
 ## 로그 필드
-- `prompt_set`: 실행 한 번이 쓴 **묶음 이름**(`prompt_set@v1`). dev·eval·service 모두 기록한다. 버전 문자열일 뿐 내용이 아니라 RFP-34(서비스 모드 내용 없음)와 충돌하지 않는다. 형식이 `prompt_set@v<n>`이 아니면 기록하지 않는다.
+- `prompt_set`: 실행 한 번이 쓴 **묶음 이름**(예: `prompt_set@v3`). dev·eval·service 모두 기록한다. 버전 문자열일 뿐 내용이 아니라 RFP-34(서비스 모드 내용 없음)와 충돌하지 않는다. 형식이 `prompt_set@v<n>`이 아니면 기록하지 않는다.
 - `prompt_version`: 개별 프롬프트 파일 하나(`agent_system@v1`)를 가리키는 기존 필드(dev·eval). 묶음 전체를 대표하는 값은 `prompt_set`이다.
-- 캐시: `cached_openai_call(prompt_files=...)`에는 `app.llm.prompts.resolve_prompt_files("prompt_set@v1")`의 결과를 넘긴다(`llm_cache`가 파일 내용 해시를 키에 넣는다).
+- 캐시: `cached_openai_call(prompt_files=...)`에는 `app.llm.prompts.resolve_prompt_files("prompt_set@v3")`의 결과를 넘긴다(`llm_cache`가 파일 내용 해시를 키에 넣는다).
 
 ## 프런트매터(정적)
 파일 맨 앞 `---` 블록. 필수 칸: `id`(예 `P-AG01-model`), `version`(파일 이름의 `v<n>`과 같게), `ticket`, `model`, `h_rules`(목록), `golden_ids`(**개발셋 ID `dev-nnn`만**), `status`(`draft`|`adopted`).

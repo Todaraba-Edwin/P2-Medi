@@ -12,11 +12,11 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 
 주 사용자는 일반인(비의료인)이고 의료인·약사도 쓸 수 있도록 확장한다. 임산부·영유아·아동·고령자(만성질환 약을 여러 개 복용)가 있는 집에서 응급 상황이나 평소에 상비약·보유 의약품을 먹기 전에 병용·연령·임부 금기와 중복·용량 주의를 스스로 확인하게 해 오남용을 막는 것이 목적이다. 답변은 쉬운 요약을 먼저, 근거 상세는 펼쳐 보게 하며, 복용 여부와 용량은 정해 주지 않는다. 다만 허가사항의 용법용량 안내는 숨기지 않고 근거 상세에 원문 그대로 인용할 수 있다(요약에는 용량 숫자를 쓰지 않고, 사용자에게 맞는 용량을 골라 주지 않는다. RFP-21-03). 전문가 전용 기능은 두지 않는다. 범위는 핵심(병용·연령·임부 금기)을 먼저 끝내고 확장(중복·용량·수유부)은 그다음에 하며, 미달하면 확장부터 줄이되 Agent-RAG 핵심 요소는 줄이지 않는다.
 
-확장(권장)으로 온보딩 프로필(본인 + 가족 구성원 1명까지)이 기획에 들어 있고 이메일 계정(Supabase Auth)으로 서버에 저장한다(PRD-01-05 B). **소셜 로그인(SNS 연동)은 이 프로젝트에서 다루지 않는다**(2026-11-03). DB와 벡터 저장소는 배포 요건상 확장과 상관없이 Supabase(Postgres + pgvector)로 정했다(RFP-15-03). 2026-11-02에는 무료 플랜으로 정했으나 근거 코퍼스 용량 추정(약 970MB)이 무료 한도(500MB)를 넘어 **2026-11-11 사용자 결정 BE-05-03 D로 Pro 플랜(월 $25, 프로젝트당 디스크 8GB)으로 올렸다.** 프로필은 사용자가 동의한 최소 항목만 저장하고 질문·대화 내용은 저장하지 않으며, 응급 상황을 위해 로그인 없이(게스트) 핵심 기능을 쓸 수 있어야 한다. 이 확장은 Agent-RAG 핵심이 먼저 끝난 뒤에만 하고, 미달 시 **사진·음성 입력(FR-11) 다음으로 먼저** 줄인다(RFP 4장 축소 순서: 사진·음성 입력 → 프로필 저장 → 오탈자 보정 → …).
+확장(권장)으로 온보딩 프로필(본인 + 가족 구성원 1명까지)이 기획에 들어 있고 이메일 계정(Supabase Auth)으로 서버에 저장한다(PRD-01-05 B). **소셜 로그인(SNS 연동)은 이 프로젝트에서 다루지 않는다**(2026-11-03). DB와 벡터 저장소는 배포 요건상 확장과 상관없이 Supabase(Postgres + pgvector)로 정했다(RFP-15-03). 2026-11-02에는 무료 플랜으로 정했으나 근거 코퍼스 용량 추정(약 970MB)이 무료 한도(500MB)를 넘어 **2026-11-11 사용자 결정 BE-05-03 D로 Pro 플랜(월 $25, 프로젝트당 디스크 8GB)으로 올렸다.** **서비스가 실행 중에 읽는 데이터는 DB를 원칙으로 한다**(2026-11-17 BE-06-24 B 사용자 방침 "DB에 여유가 있으니, 데이터는 DB를 원칙으로 수렴"): 판정 테이블·근거 코퍼스·약품명 사전 모두 Supabase에서 읽고, `data/`의 로컬 파일은 개발·평가용이다. 프로필은 사용자가 동의한 최소 항목만 저장하고 질문·대화 내용은 저장하지 않으며, 응급 상황을 위해 로그인 없이(게스트) 핵심 기능을 쓸 수 있어야 한다. 이 확장은 Agent-RAG 핵심이 먼저 끝난 뒤에만 하고, 미달 시 **사진·음성 입력(FR-11) 다음으로 먼저** 줄인다(RFP 4장 축소 순서: 사진·음성 입력 → 프로필 저장 → 오탈자 보정 → …).
 
 에이전트 하네스 원칙: 책임을 지지 않는 대신 모든 답변에 근거를 달고, 금기가 조회되지 않아도 안전하다고 말하지 않으며, 근처 약국·약사에게 확인하도록 안내한다. 응급 키워드가 있으면 119 안내를 맨 위에 두되 금기 조회는 막지 않는다. 이런 고정 문구는 프롬프트가 아니라 코드로 강제한다. 규칙마다 Guide(프롬프트·지침, 확률적)와 Sensor(코드 검사·judge, 결과를 보고 알림)를 짝지은 매트릭스는 `tickets/doc/RFP-29.md` §6에 있다.
 
-구현 방향(2026-11-02): Agent-RAG이므로 **ReAct 에이전트가 중심**이다(Reflexion은 3주 이후 확장·비교로 미룬다). 프로젝트는 **LangGraph**로 구성한다(LangChain 패키지는 노드 안의 모델·도구 부품으로만 쓴다). 기준선은 가장 단순한 ReAct 그래프와 도구로 만들고, 실패를 관찰한 뒤 노드·분기를 더해 개선한다(기준선은 처음부터 ReAct 그래프, RFP-22-03. 노드 구성은 RFP-23-01에서 정하며 `model ⇄ tools` 두 노드보다 늘어난다). LLM은 OpenAI 계열, 평가 judge는 Claude Sonnet 5.5다(RFP 8.2절, `tickets/doc/RFP-22.md`). **평가 기준의 원본은 `P2-doc/PJ2-RFP.md` 9장**(지표 정의·평가 세트·소표본 대응·비교 조건)이며, 개발은 이 정의에 맞춘다(5장 평가 기준 유지 규칙).
+구현 방향(2026-11-02): Agent-RAG이므로 **ReAct 에이전트가 중심**이다(Reflexion은 3주 이후 확장·비교로 미룬다). 프로젝트는 **LangGraph**로 구성한다(LangChain 패키지는 노드 안의 모델·도구 부품으로만 쓴다). 기준선은 가장 단순한 ReAct 그래프와 도구로 만들고, 실패를 관찰한 뒤 노드·분기를 더해 개선한다(기준선은 처음부터 ReAct 그래프, RFP-22-03. 노드 구성은 RFP-23-01로 6노드 `guardrail_in → router → model ⇄ tools → validator → finalize`로 정했다. 에이전트 필요성 비교의 대조군 C1 고정 파이프라인은 AG-16이 같은 노드를 재사용해 만든다). LLM은 OpenAI 계열, 평가 judge는 Claude Sonnet 5.5다(RFP 8.2절, `tickets/doc/RFP-22.md`). **평가 기준의 원본은 `P2-doc/PJ2-RFP.md` 9장**(지표 정의·평가 세트·소표본 대응·비교 조건)이며, 개발은 이 정의에 맞춘다(5장 평가 기준 유지 규칙).
 
 방향성과 단계는 RFP(`P2-doc/PJ2-RFP.md`)의 3주 일정과 주차별 완료 기준을 따른다. 주차 완료 기준에 미달하면 다음 주 범위를 줄인다.
 
@@ -202,13 +202,18 @@ P2-Medi/
 ├── backend/            런타임 서버 (FastAPI)                                (커밋)
 │   ├── app/{api,db,tools,agent}/   BE 티켓(api·db·tools), AG 티켓(agent)
 │   ├── app/{logging,llm,security}/ BE-15: 로깅 L1, LLM 캐시·비용 원장, 비밀값 비노출 가드(BE-15-02 A, 2026-11-10)
-│   ├── prompts/                    프롬프트 파일 `<ID>@vN.md`(PRD-16-01 A, 첫 파일은 AG-01 기준선)
+│   ├── app/agent/pipeline/         AG-16 C1 고정 파이프라인(ReAct 그래프 노드 재사용, 2026-11-17)
+│   ├── prompts/                    프롬프트 파일 `<ID>@vN.md`(PRD-16-01 A). 기본 묶음 `prompt_set@v3` = `agent_system@v2` + `answer_summary@v1`(2026-11-17 채택)
+│   ├── scripts/                    적재·수집·원격 점검 스크립트. 원격 쓰기(`be16_remote_migrate.py`·`rfp04_year_backfill.py`·`be06_dict_load.py` 등)는 `--yes`와 승인 flag(`data/mock/review/*.flag`, 메인이 실행 직전에 만들고 직후 삭제)가 모두 있어야 돈다. `dev_fake_server.py`는 가짜 자원 개발 서버(127.0.0.1)
 │   ├── scripts/api_probe/          공공 API 응답 확인·fixture 수집
 │   └── tests/                      pytest, tests/fixtures/api 응답 스냅샷
 ├── evaluation/         평가 코드와 mock 생성기                              (커밋)
+│   ├── eval_runner.py, eval_metrics.py, sealed_guard.py   평가 러너(L2·L3, 경로 채점 traj@v2)·지표·시험셋 가드
+│   ├── eval_set/       개발셋·manifest(시험셋 *.SEALED.jsonl은 로컬 전용). 세트는 고정, 빌더 재실행 금지, 수정은 fix_*.py로만
+│   ├── judge_calib/    AG-12 judge 보정 40문항 선택·라벨 시트·일치율(LLM 호출 0)
 │   ├── mock_gen/       W1 개발용 mock 생성 스크립트 (비용 상한 20 USD, RFP-31)
 │   └── credit_use/     평가 후보 풀 생성 스크립트
-├── frontend/           프런트 (Next.js + TypeScript, 2026-11-12 사용자 결정). 아직 없음 (커밋)
+├── frontend/           프런트 (Next.js + TypeScript + pnpm, 2026-11-12 사용자 결정, FE-IMPL-00~07 구현) (커밋)
 ├── scripts/            거버넌스 도구: check_schedule.py, ambiguity_audit.py,
 │                       make_report_pdf.py, pdf_to_text.swift                (커밋)
 ├── data/               내려받은 원본 데이터                                  (로컬 전용)
@@ -218,7 +223,7 @@ P2-Medi/
 ```
 
 - **성격 구분**: `scripts/`는 일정·문서·PDF를 다루는 **거버넌스 도구**만 둔다. 서비스가 도는 코드는 `backend/`(런타임), 측정·평가·mock 생성은 `evaluation/`, 화면은 `frontend/`에 둔다.
-- **코드 위치 규칙**: `backend/app/agent` = AG 티켓(그래프·노드·Router·Validator·Guardrail), `backend/app/{api,db,tools}` = BE 티켓(엔드포인트·DB·공공 API 도구), `backend/app/{logging,llm,security}`·`backend/prompts` = BE-15 개발 하네스(로깅·캐시·원장·비밀값 가드·프롬프트 파일), `evaluation/` = 평가·mock 생성(AG-04·AG-11~14·BE-08 계열), `frontend/` = FE 티켓.
+- **코드 위치 규칙**: `backend/app/agent` = AG 티켓(그래프·노드·Router·Validator·Guardrail, `pipeline/`은 AG-16 C1), `backend/app/{api,db,tools}` = BE 티켓(엔드포인트·DB·공공 API 도구), `backend/app/{logging,llm,security}`·`backend/prompts` = BE-15 개발 하네스(로깅·캐시·원장·비밀값 가드·프롬프트 파일), `evaluation/` = 평가·mock 생성(AG-04·AG-11~14·BE-08 계열), `frontend/` = FE 티켓.
 - **로컬 전용(`.gitignore` 대상)**: `data/`(원본 데이터와 `data/mock/`), `P2-doc/report/`, `logs/`, `tickets/issues/`, `evaluation/eval_set/*.SEALED.jsonl`(시험셋 파일, 개선 중 열람 금지이므로 저장소에 올리지 않고 `manifest.json`의 sha256만 커밋, 2026-11-10 사용자 결정). `.env`와 함께 커밋하지 않는다. `.gitignore` 수정은 `git-actor`가 한다.
 - **`tickets/issues/`(화면 이슈 이미지)는 로컬 전용이다**(2026-11-09 사용자 결정, 이유: git 용량 때문에 이미지 파일을 제어). PNG는 로컬에 남기고(2026-11-09 15개 약 4.9MB, 이후 이슈가 생길 때마다 늘어남) 추적을 해제하며 `.gitignore` 추가는 `git-actor`가 한다. 티켓(PRD-09~PRD-15)의 `tickets/issues/ISSUE-nnn.png` 링크는 로컬 전용 파일이라 저장소에서 클론하면 열리지 않는다. 디자인 세션 등에 공유할 때는 로컬 파일을 첨부한다.
 - 새 폴더를 만들거나 위 규칙과 다른 곳에 코드를 두려면 먼저 결정 번호를 올린다.
