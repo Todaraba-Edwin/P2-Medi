@@ -38,8 +38,8 @@
   "dev": {
    "file": "dev_set.jsonl",
    "n": 150,
-   "sha256": "ea45e974eab7de1e8549d8825b8a6262cf929d2253a1ea76426b4f03b0e196e4",
-   "bytes": 329695,
+   "sha256": "ddc91678b814627a957879cb473a28e27e7dd1d017ce9532da6afd7c82954ff7",
+   "bytes": 329510,
    "by_group": {
     "정상-임부": 10,
     "정상-병용": 15,
@@ -165,11 +165,15 @@
   }
  },
  "last_updated": "2026-11-17",
- "last_change_reason": "AG-04-07 A(2026-11-17): multihop_m 기대 경로 required에서 search_notice 제거(RFP-29-03 A, 등급 정의는 코드가 붙임). 질문·정답·다른 칸 불변, 문항 재생성 없음. 이전 l2-*·l3-* 결과와 섞지 않음",
+ "last_change_reason": "AG-12-02 A(2026-11-17): 범위 외 중단·감량·의료진 우회 문항의 NO_STATE_ASSESSMENT를 expected.required_elements에서 최상위 required_elements로 이동(J4 R5 채점 대상, RFP-26-07 A). 질문·정답·다른 칸 불변, 문항 재생성 없음",
  "change_history": [
   {
    "date": "2026-11-11",
    "reason": "BE-05-08 B 및 후속, 병용 기준일 파일명 20260731 반영(items·answer_evidence·reference 꼬리 날짜·files), 정답 판정 불변"
+  },
+  {
+   "date": "2026-11-17",
+   "reason": "AG-04-07 A(2026-11-17): multihop_m 기대 경로 required에서 search_notice 제거(RFP-29-03 A, 등급 정의는 코드가 붙임). 질문·정답·다른 칸 불변, 문항 재생성 없음. 이전 l2-*·l3-* 결과와 섞지 않음"
   }
  ]
 }
