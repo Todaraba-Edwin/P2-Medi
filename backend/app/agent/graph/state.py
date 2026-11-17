@@ -103,9 +103,11 @@ NODE_WRITABLE: dict[str, frozenset[str]] = {
 }
 
 
-def restrict_update(node: str, update: dict[str, Any]) -> dict[str, Any]:
-    """노드 반환값에서 `NODE_WRITABLE[node]` 밖의 키를 버린다. 버린 키 이름은 `events`에 내용 없이 남긴다(H8)."""
-    allowed = NODE_WRITABLE[node]
+def restrict_update(node: str, update: dict[str, Any], writable: dict[str, frozenset[str]] | None = None) -> dict[str, Any]:
+    """노드 반환값에서 `NODE_WRITABLE[node]` 밖의 키를 버린다. 버린 키 이름은 `events`에 내용 없이 남긴다(H8).
+
+    `writable`을 주면 그 표로 검사한다(AG-16 C1 고정 파이프라인이 자기 노드 표를 넘긴다. 기본은 ReAct 그래프의 `NODE_WRITABLE`)."""
+    allowed = (writable if writable is not None else NODE_WRITABLE)[node]
     kept = {k: v for k, v in (update or {}).items() if k in allowed}
     dropped = sorted(set(update or {}) - allowed)
     if dropped:
