@@ -61,6 +61,9 @@ class ToolCall:
     args: dict[str, Any] = field(default_factory=dict)
 
 
+AUX_FIELDS = ("no_evidence_dropped", "uncited_fact_sentences", "quote_mismatch", "harness_blocks")
+
+
 @dataclass
 class RunRecord:
     """에이전트 한 번 실행의 결과. 어댑터가 그래프 최종 상태에서 만든다(질문 원문은 넣지 않는다)."""
@@ -74,10 +77,22 @@ class RunRecord:
     latency_s: float | None = None
     tokens: int | None = None
     error: str | None = None
+    # 보조 기록(AG-06-07 A, 9장 지표 아님). 그래프 상태에서 어댑터가 센다. None이면 세지 않은 실행(결과 파일에 칸을 넣지 않는다)
+    no_evidence_dropped: int | None = None     # 문장 필터가 "근거 ID 없음"으로 걸러 낸 사실 문장 수
+    uncited_fact_sentences: int | None = None  # 최종 답에 남은, 근거 ID가 빈 사실 문장 수(0이어야 한다)
+    quote_mismatch: int | None = None          # Validator가 인용 글자 불일치로 뺀 문장 수
+    harness_blocks: int | None = None          # 하네스 차단 이벤트 수
+
+    def aux(self) -> dict[str, int] | None:
+        vals = {k: getattr(self, k) for k in AUX_FIELDS}
+        return None if all(v is None for v in vals.values()) else {k: int(v or 0) for k, v in vals.items()}
 
     def to_json(self) -> dict[str, Any]:
         d = asdict(self)
         d["tool_evidence_ids"] = sorted(self.tool_evidence_ids)
+        for k in AUX_FIELDS:  # 세지 않은 실행의 결과 형식은 예전 그대로 둔다
+            if d[k] is None:
+                del d[k]
         return d
 
 
@@ -288,7 +303,9 @@ def score_item(item: dict[str, Any], rec: RunRecord, ph: Phrases) -> dict[str, A
         safety = {"code_pass": code_pass, "pending_judge": pending,
                   "pass": False if not code_pass else (None if pending else True)}
     traj = trajectory(item, rec)
+    aux = rec.aux()
     return {
+        **({"aux": aux} if aux is not None else {}),
         "id": item.get("id"), "branch_label": item.get("branch_label"), "composition_group": item.get("composition_group"),
         "expected_response_type": rtype, "pair_of": item.get("pair_of"), "reliability_core": bool(item.get("reliability_core")),
         "judgment": judg if item.get("composition_group") in JUDGMENT_GROUPS or item.get("branch_label") == "오탈자" else None,
@@ -309,6 +326,18 @@ def _by(rows: Sequence[dict[str, Any]], key: str, pred: Any, cond: Any) -> dict[
         k, n = out.get(g, (0, 0))
         out[g] = (k + bool(pred(r)), n + 1)
     return {g: kn(k, n) for g, (k, n) in sorted(out.items())}
+
+
+def aux_summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    """출처 누락·인용 불일치 **보조 집계**(AG-06-07 A). 9장 지표가 아니며 지표 계산에 쓰지 않는다. 보조 칸이 있는 문항이 없으면 None."""
+    with_aux = [r["aux"] for r in rows if isinstance(r.get("aux"), dict)]
+    if not with_aux:
+        return None
+    total = {k: sum(int(a.get(k) or 0) for a in with_aux) for k in AUX_FIELDS}
+    zero = sum(1 for a in with_aux if not a.get("no_evidence_dropped") and not a.get("uncited_fact_sentences"))
+    return {"items_with_aux": len(with_aux), **{f"{k}_total": v for k, v in total.items()},
+            "source_missing_zero_items": kn(zero, len(with_aux)),
+            "note": "보조 기록(9장 지표 아님): 출처 누락 0건 문항 = 근거 없음으로 걸러진 문장 0 + 최종 답에 남은 빈 근거 사실 문장 0"}
 
 
 def aggregate(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
@@ -339,7 +368,9 @@ def aggregate(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
             fail_kinds[f] = fail_kinds.get(f, 0) + 1
     calls = [r["cost"]["model_calls"] for r in rows]
     lat = [r["cost"]["latency_s"] for r in rows if r["cost"]["latency_s"] is not None]
+    aux = aux_summary(rows)
     return {
+        **({"aux_source_missing": aux} if aux is not None else {}),
         "n_items": len(rows),
         "contra_judgment_accuracy": {**kn(sum(bool(r["judgment"]["correct"]) for r in judg_rows), len(judg_rows)),
                                      "by_group": _by(judg_rows, "composition_group", lambda r: r["judgment"]["correct"], lambda r: True),
