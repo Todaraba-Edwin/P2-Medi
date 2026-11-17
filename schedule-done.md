@@ -23,6 +23,7 @@
 
 ## 종결 기록 (결정과 종결, 최신이 위)
 
+- **RFP-26-08 A·RFP-26-09 A·AG-04-07 A(2026-11-17, 사용자 "RFP-26-08·09, AG-04-07 권장대로", 근거 로컬 보고 `data/mock/briefs/reports/l3-pathfail-rca.md`)**: AG-06 L2·L3 경로 Fail(dev150 Fail 아님 15/150, `identify_drug`를 빼면 124/150)의 주원인은 기대 경로 스키마(11-10 `31c1933`)가 Router 코드 식별 설계(11-11 `4b0bbae`)보다 먼저 고정된 것이다. ① RFP-26-08 A: 채점기에서 `identify_drug` 호출 또는 Router RESOLVED·되묻기를 식별 충족으로 인정하고 order는 "판정 인자 `item_seq`가 식별 결과 안에 있는가"로 바꾼다(세트 파일·시험셋 불변) ② RFP-26-09 A: 오탈자 되묻기는 9.3절대로 Fail 유지, FR-07 보정은 AG-10 코드로 ③ AG-04-07 A: `multihop_m` `search_notice` required 제거와 개발셋 재생성(시험셋은 열람 없이 스크립트로만). 이행은 L3 goal 종료 뒤이고 미체크 하위 작업으로 남아 있다. 사전 고정 원칙(RFP-23 §5.1): 9장에 이유·날짜를 남기고 기존 `l2-*`·`l3-*` 결과와 섞지 않는다.
 - **AG-06-08~10 모두 A(2026-11-17, 사용자 "권장대로")**: ① AG-06-08 A L2 비용은 비용 원장의 평가(eval) 몫으로 쌓고 실행마다 `--max-usd` 상한, L2 누적은 결과 파일 `cost_usd`로 본다(코드 변경 없음). ② AG-06-09 A 문항 오류가 3건 연속 나면 실행을 멈춘다(`evaluation/eval_runner.py`에 연속 오류 중단 코드가 아직 없어 [AG-06 §3](tickets/agent/AG-06.md#3-하위-작업)에 구현 항목을 올림, L3 실행 전). ③ AG-06-10 A 버전 표기는 AG-11 전까지 원문 해시(`code_versions`)를 유지하고 측정 시작 전 다시 정한다. AG-06은 L3(Recap 23)·채택이 남아 done이 아니다. 원본은 [AG-06 §6](tickets/agent/AG-06.md#6-결정-현황).
 - **BE-16-11 A(2026-11-17, 사용자 "BE-16-11-A 결정", 근거 로컬 보고 `data/mock/briefs/reports/be16-worker.md` ## 3차, 이행 커밋 `2561814`·병합 `318ff05`)**: 원문에 일(DD)이 없는 심평원 기준일 2026.6은 DB `as_of`(DATE)·`AS_OF_HIRA`(2026-06-01)를 그대로 두고 표시 단계(`backend/app/tools/provenance.py` `display_as_of`·`lookup.py`·`backend/app/api/schemas.py` 출처 표)에서 `2026-06`으로 낸다(FOUND·NOT_LISTED 동일, 다른 자료 불변, 시험 `backend/tests/test_be16_month_as_of.py` 13건). 원격 변경 없음. BE-06 §3 `AS_OF_HIRA` 정정 후속은 이 방식으로 해소(상수는 적재용으로 유지). BE-16은 원격 읽기·연도 보충 승인(Recap 22)이 남아 done 아님. 원본 [BE-16 §6](tickets/backend/BE-16.md#6-결정-현황).
 - **BE-16-08 A·09 B·10 A와 RFP-04-01 A·02 A·03 A, RFP-04 done(2026-11-17, 사용자 "권고를 따름", 근거 로컬 보고 `data/mock/briefs/reports/be16-worker.md`·`rfp04-worker.md`, BE-16 커밋 `5c1a162`·`830a72d`·병합 `e55c400`, RFP-04 커밋 `2477370`·`5bf5de9`·병합 `5d8c0a6`, 병합 뒤 pytest 2280 passed·2 xfailed·실패 2건은 worktree에 `data/` 없음, ruff 0)**: ① BE-16-08 A 행 날짜 화면 라벨은 `고시일`로 통일(동작 유지, 원본 열 이름은 근거 상세에 남지 않음) ② BE-16-09 B 약한 필터 `ef_search` 100 ③ BE-16-10 A `EF_SEARCH` 경로별 분리를 지금 이행(무필터 40·필터 100, 앱 부분 완료, 원격 EXPLAIN·`iterative_scan`·스모크 재측정은 승인 대기) ④ RFP-04-01 A `ChunkFilter`에 연도·부처 필터 추가(구현 완료, `year` 빈 칸 30,744행 보충은 [BE-16 §3](tickets/backend/BE-16.md#3-하위-작업) 후속) ⑤ RFP-04-02 A "행 + 표 제목·열 이름 반복"이 FR-03 마크다운 보존을 충족(근거 `P2-doc/PJ2-DUR-RAG-근거설계.md:97` 결정 12) ⑥ RFP-04-03 A [AG-05 §5](tickets/agent/AG-05.md#5-메모) trace 시험 간헐 실패 제거(30회 반복 실패 4 → 0). **RFP-04 §2·§3 전부 체크, done**(원본 [RFP-04 §6](tickets/doc/RFP-04.md#6-결정-현황)). BE-16은 done 아님(BE-16-11 대기, 원격 확인·연도 보충 승인 대기). 사용자 원칙 재확인: 원문에 일(DD)이 없는 날짜는 원문대로(BE-06-08 A) → 구현 방식은 BE-16-11로 올림.
@@ -182,6 +183,7 @@
 
 ## 결정 번호 전체 목록 (답한 결정)
 
+RFP-26-08 A·09 A, AG-04-07 A(2026-11-17, 사용자 "RFP-26-08·09, AG-04-07 권장대로"),
 BE-16-11 A(2026-11-17, 사용자 "BE-16-11-A 결정"),
 BE-16-08 A·09 B·10 A, RFP-04-01 A·02 A·03 A(2026-11-17, 사용자 "권고를 따름"),
 AG-06-04 A·05 A·06 A·07 A(2026-11-17, 사용자 "권고를 따름"), AG-06-08 A·09 A·10 A(2026-11-17, 사용자 "권장대로"),
