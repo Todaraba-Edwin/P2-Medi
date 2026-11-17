@@ -147,12 +147,16 @@ def test_graph_agent_runs_only_the_20_dev_golden_items_and_fills_versions(tmp_pa
     assert res["meta"]["subset"] == "dev_golden" and res["meta"]["agent"] == "graph" and res["meta"]["eval_mode_env"] == "1"
     v = res["meta"]["versions"]
     assert v["model"] == {"agent": "gpt-6-luna", "summary": "gpt-6-luna"}
-    assert v["prompt"]["set"] == "prompt_set@v2" and [f["ref"] for f in v["prompt"]["files"]] == ["agent_system@v2"]
-    f0 = v["prompt"]["files"][0]
+    # 기본 묶음은 서비스와 같은 `wiring.DEFAULT_PROMPT_SET`(2026-11-17부터 v3 = agent_system@v2 + answer_summary@v1, 둘 다 adopted)
+    assert wiring.DEFAULT_PROMPT_SET == "prompt_set@v3" and res["meta"]["prompt_set"] == "prompt_set@v3"
+    assert v["prompt"]["set"] == "prompt_set@v3" and [f["ref"] for f in v["prompt"]["files"]] == ["agent_system@v2", "answer_summary@v1"]
+    f0, f1 = v["prompt"]["files"]
     assert f0["id"] == "P-AG01-model" and f0["version"] == "v2" and f0["status"] == "adopted" and len(f0["sha256"]) == 64
+    assert f1["id"] == "P-AG06-summary" and f1["version"] == "v1" and f1["status"] == "adopted" and len(f1["sha256"]) == 64
     assert v["graph"] and v["harness"] and v["dict"]["version"] == "golden-synth-v1"
     assert res["judge"] is None and all(r["judge"] is None for r in res["items"])  # judge는 이번 L2에 붙이지 않는다
-    assert fac.calls == [{"prompt_set": "prompt_set@v2", "allow_draft": False, "run_id": fac.calls[0]["run_id"]}]
+    assert fac.calls == [{"prompt_set": "prompt_set@v3", "allow_draft": False, "run_id": fac.calls[0]["run_id"]}]
+    assert fac.calls[0]["run_id"].startswith("l2-prompt_set-v3-")
     printed = capsys.readouterr().out
     assert "20" in printed and all(SECRET not in s for s in (printed, out.read_text(encoding="utf-8")))
     # 개발셋 질문 문장은 결과 파일에 들어가지 않는다(실행 기록에는 질문 원문을 넣지 않는다)
@@ -190,19 +194,70 @@ def test_trace_carries_the_prompt_set_name(tmp_path):
     assert {r.get("item_id") for r in recs} == {"syn-000", "syn-001"} and {r.get("condition") for r in recs} == {"C2"}
 
 
-def test_v3_needs_allow_draft_and_uses_summary_file_when_allowed(tmp_path):
+def test_v3_runs_without_allow_draft_and_uses_summary_file(tmp_path):
+    """v3 채택(2026-11-17): `--allow-draft` 없이 돌고 결과 meta의 프롬프트 파일 상태가 adopted, 요약 호출에 파일 본문이 들어간다."""
     base = ["--set", str(_synth_set(tmp_path, 1)), "--agent", "graph", "--prompt-set", "prompt_set@v3", "--max-usd", "1"]
+    fac = FakeFactory(script=_pair_script(), drafts=[PAIR_DRAFT])
+    assert _main([*base, "--out", str(tmp_path / "v3.json")], fac) == 0
+    res = _load(tmp_path / "v3.json")
+    files = res["meta"]["versions"]["prompt"]["files"]
+    assert [f["ref"] for f in files] == ["agent_system@v2", "answer_summary@v1"] and files[1]["status"] == "adopted"
+    assert fac.calls[0]["allow_draft"] is False
+    _, body = lp.split_frontmatter((lp.PROMPTS_DIR / "answer_summary@v1.md").read_text(encoding="utf-8"))
+    assert fac.summary is not None and fac.summary.seen and fac.summary.seen[0].endswith(body.strip())
+
+
+def test_explicit_v2_changes_result_meta_prompt_version(tmp_path):
+    """이전 v2 결과와 섞이지 않도록 `--prompt-set prompt_set@v2`를 명시하면 meta의 묶음·파일 목록·run_id가 v2로 바뀐다."""
+    fac = FakeFactory(script=_pair_script(), drafts=[PAIR_DRAFT])
+    args = ["--set", str(_synth_set(tmp_path, 1)), "--agent", "graph", "--prompt-set", "prompt_set@v2", "--max-usd", "1",
+            "--out", str(tmp_path / "v2.json")]
+    assert _main(args, fac) == 0
+    res = _load(tmp_path / "v2.json")
+    assert res["meta"]["prompt_set"] == "prompt_set@v2" and res["meta"]["versions"]["prompt"]["set"] == "prompt_set@v2"
+    assert [f["ref"] for f in res["meta"]["versions"]["prompt"]["files"]] == ["agent_system@v2"]
+    assert fac.calls[0]["prompt_set"] == "prompt_set@v2" and fac.calls[0]["run_id"].startswith("l2-prompt_set-v2-")
+    assert {r.get("prompt_set") for r in fac.sink.records} == {"prompt_set@v2"}
+
+
+DRAFT_SET = "prompt_set@v9"
+
+
+def _draft_prompts_dir(tmp_path: Path) -> Path:
+    """저장소 프롬프트 사본 + draft 요약 프롬프트가 든 tmp 묶음(저장소에는 draft 묶음이 없다)."""
+    import shutil
+
+    d = tmp_path / "prompts"
+    d.mkdir()
+    shutil.copy(lp.PROMPTS_DIR / "agent_system@v2.md", d / "agent_system@v2.md")
+    (d / "answer_summary@v9.md").write_text(
+        "---\nid: P-TEST-summary\nversion: v9\nticket: AG-06\nmodel: gpt-6-luna\nh_rules: [H1]\ngolden_ids: [dev-012]\nstatus: draft\n---\n"
+        "시험용 draft 요약 지시(합성)\n", encoding="utf-8")
+    (d / f"{DRAFT_SET}.yaml").write_text(f"name: {DRAFT_SET}\nprompts:\n  - agent_system@v2\n  - answer_summary@v9\n", encoding="utf-8")
+    return d
+
+
+def test_draft_set_still_needs_allow_draft_on_cli(tmp_path, monkeypatch):
+    """draft 규칙은 그대로다: draft 프롬프트가 든 묶음은 `--allow-draft` 없이는 자원을 만들기 전에 멈춘다(PRD-16-03)."""
+    import functools
+
+    from app.agent.graph import prompt as gp
+
+    d = _draft_prompts_dir(tmp_path)
+    monkeypatch.setattr(lp, "PROMPTS_DIR", d)
+    patched = functools.partial(gp.load_summary_instruction, prompts_dir=d)
+    monkeypatch.setattr(gp, "load_summary_instruction", patched)
+    monkeypatch.setattr(wiring, "load_summary_instruction", patched)
+    base = ["--set", str(_synth_set(tmp_path, 1)), "--agent", "graph", "--prompt-set", DRAFT_SET, "--max-usd", "1"]
     fac = FakeFactory()
     with pytest.raises(DraftPromptError):
         _main([*base, "--out", str(tmp_path / "x.json")], fac)
     assert fac.calls == [] and not (tmp_path / "x.json").exists()  # 자원을 만들기 전에 멈춘다
     fac = FakeFactory(script=_pair_script(), drafts=[PAIR_DRAFT])
-    assert _main([*base, "--allow-draft", "--out", str(tmp_path / "v3.json")], fac) == 0
-    res = _load(tmp_path / "v3.json")
-    files = res["meta"]["versions"]["prompt"]["files"]
-    assert [f["ref"] for f in files] == ["agent_system@v2", "answer_summary@v1"] and files[1]["status"] == "draft"
-    _, body = lp.split_frontmatter((lp.PROMPTS_DIR / "answer_summary@v1.md").read_text(encoding="utf-8"))
-    assert fac.summary is not None and fac.summary.seen and fac.summary.seen[0].endswith(body.strip())
+    assert _main([*base, "--allow-draft", "--out", str(tmp_path / "v9.json")], fac) == 0
+    files = _load(tmp_path / "v9.json")["meta"]["versions"]["prompt"]["files"]
+    assert [f["ref"] for f in files] == ["agent_system@v2", "answer_summary@v9"] and files[1]["status"] == "draft"
+    assert fac.summary is not None and fac.summary.seen[0].endswith("시험용 draft 요약 지시(합성)")
 
 
 def test_system_prompt_mismatch_stops_before_start(tmp_path, monkeypatch):

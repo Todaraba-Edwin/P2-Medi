@@ -4,7 +4,8 @@
   평가 모드 판단: `MEDIAGENT_MODE=eval` 또는 `MEDIAGENT_EVAL=1`. 평가 모드에서는 클라이언트를 **만들지도 않는다**(호출 0을 구조로 보장).
 - 주소·키는 `Settings`의 환경변수 이름(`DURPrdlstInfoService03_*`, `DURIrdntInfoService03_*`)으로만 읽고, 이 모듈은 값을 보거나 남기지 않는다.
   `MEDIAGENT_API_MODE=snapshot`이면 `DurClient`가 스냅샷만 읽는다(오프라인 개발).
-- 그래프 기본 프롬프트는 `agent_system@v2`(AG-01-03 A). 묶음 이름은 `prompt_set@v2`.
+- 그래프 기본 프롬프트는 `agent_system@v2`(AG-01-03 A). 기본 묶음은 `prompt_set@v3`(= `agent_system@v2` + `answer_summary@v1`,
+  2026-11-17 사용자 결정으로 v3 채택). 묶음에 `answer_summary`가 없으면(v1·v2) 요약 지시는 코드 상수 `nodes.SUMMARY_INSTRUCTION`이다.
 - 이 모듈은 외부 호출을 하지 않는다. 모델 객체·클라이언트 객체를 만들 뿐이고, 호출은 그래프 실행 때 일어난다. 시험은 가짜 클라이언트·가짜 모델을 넣는다.
 """
 
@@ -21,7 +22,7 @@ from app.agent.tools.langchain_adapter import build_tools
 from app.tools.drug_dict import DrugDict
 
 DEFAULT_PROMPT = "agent_system@v2"
-DEFAULT_PROMPT_SET = "prompt_set@v2"
+DEFAULT_PROMPT_SET = "prompt_set@v3"  # 서비스·평가 공통 기본 묶음(2026-11-17 v3 채택). 결과 meta·trace의 `prompt_set`이 이 값이 된다
 
 
 def is_eval_mode(mode: str | None = None) -> bool:
@@ -85,8 +86,9 @@ def build_deps(
     `service=True`(앱 서버 `/chat`, BE-06-23 A)면 모델 래퍼가 개발 원장·개발 LLM 캐시를 거치지 않는다(`ledger`를 함께 주면 `ValueError`).
     기본값 False는 평가(`mode=eval`)·개발 경로이며 원장·캐시 동작은 예전과 같다.
 
-    요약 지시: `prompt_set`을 주지 않으면(기본 `prompt_set@v2`) 코드 상수를 쓴다(동작 불변). 묶음을 명시하고 그 묶음에 `answer_summary`가 있으면
-    그 파일 본문을 쓴다. draft 프롬프트가 든 묶음은 `allow_draft=True`를 명시해야 한다(검토 카드 승인 전에는 기준선에 넣지 않는다, PRD-16-03).
+    요약 지시: `prompt_set`을 주지 않으면 기본 묶음 `DEFAULT_PROMPT_SET`(`prompt_set@v3`)을 쓴다. 묶음에 `answer_summary`가 있으면 그 파일 본문을,
+    없으면(v1·v2) 코드 상수 `nodes.SUMMARY_INSTRUCTION`을 쓴다. draft 프롬프트가 든 묶음은 `allow_draft=True`를 명시해야 한다
+    (검토 카드 승인 전에는 기준선에 넣지 않는다, PRD-16-03. 채택된 묶음은 명시 없이 읽힌다).
     `summary_instruction`을 직접 주면 그 값이 우선한다(시험용). 시스템 프롬프트는 이 인자와 무관하게 `prompt_name`·`system_prompt`로 정한다.
     """
     if service and ledger is not None:
@@ -111,8 +113,8 @@ def build_deps(
             structured = llm.make_chat_model(settings, purpose="summary").with_structured_output(
                 llm.answer_draft_json_schema(), method="json_schema", strict=True, include_raw=True)
             summary_model = CachedSummary(structured, model=llm.MODEL, estimate_usd=est, ledger=ledger, service=service)
-    if summary_instruction is None and prompt_set is not None:
-        summary_instruction = load_summary_instruction(prompt_set, allow_draft=allow_draft)  # 묶음에 요약 프롬프트가 없으면 None(상수)
+    if summary_instruction is None:
+        summary_instruction = load_summary_instruction(prompt_set or DEFAULT_PROMPT_SET, allow_draft=allow_draft)  # 묶음에 요약 프롬프트가 없으면 None(상수)
     kwargs: dict[str, Any] = {}
     if registry is not None:
         kwargs["registry"] = registry
