@@ -10,7 +10,9 @@ import copy
 import json
 import logging
 import sys
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -328,10 +330,14 @@ class TestRouterNodeLeavesNoPrivateValuesInEventsOrTrace:
         text = json.dumps(upd["events"], ensure_ascii=False)
         assert "37" not in text and "70" not in text and "임신" not in text and "pregnan" not in text and "age" not in text
 
-    def test_trace_span_has_no_age_pregnancy_or_question(self, dd):
+    def test_trace_span_has_no_age_pregnancy_or_question(self, dd, monkeypatch):
+        # 무작위 trace_id(uuid4 hex)·실측 latency_ms에 "37"·"70"이 우연히 들어가 간헐 실패하던 것을 막는다(RFP-04-03 A).
+        # id·시계만 고정하고 노드·tracer 동작은 그대로 둔다.
+        monkeypatch.setattr("app.agent.graph.trace.uuid", SimpleNamespace(uuid4=lambda: uuid.UUID(int=0)))
         sink = ListSink()
-        GraphTracer(sink=sink).wrap_node("router", _router_node(dd))(self.STATE)
+        GraphTracer(sink=sink, clock=lambda: 0.0).wrap_node("router", _router_node(dd))(self.STATE)
         assert len(sink.records) == 1
+        assert sink.records[0]["trace_id"] == "t-000000000000"  # 고정이 실제로 걸렸는지
         text = json.dumps(sink.records, ensure_ascii=False, default=str)
         for needle in ("37", "70", "임신", "pregnan", "age_years", "profile", "가온정", Q_PRIVATE):
             assert needle not in text
