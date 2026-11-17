@@ -4,7 +4,8 @@
 
 **문장 필터(`sentence_filter`, H1)와의 역할 분담** — 필터는 근거 ID 유무·모르는 ID·성분코드 노출과 요약의 복용량 숫자·진단 단정·
 처방/복용 지시를 *무조건* 거른다. Validator는 필터를 통과한 문장(`FilterResult.kept`)을 입력으로 받아 필터가 보지 않는 것만 본다:
-안전 단정, 복용 변경·의료진 우회(허가사항 원문 인용 예외 포함), 등급 값, M 등급 규칙, 파일/API 확정 문장, 미확보 항목 권고,
+안전 단정, 복용 변경·의료진 우회(허가사항 원문 인용 예외 포함), 등급 값·M 등급 규칙(H22), 등급 예외 단서 오용(H24),
+파일/API 확정 문장, 미확보 항목 권고,
 claim_type, 근거에 없는 연령·번호·날짜·등급. 용량 숫자·진단 단정은 여기서 다시 세지 않는다(이중 처리 금지). 단 필터 없이 직접
 불렀을 때 복용 지시가 새지 않도록 복용 지시·변경 표현은 필터의 상수 `_DECISION_PATTERNS`를 재사용한다(`_DECISION_PATTERNS`만 보고 DOSE_NUMBER·DIAGNOSIS는 보지 않는다).
 
@@ -45,6 +46,17 @@ MISSING_IMPLIES_NONE = "MISSING_IMPLIES_NONE"      # ⑥ 미확보 항목을 "�
 BAD_CLAIM_TYPE = "BAD_CLAIM_TYPE"                  # ⑦ claim_type 없음·모르는 값
 NUMBER_NOT_IN_EVIDENCE = "NUMBER_NOT_IN_EVIDENCE"  # ⑧ 근거에 없는 연령·등급·번호·날짜
 QUOTE_MISMATCH = "QUOTE_MISMATCH"                  # ⑨ H28 인용부호 안 글자가 연결된 원문(청크·라벨)과 다르다
+GRADE_EXCEPTION_MISUSE = "GRADE_EXCEPTION_MISUSE"  # ⑩ H24 2등급 예외 단서·"사유 기재 불필요"를 복용 허용 근거로, 등급을 위험 서열로 쓴 문장
+
+# 검사 이름 → 하네스 규칙 번호(RFP-29 §6). 여기 없는 검사는 VALIDATOR 이벤트의 기본 규칙(H2)으로만 집계한다.
+# H22(RFP-29-03 A): 기존 등급값·M 원문 필수·M 환산 차단을 한 번호로 묶는다(동작은 그대로, 번호만 명시).
+# H24(RFP-29-03 A): 기준선 출력 패턴 `GRADE_EXCEPTION_MISUSE`.
+CHECK_RULES: dict[str, str] = {
+    GRADE_VALUE_INVALID: "H22",
+    M_NO_DETAIL: "H22",
+    M_CONVERTED: "H22",
+    GRADE_EXCEPTION_MISUSE: "H24",
+}
 
 # ⑨ 인용 글자 일치(H28). 문장에 연결된 근거 중 원문 인용 대상(`CORPUS_QUOTE` 청크 또는 라벨 항목)이 있을 때만 검사한다.
 # - 인용부호: 큰따옴표(" “ ”)와 낫표(「」『』)만 본다. 작은따옴표(' ‘ ’)는 한국어에서 강조에 흔히 쓰여 보지 않는다(한계).
@@ -161,6 +173,57 @@ _M_MENTION = re.compile(r"(?<![A-Za-z])[Mm]\s*등급|임부금기\s*[Mm](?![A-Za
 # M을 1·2등급으로 환산한 문장: "M등급은 사실상 2등급이에요", "M = 1등급"
 _M_CONVERT = re.compile(r"[Mm]\s*(?:등급)?\s*(?:은|는|이|가)?\s*(?:사실상|결국|곧|바로)?\s*(?:=|≒|~)?\s*[12]\s*등급\s*(?:이에요|입니다|과같|와같|에해당|으로(?:볼|봐|환산|계산|취급)|이라고)|[Mm]\s*(?:등급)?\s*(?:=|≒)\s*[12]\s*등급")
 _M_EXPLAIN = re.compile(r"상병에\s*(?:따른|따라|따라서)|상병별")  # 고시 설명("상병에 따른 1등급 또는 2등급")은 환산이 아니다
+
+# ⑩ H24 `GRADE_EXCEPTION_MISUSE`(RFP-29-03 A, 기준선). 공백을 지우고 인용 구간을 뺀 문장에 매칭한다.
+# 고시의 2등급 예외 단서("불가피한 경우…")와 심평원 운영 문구("사유 기재 불필요")는 복용 허용 근거가 아니고,
+# 1·2·M 등급은 위험 서열이 아니다. 아래 네 갈래 중 하나가 부정·되물음 없이 나오면 차단한다.
+#   ⓐ 등급 + 허용: "2등급이라 괜찮", "2등급은 드셔도 돼요", "2등급이면 의사 상의 없이 써도 돼요"
+#   ⓑ 예외 + 허용: "예외로 복용하세요", "예외에 해당하니 드셔도 돼요", "예외적으로 복용할 수 있어요"
+#   ⓒ 서열: "2등급은 1등급보다 덜 위험", "2등급은 약한 금기", "M등급은 위험이 낮아요"
+#   ⓓ 사유 기재 불필요 + 허용·완화: "사유 기재가 필요 없으니 드셔도", "사유 기재 불필요라 부담 없이"
+# 통과(오탐 방지): 등급 사실("2등급 금기입니다"), 정의 설명("원칙적으로 사용을 금지"), "…뜻은 아니에요"류 부정,
+# 사용자 질문 되풀이("2등급은 먹어도 되냐고 물으셨는데"), 근거 원문 인용 구간(② 와 같은 `_mask_quotes`).
+_GRADE_MENTION = r"(?:[12Mm]등급|등급[12Mm](?![A-Za-z0-9]))"
+_PERMIT = (
+    r"(?:괜찮|먹어도|드셔도|복용해도|복용하셔도|써도|쓰셔도|사용해도|사용하셔도|드세요|드시면돼|드시면됩|복용하세요|복용하시면"
+    r"|복용가능|사용가능|드실수있(?:어요|습니다)|복용할수있(?:어요|습니다)|사용할수있(?:어요|습니다)|먹을수있(?:어요|습니다)"
+    r"|가능(?:해요|합니다)|허용(?:돼|됩|된|해요|합니다)|문제(?:가)?없|상관없|무방|부담없|안심"
+    r"|걱정(?:없|안하셔도|안해도|하지않으셔도|하지않아도|하지마))"
+)
+_RANK = (
+    r"(?:(?:덜|더|비교적|상대적으로|훨씬|조금|좀)(?:위험|안전|해롭|해로|심각|약하|약한|강하|강한|순하|순한|괜찮|낫|가벼)"
+    r"|(?:약한|가벼운|낮은|순한|덜한|느슨한)(?:금기|단계|수준|편|등급)"
+    r"|위험(?:도|성)?(?:이|가|은|는)?(?:낮|적|약|덜|크지않)"
+    r"|(?:보다|에비해|에비하면)(?:는)?[가-힣]{0,4}?(?:낫|약하|약한|순하|순한|가벼|안전|괜찮|덜))"
+)
+_EXC_MISUSE_RES = (
+    re.compile(_GRADE_MENTION + r"(?:이라서|이라|이니까|이니|이므로|이어서|이면|이라면|인데|이라도|으로|은|는|이|도|의경우|약은|약이라|짜리)"
+               r"[가-힣]{0,14}?" + _PERMIT),
+    re.compile(r"예외(?:적으로|적인경우(?:에는|엔|라)?|로|라서|라|이니까?|이므로|조항|단서)[가-힣]{0,12}?" + _PERMIT
+               + r"|예외(?:에|로)해당(?:하니까?|해서|하므로|하면|되니까?|돼서|되면)[가-힣]{0,12}?" + _PERMIT),
+    re.compile(_GRADE_MENTION + r"[가-힣]{0,14}?" + _RANK),
+    re.compile(r"사유(?:를|의)?(?:기재|입력|적|기록)[가-힣]{0,6}?(?:불필요|필요(?:가|는|도)?없|안해도|하지않아도)[가-힣]{0,14}?"
+               r"(?:" + _PERMIT + r"|" + _RANK + r")"),
+)
+# 매칭 바로 뒤(같은 절 안 20자)에 부정이 오면 "…는 뜻이 아니에요" 같은 반박이다
+_EXC_NEGATED = re.compile(r"아니|않|못|말(?:아|고|라|기|씀하지)|안돼|안됩|안된|수없|금지|금기(?:예요|입니다|이에요|가맞)")
+# 사용자 질문 되풀이: "…먹어도 되냐고 물으셨는데", "…되죠? 하고 물으셨어요"
+_EXC_ECHO = re.compile(r"^[가-힣]{0,6}?(?:되죠|되나요|될까요|되냐|되는지|괜찮을까|괜찮나|괜찮냐|괜찮은지|낫나|낫냐|나요|까요|냐)\??"
+                       r"(?:라고|라는|하고|고|는)?(?:물|궁금|질문|여쭤|하셨|생각하실)")
+_EXC_CLAUSE_END = re.compile(r"[.!;]|(?<=세요|어요|아요|해요|예요|에요|니다|돼요)(?=[^가-힣]|$)")
+
+
+def _has_grade_exception_misuse(norm: str) -> bool:
+    """⑩ H24: 등급·예외 단서·"사유 기재 불필요"를 복용 허용·위험 서열로 쓴 문장이면 True. 공백 제거·인용 구간 제외 문장을 받는다."""
+    for rx in _EXC_MISUSE_RES:
+        for m in rx.finditer(norm):
+            tail = norm[m.end():m.end() + 20]
+            end = _EXC_CLAUSE_END.search(tail)
+            clause_tail = tail[:end.end()] if end else tail
+            if _EXC_NEGATED.search(clause_tail) or _EXC_ECHO.search(norm[m.end():m.end() + 30]):
+                continue
+            return True
+    return False
 
 _ONLY_CLAIM = re.compile(r"파일에만|파일에는있고|API에만|실시간(?:조회)?에만|실시간(?:조회)?에는있고")
 _DEFINITIVE = re.compile(r"금기(?:입니다|예요|이에요|가맞|에해당|목록에있|로지정|다(?:$|[.!]))|금기(?:가|는)?아(?:닙니다|니에요|니예요)|금기(?:목록)?에(?:없어요|없습니다|없음)|지정되어있|지정돼있|해당합니다|해당돼요")
@@ -333,12 +396,17 @@ def _check_sentence(s: SimpleNamespace, items: list[dict[str, Any]], ctx: Simple
     if _quote_mismatch(text, s, ctx):
         return QUOTE_MISMATCH
 
+    # ⑩ H24 등급 예외 단서·"사유 기재 불필요" 오용, 등급 위험 서열(근거 원문 인용 구간은 제외).
+    # ①보다 먼저 본다: "2등급이라 괜찮아요"는 안전 단정이기도 하지만 더 구체적인 H24 코드로 집계한다.
+    q_norm = _norm(_mask_quotes(SimpleNamespace(**{**s.__dict__, "text": text}), ctx.index))
+    if _has_grade_exception_misuse(q_norm):
+        return GRADE_EXCEPTION_MISUSE
+
     # ① 안전 단정
     if _has_safe_assertion(norm):
         return SAFE_ASSERTION
 
     # ② 복용 변경·중단·복용 지시와 의료진 우회(허가사항 원문 인용 구간은 제외)
-    q_norm = _norm(_mask_quotes(SimpleNamespace(**{**s.__dict__, "text": text}), ctx.index))
     if _has_bypass(q_norm) or any(r.search(q_norm) for r in _DECISION_PATTERNS):
         return DOSE_CHANGE_OR_BYPASS
 
@@ -464,10 +532,13 @@ def validate(
     elif n_dropped:
         res.status = FIXED
     reasons: dict[str, int] = {}
+    rules: dict[str, int] = {}   # 규칙 번호별 건수(H22·H24 등 `CHECK_RULES`에 있는 검사만). 내용 없는 집계
     for it in res.issues:
         reasons[it.check] = reasons.get(it.check, 0) + 1
+        if it.check in CHECK_RULES:
+            rules[CHECK_RULES[it.check]] = rules.get(CHECK_RULES[it.check], 0) + 1
     res.events.append({
         "rule": "H2", "event": "VALIDATOR", "status": res.status, "total": len(raw_sents), "kept": len(res.kept),
-        "dropped": n_dropped, "rewind": len(rewind), "reasons": reasons,
+        "dropped": n_dropped, "rewind": len(rewind), "reasons": reasons, "rules": rules,
     })
     return res
