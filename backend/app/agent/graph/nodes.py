@@ -95,7 +95,9 @@ def _summary_messages(state: AgentState, deps: GraphDeps) -> list[Any]:
 
 
 # --------------------------------------------------------------------------- 노드 팩토리
-def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, Any]]]:
+def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, Any]]]:
+    """노드 본문(쓰기 제한·계측 없음). ReAct 그래프는 `make_nodes`로, C1 고정 파이프라인은 이 본문을 자기 노드 안에서 부른다(코드 공유, AG-16)."""
+
     def guardrail_in(state: AgentState) -> dict[str, Any]:
         g = guardrail.guardrail_in(_question_of(state))
         ev = [{"rule": "H4", "event": "GUARDRAIL_IN", "emergency": g["emergency"], "route": g["route"], "reason": g["refuse_reason"]}]
@@ -239,15 +241,25 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
             why = END_FALLBACK if fell_back else END_NORMAL
         return {"answer": resp, "end_reason": why, "events": [{"rule": "H3", "event": "FINALIZE", "end_reason": why}]}
 
-    raw = {"guardrail_in": guardrail_in, "router": router, "model": model, "tools": tools, "validator": validator, "finalize": finalize_node}
+    return {"guardrail_in": guardrail_in, "router": router, "model": model, "tools": tools, "validator": validator, "finalize": finalize_node}
 
-    def guarded(name: str, fn: Callable[[AgentState], dict[str, Any]]) -> Callable[[AgentState], dict[str, Any]]:
-        def run(state: AgentState) -> dict[str, Any]:
-            return restrict_update(name, fn(state))
 
-        return deps.tracer.wrap_node(name, run) if deps.tracer is not None else run  # 계측은 쓰기 제한 뒤의 갱신만 본다
+def guard_node(deps: GraphDeps, name: str, fn: Callable[[AgentState], dict[str, Any]],
+               writable: dict[str, frozenset[str]] | None = None) -> Callable[[AgentState], dict[str, Any]]:
+    """노드 본문에 쓰기 제한(H8)과 계측(L2)을 입힌다. 계측은 쓰기 제한 뒤의 갱신만 본다. `writable`은 `restrict_update`와 같다.
 
-    return {name: guarded(name, fn) for name, fn in raw.items()}
+    `run`의 입력 주석은 일부러 `Any`다. LangGraph는 노드 함수의 첫 인자 주석이 TypedDict면 그 키만 넘기므로, `AgentState`로 적으면
+    C1 파이프라인 상태의 추가 키(`step`)가 노드에 보이지 않는다. 그래프 상태 스키마는 `StateGraph(...)`가 정한다."""
+
+    def run(state: Any) -> dict[str, Any]:
+        return restrict_update(name, fn(state), writable)
+
+    return deps.tracer.wrap_node(name, run) if deps.tracer is not None else run
+
+
+def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, Any]]]:
+    """ReAct 그래프의 6노드(쓰기 제한·계측 포함). 본문만 필요하면 `make_raw_nodes`(AG-16 C1 고정 파이프라인이 재사용)."""
+    return {name: guard_node(deps, name, fn) for name, fn in make_raw_nodes(deps).items()}
 
 
 @contextmanager
@@ -282,4 +294,4 @@ def after_validator(state: AgentState) -> str:
     return "model" if (state.get("validation") or {}).get("next") == "rewind" else "finalize"
 
 
-__all__ = ["GraphDeps", "make_nodes", "AnswerDraft"]
+__all__ = ["GraphDeps", "make_nodes", "make_raw_nodes", "guard_node", "AnswerDraft"]
