@@ -31,7 +31,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.agent import fixed_phrases as fp
 from app.agent.finalize import _missing_text as _detail_missing_text  # finalize 항목 문구와 같은 규칙(사유 → 상수 문구)
-from app.tools.provenance import CITATION_DATE_LABELS, DATASET_LABELS, DATASET_PUBLISHER, PUBLISHER, SOURCE_KIND_PREFIX
+from app.tools.provenance import (
+    CITATION_DATE_LABELS,
+    DATASET_LABELS,
+    DATASET_PUBLISHER,
+    PUBLISHER,
+    SOURCE_KIND_PREFIX,
+    display_as_of,
+)
 
 SCHEMA_VERSION = "chat_response@v1"
 
@@ -426,7 +433,7 @@ def date_lines(d: dict[str, Any]) -> list[DateLine]:
     """`renderer` detail 항목 → 날짜 줄. 순서: 고시일(행마다, 중복 제거·오름차순) → 기준일 → 조회. 하나도 없으면 `날짜 없음` 한 줄."""
     notices = sorted({x for x in (_iso_date(r.get("notice_date")) for r in d.get("rows") or [] if isinstance(r, dict)) if x})
     out = [DateLine(label=DATE_LABEL_NOTICE, value=x) for x in notices]
-    as_of = _iso_date(d.get("as_of"))
+    as_of = _iso_date(display_as_of(d.get("dataset_key"), d.get("as_of")))  # 월 단위 자료는 YYYY-MM(BE-16-11 A, 도구에서 이미 잘렸어도 같은 값)
     if as_of:
         out.append(DateLine(label=DATE_LABEL_AS_OF, value=as_of))
     q = queried_date_kst(d.get("queried_at"))

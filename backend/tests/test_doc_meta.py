@@ -192,10 +192,12 @@ def test_doc_meta_base_date_equals_citation_as_of(name: str, as_of_attr: str) ->
     assert get_meta(name).base_date == getattr(loaders, as_of_attr)
 
 
-@pytest.mark.xfail(strict=True, reason="BE-06 §3 후속(BE-06-08 A): AS_OF_HIRA '2026-06-01'은 원본 '2026.6'에 없는 날을 붙인 값. 정정되면 이 표시를 지운다")
-def test_dur_list_as_of_is_month_like_doc_meta() -> None:
+def test_dur_list_displayed_as_of_is_month_like_doc_meta() -> None:
+    """BE-16-11 A: 적재값 `AS_OF_HIRA`(DB DATE, 2026-06-01)는 그대로 두고, 화면·응답으로 나가는 표시값은 doc_meta와 같은 월 단위다."""
     from app.db import loaders
+    from app.tools import provenance
 
     dur = {m.base_date for m in DOC_META.values() if m.source_file.startswith("의약품안전사용서비스(DUR)_")}
     assert dur == {"2026-06"}
-    assert loaders.AS_OF_HIRA == "2026-06"
+    assert loaders.AS_OF_HIRA == "2026-06-01"  # DB DATE 열에 넣는 값(바꾸지 않음)
+    assert provenance.DATASET_AS_OF["elderly"] == provenance.display_as_of("elderly", loaders.AS_OF_HIRA) == "2026-06"
