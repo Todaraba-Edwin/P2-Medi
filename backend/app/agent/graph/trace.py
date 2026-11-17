@@ -223,7 +223,11 @@ class GraphTracer:
             v = upd.get("validation") or {}
             st = str(v.get("status") or "").upper()
             f["verdict"] = {"PASS": "pass", "FIXED": "fix", "FAIL": "fail"}.get(st, st.lower() or None)
-            f["violations"] = list(v.get("reasons") or [])
+            # `violations` = 되감기 사유 코드 + 규칙 번호가 붙은 검사 코드(H22·H24, AG-07-02 B). 코드 이름만, 문장 내용 없음.
+            checks = {str(k): int(n) for k, n in (v.get("rule_checks") or {}).items()}
+            f["violations"] = sorted({*(str(r) for r in v.get("reasons") or []), *checks})
+            if checks:
+                f["output_summary"] = {"rule_checks": checks, "rules": {str(k): int(n) for k, n in (v.get("rules") or {}).items()}}
         elif name == "finalize":
             f["end_reason"] = upd.get("end_reason")
             ans = upd.get("answer") or {}

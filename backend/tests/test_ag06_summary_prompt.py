@@ -1,15 +1,18 @@
-"""AG-06 요약 프롬프트 `answer_summary@v1`(draft)·묶음 `prompt_set@v3`·허가사항 인용 형식(PRD-10-04) 시험(goal 4회차).
+"""AG-06 요약 프롬프트 `answer_summary@v1`(2026-11-17 채택)·묶음 `prompt_set@v3`·허가사항 인용 형식(PRD-10-04) 시험(goal 4회차).
 
 LLM·공공 API·원격 DB 호출 0(가짜 모델·합성 소사전·소규모 SQLite·가짜 `DurClient`). 시험 질문은 합성이다(평가 세트 문항 아님).
-- 기본 실행 경로(묶음 v2)는 요약 지시가 코드 상수 `SUMMARY_INSTRUCTION` 그대로다(회귀).
-- 묶음 v3은 `answer_summary@v1`이 draft라 `allow_draft=True`를 명시해야만 고를 수 있다(PRD-16-01·03).
+- 기본 실행 경로는 묶음 v3(`agent_system@v2` + `answer_summary@v1`)이고 요약 지시는 파일 본문이다. 묶음 v2를 명시하면 코드 상수
+  `SUMMARY_INSTRUCTION` 그대로다(회귀 기준).
+- draft 프롬프트가 든 묶음은 여전히 `allow_draft=True`를 명시해야만 고를 수 있다(PRD-16-01·03). 저장소에 draft 묶음이 없으므로 tmp 묶음으로 본다.
 """
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,7 +36,10 @@ from app.api.schemas import response_from_state, to_chat_response  # noqa: E402
 from app.llm import prompts as lp  # noqa: E402
 
 SUMMARY_FILE = lp.PROMPTS_DIR / "answer_summary@v1.md"
-SET_V3 = "prompt_set@v3"
+SET_V2, SET_V3 = "prompt_set@v2", "prompt_set@v3"
+DRAFT_SET = "prompt_set@v9"  # tmp에만 만드는 draft 묶음(저장소 파일 아님)
+DRAFT_FM = ("---\nid: P-TEST-summary\nversion: v9\nticket: AG-06\nmodel: gpt-6-luna\nh_rules: [H1]\ngolden_ids: [dev-012]\nstatus: draft\n---\n"
+            "시험용 draft 요약 지시(합성)\n")
 COLD, AZI = "타이레놀콜드-에스정", "이지렉트정1.0밀리그램"
 Q_PAIR = f"엄마가 {AZI}을 드시는데 감기라서 {COLD}을 사 왔어요. 같이 먹어도 되나요?"
 PAIR_EID = "contra_pair:254000ATB:625201ATB"
@@ -67,6 +73,17 @@ class CapturingSummary(ScriptedSummary):
         return super().invoke(messages, **kwargs)
 
 
+def _draft_prompts_dir(tmp_path: Path) -> Path:
+    """저장소 프롬프트 폴더 사본 + draft 요약 프롬프트(`answer_summary@v9`)가 든 묶음 `prompt_set@v9`."""
+    d = tmp_path / "prompts"
+    d.mkdir()
+    for name in ("agent_system@v2.md", "prompt_set@v2.yaml"):
+        shutil.copy(lp.PROMPTS_DIR / name, d / name)
+    (d / "answer_summary@v9.md").write_text(DRAFT_FM, encoding="utf-8")
+    (d / f"{DRAFT_SET}.yaml").write_text(f"name: {DRAFT_SET}\nprompts:\n  - agent_system@v2\n  - answer_summary@v9\n", encoding="utf-8")
+    return d
+
+
 def _run(**deps_kw: Any) -> tuple[dict[str, Any], CapturingSummary, Any]:
     dd = golden_dict()
     ctx = build_tool_context(dd, mode="service", dur_client=FakeDur(), conn_factory=golden_conn)
@@ -80,11 +97,11 @@ def _run(**deps_kw: Any) -> tuple[dict[str, Any], CapturingSummary, Any]:
     return run_question(build_graph(deps), Q_PAIR), summary, deps
 
 
-# =========================================================================== §2-1 answer_summary@v1.md(draft)
-def test_summary_prompt_frontmatter_is_draft_with_required_fields():
+# =========================================================================== §2-1 answer_summary@v1.md(adopted)
+def test_summary_prompt_frontmatter_is_adopted_with_required_fields():
     fm, _ = _front_and_body()
     assert fm["id"] == "P-AG06-summary" and fm["version"] == "v1" and fm["ticket"] == "AG-06" and fm["model"] == "gpt-6-luna"
-    assert fm["status"] == "draft"  # 사용자 검토 카드 승인 전(PRD-16-03)
+    assert fm["status"] == "adopted"  # 사용자 검토 카드 승인(2026-11-17 v3 채택, PRD-16-03)
     assert "last_eval" not in fm and set(lp.REQUIRED_FRONTMATTER) <= set(fm)
     assert isinstance(fm["h_rules"], list) and fm["h_rules"] and all(re.fullmatch(r"H\d{1,2}", h) for h in fm["h_rules"])
     base, _ = lp.split_frontmatter((lp.PROMPTS_DIR / "agent_system@v2.md").read_text(encoding="utf-8"))
@@ -133,11 +150,12 @@ def test_summary_prompt_copies_no_fixed_phrase_and_no_dose_example():
     assert "[" not in body and "]" not in body  # 대괄호 자리표시를 본문 예시로도 쓰지 않는다
 
 
-# =========================================================================== §2-2 prompt_set@v3과 요약 지시 연결
-def test_default_prompt_set_and_prompt_are_unchanged():
-    assert wiring.DEFAULT_PROMPT_SET == "prompt_set@v2" and wiring.DEFAULT_PROMPT == "agent_system@v2"
+# =========================================================================== §2-2 prompt_set@v3(기본)과 요약 지시 연결
+def test_default_prompt_set_is_v3_and_constant_is_frozen():
+    """2026-11-17 v3 채택: 서비스·평가 기본 묶음은 v3이고, 시스템 프롬프트는 그대로 `agent_system@v2`다. 상수는 v1·v2 회귀 기준으로 동결."""
+    assert wiring.DEFAULT_PROMPT_SET == SET_V3 and wiring.DEFAULT_PROMPT == "agent_system@v2"
     assert nodes.SUMMARY_INSTRUCTION == FROZEN_CONSTANT
-    assert lp.load_prompt_set(lp.PROMPTS_DIR / "prompt_set@v2.yaml").prompts == ("agent_system@v2",)
+    assert lp.load_prompt_set(lp.PROMPTS_DIR / f"{SET_V2}.yaml").prompts == ("agent_system@v2",)
 
 
 def test_prompt_set_v3_is_agent_system_v2_plus_answer_summary_v1():
@@ -146,10 +164,9 @@ def test_prompt_set_v3_is_agent_system_v2_plus_answer_summary_v1():
     assert [Path(f).name for f in files] == ["agent_system@v2.md", "answer_summary@v1.md"]
 
 
-@pytest.mark.parametrize("kw", [{}, {"prompt_set": "prompt_set@v2"}])
-def test_default_set_uses_the_constant_verbatim(kw):
-    """① 기본(v2)일 때 요약 지시는 지금 상수와 글자 그대로 같다(동작 불변)."""
-    st, summary, deps = _run(**kw)
+def test_v2_set_uses_the_constant_verbatim():
+    """① 묶음 v2를 명시하면 요약 지시는 지금 상수와 글자 그대로 같다(이전 결과를 재현하는 회귀 경로)."""
+    st, summary, deps = _run(prompt_set=SET_V2)
     assert deps.summary_instruction is None
     (msgs,) = summary.seen
     assert msgs[-1].content.endswith("\n\n" + FROZEN_CONSTANT) and msgs[-1].content.startswith(f"질문: {Q_PAIR}\n\n근거 데이터:\n")
@@ -158,36 +175,50 @@ def test_default_set_uses_the_constant_verbatim(kw):
 
 
 def test_load_summary_instruction_returns_none_for_set_without_summary():
-    assert load_summary_instruction("prompt_set@v2") is None
+    assert load_summary_instruction(SET_V2) is None
     assert load_summary_instruction("prompt_set@v1") is None
 
 
-def test_draft_set_cannot_be_selected_without_explicit_allow_draft():
-    """④ draft가 든 묶음은 명시 인자 없이는 고를 수 없다(검토 카드 승인 전에는 기준선에 넣지 않는다)."""
-    with pytest.raises(DraftPromptError):
-        load_summary_instruction(SET_V3)
-    with pytest.raises(DraftPromptError):
-        _run(prompt_set=SET_V3)
-
-
-def test_v3_puts_the_file_body_into_the_summary_message():
-    """② v3을 고르면 요약 호출 메시지에 파일 본문이 들어가고 상수는 들어가지 않는다. 시스템 프롬프트·근거 블록 자리는 그대로다."""
+def test_adopted_v3_loads_without_allow_draft():
+    """채택된 묶음은 `allow_draft` 없이 읽힌다(`--allow-draft` 없이 돈다)."""
     _, body = _front_and_body()
-    st, summary, deps = _run(prompt_set=SET_V3, allow_draft=True)
-    assert deps.summary_instruction == body.strip() == load_summary_instruction(SET_V3, allow_draft=True)
+    assert load_summary_instruction(SET_V3) == body.strip()
+    assert load_system_prompt("answer_summary@v1") == body.strip()
+
+
+def test_draft_set_still_cannot_be_selected_without_explicit_allow_draft(tmp_path, monkeypatch):
+    """④ draft가 든 묶음은 명시 인자 없이는 고를 수 없다(검토 카드 승인 전에는 기준선에 넣지 않는다). 저장소에는 draft 묶음이 없어 tmp 묶음으로 본다."""
+    d = _draft_prompts_dir(tmp_path)
+    with pytest.raises(DraftPromptError):
+        load_summary_instruction(DRAFT_SET, prompts_dir=d)
+    assert load_summary_instruction(DRAFT_SET, allow_draft=True, prompts_dir=d) == "시험용 draft 요약 지시(합성)"
+    monkeypatch.setattr(wiring, "load_summary_instruction", functools.partial(load_summary_instruction, prompts_dir=d))
+    with pytest.raises(DraftPromptError):
+        _run(prompt_set=DRAFT_SET)
+    _, summary, deps = _run(prompt_set=DRAFT_SET, allow_draft=True)
+    assert deps.summary_instruction == "시험용 draft 요약 지시(합성)" and summary.seen[0][-1].content.endswith("\n\n시험용 draft 요약 지시(합성)")
+
+
+@pytest.mark.parametrize("kw", [{}, {"prompt_set": SET_V3}])
+def test_v3_puts_the_file_body_into_the_summary_message(kw):
+    """② 기본(묶음 없음)·v3 명시 모두 요약 호출 메시지에 파일 본문이 들어가고 상수는 들어가지 않는다. 시스템 프롬프트·근거 블록 자리는 그대로다."""
+    _, body = _front_and_body()
+    st, summary, deps = _run(**kw)
+    assert deps.summary_instruction == body.strip() == load_summary_instruction(SET_V3)
     (msgs,) = summary.seen
     content = msgs[-1].content
     assert content.endswith("\n\n" + body.strip()) and FROZEN_CONSTANT not in content
     assert content.startswith(f"질문: {Q_PAIR}\n\n근거 데이터:\n") and "TOOL_DATA" in content
-    assert "---" not in body.strip().splitlines()[0] and "status: draft" not in content  # 프런트매터는 모델에 가지 않는다
+    assert "---" not in body.strip().splitlines()[0] and "status: adopted" not in content  # 프런트매터는 모델에 가지 않는다
     assert msgs[0].content == load_system_prompt("agent_system@v2")
+    assert st["end_reason"] == "NORMAL"
 
 
 def test_v3_cache_key_differs_from_v2():
     """③ 요약 호출의 캐시 키 재료가 v2와 다르다. 키는 (모델, `message_key` 목록, 인자, 프롬프트 파일 내용 해시)로 만든다
     (`app.llm.cache.cached_openai_call_status` → `llm_cache.cache_key`). 메시지 내용과 묶음 파일 내용이 모두 달라진다."""
-    _, s2, _ = _run()
-    _, s3, _ = _run(prompt_set=SET_V3, allow_draft=True)
+    _, s2, _ = _run(prompt_set=SET_V2)
+    _, s3, _ = _run()
 
     def key(msgs: list[Any], files: list[str]) -> str:
         raw = json.dumps({"model": "gpt-6-luna", "messages": [message_key(m) for m in msgs], "args": {"purpose": "summary"},
@@ -195,10 +226,10 @@ def test_v3_cache_key_differs_from_v2():
                          ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    f2, f3 = lp.resolve_prompt_files("prompt_set@v2"), lp.resolve_prompt_files(SET_V3)
+    f2, f3 = lp.resolve_prompt_files(SET_V2), lp.resolve_prompt_files(SET_V3)
     assert [message_key(m) for m in s2.seen[0]] != [message_key(m) for m in s3.seen[0]]  # 메시지 내용이 키에 든다
     assert key(s2.seen[0], []) != key(s3.seen[0], [])  # 지금 배선(prompt_files 미전달)에서도 키가 갈린다
-    assert key(s2.seen[0], []) == key(_run()[1].seen[0], [])  # 같은 묶음이면 키가 같다(결정적)
+    assert key(s3.seen[0], []) == key(_run()[1].seen[0], [])  # 같은 묶음이면 키가 같다(결정적)
     assert key(s3.seen[0], f2) != key(s3.seen[0], f3) and any(Path(f).name == "answer_summary@v1.md" for f in f3)
 
 
@@ -208,9 +239,9 @@ def test_explicit_summary_instruction_argument_wins():
 
 
 def test_l1_harness_regression_with_v3_has_no_blocks_and_same_answer():
-    """L1: 가짜 모델로 v3을 돌려도 하네스 차단 0건이고 응답은 v2와 같다(코드가 프롬프트 변경에 영향받지 않는다)."""
-    st2, _, _ = _run()
-    st3, _, _ = _run(prompt_set=SET_V3, allow_draft=True)
+    """L1: 가짜 모델로 기본(v3)을 돌려도 하네스 차단 0건이고 응답은 v2와 같다(코드가 프롬프트 변경에 영향받지 않는다)."""
+    st2, _, _ = _run(prompt_set=SET_V2)
+    st3, _, _ = _run()
     blocked = {"ARG_SCHEMA", "UNKNOWN_TOOL", "TOOL_ERROR", "REWIND", "VALIDATION_FALLBACK", "CALL_LIMIT", "TOOL_KEY_DROPPED"}
     assert not [e for e in st3["events"] if e.get("event") in blocked]
     assert st3["end_reason"] == "NORMAL"

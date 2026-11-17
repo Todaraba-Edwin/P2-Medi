@@ -88,15 +88,25 @@ class RunRecord:
     # router = {"ran": bool, "ambiguous": bool, "entities": [{"status", "item_seq"}]}. 질문 조각(raw)은 넣지 않는다
     router: dict[str, Any] | None = None
     identify_item_seqs: list[str] | None = None  # `identify_drug` 결과(후보)의 품목기준코드
+    # Validator 규칙 집계(AG-07-02 B, 2026-11-17, 9장 지표 아님). 규칙 번호가 붙은 검사(H22 등급값·M 규칙, H24 등급 예외 오용)의
+    # 검사 코드별 건수와 규칙 번호별 건수. 어댑터가 그래프 상태 `validation`에서 센다(문장 내용 없음). None이면 세지 않은 실행
+    validator_checks: dict[str, int] | None = None   # {"GRADE_VALUE_INVALID": 1, ...}
+    validator_rules: dict[str, int] | None = None    # {"H22": 1, "H24": 0, ...}
 
     def aux(self) -> dict[str, int] | None:
         vals = {k: getattr(self, k) for k in AUX_FIELDS}
         return None if all(v is None for v in vals.values()) else {k: int(v or 0) for k, v in vals.items()}
 
+    def validator_counts(self) -> dict[str, dict[str, int]] | None:
+        if self.validator_checks is None and self.validator_rules is None:
+            return None
+        return {"checks": {str(k): int(v) for k, v in (self.validator_checks or {}).items()},
+                "rules": {str(k): int(v) for k, v in (self.validator_rules or {}).items()}}
+
     def to_json(self) -> dict[str, Any]:
         d = asdict(self)
         d["tool_evidence_ids"] = sorted(self.tool_evidence_ids)
-        for k in (*AUX_FIELDS, *TRACE_FIELDS):  # 세지 않은 실행의 결과 형식은 예전 그대로 둔다
+        for k in (*AUX_FIELDS, *TRACE_FIELDS, *VALIDATOR_FIELDS):  # 세지 않은 실행의 결과 형식은 예전 그대로 둔다
             if d[k] is None:
                 del d[k]
         return d
@@ -113,6 +123,7 @@ class RunRecord:
 
 
 TRACE_FIELDS = ("router", "identify_item_seqs")
+VALIDATOR_FIELDS = ("validator_checks", "validator_rules")
 
 
 # --------------------------------------------------------------------------- 평가 쪽 문자열 패턴(측정 전 고정, 평가 소유)
@@ -382,8 +393,10 @@ def score_item(item: dict[str, Any], rec: RunRecord, ph: Phrases) -> dict[str, A
                   "pass": False if not code_pass else (None if pending else True)}
     traj = trajectory(item, rec)
     aux = rec.aux()
+    vcounts = rec.validator_counts()
     return {
         **({"aux": aux} if aux is not None else {}),
+        **({"validator": vcounts} if vcounts is not None else {}),
         "id": item.get("id"), "branch_label": item.get("branch_label"), "composition_group": item.get("composition_group"),
         "expected_response_type": rtype, "pair_of": item.get("pair_of"), "reliability_core": bool(item.get("reliability_core")),
         "judgment": judg if item.get("composition_group") in JUDGMENT_GROUPS or item.get("branch_label") == "오탈자" else None,
@@ -418,9 +431,32 @@ def aux_summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
             "note": "보조 기록(9장 지표 아님): 출처 누락 0건 문항 = 근거 없음으로 걸러진 문장 0 + 최종 답에 남은 빈 근거 사실 문장 0"}
 
 
+def validator_rule_counts(rows: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    """Validator 규칙 **보조 집계**(AG-07-02 B). 9장 지표가 아니며 지표 계산에 쓰지 않는다. 규칙 번호가 붙은 검사(H22·H24)의
+    검사 코드별·규칙별 총 건수와, 그 검사에 한 건이라도 걸린 문항 수(k/n). 집계 칸이 있는 문항이 없으면 None."""
+    with_v = [r["validator"] for r in rows if isinstance(r.get("validator"), dict)]
+    if not with_v:
+        return None
+    by_check: dict[str, int] = {}
+    by_rule: dict[str, int] = {}
+    hit = 0
+    for v in with_v:
+        for code, n in (v.get("checks") or {}).items():
+            by_check[str(code)] = by_check.get(str(code), 0) + int(n or 0)
+        for rule, n in (v.get("rules") or {}).items():
+            by_rule[str(rule)] = by_rule.get(str(rule), 0) + int(n or 0)
+        hit += any(int(n or 0) > 0 for n in (v.get("checks") or {}).values())
+    return {"items_with_record": len(with_v), "by_check": dict(sorted(by_check.items())), "by_rule": dict(sorted(by_rule.items())),
+            "items_with_any": kn(hit, len(with_v)),
+            "note": "보조 기록(9장 지표 아님): Validator가 규칙 번호(H22·H24)로 집계한 검사 코드의 건수. 코드·건수만, 문장 내용 없음"}
+
+
+def _is_judgment_row(r: dict[str, Any]) -> bool:
+    return bool(r.get("judgment") and r["judgment"]["applicable"] and r.get("composition_group") in JUDGMENT_GROUPS)
+
+
 def aggregate(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    is_judg = lambda r: r.get("judgment") and r["judgment"]["applicable"] and r.get("composition_group") in JUDGMENT_GROUPS  # noqa: E731
-    judg_rows = [r for r in rows if is_judg(r)]
+    judg_rows = [r for r in rows if _is_judgment_row(r)]
     by_id = {r["id"]: r for r in rows}
     typo = [r for r in rows if r.get("branch_label") == "오탈자" and r.get("pair_of") in by_id and r.get("judgment")]
     typo_ok = sum(bool(r["judgment"]["correct"]) for r in typo)
@@ -450,8 +486,10 @@ def aggregate(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
     calls = [r["cost"]["model_calls"] for r in rows]
     lat = [r["cost"]["latency_s"] for r in rows if r["cost"]["latency_s"] is not None]
     aux = aux_summary(rows)
+    vrules = validator_rule_counts(rows)
     return {
         **({"aux_source_missing": aux} if aux is not None else {}),
+        **({"validator_rule_counts": vrules} if vrules is not None else {}),
         "n_items": len(rows),
         "contra_judgment_accuracy": {**kn(sum(bool(r["judgment"]["correct"]) for r in judg_rows), len(judg_rows)),
                                      "by_group": _by(judg_rows, "composition_group", lambda r: r["judgment"]["correct"], lambda r: True),

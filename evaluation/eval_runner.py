@@ -10,8 +10,10 @@
 
 사용(저장소 루트): `backend/.venv/bin/python evaluation/eval_runner.py --set dev --agent offline-fixed [--limit N] [--out PATH]`
 
-L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden --prompt-set prompt_set@vN [--allow-draft] --max-usd X`는 서비스와 같은 부품으로
+L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden [--prompt-set prompt_set@vN] [--allow-draft] --max-usd X`는 서비스와 같은 부품으로
 실제 그래프를 만들어 돌린다(평가 모드: API 병기 끔, LLM 캐시 끔). **실제 모델을 부르고 원격 DB를 읽으므로 비용 상한이 필수다.** judge는 붙이지 않는다.
+`--prompt-set`을 주지 않으면 서비스와 같은 기본 묶음(`wiring.DEFAULT_PROMPT_SET`, 2026-11-17부터 `prompt_set@v3`)을 쓰고 결과 meta에 그 이름이 남는다.
+Validator 규칙 집계(AG-07-02 B): 문항별 `validator`(H22·H24 검사 코드·규칙별 건수)와 `metrics.validator_rule_counts`는 보조 기록이다(9장 지표 아님).
 `--compare A.json B.json`은 두 결과를 나란히 보여 준다(회귀 경보 전용).
 
 L3(개발셋 전체): `--subset` 없이 150문항 1회, `--subset dev_reliability_core --repeats 3`으로 개발 안전 핵심 40문항 3회(`pass^3`·`pass@3`·판정 일치율).
@@ -33,7 +35,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -72,7 +74,7 @@ class NotCalledJudge:
     rubric_versions = RUBRIC_VERSIONS
     called = 0
 
-    def score(self, item: dict[str, Any], answer: dict[str, Any], contexts: Sequence[str]) -> dict[str, Any]:  # noqa: ARG002
+    def score(self, item: dict[str, Any], answer: dict[str, Any], contexts: Sequence[str]) -> dict[str, Any]:
         return {"rubric": None, "items": {}, "overall_pass": None, "status": "not_called"}
 
 
@@ -117,7 +119,8 @@ def extract_trace(state: dict[str, Any]) -> M.RunRecord:
     return M.RunRecord(answer=dict(state.get("answer") or {}), tool_calls=calls, model_calls=int(state.get("call_count") or 0),
                        end_reason=state.get("end_reason"), tool_evidence_ids=ids, clarify_options=len(opts),
                        **router_trace(state),  # 식별 기록(RFP-26-08 A)
-                       **source_missing_counts(state))  # 보조 집계(AG-06-07 A, 9장 지표 아님)
+                       **source_missing_counts(state),  # 보조 집계(AG-06-07 A, 9장 지표 아님)
+                       **validator_rule_trace(state))  # Validator 규칙 집계(AG-07-02 B, 9장 지표 아님)
 
 
 ROUTER_ENTITY_KEYS = ("status", "item_seq")  # 질문 조각(raw·normalized)은 결과 파일에 남기지 않는다
@@ -205,7 +208,7 @@ class GraphAdapter:
 class OfflineFixedAgent:
     """연결 확인용: 도구·모델 없이 백엔드 `finalize`로 고정 문구 답만 만든다(응급 키워드면 119). 측정값으로 쓰지 않는다."""
 
-    info = {"agent": "offline-fixed", "note": "채점 파이프라인 연결 확인용, 측정값 아님"}
+    info: ClassVar[dict[str, str]] = {"agent": "offline-fixed", "note": "채점 파이프라인 연결 확인용, 측정값 아님"}
 
     def __call__(self, item: dict[str, Any]) -> M.RunRecord:
         from app.agent.finalize import finalize
@@ -469,6 +472,24 @@ def source_missing_counts(state: dict[str, Any]) -> dict[str, int]:
             "harness_blocks": sum(1 for h in harness_events(events) if h["action"] == "block")}
 
 
+def validator_rule_trace(state: dict[str, Any]) -> dict[str, dict[str, int]]:
+    """그래프 최종 상태의 `VALIDATOR` 이벤트에서 규칙 번호가 붙은 검사(`app.agent.validator.CHECK_RULES`: H22 등급값·M 규칙, H24 등급 예외 오용)의
+    검사 코드별·규칙별 건수를 센다(AG-07-02 B). 되감기로 검증이 두 번 돌면 합산한다(`source_missing_counts`와 같은 방식).
+    코드·건수만 보고 문장 내용은 읽지 않는다(이벤트에는 원문이 없다)."""
+    from app.agent.validator import CHECK_RULES
+
+    checks: dict[str, int] = {}
+    rules: dict[str, int] = {}
+    for e in state.get("events") or []:
+        if not isinstance(e, dict) or e.get("event") != "VALIDATOR" or not isinstance(e.get("reasons"), dict):
+            continue
+        for code, n in e["reasons"].items():
+            if code in CHECK_RULES and int(n or 0) > 0:
+                checks[str(code)] = checks.get(str(code), 0) + int(n)
+                rules[CHECK_RULES[code]] = rules.get(CHECK_RULES[code], 0) + int(n)
+    return {"validator_checks": checks, "validator_rules": rules}
+
+
 def make_tracer(*, prompt_set: str, run_id: str, condition: str | None = None, sink: Any = None) -> Any:
     """평가 실행용 계측기. `prompt_set`에 묶음 이름을 넣는다. `sink`가 없으면 평가 모드 기록기(`logs/eval/<run_id>/spans.jsonl`)를 쓴다."""
     from app.agent import llm
@@ -545,6 +566,7 @@ def _side(res: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict[str, Any]
         raise RunnerConfigError("문항별 기록이 없는 결과(시험셋 결과)는 비교하지 않는다")
     meta = res.get("meta") or {}
     aux = (res.get("metrics") or {}).get("aux_source_missing") or M.aux_summary(items) or {}
+    vrules = (res.get("metrics") or {}).get("validator_rule_counts") or M.validator_rule_counts(items) or {}
     cost = res.get("cost_usd") or {}
     n = len(items)
     passed = sum(1 for r in items if (r.get("trajectory") or {}).get("verdict") == "Pass")
@@ -555,6 +577,7 @@ def _side(res: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict[str, Any]
         "harness_blocks": aux.get("harness_blocks_total"), "no_evidence_dropped": aux.get("no_evidence_dropped_total"),
         "uncited_fact_sentences": aux.get("uncited_fact_sentences_total"), "quote_mismatch": aux.get("quote_mismatch_total"),
         "source_missing_zero_items": aux.get("source_missing_zero_items"),
+        "validator_rules": vrules.get("by_rule") or None,  # H22·H24 건수(AG-07-02 B 보조)
         "cost_usd": cost.get("total"), "skipped_cost_cap": len(res.get("skipped_cost_cap") or []),
     }
     rel = res.get("reliability") or {}
@@ -599,7 +622,8 @@ def format_compare(cmp: dict[str, Any]) -> str:
     rows = [("묶음", "label"), ("문항 수", "n_items"), ("경로 Pass", "trajectory_pass"), ("경로 Pass+Warn", "trajectory_pass_or_warn"),
             ("하네스 차단 수", "harness_blocks"), ("근거 없음으로 걸러진 문장", "no_evidence_dropped"),
             ("남은 빈 근거 사실 문장", "uncited_fact_sentences"), ("인용 불일치", "quote_mismatch"),
-            ("출처 누락 0건 문항", "source_missing_zero_items"), ("비용 USD", "cost_usd"), ("상한으로 건너뛴 문항", "skipped_cost_cap")]
+            ("출처 누락 0건 문항", "source_missing_zero_items"), ("Validator 규칙 건수(H22·H24)", "validator_rules"),
+            ("비용 USD", "cost_usd"), ("상한으로 건너뛴 문항", "skipped_cost_cap")]
     a, b = cmp["sides"]
     k = a.get("repeats") or b.get("repeats") or "k"
     rows += [("금기 판정 정답", "contra_judgment"), ("VALIDATION_FALLBACK 종료 문항", "validation_fallback"), ("오류 문항", "run_errors"),
@@ -719,7 +743,7 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap.add_argument("--allow-sealed", action="store_true", help=f"시험셋 열람 허용(환경변수 {G.SEALED_ENV}도 필요)")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--subset", choices=sorted(SUBSETS), help="표시 행만 고른다(dev_golden = 개발 골든, dev_reliability_core = 개발 안전 핵심 40)")
-    ap.add_argument("--prompt-set", default="prompt_set@v2", help="graph 에이전트의 프롬프트 묶음")
+    ap.add_argument("--prompt-set", default=None, help="graph 에이전트의 프롬프트 묶음(기본: `wiring.DEFAULT_PROMPT_SET`, 서비스와 같은 묶음)")
     ap.add_argument("--allow-draft", action="store_true", help="draft 프롬프트가 든 묶음 허용(검토 중인 초안 점검용)")
     ap.add_argument("--max-usd", type=float, help="graph 에이전트 비용 상한(필수). 닿으면 남은 문항을 건너뛴다")
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A.json", "B.json"), help="두 결과 파일을 나란히 본다(실행 없음)")
@@ -741,6 +765,10 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     if is_graph and not (a.max_usd and a.max_usd > 0):
         print("graph 에이전트는 --max-usd(0보다 큰 비용 상한)가 있어야 시작한다")
         return 2
+    if is_graph and a.prompt_set is None:  # 기본 묶음은 서비스 배선과 한 곳(`wiring.DEFAULT_PROMPT_SET`)에서만 정한다(결과 meta에 그 이름이 남는다)
+        from app.agent.graph.wiring import DEFAULT_PROMPT_SET
+
+        a.prompt_set = DEFAULT_PROMPT_SET
     path = SET_FILES.get(a.set, Path(a.set))
     sealed = G.check_access(path, allow_sealed=a.allow_sealed)  # 시험셋이면 여기서 막힌다(파일을 열기 전)
     digest = sha256_file(path, allow_sealed=a.allow_sealed)
@@ -793,6 +821,6 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
 
 if __name__ == "__main__":
     # S-05: 직접 실행할 때만 처리되지 않은 예외·logging 출력에서 키·DSN을 가린다(import만 할 때는 설치하지 않음)
-    from app.security.redact import install_excepthook  # noqa: E402, PLC0415
+    from app.security.redact import install_excepthook  # noqa: E402
     install_excepthook()
     raise SystemExit(main())

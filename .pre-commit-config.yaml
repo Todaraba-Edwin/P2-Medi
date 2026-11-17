@@ -15,10 +15,10 @@ repos:
         pass_filenames: false
         always_run: true
       - id: ruff
-        name: ruff (backend)
+        name: ruff (backend + evaluation/eval_runner·eval_metrics)
         entry: backend/.venv/bin/ruff check --config backend/pyproject.toml
         language: system
-        files: ^backend/.*\.py$
+        files: ^(backend/.*|evaluation/(eval_runner|eval_metrics))\.py$
       - id: check-prompts
         name: 프롬프트 묶음·L0 검사(last_eval·비밀값·실제 질문·개발셋 문항)
         entry: bash -c 'cd backend && .venv/bin/python -m app.llm.prompts'

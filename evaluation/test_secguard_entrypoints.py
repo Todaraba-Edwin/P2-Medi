@@ -70,7 +70,7 @@ def restore_hooks():
     sys.path[:] = saved_path
     if str(BACKEND) not in sys.path:
         sys.path.insert(0, str(BACKEND))
-    from app.logging.redact_filter import uninstall_log_redaction  # noqa: PLC0415
+    from app.logging.redact_filter import uninstall_log_redaction
 
     uninstall_log_redaction()
 

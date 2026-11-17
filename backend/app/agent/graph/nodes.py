@@ -35,11 +35,11 @@ from app.agent.sentence_filter import filter_sentences
 from app.agent.tools.context import ToolContext
 from app.agent.tools.registry import REGISTRY, ToolSpec, invoke
 from app.agent.tools.schemas import POST_WRITABLE_KEYS
-from app.agent.validator import FAIL, validate
+from app.agent.validator import CHECK_RULES, FAIL, validate
 from app.tools.drug_dict import DrugDict
 
-# 최종 요약 호출에 붙는 지시(코드 상수). 기본 묶음(`prompt_set@v2`)은 이 상수를 쓴다. 요약 프롬프트 파일(`answer_summary@v1`, AG-06)이 든 묶음을
-# 명시적으로 고르면 `GraphDeps.summary_instruction`에 그 본문이 들어와 이 상수 자리를 대신한다(파일은 draft, 사용자 승인 전에는 기본이 아니다).
+# 최종 요약 호출에 붙는 지시(코드 상수). 요약 프롬프트 파일(`answer_summary@v1`, AG-06)이 든 묶음(기본 `prompt_set@v3`, 2026-11-17 채택)을 쓰면
+# `GraphDeps.summary_instruction`에 그 본문이 들어와 이 상수 자리를 대신한다. 이 상수는 요약 프롬프트가 없는 묶음(`prompt_set@v1`·`@v2`)의 회귀 기준이다.
 SUMMARY_INSTRUCTION = (
     "위 질문에 대해, 아래 근거 데이터 블록에 있는 내용만 사용해 쉬운 한국어 문장으로 답한다. "
     "문장마다 근거 ID(evidence_ids)와 종류(claim_type)를 단다. 근거가 없는 부분은 확인하지 못했다고 쓰고 약국·약사 확인을 권한다. "
@@ -177,6 +177,9 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
         draft, err = parse_draft(state.get("draft"))
         events: list[dict[str, Any]] = []
         status, reasons, kept = FAIL, ["SCHEMA_INVALID"] if draft is None else [], []
+        # AG-07-02 B: 규칙 번호가 붙은 검사(`CHECK_RULES`: H22 등급값·M 규칙, H24 등급 예외 오용)의 코드별·규칙별 건수. 문장 내용은 넣지 않는다.
+        rule_checks: dict[str, int] = {}
+        rules: dict[str, int] = {}
         if draft is not None:
             fr = filter_sentences(draft, items)
             events.extend(fr.events)
@@ -189,8 +192,12 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
                 reasons = sorted({i.check for i in vr.issues if i.action == "REWIND"}) if status == FAIL else []
                 if status == FAIL and not reasons:
                     reasons = ["ALL_SENTENCES_DROPPED"]
+                for issue in vr.issues:
+                    if issue.check in CHECK_RULES:
+                        rule_checks[issue.check] = rule_checks.get(issue.check, 0) + 1
+                        rules[CHECK_RULES[issue.check]] = rules.get(CHECK_RULES[issue.check], 0) + 1
         del err
-        base = {"status": status, "reasons": reasons, "kept": len(kept)}
+        base = {"status": status, "reasons": reasons, "kept": len(kept), "rule_checks": rule_checks, "rules": rules}
         if status != FAIL:
             return {"validation": {**base, "next": "finalize"}, "final_sentences": [s.model_dump() for s in kept], "events": events}
         rewinds = state.get("rewind_count", 0)

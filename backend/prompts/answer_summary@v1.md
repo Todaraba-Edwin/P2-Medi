@@ -5,7 +5,7 @@ ticket: AG-06
 model: gpt-6-luna
 h_rules: [H1, H2, H5, H6, H7, H8, H17, H27, H28]
 golden_ids: [dev-012, dev-013, dev-024, dev-025, dev-028, dev-029, dev-043, dev-044, dev-046, dev-051, dev-056, dev-073, dev-081, dev-087, dev-104, dev-110, dev-116, dev-122, dev-146, dev-150]
-status: draft
+status: adopted
 ---
 위 질문에 대해, 위의 근거 데이터 블록에 있는 내용만 사용해 일반인이 알아듣는 쉬운 한국어 문장으로 답한다. 출력은 정해진 구조(sentences)로만 낸다.
 
