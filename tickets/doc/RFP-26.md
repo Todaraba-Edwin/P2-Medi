@@ -3,20 +3,14 @@ id: RFP-26
 label: RFP
 title: Pre-Week 평가 설계 구체화(평가셋 현황·LLM judge 설계와 페르소나 기반 평가 예시)
 sch: SCH-00
-status: doing
+status: done
 priority: 필수
 rfp: [9장]
 created: 2026-11-03
-done: -
+done: 2026-11-03
 ---
 
 # RFP-26 · Pre-Week 평가 설계 구체화(평가셋 현황·LLM judge 설계와 페르소나 기반 평가 예시)
-
-> **📌 이 티켓에서 사용자가 답할 것 (대기 1건)** — 표의 선택지 기호(A/B)로 답한다. 질문·읽을 곳·이유는 이 티켓 §8 결정 현황에 있다.
-> 한눈에 보기: [schedule.md 지금 해야 할 일 (Top 5)](../../schedule.md#지금-해야-할-일-top-5)에서 같은 번호와 순서를 확인한다.
-> | 번호 | 질문 | 선택지 | 권장 | 읽을 곳 |
-> |---|---|---|---|---|
-> | RFP-26-12 | 임부 M `judgment_m` 문항의 기대 경로 `recommended`에 `search_notice`를 둘까? | A) 세트·빌더를 문서대로 고침(`search_notice` 제거) / B) 세트는 그대로 두고 이 티켓 §7.6 문구를 "넣는다"로 고침 | ★ B | 이 티켓 §7.6, §8 |
 
 ## Index
 - [1. 이슈](#1-이슈)
@@ -76,7 +70,7 @@ done: -
 - [x] Ragas + Claude judge + 한국어 시험(§5.3) → RFP-15 시험형으로 이관
 - [x] (RFP-26-08 A, 2026-11-17 이행 완료: 커밋 `4d62fce`·병합 `1398c41`, 9장 개정 포함. ①②를 모두 반영) ① `evaluation/eval_metrics.py`·`eval_runner.py` 경로 채점 수정(식별 단계 = `identify_drug` 호출 또는 Router RESOLVED·되묻기, order는 판정 인자 `item_seq`가 식별 결과 안에 있는가) + `extract_trace`에 Router 엔티티(status·item_seq) 기록(AG-06 §3에서 추적) ② §7.6과 `P2-doc/PJ2-RFP.md` 9.3·9.4절 개정(이유·날짜 기록, 기존 `l2-*`·`l3-*` 결과와 섞지 않음): **메인 위임 대기**(문서 개정은 schedule-writer 범위 밖)
 - [ ] (RFP-26-09 A, 이행 대기) 9.3절 정의대로 Fail 유지, FR-07 보정 코드 구현을 AG-10에 연결(AG-10 §3에서 추적)
-- [ ] (RFP-26-12, 대기) 임부 M `judgment_m` `recommended`의 `search_notice`: B면 §7.6 문구를 세트에 맞게 고치고, A면 빌더·세트를 문서대로 고친다(시험셋은 열람 없이)
+- [x] (RFP-26-12 B, 2026-11-17 완료) 임부 M `judgment_m` `recommended`의 `search_notice`: 세트는 그대로 두고 §7.6 문구를 세트에 맞게 고쳤다(`evaluation/eval_set/README.md` §6도 맞춤)
 
 ## 4. 현재 평가셋은 어떤 상태인가
 
@@ -359,7 +353,7 @@ judge에는 **정답 근거(코드가 산출한 사실)와 기대 응답 유형�
  "max_model_calls": 8}
 ```
 
-- **등급 정의와 `search_notice`(RFP-29-03 A, 2026-11-16)**: 1·2등급 정의는 코드가 답에 붙인다(BE-06-16 A, `backend/app/agent/grade_defs.py`). 그래서 임부 등급 FOUND 문항의 기대 경로 `recommended`에도 **`search_notice`를 넣지 않는다**(LLM이 같은 원문을 중복 호출해 Warn만 부풀린다). TC-21 정답 근거 c5는 `grade_defs` 정의 블록 출처로 채점한다. 보조 지표 "정의 동반률"은 신설하지 않는다. 정의 원문 계층 검사(H23)·정의 누락 검사(H25)는 개선 단계(RFP-29 §6).
+- **등급 정의와 `search_notice`(RFP-29-03 A, 2026-11-16)**: 1·2등급 정의는 코드가 답에 붙인다(BE-06-16 A, `backend/app/agent/grade_defs.py`). 그래서 임부 등급 FOUND 문항의 `required`에는 `search_notice`를 넣지 않는다. 다만 판정 틀 `judgment_m`의 `recommended`에는 `search_notice`를 **넣는다**(`build_eval_set.py` `judgment_m` = `search_reason`·`search_notice`, RFP-26-12 B, 2026-11-17): `recommended`는 Warn에만 영향을 주고 Fail 판정은 바꾸지 않으므로 세트를 다시 고치지 않는다. TC-21 정답 근거 c5는 `grade_defs` 정의 블록 출처로 채점한다. 보조 지표 "정의 동반률"은 신설하지 않는다. 정의 원문 계층 검사(H23)·정의 누락 검사(H25)는 개선 단계(RFP-29 §6).
   - **`multihop_m` 기대 경로 정정(AG-04-07 A, 2026-11-17)**: 같은 이유로 다중 홉 임부 M 틀(`multihop_m`)의 `required`에서도 `search_notice`를 뺐다(`required` = `identify_drug`·`check_contraindications`·`search_reason`, `recommended` 없음). 빌더 `evaluation/eval_set/build_eval_set.py` `path("multihop_m")`을 고치고, 이미 만든 세트는 문항을 다시 만들지 않고 `evaluation/eval_set/fix_multihop_m_path.py`로 해당 칸만 고쳤다(개발셋 dev-001·dev-059 2행, 시험셋은 열람 없이 1행. manifest sha256 갱신).
 - **식별 단계와 판정 인자(경로 규칙 `traj@v2`, RFP-26-08 A, 2026-11-17)**: 6노드 그래프에서는 약 이름 식별을 Router(코드, `DrugDict.lookup_name`)가 먼저 하고, 모델은 모호하거나 찾지 못한 약만 `identify_drug`로 찾는다. 기대 경로는 그보다 먼저(2026-11-10) 고정돼 `identify_drug` 호출만 식별로 셌다(근거: 로컬 보고 `data/mock/briefs/reports/l3-pathfail-rca.md` §2.1). 그래서 채점 규칙을 아래처럼 바꾼다. 세트 파일의 `identify_drug` required·order 칸은 그대로 두고 **채점기**(`evaluation/eval_metrics.py` `trajectory`)가 해석한다.
   | 항목 | 이전(`traj@v1`) | 이후(`traj@v2`) |
@@ -422,7 +416,7 @@ judge에는 **정답 근거(코드가 산출한 사실)와 기대 응답 유형�
 | RFP-26-09 | 오탈자 문항에서 Router가 되묻기로 끝낸 경우를 어떻게 채점할까? | A) 9.3절대로 Fail 유지, FR-07 보정을 코드로 구현(AG-10) / B) 되묻기를 부분 정답으로 따로 집계 | ★ A: 오탈자 견고성이 에이전트 이득(H-E1)의 핵심 지표라 기준을 낮추면 증명 목표가 약해진다. 되묻기 비율은 종료 사유 분포로 이미 따로 보인다 | **완료(A, 2026-11-17, 사용자 "RFP-26-08·09, AG-04-07 권장대로")**: FR-07 보정은 AG-10에서 구현 | `P2-doc/PJ2-RFP.md` 9.3절·FR-07, 근거 보고 `l3-pathfail-rca.md` §2.2(로컬) | AG-12 오탈자 지표 |
 | RFP-26-10 | 경로 채점 v2에서 후보가 하나도 없어 NOT_FOUND로 끝난 문항을 식별 단계 충족으로 볼까? | A) 식별 미충족으로 둔다(현재 구현 유지) / B) 식별 충족으로 인정 | ★ A: 약이 식별되지 않았는데 충족으로 세면 기준이 느슨해진다. 현재 구현과 같아 코드 변경이 없다 | **완료(A, 2026-11-17, 사용자 "권장대로")**: 식별 미충족 유지(현재 구현) | 이 티켓 §10 2026-11-17 항목, 로컬 보고 `data/mock/briefs/reports/pathscore-fix-worker.md` | 경로 채점 v2 해석(AG-06 L3 재측정 해석·AG-11) |
 | RFP-26-11 | `UNIDENTIFIED_ITEM` 검사를 어디에 둘까? | A) `check_contraindications`에만 둔다(현재 구현 유지) / B) 다른 도구에도 확장 | ★ A: 판정 도구가 미식별 약을 쓰는 것을 막는 것이 목적이고 현재 구현과 같다 | **완료(A, 2026-11-17, 사용자 "권장대로")**: `check_contraindications`에만(현재 구현) | 이 티켓 §10 2026-11-17 항목, 로컬 보고 `pathscore-fix-worker.md` | 경로 채점 v2 해석 |
-| RFP-26-12 | 임부 M `judgment_m` 문항의 기대 경로 `recommended`에 `search_notice`를 둘까? (정합성 점검 2026-11-17: 문서 §7.6은 "넣지 않는다"인데 세트·빌더는 `judgment_m` `recommended`에 `search_notice`가 있다) | A) 세트·빌더를 문서대로 고친다(`recommended`에서 `search_notice` 제거, 시험셋은 열람 없이 코드로, 개발셋·시험셋 manifest sha256 재기록) / B) 세트는 그대로 두고 §7.6 문구를 "`judgment_m`에는 `recommended`로 넣는다"로 고친다 | ★ B: `recommended`는 Warn에만 영향을 주고 Fail 판정은 바꾸지 않는다. A는 세트를 다시 고쳐 시험셋 적용(Recap 25)이 또 막힌다 | 대기 | 이 티켓 §7.6, `evaluation/eval_set/README.md` §2, 근거 plan-critic 점검(2026-11-17, 로컬 지시서 `data/mock/briefs/2026-11-17-consistency-fix.md`) | AG-11 전 경로 채점 정합 |
+| RFP-26-12 | 임부 M `judgment_m` 문항의 기대 경로 `recommended`에 `search_notice`를 둘까? (정합성 점검 2026-11-17: 문서 §7.6은 "넣지 않는다"인데 세트·빌더는 `judgment_m` `recommended`에 `search_notice`가 있다) | A) 세트·빌더를 문서대로 고친다(`recommended`에서 `search_notice` 제거, 시험셋은 열람 없이 코드로, 개발셋·시험셋 manifest sha256 재기록) / B) 세트는 그대로 두고 §7.6 문구를 "`judgment_m`에는 `recommended`로 넣는다"로 고친다 | ★ B: `recommended`는 Warn에만 영향을 주고 Fail 판정은 바꾸지 않는다. A는 세트를 다시 고쳐 시험셋 적용(Recap 25)이 또 막힌다 | **완료(B, 2026-11-17, 사용자 "RFP-26-12-B")**: 세트는 그대로, §7.6 문구를 "`judgment_m` `recommended`에 넣는다"로 고침 | 이 티켓 §7.6, `evaluation/eval_set/README.md` §2, 근거 plan-critic 점검(2026-11-17, 로컬 지시서 `data/mock/briefs/2026-11-17-consistency-fix.md`) | AG-11 전 경로 채점 정합 |
 
 ## 9. 관련
 - 선행: 없음
@@ -430,7 +424,7 @@ judge에는 **정답 근거(코드가 산출한 사실)와 기대 응답 유형�
 - 관련: [RFP-23](RFP-23.md)(§5.4 소표본, §10 평가 점검), [RFP-21](RFP-21.md) §4(페르소나·평가 문항 초안), [RFP-25](RFP-25.md)(자유도 사다리와 C3), `P2-doc/PJ2-RFP.md` 8장 평가 행, 9장, `P2-doc/PJ2-가설검증.md`
 
 ## 10. 메모
-- 2026-11-17 **결정 RFP-26-12 등록(대기, 정합성 점검 plan-critic)**: §7.6은 임부 등급 FOUND 문항 기대 경로에 `search_notice`를 넣지 않는다고 적었으나 빌더·세트의 `judgment_m`은 `recommended`에 `search_notice`를 담고 있어 문서와 세트가 어긋난다(`multihop_m`은 AG-04-07 A로 정정됨). 권장 B(§7.6 문구를 세트에 맞춤). 대기 결정 때문에 done → doing으로 다시 열었다(RFP-26-10·11 때와 같은 방식). 가정: 질문·선택지 문구는 점검 요약에서 정리했고 `judgment_m`의 `recommended` 내용은 코드를 직접 확인하지 않았다.
+- 2026-11-17 **결정 RFP-26-12 등록과 답(B, 정합성 점검 plan-critic, 사용자 "RFP-26-12-B")**: §7.6은 임부 등급 FOUND 문항 기대 경로에 `search_notice`를 넣지 않는다고 적었으나 빌더·세트의 `judgment_m`은 `recommended`에 `search_notice`를 담고 있어 문서와 세트가 어긋난다(`multihop_m`은 AG-04-07 A로 정정됨). 권장대로 B(§7.6 문구를 세트에 맞춤, `build_eval_set.py:313` `judgment_m` `recommended`에 `search_notice` 확인). 대기 동안 done → doing으로 열었다가 같은 날 재완료했다(원래 완료일 2026-11-03 유지). 가정: 질문·선택지 문구는 점검 요약에서 정리했고 `judgment_m`의 `recommended` 내용은 코드를 직접 확인하지 않았다.
 - 2026-11-17 **결정 RFP-26-10·11 등록(대기, 근거 `data/mock/briefs/2026-11-17-day-facts.md` §3, 로컬 보고 `pathscore-fix-worker.md`)**: 경로 채점 v2 구현 뒤 남은 두 가지를 올렸다. 가정: 질문·B 선택지 문구는 사실 묶음의 한 줄 요약에서 정리했다. RFP-26-08 A·AG-04-07 A는 이행 완료(커밋 `4d62fce`)이고 이 티켓이 대기 결정 때문에 done에서 doing으로 돌아왔다.
 - 2026-11-17 **결정 RFP-26-08·09 등록과 답(A·A)(보고 `data/mock/briefs/reports/l3-pathfail-rca.md`, 로컬)**: AG-06 L2·L3 경로 평가에서 Fail 아님이 dev150 15/150(10.0%, Wilson 6.2~15.8%)에 그친 주원인은 §7.6 기대 경로가 Router 코드 식별 설계(11-11 `4b0bbae`)보다 먼저 고정(11-10 `31c1933`)되어 `identify_drug`를 required·order에 둔 것이다(REQUIRED_MISSING 133건 모두 `identify_drug` 포함, ORDER_VIOLATION 72건 모두 이중 Fail, 이를 빼면 124/150). trace 누락은 0건. **사전 고정 원칙(RFP-23 §5.1, 9장) 영향**: 08·09 어느 쪽이든 지표·채점 정의를 바꾸므로 이유와 날짜를 `P2-doc/PJ2-RFP.md` 9장에 남기고, 기존 `l2-*`·`l3-*` 결과(경로 채점 구 정의)와 섞지 않는다(새 정의로 다시 계산한 값은 별도 표기). 지금까지 개발셋 실행만 있고 시험셋 기준선(AG-12)은 시작 전이다. 시험셋 파일은 08 A·09 A에서 열지 않는다. 기준일: 가정(보고의 시험셋 `identify_drug` required 존재는 추정, 시험셋 미열람).
 - 2026-11-03 재개·재종결: 사용자가 "Trajectory 평가와 Reliability 평가를 도입할 수 있는가"를 물어 §7.6·§7.7과 결정 RFP-26-05·06을 추가했고 "권장대로"(A)로 답했다. 두 평가는 요구서 9.4절에 보조 지표로 일부 있었고(RFP-22 §9에 정의) 이 티켓에는 없던 설계다. 반영: PJ2-RFP.md 9.1절 4번·9.4절, AG-01·AG-04·AG-12·AG-14·BE-08, CLAUDE.md 평가 규칙.
