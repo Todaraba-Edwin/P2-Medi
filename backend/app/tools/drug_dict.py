@@ -647,7 +647,7 @@ class DrugDict:
         if ing_ids:
             ing_ids.sort(key=lambda j: (-len(self.ingredients[j].get("kids_codes", [])), j))
             cands = [self._ingredient_candidate(j, 0.97, MATCH_NORMALIZED) for j in ing_ids]
-            notes = ["성분 단위 일치라 제품 정보(제품 연령 문장·허가 라벨·제형)는 없다(H17)"]
+            notes = ["성분 단위 일치라 제품 정보(제품 연령 문장·허가사항·제형)는 없다(H17)"]  # PRD-10-04: "허가 라벨"→"허가사항"
             if len(cands) > 1:
                 notes.append("같은 이름이 여러 성분(염 형태 등)에 걸린다")
             return done(cands, MATCH_NORMALIZED, len(cands), resolved=len(cands) == 1, notes=notes)

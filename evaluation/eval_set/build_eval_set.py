@@ -10,15 +10,23 @@
 - 축약·모호 문항은 사전(BE-10) 전이라 `provisional: true`, 주제 근거 없음은 라벨 스냅샷(BE-12) 전이라 같은 표시.
 
 실행: backend/.venv/bin/python evaluation/eval_set/build_eval_set.py
+
+**세트는 고정됐다(2026-11-17).** 빌드 뒤 수정(`fix_multihop_m_path.py`·`fix_no_state_assessment.py`·`mark_dev_subsets.py` 등)은
+이 빌더를 다시 돌려도 재현되지 않는다. 그래서 출력 파일(개발셋·시험셋·manifest)이 하나라도 이미 있으면 **기본으로 거부**하고,
+명시 플래그 `--overwrite-frozen`과 환경변수 `MEDIAGENT_ALLOW_OVERWRITE_FROZEN=rebuild-frozen-eval-set`이 **둘 다** 있을 때만 덮어쓴다.
+존재 여부만 보고 파일은 열지 않는다(시험셋 열람 없음).
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import os
 import random
 import re
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -26,6 +34,8 @@ ROOT = HERE.parents[1]
 DATA = ROOT / "data"
 sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(ROOT / "evaluation" / "credit_use"))
+
+import variants as V  # noqa: E402  (RFP-28-02 코드 변형 규칙)
 
 from app.db.loaders import (  # noqa: E402  (BE-09 정규화 재사용, 읽기만)
     AS_OF_COMBO,
@@ -39,7 +49,6 @@ from app.db.loaders import (  # noqa: E402  (BE-09 정규화 재사용, 읽기�
     normalize_pregnancy,
 )
 from app.db.source_files import COMBO_JSON_NAME  # noqa: E402
-import variants as V  # noqa: E402  (RFP-28-02 코드 변형 규칙)
 
 SEED = 20261110
 SET_VERSION = "ag04-v0.1-draft"
@@ -52,6 +61,30 @@ F_COMBO = DATA / COMBO_JSON_NAME
 F_POOL = {s: DATA / "credit_use" / f"pool_{s}.jsonl" for s in ("dev", "test")}
 F_TPL = DATA / "mock" / "question_templates" / "question_templates.jsonl"
 OUT = {"dev": HERE / "dev_set.jsonl", "test": HERE / "test_set.SEALED.jsonl"}
+MANIFEST_OUT = HERE / "manifest.json"
+
+# 고정 세트 덮어쓰기 가드(H-3). 값은 비밀이 아니다. 실수로 켜지지 않게 하는 확인 문자열
+OVERWRITE_ENV = "MEDIAGENT_ALLOW_OVERWRITE_FROZEN"
+OVERWRITE_ENV_VALUE = "rebuild-frozen-eval-set"
+
+
+class FrozenSetError(RuntimeError):
+    """고정된 평가 세트 파일을 허가 없이 덮어쓰려 했다."""
+
+
+def check_frozen_outputs(paths: Iterable[Path], *, overwrite_frozen: bool, env: Mapping[str, str] | None = None) -> list[Path]:
+    """이미 있는 출력 파일 목록을 돌려준다. 하나라도 있는데 플래그·환경변수가 둘 다 있지 않으면 예외. 파일은 열지 않는다."""
+    existing = [p for p in paths if os.path.lexists(p)]  # 깨진 심볼릭 링크도 "있음"으로 본다
+    if not existing:
+        return existing
+    e = os.environ if env is None else env
+    if overwrite_frozen and e.get(OVERWRITE_ENV, "") == OVERWRITE_ENV_VALUE:
+        return existing
+    names = ", ".join(p.name for p in existing)
+    raise FrozenSetError(
+        f"평가 세트가 이미 있어 덮어쓰지 않았다: {names}. 세트는 고정됐고 빌드 뒤 수정(fix_*·mark_dev_subsets)은 재실행으로 재현되지 않는다. "
+        f"정말 다시 만들려면 --overwrite-frozen과 환경변수 {OVERWRITE_ENV}={OVERWRITE_ENV_VALUE}가 둘 다 있어야 한다"
+    )
 
 # PJ2-RFP.md 9.2절 표의 목표 문항 수(시험셋). 개발셋도 같은 구성으로 만든다.
 COMPOSITION = {
@@ -64,13 +97,13 @@ L4_M = "건강보험심사평가원 「기능과 역할」 2026년판 표4.3-5, 
 L1_DEF = "고시 「의약품 병용금기 성분 등의 지정에 관한 규정」 제3조(정의) 제3호 (P2-doc/MFDS_병용금기_지정규정_고시.md 2장 (3))"
 ALL_TOOLS = ["identify_drug", "check_contraindications", "search_notice", "search_reason", "search_label", "get_label_section"]
 
-rnd = random.Random(SEED)
+rnd = random.Random(SEED)  # noqa: S311  (재현용 시드 고정 난수, 보안 용도 아님)
 
 
 # --------------------------------------------------------------------------- 공통 함수
 
 def sha(s: str) -> int:
-    return int(hashlib.sha1(s.encode("utf-8")).hexdigest(), 16)
+    return int(hashlib.sha1(s.encode("utf-8"), usedforsecurity=False).hexdigest(), 16)  # 정렬용 결정적 해시(보안 아님)
 
 
 def side(key: str) -> str:
@@ -349,7 +382,7 @@ def reference(it: dict) -> str:
     """Ragas reference 문장(RFP-26-02, RFP-26 §5.3): 구조화된 정답 → 정답 문장. README 4장과 같은 규칙."""
     t = it["expected_response_type"]
     names = it.get("products") or []
-    nm = {c: n for c, n in zip(it.get("ingredient_codes") or [], names)}
+    nm = {c: n for c, n in zip(it.get("ingredient_codes") or [], names, strict=False)}
     parts = []
     dates = {x["kind"]: x.get("as_of") for x in (it["answer"].get("items") or [])}
     if len(set(dates.values())) > 1:
@@ -406,8 +439,8 @@ class Builder:
         self.exclude = exclude_keys  # 다른 세트에서 쓴 키(쌍·단일 성분)
         self.qs: list[str] = []
         self.n = 0
-        self.pool = [json.loads(l) for l in open(F_POOL[set_name], encoding="utf-8")]
-        self.tpl = [json.loads(l) for l in open(F_TPL, encoding="utf-8")]
+        self.pool = [json.loads(ln) for ln in open(F_POOL[set_name], encoding="utf-8")]
+        self.tpl = [json.loads(ln) for ln in open(F_TPL, encoding="utf-8")]
 
     # ---- 키 ----
     @staticmethod
@@ -469,7 +502,8 @@ class Builder:
             "bad_answer_sample": kw.pop("bad_answer_sample", None),
             "human_review": None,
         }
-        assert not kw, kw
+        if kw:
+            raise TypeError(f"알 수 없는 문항 필드: {sorted(kw)}")
         rt = it["expected_response_type"]
         it["required_elements"] = list(ELEMENTS[rt])
         if it["answer_evidence"] is None and it["answer"].get("items"):
@@ -658,7 +692,7 @@ class Builder:
 
     def tc21(self, golden: bool) -> None:
         cands = sorted(c for c, rows in self.k.preg.items() if any(m["grade"] == "M" for m in rows) and self.single_ok(c))
-        rnd2 = random.Random(f"{SEED}-{self.s}-tc21")
+        rnd2 = random.Random(f"{SEED}-{self.s}-tc21")  # noqa: S311  (재현용 시드 고정)
         rnd2.shuffle(cands)
         for c in cands:
             name = self.k.name_of(c)
@@ -680,7 +714,7 @@ class Builder:
 
     def triple(self, kind: str, golden: bool) -> None:
         """kind='tc22': FOUND 쌍 2개 이상(사유 요약, 멀티홉). kind='tc18': FOUND 1개 + 목록에 없음 2개."""
-        rnd2 = random.Random(f"{SEED}-{self.s}-{kind}")
+        rnd2 = random.Random(f"{SEED}-{self.s}-{kind}")  # noqa: S311  (재현용 시드 고정)
         xs = sorted(c for c in self.k.partners if self.k.name_of(c))
         rnd2.shuffle(xs)
         for x in xs:
@@ -821,7 +855,7 @@ class Builder:
                 stems[st].add(n)
         cands = sorted(st for st, ns in stems.items() if 2 <= len(ns) <= 12 and st not in ns and side("amb:" + st) == self.s
                        and st not in self.exclude)
-        rnd2 = random.Random(f"{SEED}-{self.s}-amb")
+        rnd2 = random.Random(f"{SEED}-{self.s}-amb")  # noqa: S311  (재현용 시드 고정)
         rnd2.shuffle(cands)
         tpls = [t for t in self.tpl if t["type"] == "모호"]
         i = 0
@@ -898,7 +932,7 @@ class Builder:
             t = tp[tid]
             stated = re.search(r"(\d)등급", t["template"])
             stated = stated.group(1) if stated else None
-            c = self.pick_single("오정보", lambda c: k.preg.get(c) and (stated is None or all(m["grade"] != stated for m in k.preg[c])))
+            c = self.pick_single("오정보", lambda c, stated=stated: k.preg.get(c) and (stated is None or all(m["grade"] != stated for m in k.preg[c])))
             if not c:
                 continue
             nm = k.name_of(c)
@@ -964,7 +998,7 @@ class Builder:
     # ======================================================== 근거 없음
     def no_evidence(self, n_unid: int) -> None:
         k = self.k
-        rnd2 = random.Random(f"{SEED}-{self.s}-fake")
+        rnd2 = random.Random(f"{SEED}-{self.s}-fake")  # noqa: S311  (재현용 시드 고정)
         tpls_u = [t for t in self.tpl if t["subtype"] == "약 미식별"]
         tpls_t = [t for t in self.tpl if t["subtype"] == "주제 근거 없음"]
         j = 0
@@ -1125,7 +1159,21 @@ def gen_of(t: dict) -> str:
     return "haiku" if str(t.get("template_source", "")).startswith("llm") else "code"
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None, *, env: Mapping[str, str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--overwrite-frozen", action="store_true",
+                    help=f"고정 세트 덮어쓰기 허용(환경변수 {OVERWRITE_ENV}도 필요). 기본은 거부")
+    a = ap.parse_args(argv)
+    try:
+        check_frozen_outputs([OUT["dev"], OUT["test"], MANIFEST_OUT], overwrite_frozen=a.overwrite_frozen, env=env)
+    except FrozenSetError as err:
+        print(err, file=sys.stderr)
+        return 2
+    build_and_write()
+    return 0
+
+
+def build_and_write() -> None:
     k = Kids()
     test = Builder(k, "test", exclude_keys=set()).build()
     test_keys = set()
@@ -1160,8 +1208,8 @@ def main() -> None:
             "human_review_sample": sum(x["human_review"]["sample"] for x in items),
         }
         print(name, len(items), manifest["sets"][name]["by_group"])
-    (HERE / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    MANIFEST_OUT.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

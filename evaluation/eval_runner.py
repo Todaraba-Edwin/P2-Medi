@@ -10,9 +10,11 @@
 
 사용(저장소 루트): `backend/.venv/bin/python evaluation/eval_runner.py --set dev --agent offline-fixed [--limit N] [--out PATH]`
 
-L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden [--prompt-set prompt_set@vN] [--allow-draft] --max-usd X`는 서비스와 같은 부품으로
+L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden [--prompt-set prompt_set@vN] --max-usd X`는 서비스와 같은 부품으로
 실제 그래프를 만들어 돌린다(평가 모드: API 병기 끔, LLM 캐시 끔). **실제 모델을 부르고 원격 DB를 읽으므로 비용 상한이 필수다.** judge는 붙이지 않는다.
-`--prompt-set`을 주지 않으면 서비스와 같은 기본 묶음(`wiring.DEFAULT_PROMPT_SET`, 2026-11-17부터 `prompt_set@v3`)을 쓰고 결과 meta에 그 이름이 남는다.
+`--prompt-set`을 주지 않으면 서비스와 같은 기본 묶음(`wiring.DEFAULT_PROMPT_SET`, 2026-11-17부터 `prompt_set@v3`, 모두 adopted)을 쓰고 결과 meta에 그 이름이 남는다.
+`--allow-draft`는 draft 프롬프트가 든 묶음을 점검할 때만 붙인다(기본 L2 사용법에는 필요 없다).
+비교 조건(9.5절): `--condition`은 지금 `C2`(ReAct 그래프)만 받는다. C1 고정 파이프라인(AG-16)은 러너 연결 전이라 다른 값은 실행 없이 거부한다(종료 코드 2).
 Validator 규칙 집계(AG-07-02 B): 문항별 `validator`(H22·H24 검사 코드·규칙별 건수)와 `metrics.validator_rule_counts`는 보조 기록이다(9장 지표 아님).
 `--compare A.json B.json`은 두 결과를 나란히 보여 준다(회귀 경보 전용).
 
@@ -51,6 +53,8 @@ MANIFEST = EVAL_SET_DIR / "manifest.json"
 SET_FILES = {"dev": EVAL_SET_DIR / "dev_set.jsonl", "test": EVAL_SET_DIR / "test_set.SEALED.jsonl"}
 OUT_DIR = ROOT / "logs" / "eval"  # 로컬 전용(`logs/`는 .gitignore)
 RUNNER_VERSION = "ag11-runner@v0-skeleton"
+# 러너가 실제로 연결한 비교 조건(9.5절). C1(AG-16 고정 파이프라인)은 eval_runner 연결 때 여기에 더한다.
+SUPPORTED_CONDITIONS: tuple[str, ...] = ("C2",)
 
 JUDGE_MODEL = "claude-sonnet-5-5"  # RFP-26-01 고정. 이 골격은 호출하지 않는다
 RUBRIC_VERSIONS = {"J1": "J1@v1", "J2": "J2@v1", "J3": "J3@v1", "J4": "J4@v1", "J5": "J5@v1"}
@@ -737,7 +741,7 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--set", default="dev", help="dev | test | 파일 경로")
     ap.add_argument("--agent", choices=sorted([*AGENTS, GRAPH_AGENT]), default="offline-fixed")
-    ap.add_argument("--condition", default="C2")
+    ap.add_argument("--condition", default="C2", help=f"비교 조건(9.5절). 지금은 {', '.join(SUPPORTED_CONDITIONS)}만 연결됨")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--repeats", type=int, default=1)
     ap.add_argument("--allow-sealed", action="store_true", help=f"시험셋 열람 허용(환경변수 {G.SEALED_ENV}도 필요)")
@@ -761,6 +765,10 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     if a.compare:
         print(format_compare(compare_results(*(json.loads(p.read_text(encoding="utf-8")) for p in a.compare))))
         return 0
+    if a.condition not in SUPPORTED_CONDITIONS:
+        print(f"--condition {a.condition!r}은(는) 아직 러너에 연결되지 않았다. 지금 받는 값: {', '.join(SUPPORTED_CONDITIONS)} "
+              "(C1 고정 파이프라인은 AG-16 eval_runner 연결 뒤 연다). 실행하지 않았다")
+        return 2
     is_graph = a.agent == GRAPH_AGENT
     if is_graph and not (a.max_usd and a.max_usd > 0):
         print("graph 에이전트는 --max-usd(0보다 큰 비용 상한)가 있어야 시작한다")
