@@ -208,6 +208,10 @@ def make_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str, An
         # 임신 아님(False)은 대상이 아니라 줄을 그리지 않는다(AG-08-18 A)
         if (state.get("profile") or {}).get("pregnant") is None and not any(it.get("kind") == "pregnancy" for it in items):
             extra["not_checked"] = ["pregnancy"]
+        # 나이를 특정할 수 없음(질문·요청 묶음에 한 나이가 없음, 구간은 `profile_from_context`가 넘기지 않음): 나이 기준 값이 있는 연령금기 줄에만
+        # `age_info_line`이 붙는다(FE-07-18 A). 도구는 나이가 없으면 연령금기 항목을 만들지 않으므로 지금은 값 경로만 열려 있다
+        if (state.get("profile") or {}).get("age_years") is None:
+            extra["age_unknown"] = True
         if deps.grade_def_fn is not None:  # 함수가 주입되지 않았으면 아무것도 넘기지 않는다(기존 출력 불변)
             defs, missing = grade_def_inputs(items, deps.grade_def_fn)
             if defs:

@@ -118,6 +118,23 @@ def _age_criteria(it: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def _ingredients(it: dict[str, Any], names: list[str]) -> list[dict[str, Any]]:
+    """식별 줄의 성분 칸(PRD-09-05). 성분코드는 사전이 준 값만 옮긴다(지어내지 않음, 레인 A 2026-11-17).
+
+    - 사전이 코드를 붙이지 못함(`code_status == "none"`, BE-10-06 A): 성분마다 `code_missing_text`(UI-021 `ABSENT`, "자료에 적혀 있지 않아요").
+      사전은 파일이라 "불러오지 못함"(`FETCH_FAIL`)이 생기는 경로가 없어 그 값은 쓰지 않는다.
+    - 제품 단위로 연결됐고(`linked`) 성분 하나에 코드 하나뿐이면 그 코드를 `code`에 둔다. 성분·코드가 여럿이면 짝을 알 수 없어 비운다(안내 문구도 없음).
+    - `component_only`(성분 단위 부분 연결)는 어느 성분의 코드인지 모르므로 비운다.
+    """
+    status = it.get("code_status")
+    if status == "none":
+        return [{"name": n, "code_missing_text": fp.INGR_CODE_MISSING_TEXT["ABSENT"]} for n in names]
+    codes = [str(c) for c in it.get("kids_codes") or [] if c]
+    if status == "linked" and len(names) == 1 and len(codes) == 1:
+        return [{"name": names[0], "code": codes[0]}]
+    return [{"name": n} for n in names]
+
+
 def _entry(it: dict[str, Any], bucket: int) -> dict[str, Any]:
     st, kind = it.get("status"), it.get("kind")
     e: dict[str, Any] = {
@@ -141,7 +158,7 @@ def _entry(it: dict[str, Any], bucket: int) -> dict[str, Any]:
         ingr = [str(x) for x in ingr if x]
         e["text"] = fp.IDENTIFIED_LINE  # AG-08-12 B: 표지 "찾음" + 보조줄(성분 이름). 문장은 만들지 않는다
         e["sub_line"] = fp.IDENTIFIED_SUB_SEP.join(ingr) if ingr else None
-        e["ingredients"] = [{"name": n} for n in ingr]
+        e["ingredients"] = _ingredients(it, ingr)
     else:
         e["unresolved"] = True
         e["text"] = _unconfirmed_text(it, st, flags)
@@ -159,6 +176,10 @@ def _entry(it: dict[str, Any], bucket: int) -> dict[str, Any]:
             e["searched"] = [{"dataset": s.get("dataset"), "count": s.get("count")} for s in it.get("searched") or [] if isinstance(s, dict)]
         if "REFERENCE_ONLY" in flags:
             e["reference_line"] = josa.fill(fp.REFERENCE_ONLY_LINE, drug=str(e["drug"]))
+    # 나이 미특정 때 "원문 값만 담은" 연령금기 항목(모양은 AG-02 결정 뒤, 레인 A 2026-11-17): 도구가 `age_criteria` 목록을 **직접** 준 경우에만
+    # 판정 묶음과 상관없이 값을 옮긴다. 조회 행(`matches`)에서 만들어 내지는 않는다(FOUND 줄만 위에서 만든다).
+    if kind == "age" and "age_criteria" not in e and isinstance(it.get("age_criteria"), list) and it["age_criteria"]:
+        e["age_criteria"] = _age_criteria(it)
     return e
 
 
@@ -302,6 +323,7 @@ def finalize(
     grade_defs: list[dict[str, Any]] | None = None,
     not_checked: list[str] | None = None,
     refuse_reasons: list[str] | None = None,
+    age_unknown: bool = False,
 ) -> dict[str, Any]:
     """응답 딕셔너리를 만든다. 고정 문구는 인자·모델 출력과 무관하게 항상 들어간다.
 
@@ -315,11 +337,18 @@ def finalize(
       미확보와 함께 구조(`grade_defs`: 제목·원문·출처·미확보 사유)로 나간다. 원문이 없는 블록에는 출처 줄이 없다.
     - `not_checked`: 정보가 없어 확인하지 못한 금기 종류 키(예: 임신 여부 미입력 → `["pregnancy"]`, FE-07-16 B). 승인 문장이 있는 종류만 줄이 된다.
       대상이 아닌 종류(임신 아님, 약 하나뿐인 병용)는 넘기지 않는다: 줄을 그리지 않는다(AG-08-18 A).
+    - `age_unknown`: 나이를 특정할 수 없다(프로필·질문에 한 나이가 없음, FE-07-18 A). True이면 **나이 기준 값(`age_criteria`)이 있는 연령금기 줄**에만
+      안내 줄 `age_info_line`(상수 `AGE_INFO_LINE`, 0-E 3번 승인)을 붙인다. 판정이 아니라 원문 값 안내다. 값이 없는 줄에는 붙지 않는다
+      (지금 도구는 나이가 없으면 연령금기 항목을 만들지 않아 실제 경로에서는 None이 유지된다. 항목 모양은 AG-02 결정 뒤).
     """
     items = [it for it in items or [] if isinstance(it, dict)]
     buckets = [(it, _bucket(it)) for it in items]
     buckets.sort(key=lambda p: (p[1], _kind_rank(p[0].get("kind"))))  # 안정 정렬: FOUND 먼저, 같은 묶음은 입력·종류 순서
     entries = [_entry(it, b) for it, b in buckets]
+    if age_unknown:
+        for e in entries:
+            if e.get("kind") == "age" and e.get("age_criteria"):
+                e["age_info_line"] = fp.AGE_INFO_LINE
     warnings: list[dict[str, Any]] = [
         {"code": "SOURCE_KIND_BLOCKED", "evidence_id": it.get("evidence_id")}
         for it, b in buckets if b == BUCKET_UNCONFIRMED and it.get("status") in _JUDGED_STATUS
