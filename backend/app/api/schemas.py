@@ -346,6 +346,23 @@ class GradeDef(_Strict):
         return self
 
 
+class NameCorrection(_Strict):
+    """오탈자 보정 고지 한 줄(AG-10-02 A). 질문에 적힌 이름 조각(`input`)을 비슷한 사전 이름(`name`) 하나로 보고 확인했다는 표시다.
+
+    `text`는 상수 `TYPO_CORRECTED_LINE`에 두 이름을 넣은 문장 그대로다(화면은 문장을 조립하지 않는다). 판정이 아니다.
+    """
+
+    input: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> NameCorrection:
+        if self.text != fp.TYPO_CORRECTED_LINE.format(input=self.input, name=self.name):
+            raise ValueError("name_corrections[].text는 상수 TYPO_CORRECTED_LINE에 input·name을 넣은 문장 그대로여야 한다")
+        return self
+
+
 class ChatResponse(_Strict):
     """`/chat` 최종 응답(`chat_response@v1`). 스트림에서는 `answer` 이벤트의 `response`로 간다."""
 
@@ -354,6 +371,9 @@ class ChatResponse(_Strict):
     end_reason: EndReason | None = None
     emergency: Emergency | None = None
     notice: str | None = None  # 상단 배너(상한 도달·API 실패), BE-06-06 A
+    # 오탈자 보정 고지(AG-10-02 A, 2026-11-17). 보정으로 확정한 약이 있을 때만 차고, 요약보다 먼저 보인다. 기본 빈 목록이라
+    # 기존 응답과 호환된다(칸 추가라 `chat_response@v1` 유지: `grade_defs`·`not_checked_lines`를 더할 때와 같은 방식)
+    name_corrections: list[NameCorrection] = Field(default_factory=list)
     summary: str | None
     findings: list[Finding] = Field(default_factory=list)
     candidates: list[Candidate] = Field(default_factory=list)
@@ -385,6 +405,8 @@ class ChatResponse(_Strict):
             raise ValueError("notice는 상수 목록(NOTICE_TEXTS)의 값만 쓴다")
         if self.candidates and self.end_reason != "CLARIFY":
             raise ValueError("candidates는 되묻기(CLARIFY) 응답에만 둔다")
+        if self.name_corrections and self.end_reason == "CLARIFY":
+            raise ValueError("name_corrections는 조회 결과를 보이는 응답에만 둔다(되묻기에는 없다)")
         if self.candidates:
             if self.candidates_line is None:
                 self.candidates_line = fp.CLARIFY_PICK_LINE
@@ -560,10 +582,6 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
 
     `clarify`(라우터의 되묻기 묶음 `{target_raw, options[]}`)는 `end_reason == CLARIFY`일 때만 `candidates[]`로 옮긴다.
     """
-    if resp.get("name_corrections"):
-        # 오탈자 보정 고지(AG-10)를 실을 칸이 `chat_response@v1`에 아직 없다(문구 승인·응답 칸은 사용자 결정 몫). 고지가 조용히 빠진 채
-        # 보정한 약의 결과만 나가지 않도록 여기서 멈춘다. 서비스 배선은 보정을 켜지 않으므로 정상 경로에서는 오지 않는다.
-        raise ValueError("오탈자 보정 고지를 실을 응답 칸이 없다: 서비스 경로에서는 보정(typo_correct)을 켜지 않는다")
     detail = [_detail_item(d) for d in resp.get("detail") or [] if isinstance(d, dict)]
     detail_by_id = {d.evidence_id: d for d in detail if d.evidence_id}
     badges_by_id: dict[str, list[Badge]] = {}
@@ -579,6 +597,8 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
         end_reason=end_reason,  # type: ignore[arg-type]
         emergency=emergency,
         notice=resp.get("notice"),
+        # 값을 걸러 내지 않고 그대로 옮긴다: 모양이 어긋난 고지는 조용히 빠지지 않고 검증 오류로 드러난다(고지 없이 보정 결과만 나가지 않게)
+        name_corrections=[NameCorrection(**c) for c in resp.get("name_corrections") or []],
         not_checked_lines=list(resp.get("not_checked_lines") or []),
         grade_defs=[GradeDef(**g) for g in resp.get("grade_defs") or [] if isinstance(g, dict)],
         summary=resp.get("summary"),

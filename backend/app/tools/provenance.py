@@ -114,3 +114,33 @@ FLAG_NOTES = {
     "NO_PRODUCT_INFO": "제품 단위 정보(제품 연령 문장·허가사항·제형) 없음. 봉투의 제품명을 알려 주시면 더 확인할 수 있어요",
     "EASY_TEXT_MISSING": "전문의약품이라 쉬운 설명(e약은요)이 없어서 허가사항 원문을 그대로 보여 드려요",
 }
+
+# 실시간 확인을 하지 못한 **사유**(AG-01-10 A, 2026-11-17). 꼬리표(`API_FAIL`·`API_PAIR_INCOMPLETE`)와 도구 출력 계약은 그대로 두고,
+# 항목의 `api.reason`에 사유만 더 적는다. 사유가 없는 항목(실시간 조회를 끈 실행, 전부 실패)은 지금까지와 같다.
+API_REASON_NO_CODE = "NO_API_CODE"  # 성분에 실시간 조회용(DUR 성분) 코드가 없어 **호출하지 않았다**(실패가 아니다)
+API_REASON_PARTIAL = "PARTIAL"      # 조회한 것 중 일부가 실패했다(쌍의 한쪽 등)
+API_REASON_TRUNCATED = "TRUNCATED"  # 성분 코드가 한도보다 많아 일부 성분만 물었다(대조가 끝나지 않았다)
+API_REASONS = (API_REASON_NO_CODE, API_REASON_PARTIAL, API_REASON_TRUNCATED)
+# 사유별 노트 문구 **초안**(사용자 승인 전, `fixed_phrases.DRAFT_KEYS`의 `API_REASON_NOTES`). 승인되면 아래 `API_REASON_NOTES_APPROVED`를 True로 바꾼다.
+API_REASON_NOTES = {
+    API_REASON_NO_CODE: "실시간 확인을 하지 못함(이 성분은 실시간 조회에 쓸 코드가 없어요. 파일 기준 결과는 그대로예요)",
+    API_REASON_PARTIAL: "실시간 확인을 하지 못함(쌍의 한쪽 조회에 실패했어요. 파일 기준 결과는 그대로예요)",
+    API_REASON_TRUNCATED: "실시간 확인을 일부만 함(성분이 많아 일부 성분만 조회했어요. 파일 기준 결과는 그대로예요)",
+}
+API_REASON_NOTES_APPROVED = False
+
+
+def api_flag_note(flag: str, reason: str | None = None) -> str:
+    """실시간 확인 꼬리표의 노트 문구. 사유(`api.reason`)가 있으면 사유에 맞는 문구를 고른다.
+
+    사유별 문구가 승인되기 전(`API_REASON_NOTES_APPROVED = False`)에는 **이미 승인된 문구**만 쓴다:
+      - `NO_API_CODE`: `API_FAIL` 문구 "실시간 확인을 하지 못함(파일 기준 결과는 그대로예요)". 코드가 없어 묻지 않은 것을 쌍 꼬리표 문구
+        "쌍의 한쪽 조회가 빠졌어요"로 말하면 사용자가 조회 실패로 읽고 요약 모델도 그대로 옮긴다(lane-D 보고 §2). `API_FAIL` 문구는
+        실패라고 단정하지 않고 어느 사유에도 사실이다(중립).
+      - `PARTIAL`·`TRUNCATED`: 지금까지의 꼬리표 문구 그대로(쌍은 "쌍의 한쪽 조회가 빠졌어요": 실제로 일부 조회가 빠졌다. AG-01-04 A).
+    사유가 없거나 모르는 값이면 지금까지의 꼬리표 문구 그대로다."""
+    if flag not in ("API_FAIL", "API_PAIR_INCOMPLETE") or reason not in API_REASONS:
+        return FLAG_NOTES[flag]
+    if API_REASON_NOTES_APPROVED:
+        return API_REASON_NOTES[reason]
+    return FLAG_NOTES["API_FAIL"] if reason == API_REASON_NO_CODE else FLAG_NOTES[flag]

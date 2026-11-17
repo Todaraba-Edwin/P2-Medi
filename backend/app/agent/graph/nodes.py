@@ -64,8 +64,9 @@ class GraphDeps:
     tracer: Any = None              # L2 계측(`graph.trace.GraphTracer`). None이면 계측하지 않는다(RFP-34-02)
     grade_def_fn: GradeDefFn | None = None  # 임부금기 등급 정의 원문 공급(BE-06-16 A). None이면 등급 정의 블록을 만들지 않는다
     summary_instruction: str | None = None  # 요약 호출 지시(프롬프트 파일 본문). None이면 코드 상수 `SUMMARY_INSTRUCTION`(기본 묶음 v2)
-    # 오탈자 보정 후 진행(AG-10, RFP-26-09 A). 기본 False = 지금처럼 되묻기. 보정 고지 문구(`TYPO_CORRECTED_LINE`)가 사용자 승인 전이고
-    # `/chat` 응답에 고지를 실을 칸이 없어 서비스 배선(`wiring.build_deps`)은 켜지 않는다. 평가 실행기가 `--typo-correct`로만 켠다.
+    # 오탈자 보정 후 진행(AG-10, RFP-26-09 A). 이 dataclass의 기본값은 False(되묻기)이고, 켜는 곳은 배선이다:
+    # 서비스(`wiring.build_deps(service=True)`)는 기본으로 켠다(AG-10-02 A, 2026-11-17: 고지 문구 승인 + `/chat` 응답 `name_corrections` 칸).
+    # 평가 실행기는 비교 조건으로 정한다(C2·C1+ 켬, C1 끔. `eval_runner.resolve_typo_correct`).
     typo_correct: bool = False
 
 
@@ -228,6 +229,10 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         # `age_info_line`이 붙는다(FE-07-18 A). 도구는 나이가 없으면 연령금기 항목을 만들지 않으므로 지금은 값 경로만 열려 있다
         if (state.get("profile") or {}).get("age_years") is None:
             extra["age_unknown"] = True
+        # 응급인데 Router가 확정한 약이 하나도 없다(AG-09 §2, TC-11. 약 이름이 없거나, 뽑힌 낱말이 사전에 없는 경우): 약 이름을 묻는 문장을
+        # 붙일 자리. 문구 승인 전에는 `finalize`가 무시한다. 되묻기(후보 제시)는 이 함수를 지나지 않는다
+        if state.get("emergency") and not any(isinstance(e, dict) and e.get("status") == "RESOLVED" for e in state.get("entities") or []):
+            extra["emergency_no_drug"] = True
         if deps.grade_def_fn is not None:  # 함수가 주입되지 않았으면 아무것도 넘기지 않는다(기존 출력 불변)
             defs, missing = grade_def_inputs(items, deps.grade_def_fn)
             if defs:

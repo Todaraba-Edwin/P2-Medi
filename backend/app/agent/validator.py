@@ -47,6 +47,8 @@ BAD_CLAIM_TYPE = "BAD_CLAIM_TYPE"                  # ⑦ claim_type 없음·모�
 NUMBER_NOT_IN_EVIDENCE = "NUMBER_NOT_IN_EVIDENCE"  # ⑧ 근거에 없는 연령·등급·번호·날짜
 QUOTE_MISMATCH = "QUOTE_MISMATCH"                  # ⑨ H28 인용부호 안 글자가 연결된 원문(청크·라벨)과 다르다
 GRADE_EXCEPTION_MISUSE = "GRADE_EXCEPTION_MISUSE"  # ⑩ H24 2등급 예외 단서·"사유 기재 불필요"를 복용 허용 근거로, 등급을 위험 서열로 쓴 문장
+UNCONFIRMED_AS_FACT = "UNCONFIRMED_AS_FACT"        # ⑪ AG-09: 확인하지 못한 항목만 인용한 사실 문장(근거 없는 내용을 사실로 말함)
+REFERENCE_AS_VERDICT = "REFERENCE_AS_VERDICT"      # ⑫ AG-09: 참고 전용·코드 미연결·미식별 항목을 인용해 금기 여부를 확정한 문장
 
 # 검사 이름 → 하네스 규칙 번호(RFP-29 §6). 여기 없는 검사는 VALIDATOR 이벤트의 기본 규칙(H2)으로만 집계한다.
 # H22(RFP-29-03 A): 기존 등급값·M 원문 필수·M 환산 차단을 한 번호로 묶는다(동작은 그대로, 번호만 명시).
@@ -235,6 +237,11 @@ _NUM_PREFIX = re.compile(r"(?:제|연번|쪽|별표|고시)\s*(\d+)")
 
 _PHARMACIST = re.compile(r"약국|약사")
 _NONE_IMPLY = re.compile(r"없(?:어요|습니다|음)")
+# ⑪·⑫(AG-09 §2, 2026-11-18). 인용한 항목이 "확인된 근거"인가: 상태가 FOUND·NOT_LISTED이고 판정을 내리는 꼬리표(참고 전용·코드 미연결)가 없다.
+_CONFIRMED_STATUS = ("FOUND", "NOT_LISTED")
+_UNCONFIRMED_FLAGS = frozenset({"REFERENCE_ONLY", "CODE_NOT_LINKED", "PAIR_NOT_CHECKED", "LOOKUP_FAILED"})
+# "확인하지 못했다"고 말하는 문장(⑪의 예외): 근거가 없다는 사실 자체를 전하는 것은 막지 않는다
+_UNCONFIRMED_SAID = re.compile(r"(?:찾지|확인하지|확인되지|불러오지|조회하지|판정하지|알려드리지)(?:못|않)|(?:찾을|확인할|알)수없|확인이(?:안|어려)|판정(?:이|은)?아니|참고")
 _NOT_FOUND_OK = re.compile(r"(?:찾지|확인하지|불러오지|알수|적혀있지|조회하지)(?:못|않)|수없|뜻이아니|아니에요")
 
 
@@ -442,6 +449,19 @@ def _check_sentence(s: SimpleNamespace, items: list[dict[str, Any]], ctx: Simple
     if api_only and not has_file_item and _DEFINITIVE.search(norm) and not _HEDGE.search(norm):
         return FILE_API_CLAIM
 
+    # ⑪·⑫ AG-09: 확인하지 못한 항목을 근거로 사실·판정을 말하지 않는다(코드가 만든 항목 줄은 `finalize`가 이미 "확인하지 못함"으로 내린다.
+    # 여기서는 모델 요약 문장이 같은 항목을 인용해 반대로 말하는 것을 막는다).
+    if cited:
+        unconfirmed = [it for it in cited if _is_unconfirmed(it)]
+        # 예외 판단은 고정 문구를 빼기 전 문장으로 한다: "…찾지 못했어요" 자체가 승인된 고정 문구(미확보 사유)라 `strip_fixed`가 지운다
+        said_unconfirmed = bool(_UNCONFIRMED_SAID.search(_norm(s.text)))
+        # ⑫ 참고 전용·코드 미연결·미식별 항목을 인용하면서 "금기예요/금기가 아니에요/목록에 없어요"로 확정한다
+        if unconfirmed and _DEFINITIVE.search(norm) and not said_unconfirmed and not _HEDGE.search(norm):
+            return REFERENCE_AS_VERDICT
+        # ⑪ 사실 문장인데 인용한 항목이 **전부** 확인하지 못한 항목이다(검색 0건·약 미식별 등)
+        if s.claim_type == "fact" and len(unconfirmed) == len(cited) and not said_unconfirmed:
+            return UNCONFIRMED_AS_FACT
+
     # ⑧ 근거에 없는 연령·등급·번호·날짜
     bad = [b for b in unsupported_identifiers(text, items) if not b.endswith("등급")]    # 코드·ISO 날짜(등급은 아래에서 직접)
     if bad:
@@ -456,6 +476,12 @@ def _check_sentence(s: SimpleNamespace, items: list[dict[str, Any]], ctx: Simple
         if not any(re.search(rf"(?<![0-9A-Za-z.\-]){re.escape(n)}(?![0-9A-Za-z\-])", p) for p in ctx.pool):
             return NUMBER_NOT_IN_EVIDENCE
     return None
+
+
+def _is_unconfirmed(it: dict[str, Any]) -> bool:
+    """확인된 근거가 아닌 항목인가: 약 미식별·근거 없음(상태), 참고 전용·코드 미연결·쌍 미조회(꼬리표).
+    허가사항 원문·사유 청크처럼 판정 상태가 아닌 인용 근거(`kind == "chunk"`, FOUND)는 확인된 근거다."""
+    return it.get("status") not in _CONFIRMED_STATUS or bool(_UNCONFIRMED_FLAGS & set(it.get("flags") or []))
 
 
 # ---------------------------------------------------------------------------------------- 답변 단위 검사(⑥)

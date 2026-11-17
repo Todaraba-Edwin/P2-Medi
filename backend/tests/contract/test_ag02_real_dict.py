@@ -25,6 +25,7 @@ from app.agent.tools.registry import invoke  # noqa: E402
 from app.agent.tools.schemas import CheckContraArgs  # noqa: E402
 from app.db import loaders  # noqa: E402
 from app.tools.drug_dict import DEFAULT_DICT_PATH, DrugDict  # noqa: E402
+from app.tools.provenance import FLAG_NOTES  # noqa: E402
 
 DATA = Path(__file__).resolve().parents[3] / "data"
 AGE_CSV = DATA / "한국의약품안전관리원_연령금기_20260721.csv"
@@ -207,12 +208,16 @@ def _pair(fd: FakeDur, d: DrugDict):
 
 
 def test_missing_api_code_marks_pair_incomplete_without_any_call():
-    """한쪽 성분의 DUR API 코드가 사전에 없으면 호출 0회인데도 `API_PAIR_INCOMPLETE`·`NOTICE_API_FAIL`이 붙는다(현황 고정, 합성 사전)."""
+    """한쪽 성분의 DUR API 코드가 사전에 없으면 호출 0회다. 꼬리표·배너는 그대로(`API_PAIR_INCOMPLETE`·`NOTICE_API_FAIL`)이고,
+    사유(`api.reason = NO_API_CODE`, AG-01-10 A)가 기록돼 노트가 "조회가 빠졌어요"가 아니라 중립 문구로 나간다(합성 사전)."""
     fd = FakeDur()
     items, it = _pair(fd, _pair_dict([]))
     assert it["status"] == "NOT_LISTED" and "API_PAIR_INCOMPLETE" in it["flags"]
-    assert it["api"] == {"outcome": "API_UNAVAILABLE"} and fd.calls == []  # 조회가 "빠진" 게 아니라 시도하지 않았다
-    assert finalize(items)["notice"] == fp.NOTICE_API_FAIL
+    assert it["api"] == {"outcome": "API_UNAVAILABLE", "reason": "NO_API_CODE"} and fd.calls == []  # 조회가 "빠진" 게 아니라 시도하지 않았다
+    assert it["notes"] == [FLAG_NOTES["API_FAIL"]] and "빠졌" not in " ".join(it["notes"])
+    resp = finalize(items)
+    assert resp["notice"] == fp.NOTICE_API_FAIL
+    assert not any("빠졌" in n for e in resp["entries"] for n in e["notes"])
 
 
 def test_with_api_code_pair_is_queried_once():

@@ -210,7 +210,11 @@ class EventSequence:
 # ---------------------------------------------------------------- NDJSON 인코딩·하트비트
 def encode_event(e: AnyEvent | ChatEvent) -> bytes:
     """이벤트 한 줄(UTF-8 JSON + `\\n`). 한 줄 안에 개행이 들어가지 않는다(JSON 문자열의 개행은 `\\n`으로 이스케이프된다)."""
-    return _unwrap(e).model_dump_json().encode("utf-8") + b"\n"
+    ev = _unwrap(e)
+    # `name_corrections`(AG-10-02 A)는 보정이 있을 때만 싣는다. 보정이 없는 응답의 글자가 칸을 더하기 전과 같아야, 모르는 키를 거부하는
+    # 프런트 검증(`strictObject`)이 이 칸을 받기 전에도 기존 응답이 깨지지 않는다. 스키마(OpenAPI)에는 칸이 그대로 있다(기본 빈 목록).
+    exclude = {"response": {"name_corrections"}} if isinstance(ev, AnswerEvent) and not ev.response.name_corrections else None
+    return ev.model_dump_json(exclude=exclude).encode("utf-8") + b"\n"
 
 
 async def ndjson_with_heartbeat(

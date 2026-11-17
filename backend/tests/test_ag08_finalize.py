@@ -476,7 +476,13 @@ def test_fill_handles_both_particle_marks_independently():
     assert josa.fill("{a}을(를) {b}은(는)", a="게보린", b="판콜에이") == "게보린을 판콜에이는"
 
 
+# 2026-11-17 이후에 더해진 승인 전 초안 이름(이 밖의 초안이 생기면 이 시험이 알린다)
+APPROVAL_PENDING_AFTER_2026_11_17: frozenset[str] = frozenset({"API_REASON_NOTES", "EMERGENCY_ASK_DRUG_NAME"})  # AG-01-10 A 사유별 노트 3종, AG-09 응급 약 이름 묻기(2026-11-18 초안)
+
+
 def test_phrase_approval_2026_11_16_clears_drafts():
-    # 2026-11-16 승인으로 초안은 모두 비었다. 2026-11-18에 새 초안 1개(AG-10 오탈자 보정 고지)가 생겼고, 그 밖의 초안은 없어야 한다.
-    assert set(fp.DRAFT_KEYS) <= {"TYPO_CORRECTED_LINE"} and fp.REFUSE_DRAFT_KEYS == ()
+    # 2026-11-16 승인으로 초안은 모두 비었다. 2026-11-18 초안이던 AG-10 오탈자 보정 고지도 AG-10-02 A(2026-11-17)로 승인돼 다시 비었다.
+    # 그 뒤에 생긴 초안(AG-01-10 사유별 노트 등)은 `test_ag01_10_api_reason.py`가 이름을 따로 고정한다.
+    assert set(fp.DRAFT_KEYS) <= APPROVAL_PENDING_AFTER_2026_11_17 and fp.REFUSE_DRAFT_KEYS == ()
+    assert "TYPO_CORRECTED_LINE" not in fp.DRAFT_KEYS
     assert set(fp.REFUSE_APPROVED_KEYS) == set(fp.REFUSE_MESSAGES)

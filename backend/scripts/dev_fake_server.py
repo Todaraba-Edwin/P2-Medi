@@ -25,10 +25,12 @@
 | 되묻기(후보 2개) | 짧은 이름 `타이레놀` | 타이레놀이랑 이지렉트정1.0밀리그램 같이 먹어도 되나요? | answer(candidates 2개) → done | CLARIFY |
 | 되묻기 뒤 재전송 | 위 되묻기 질문 그대로 + `context.confirmed_drugs`에 고른 후보(`item_seq`) | 후보 `타이레놀정500밀리그람`(202106092)을 고름 | progress×2 → answer(조회됨 0건) → done | NORMAL |
 |  |  | 후보 `타이레놀콜드-에스정`(202106954)을 고름 | progress×2 → answer(found 1건) → done | NORMAL |
+| 오탈자 보정(고지 포함) | 한 글자 틀린 이름 `이지랙트정1.0밀리그램` + `타이레놀콜드-에스정` | 이지랙트정1.0밀리그램이랑 타이레놀콜드-에스정 같이 먹어도 되나요? | progress×2 → answer(found 1건, `name_corrections` 1건) → done | NORMAL |
 | 금기 목록에 없음 | `타이레놀정500밀리그람` + `이지렉트정1.0밀리그램` | 타이레놀정500밀리그람이랑 이지렉트정1.0밀리그램 같이 먹어도 되나요? | progress×2 → answer(조회됨 0건) → done | NORMAL |
 | 정상(병용금기 1건) | `이지렉트정1.0밀리그램` + `타이레놀콜드-에스정` | 엄마가 이지렉트정1.0밀리그램을 드시는데 감기라서 타이레놀콜드-에스정을 사 왔어요. 같이 먹어도 되나요? | progress×2 → answer(found 1건) → done | NORMAL |
 
-거절·되묻기·응급은 실제 guardrail·router가 문장을 보고 정한다(모델 스크립트와 무관). 모델 스크립트는 router를 지난 질문에만 쓰인다.
+거절·되묻기·응급·오탈자 보정은 실제 guardrail·router가 문장을 보고 정한다(모델 스크립트와 무관). 오탈자 보정은 router가 확정한 코드가
+ROUTER_NOTE에 실리고 가짜 도구 모델이 그 코드의 합성 제품명으로 정상 스크립트를 고른다(아래 되묻기 뒤 재전송과 같은 방식). 모델 스크립트는 router를 지난 질문에만 쓰인다.
 되묻기 뒤 재전송은 실제 router가 고른 코드로 약을 확정하고(AG-05-03 A), 가짜 도구 모델은 질문 문장에 더해 ROUTER_NOTE의 확정 코드에 해당하는
 합성 제품명을 보고 스크립트를 고른다(짧은 이름 `타이레놀`이 어느 약으로 확정됐는지 문장만으로는 알 수 없어서).
 `/health`는 200 `{"status": "ok"}`. 실행기가 붙어 있으므로 이 서버의 `/chat`은 501을 내지 않는다(501 확인은 실제 앱을 키 없이 띄우면 된다).
@@ -71,6 +73,7 @@ DEFAULT_PORT = 8000
 DEFAULT_SLOW_SECONDS = 20.0  # 하트비트 간격(`events.HEARTBEAT_INTERVAL_S` 15초)보다 길게
 
 T500, COLD, AZI = "타이레놀정500밀리그람", "타이레놀콜드-에스정", "이지렉트정1.0밀리그램"
+AZI_TYPO = "이지랙트정1.0밀리그램"  # `AZI`에서 모음 하나만 다른 합성 오탈자(자모 1칸): 실제 router가 `AZI`로 보정한다(AG-10-02 A)
 KW_ERROR, KW_SLOW = "서버오류", "느린응답"
 PAIR_EID = "contra_pair:254000ATB:625201ATB"
 FAKE_SETTING = "dev-fake-placeholder-not-a-secret"  # 필수 설정 자리를 채우는 자리표시 값(비밀 아님, 어디에도 접속하지 않는다)
@@ -80,6 +83,7 @@ SCENARIOS: dict[str, str] = {
     "normal_found": f"엄마가 {AZI}을 드시는데 감기라서 {COLD}을 사 왔어요. 같이 먹어도 되나요?",
     "not_found": f"{T500}이랑 {AZI} 같이 먹어도 되나요?",
     "clarify": f"타이레놀이랑 {AZI} 같이 먹어도 되나요?",  # 합성 사전에서 `타이레놀` 후보 2개(콜드-에스정·정500)
+    "typo": f"{AZI_TYPO}이랑 {COLD} 같이 먹어도 되나요?",  # 보정 고지 `name_corrections` 1건 + 병용금기 1건
     "emergency": f"숨쉬기 힘들어요. {AZI}이랑 {COLD}을 같이 먹었어요",
     "refuse": f"{AZI} 처방해 줘",
     "server_error": f"{KW_ERROR} 시험: {AZI}이랑 {COLD} 같이 먹어도 돼요?",

@@ -19,7 +19,7 @@ from app.agent import josa
 from app.agent.answer_schema import Sentence
 from app.agent.patterns import has_code
 from app.agent.renderer import render
-from app.tools.provenance import DATASET_LABELS
+from app.tools.provenance import DATASET_LABELS, api_flag_note
 from app.tools.provenance import badge as source_badge
 
 BUCKET_FOUND, BUCKET_NOT_LISTED, BUCKET_IDENTIFIED, BUCKET_UNCONFIRMED = 0, 1, 2, 3
@@ -85,7 +85,10 @@ def _missing_text(it: dict[str, Any]) -> str | None:
 
 def _notes(it: dict[str, Any]) -> list[str]:
     flags = it.get("flags") or []
-    out = [_FLAG_TEXT[f] for f in (*_DEMOTE_FLAGS, *_DEFAULT_NOTE_FLAGS) if f in flags and f in _FLAG_TEXT]
+    # 실시간 확인 꼬리표는 항목의 사유(`api.reason`, AG-01-10 A)에 맞는 문구를 쓴다. 사유가 없으면 꼬리표 문구 그대로다
+    reason = it["api"].get("reason") if isinstance(it.get("api"), dict) else None
+    out = [api_flag_note(f, reason) if f in _API_FAIL_FLAGS else _FLAG_TEXT[f]
+           for f in (*_DEMOTE_FLAGS, *_DEFAULT_NOTE_FLAGS) if f in flags and f in _FLAG_TEXT]
     if "NO_PRODUCT_INFO" in flags:
         out.append(fp.NO_PRODUCT_INFO)
     if "EASY_TEXT_MISSING" in flags:
@@ -163,8 +166,11 @@ def _entry(it: dict[str, Any], bucket: int) -> dict[str, Any]:
         e["unresolved"] = True
         e["text"] = _unconfirmed_text(it, st, flags)
         e["notes"] = [n for n in e["notes"] if n != e["text"]]  # 줄 글자와 같은 문구를 꼬리 안내로 한 번 더 내지 않는다
-        # 쌍을 조회하지 못한 줄은 약을 못 찾은 줄이 아니다: 미식별 안내(못 찾은 이유·다음 행동)를 붙이지 않는다
-        if (kind == "identify" or st == "UNIDENTIFIED") and "PAIR_NOT_CHECKED" not in flags:
+        # 쌍을 조회하지 못한 줄은 약을 못 찾은 줄이 아니다: 미식별 안내(못 찾은 이유·다음 행동)를 붙이지 않는다.
+        # 코드 미연결(`CODE_NOT_LINKED`)도 같다(AG-09 §2, 2026-11-18): 사전에 있는 약이라 "찾음" 줄이 따로 나가는데
+        # "자료에서 찾지 못했어요·제품명을 다시 알려 주세요"를 붙이면 서로 어긋난다. 줄 글자(승인된 표시, 2026-11-12 0-1)와
+        # 꼬리 안내 `CODE_NOT_LINKED`("금기 목록에서 확인하지 못했지만 …약사에게 확인하세요")는 그대로 둔다.
+        if (kind == "identify" or st == "UNIDENTIFIED") and "PAIR_NOT_CHECKED" not in flags and "CODE_NOT_LINKED" not in flags:
             if kind == "identify":  # 근거 없음 카드 보조줄(UI-019)
                 e["sub_line"] = josa.fill(fp.UNIDENTIFIED_SUB_LINE, drug=str(it.get("input_name") or e["drug"]))
             if it.get("input_name"):
@@ -325,6 +331,7 @@ def finalize(
     refuse_reasons: list[str] | None = None,
     age_unknown: bool = False,
     name_corrections: list[dict[str, Any]] | None = None,
+    emergency_no_drug: bool = False,
 ) -> dict[str, Any]:
     """응답 딕셔너리를 만든다. 고정 문구는 인자·모델 출력과 무관하게 항상 들어간다.
 
@@ -404,6 +411,11 @@ def finalize(
         summary = fallback_summary(items)
     else:
         summary = model_summary.strip() if isinstance(model_summary, str) and model_summary.strip() else None
+    # 응급인데 질문에 약 이름이 없다(AG-09 §2, TC-11): 119 안내는 그대로 맨 위에 두고 약 이름을 묻는 문장을 요약 끝에 붙인다.
+    # 문구가 승인 전(`DRAFT_KEYS`)이면 아무것도 붙이지 않는다(지금까지와 같은 답). 거절·상한·검증 폴백 경로에는 붙이지 않는다.
+    if (emergency and emergency_no_drug and not refuse_keys and not limit_reached and not validation_fallback
+            and "EMERGENCY_ASK_DRUG_NAME" not in fp.DRAFT_KEYS):
+        summary = f"{summary} {fp.EMERGENCY_ASK_DRUG_NAME}" if summary else fp.EMERGENCY_ASK_DRUG_NAME
 
     events = [{"rule": "H27", "event": "MISSING_REASON", "code": it.get("missing_reason") or "NO_EVIDENCE"}
               for it, _ in buckets if it.get("missing_reason") or it.get("status") == "NO_EVIDENCE"]  # 내용 없는 코드만

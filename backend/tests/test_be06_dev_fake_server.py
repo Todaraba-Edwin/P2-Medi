@@ -71,6 +71,22 @@ def test_not_found_is_not_listed_and_never_says_safe(client):
     _fixed_phrases_ok(a)
 
 
+def test_typo_is_corrected_with_notice_and_lookup_runs(client):
+    """오탈자 보정(AG-10-02 A): 서비스 경로는 한 글자 틀린 이름을 되묻지 않고 보정해 조회하며, 응답에 보정 고지가 함께 나간다."""
+    types, a, last = _run(client, "typo")
+    assert types == ["progress", "progress", "answer", "done"] and last.root.end_reason == "NORMAL"
+    assert [(c.input, c.name) for c in a.name_corrections] == [(dfs.AZI_TYPO, dfs.AZI)]
+    assert a.name_corrections[0].text == fp.TYPO_CORRECTED_LINE.format(input=dfs.AZI_TYPO, name=dfs.AZI)
+    assert [f.bucket for f in a.findings if f.target == "pair"] == ["found"] and not a.candidates
+    _fixed_phrases_ok(a)
+
+
+@pytest.mark.parametrize("name", ["normal_found", "not_found", "clarify", "refuse", "emergency"])
+def test_other_scenarios_have_no_correction_notice(client, name):
+    _, a, _ = _run(client, name)
+    assert a.name_corrections == []
+
+
 def test_clarify_has_two_candidates(client):
     types, a, last = _run(client, "clarify")
     assert types == ["answer", "done"] and last.root.end_reason == "CLARIFY"
