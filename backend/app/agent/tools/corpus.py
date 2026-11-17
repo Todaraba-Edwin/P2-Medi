@@ -63,6 +63,8 @@ class ChunkFilter:
     base_date: str | None = None
     sections: frozenset[str] | None = None     # 라벨 절 이름 정확 일치(e약은요 "상호작용" 등)
     section_prefix: str | None = None          # 허가 상세 절 코드 접두("UD" → `UD 본문`·`UD 1. …`). `sections`와는 OR
+    years: frozenset[int] | None = None        # 연도(`year` 칸, FR-03). `year`가 빈(None) 청크는 걸리지 않는다(notice_no·base_date와 같은 규칙)
+    issuers: frozenset[str] | None = None      # 부처·발행기관(`issuer` 칸 정확 일치, FR-03). 예: 식품의약품안전처·한국의약품안전관리원
 
     @property
     def id_scoped(self) -> bool:
@@ -119,7 +121,8 @@ class CorpusIndex:
 
     def __post_init__(self) -> None:
         self._by_id = {}
-        self._maps = {k: defaultdict(set) for k in ("layer", "kind", "doc_type", "code", "item_seq", "notice", "base_date", "pair", "section")}
+        self._maps = {k: defaultdict(set) for k in ("layer", "kind", "doc_type", "code", "item_seq", "notice", "base_date", "pair", "section",
+                                                    "year", "issuer")}
         self._name_keys = defaultdict(set)
         self._pair = defaultdict(list)
         self._section = defaultdict(list)
@@ -141,6 +144,10 @@ class CorpusIndex:
                 self._pair[c["pair_id"]].append(i)
             if c.get("section"):
                 self._maps["section"][c["section"]].add(i)
+            if c.get("year") not in (None, ""):
+                self._maps["year"][str(int(c["year"]))].add(i)  # jsonl int·원격 SMALLINT·문자열 모두 같은 키
+            if c.get("issuer"):
+                self._maps["issuer"][c["issuer"]].add(i)
             if c.get("item_seq") and c.get("section"):
                 self._section[(c["item_seq"], _section_head(c["section"]))].append(i)
             for nm in list(c.get("ingr_names") or []) + ([c["item_name"]] if c.get("item_name") else []):
@@ -198,6 +205,10 @@ class CorpusIndex:
             sets.append(set(self._maps["notice"].get(flt.notice_no, set())))
         if flt.base_date is not None:
             sets.append(set(self._maps["base_date"].get(flt.base_date, set())))
+        if flt.years is not None:
+            sets.append(union("year", (str(int(y)) for y in flt.years)))
+        if flt.issuers is not None:
+            sets.append(union("issuer", flt.issuers))
         if flt.sections is not None or flt.section_prefix is not None:  # 두 조건은 OR(e약은요 절 이름 또는 허가 상세 절 코드)
             sec: set[int] = union("section", flt.sections or ())
             if flt.section_prefix is not None:

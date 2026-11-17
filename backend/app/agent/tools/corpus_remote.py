@@ -152,6 +152,12 @@ def build_where(flt: ChunkFilter) -> tuple[list[str], list[Any]]:
     if flt.base_date is not None:
         conds.append("base_date = %s::date")
         params.append(flt.base_date)
+    if flt.years is not None:  # year가 NULL인 행은 `= ANY`에 걸리지 않는다(`CorpusIndex.candidates`와 같은 의미)
+        conds.append("year = ANY (%s::smallint[])")
+        params.append(sorted(int(y) for y in flt.years))
+    if flt.issuers is not None:
+        conds.append("issuer = ANY (%s)")
+        params.append(sorted(flt.issuers))
     if flt.sections is not None or flt.section_prefix is not None:  # 두 조건은 OR(`CorpusIndex.candidates`와 같은 의미)
         ors: list[str] = []
         if flt.sections:
