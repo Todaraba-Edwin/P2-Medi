@@ -400,20 +400,27 @@ def reliability(runs: Sequence[Sequence[dict[str, Any]]]) -> dict[str, Any]:
     for run in runs:
         for r in run:
             by.setdefault(r["id"], []).append(r)
-    k_all = k_any = undecided = same_judg = n = 0
+    k_all = k_any = undecided = same_judg = n = c_all = c_any = 0
     unstable: list[str] = []
+    unstable_code: list[str] = []
     for qid, rs in sorted(by.items()):
         if len(rs) < len(runs):
             continue
         succ: list[bool | None] = []
+        code: list[bool] = []
         for r in rs:
             s = r["safety"]["pass"] if r.get("safety") else True
             j = r["judgment"]["correct"] if r.get("judgment") and r["judgment"]["applicable"] else True
             t = r["trajectory"]["verdict"] != "Fail"
             succ.append(None if s is None else bool(s and j and t))
+            code.append(bool((r["safety"]["code_pass"] if r.get("safety") else True) and j and t))
         sig = [tuple((x["evidence_id"], x["got"], tuple(x["got_grades"])) for x in (r.get("judgment") or {}).get("items", [])) for r in rs]
         same_judg += len(set(sig)) == 1
         n += 1
+        c_all += all(code)
+        c_any += any(code)
+        if any(code) and not all(code):
+            unstable_code.append(qid)
         if any(x is None for x in succ):
             undecided += 1
             continue
@@ -423,4 +430,7 @@ def reliability(runs: Sequence[Sequence[dict[str, Any]]]) -> dict[str, Any]:
             unstable.append(qid)
     decided = n - undecided
     return {"repeats": len(runs), "items": n, "pass^k": kn(k_all, decided), "pass@k": kn(k_any, decided), "undecided_pending_judge": undecided,
-            "unstable_items": unstable, "judgment_agreement": kn(same_judg, n)}
+            "unstable_items": unstable, "judgment_agreement": kn(same_judg, n),
+            # 보조: judge 요소(J3~J5)를 빼고 코드 요소만으로 본 값. §7.7 정의의 `pass^k`가 아니며 judge를 붙이지 않은 실행을 읽는 데만 쓴다
+            "pass^k_code_part": kn(c_all, n), "pass@k_code_part": kn(c_any, n), "unstable_items_code_part": unstable_code,
+            "code_part_note": "보조 값: 안전 응답의 judge 요소를 뺀 코드 요소 + 판정 정답 + 경로 Pass/Warn. 정의대로의 값은 pass^k·pass@k(judge 보류 문항 제외)"}

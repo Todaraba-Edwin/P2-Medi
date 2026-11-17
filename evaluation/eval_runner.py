@@ -13,6 +13,9 @@
 L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden --prompt-set prompt_set@vN [--allow-draft] --max-usd X`는 서비스와 같은 부품으로
 실제 그래프를 만들어 돌린다(평가 모드: API 병기 끔, LLM 캐시 끔). **실제 모델을 부르고 원격 DB를 읽으므로 비용 상한이 필수다.** judge는 붙이지 않는다.
 `--compare A.json B.json`은 두 결과를 나란히 보여 준다(회귀 경보 전용).
+
+L3(개발셋 전체): `--subset` 없이 150문항 1회, `--subset dev_reliability_core --repeats 3`으로 개발 안전 핵심 40문항 3회(`pass^3`·`pass@3`·판정 일치율).
+graph 에이전트 실행은 문항 오류가 3건 연속이면 멈추고 결과 `stopped`에 사유·위치를 남긴다(AG-06-09 A, 하네스 차단은 오류가 아님).
 """
 
 from __future__ import annotations
@@ -217,22 +220,44 @@ def run_eval(
     repeats: int = 1,
     budget: CostBudget | None = None,
     skip_judge: bool = False,
+    max_consecutive_errors: int | None = None,
 ) -> dict[str, Any]:
     """`budget`을 주면 문항을 시작하기 전마다 누적 비용을 보고, 상한에 닿았으면 남은 문항을 건너뛴다(`skipped_cost_cap`).
-    `skip_judge`면 judge 자리를 비운다(결과 `judge: null`). 둘 다 주지 않으면 예전 동작·결과 형식 그대로다."""
+    `skip_judge`면 judge 자리를 비운다(결과 `judge: null`).
+    `max_consecutive_errors`를 주면 문항 오류(`is_item_error`)가 그 수만큼 연속일 때 남은 문항·회차를 건너뛰고 `stopped`에 사유·위치를 남긴다
+    (AG-06-09 A). 연속 수는 회차 경계를 넘어 이어 센다. 셋 다 주지 않으면 예전 동작·결과 형식 그대로다."""
     ph = phrases or M.Phrases.from_backend()
     judge = judge or NotCalledJudge()
     runs: list[list[dict[str, Any]]] = []
     skipped: list[str] = []
     cost_by_item: dict[str, float] = {}
+    streak: list[str] = []          # 지금 이어지는 연속 오류의 종류
+    err_first = err_total = 0
+    stopped: dict[str, Any] | None = None
+    skipped_stop: list[str] = []    # 연속 오류 중단으로 1회차에서 돌지 못한 문항
     for n_run in range(max(1, repeats)):
         rows = []
-        for it in items:
+        for idx, it in enumerate(items):
+            if stopped is not None:
+                stopped["skipped"] += 1
+                if n_run == 0:
+                    skipped_stop.append(str(it.get("id")))
+                continue
             if budget is not None and budget.exhausted():
                 if n_run == 0:
                     skipped.append(str(it.get("id")))
                 continue
             rec = agent(it)
+            if max_consecutive_errors:
+                if is_item_error(rec):
+                    streak.append(rec.error or NO_ANSWER)
+                    err_total += 1
+                    err_first += n_run == 0
+                else:
+                    streak = []
+                if len(streak) >= max_consecutive_errors:
+                    stopped = {"reason": STOP_CONSECUTIVE_ERRORS, "threshold": max_consecutive_errors, "run": n_run + 1, "index": idx,
+                               **({} if sealed else {"item_id": it.get("id")}), "errors": list(streak), "skipped": 0}
             row = M.score_item(it, rec, ph)
             row["judge"] = None if skip_judge else judge.score(it, rec.answer, [])  # 골격: 호출 없음(보류)
             if budget is not None:
@@ -260,6 +285,11 @@ def run_eval(
         result["cost_usd"] = {"total": round(budget.spent(), 6), "max_usd": budget.max_usd, "cap_reached": bool(skipped) or budget.exhausted(),
                               "skipped": len(skipped), "by_item": {} if sealed else cost_by_item}
         result["skipped_cost_cap"] = len(skipped) if sealed else skipped  # 시험셋은 문항 ID를 남기지 않는다
+    if max_consecutive_errors:
+        result["errors"] = {"items": err_first, "total": err_total}  # 1회차 오류 문항 수, 전체 회차 합
+        if stopped is not None:
+            result["stopped"] = stopped
+            result["skipped_error_stop"] = len(skipped_stop) if sealed else skipped_stop
     if len(runs) > 1:
         rel = M.reliability(runs)
         if sealed:
@@ -286,10 +316,24 @@ def save(result: dict[str, Any], out: Path | None = None) -> Path:
 
 GRAPH_AGENT = "graph"
 GRAPH_REQUIRED_ENV = ("OPENAI_API_KEY", "SUPABASE_DB_URL")  # 평가 모드는 API 병기를 끄므로 DUR 변수는 요구하지 않는다
-SUBSETS = {"dev_golden": "dev_golden"}  # 고를 수 있는 표시 칸(개발셋 표시만. 시험셋 골든 표시는 고르지 않는다)
+# 고를 수 있는 표시 칸(개발셋 표시만. 시험셋 표시 `golden`·`reliability_core`는 고르지 않는다). dev_reliability_core = 개발 안전 핵심 40
+SUBSETS = {"dev_golden": "dev_golden", "dev_reliability_core": "dev_reliability_core"}
 REASON_NO_EVIDENCE = "NO_EVIDENCE"        # `app.agent.sentence_filter.NO_EVIDENCE`(시험이 같은 값인지 확인한다)
 REASON_QUOTE_MISMATCH = "QUOTE_MISMATCH"  # `app.agent.validator.QUOTE_MISMATCH`
 COMPARE_CLAIM = "회귀 경보 전용(개선 주장에 쓰지 않는다)"
+MAX_CONSECUTIVE_ERRORS = 3                    # AG-06-09 A: graph 에이전트 실행은 문항 오류가 이만큼 연속이면 멈춘다
+STOP_CONSECUTIVE_ERRORS = "CONSECUTIVE_ERRORS"
+NO_ANSWER = "NO_ANSWER"                       # 예외는 없었는데 답이 비어 있는 실행
+END_FALLBACK = "VALIDATION_FALLBACK"          # `app.agent.graph.state.END_FALLBACK`(시험이 같은 값인지 확인한다)
+
+
+def is_item_error(rec: M.RunRecord) -> bool:
+    """문항 오류인가: 실행이 예외로 끝났거나(`error`), 예외 없이도 답을 만들지 못했다(답이 비어 있음).
+
+    하네스 차단(검증 두 번 실패 → 코드 문구 `VALIDATION_FALLBACK`, 범위 밖 거절 `REFUSE`, 호출 상한 `LIMIT`)은 **오류가 아니다**.
+    그 경우 그래프는 코드가 만든 답과 종료 사유를 내고 끝난 정상 종료이고, 환경 고장(키·DB·네트워크)이 아니라 측정 대상인 에이전트 동작이다.
+    연속 오류 중단은 환경 고장으로 비용만 쓰는 일을 막는 장치라서 `error`와 답 유무만 본다(종료 사유·차단 수는 보지 않는다)."""
+    return bool(rec.error) or not rec.answer
 
 
 class RunnerConfigError(ValueError):
@@ -422,6 +466,7 @@ def default_graph_resources(settings: Any, *, prompt_set: str, allow_draft: bool
     원격 DB(읽기 전용)에서 코퍼스를 읽고 모델 객체를 만든다. 모델 호출 비용은 원장의 평가 몫으로 쌓인다.
     """
     import psycopg  # 실제 연결을 여는 이 함수 안에서만 import한다
+
     from app.agent.grade_defs import corpus_grade_def_fn
     from app.agent.graph.wiring import build_deps, build_tool_context
     from app.agent.tools.corpus import CorpusIndex
@@ -489,6 +534,18 @@ def _side(res: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict[str, Any]
         "source_missing_zero_items": aux.get("source_missing_zero_items"),
         "cost_usd": cost.get("total"), "skipped_cost_cap": len(res.get("skipped_cost_cap") or []),
     }
+    rel = res.get("reliability") or {}
+    judg = (res.get("metrics") or {}).get("contra_judgment_accuracy")
+    stop = res.get("stopped")
+    side.update({
+        "contra_judgment": {k: judg[k] for k in M.kn(0, 0)} if isinstance(judg, dict) else None,
+        "validation_fallback": sum(1 for r in items if (r.get("trajectory") or {}).get("end_reason") == END_FALLBACK),
+        "run_errors": sum(1 for r in items if "RUN_ERROR" in ((r.get("trajectory") or {}).get("fails") or [])),
+        "stopped": f"{stop['reason']}(회차 {stop['run']}, 위치 {stop['index']}, 건너뜀 {stop['skipped']})" if stop else None,
+        "repeats": rel.get("repeats"), "pass_all": rel.get("pass^k"), "pass_any": rel.get("pass@k"),
+        "undecided_pending_judge": rel.get("undecided_pending_judge"), "judgment_agreement": rel.get("judgment_agreement"),
+        "pass_all_code_part": rel.get("pass^k_code_part"), "pass_any_code_part": rel.get("pass@k_code_part"),
+    })
     return side, {str(r.get("id")): r for r in items}
 
 
@@ -521,6 +578,13 @@ def format_compare(cmp: dict[str, Any]) -> str:
             ("남은 빈 근거 사실 문장", "uncited_fact_sentences"), ("인용 불일치", "quote_mismatch"),
             ("출처 누락 0건 문항", "source_missing_zero_items"), ("비용 USD", "cost_usd"), ("상한으로 건너뛴 문항", "skipped_cost_cap")]
     a, b = cmp["sides"]
+    k = a.get("repeats") or b.get("repeats") or "k"
+    rows += [("금기 판정 정답", "contra_judgment"), ("VALIDATION_FALLBACK 종료 문항", "validation_fallback"), ("오류 문항", "run_errors"),
+             ("연속 오류 중단", "stopped"), ("반복 회차", "repeats"),
+             (f"pass^{k}(정의대로, judge 보류 문항 제외)", "pass_all"), (f"pass@{k}(정의대로, judge 보류 문항 제외)", "pass_any"),
+             ("judge 보류로 미정인 문항", "undecided_pending_judge"),
+             (f"pass^{k} 코드 요소만(보조)", "pass_all_code_part"), (f"pass@{k} 코드 요소만(보조)", "pass_any_code_part"),
+             ("판정 일치율", "judgment_agreement")]
     lines = [f"[{cmp['claim']}] 소표본이므로 차이가 보여도 다시 볼 문항을 고르는 데만 쓴다"]
     lines += [f"  {name}: {cell(a.get(key))} | {cell(b.get(key))}" for name, key in rows]
     lines.append(f"  공통 문항 {cmp['n_common']}개 중 결과가 다른 문항(ID): {', '.join(cmp['diff_ids']) or '없음'}")
@@ -567,7 +631,7 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap.add_argument("--repeats", type=int, default=1)
     ap.add_argument("--allow-sealed", action="store_true", help=f"시험셋 열람 허용(환경변수 {G.SEALED_ENV}도 필요)")
     ap.add_argument("--out", type=Path)
-    ap.add_argument("--subset", choices=sorted(SUBSETS), help="표시 행만 고른다(dev_golden = 개발 골든)")
+    ap.add_argument("--subset", choices=sorted(SUBSETS), help="표시 행만 고른다(dev_golden = 개발 골든, dev_reliability_core = 개발 안전 핵심 40)")
     ap.add_argument("--prompt-set", default="prompt_set@v2", help="graph 에이전트의 프롬프트 묶음")
     ap.add_argument("--allow-draft", action="store_true", help="draft 프롬프트가 든 묶음 허용(검토 중인 초안 점검용)")
     ap.add_argument("--max-usd", type=float, help="graph 에이전트 비용 상한(필수). 닿으면 남은 문항을 건너뛴다")
@@ -600,7 +664,8 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
             "agent": a.agent, "agent_info": getattr(agent, "info", {}), "versions": versions}
     if is_graph:
         meta.update({"subset": a.subset, "n_items_selected": len(items), "prompt_set": a.prompt_set})
-    res = run_eval(items, agent, sealed=sealed, meta=meta, repeats=a.repeats, budget=budget, skip_judge=is_graph)
+    res = run_eval(items, agent, sealed=sealed, meta=meta, repeats=a.repeats, budget=budget, skip_judge=is_graph,
+                   max_consecutive_errors=MAX_CONSECUTIVE_ERRORS if is_graph else None)
     out = save(res, a.out)
     mt = res["metrics"]
     print(f"[{a.set}·{a.condition}·{a.agent}] 문항 {res['meta']['n_items_run']} → {out}")
@@ -617,6 +682,15 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         if aux:
             z = aux["source_missing_zero_items"]
             print(f"  보조(출처 누락 0건 문항): {z['k']}/{z['n']}, 인용 불일치 {aux['quote_mismatch_total']}, 하네스 차단 {aux['harness_blocks_total']}")
+        st = res.get("stopped")
+        if st:
+            print(f"  연속 오류 {st['threshold']}건으로 중단: 회차 {st['run']}, 위치 {st['index']}"
+                  f"{', 문항 ' + str(st['item_id']) if st.get('item_id') else ''}, 건너뛴 실행 {st['skipped']}, 오류 종류 {st['errors']}")
+        rel = res.get("reliability")
+        if rel:
+            pa, pc = rel["pass^k"], rel["pass^k_code_part"]
+            print(f"  반복 {rel['repeats']}회: pass^k {pa['k']}/{pa['n']}(judge 보류 {rel['undecided_pending_judge']}문항 제외), "
+                  f"코드 요소만 {pc['k']}/{pc['n']}, 판정 일치 {rel['judgment_agreement']['k']}/{rel['judgment_agreement']['n']}")
     return 0
 
 
