@@ -5,12 +5,14 @@
   - KIDS 임부·연령·수유부 CSV: 제품코드·제품명·성분코드. 용량주의 CSV는 복합제가 1성분만 표시되어 제품·복합제 연결에는 쓰지 않고,
     **단일 성분 코드 목록으로만** 쓴다(BE-10-10 C: 연령·임부 목록에 없는 제형의 단일 성분 코드를 사전이 알도록. `dose_single_codes` 참조)
   - 수집 스냅샷 `data/mock/api_snapshots/`: eyak-all(e약은요), prmsn-names(허가정보 전체 목록), prmsn-detail(상세 212개),
-    dur-ingr(`D######` 성분코드·한글/영문 성분명), ingr_codes.json
+    dur-ingr(`D######` 성분코드·한글/영문 성분명. 특정 코드 조회본 `<hash>.json`과 무필터 페이징 `page-N.json`, BE-10-14 A), ingr_codes.json
   - DUR 품목리스트 CSV(심평원)는 쓰지 않는다(PRD-14-02).
 연결 규칙(RFP-21-02 A, 일치율을 재며 확정): KIDS 제품코드=허가 EDI_CODE → 제품명 정규화 일치 → 영문 성분(집합) 이름 일치 → e약은요 괄호 성분명.
+DUR D 코드(`api_codes`) 매칭 규칙은 `resolve_api_codes` docstring에 있다(정확 일치만, 모호하면 붙이지 않는다).
 사전은 제품·성분명 튜닝을 하지 않는다. 평가 세트(`evaluation/eval_set`)를 읽지 않는다(RFP-26-04).
 
-사용: `cd backend && .venv/bin/python scripts/build_drug_dict.py [--out ../data/mock/dict] [--limit-kids N]`
+사용: `cd backend && .venv/bin/python scripts/build_drug_dict.py [--out ../data/mock/dict] [--limit-kids N]
+       [--data-dir ../data] [--snap-dir ../data/mock/api_snapshots] [--diff-against ../data/mock/dict/drug_dict.json]`
 """
 
 from __future__ import annotations
@@ -55,7 +57,9 @@ SRC_KIDS_DOSE = "KIDS 용량주의 CSV(한국의약품안전관리원, 단일 �
 SRC_PRMSN = "허가정보(식약처)"
 SRC_EYAK = "e약은요(식약처)"
 SRC_DUR = "DUR 성분정보(식약처)"
-BUILDER_REV = 7  # 빌드 규칙을 바꾸면 올린다(버전 문자열에 들어간다). 4: 정규화(·, mesilate, 원료 꼬리)·성분 단위 연결·2-gram. 5: 제형 분류·form_match(BE-10-08 A)·용도 괄호 제외. 6: 용량주의 CSV의 단일 성분 코드를 코드 목록에 추가(BE-10-10 C). 7: 성분 이름 연결(all_forms) 제품에도 제형 비교 적용(BE-10-12 A, 사전 내용 불변·런타임 규칙 변경 기록용)
+BUILDER_REV = 8  # 빌드 규칙을 바꾸면 올린다(버전 문자열에 들어간다). 4: 정규화(·, mesilate, 원료 꼬리)·성분 단위 연결·2-gram. 5: 제형 분류·form_match(BE-10-08 A)·용도 괄호 제외. 6: 용량주의 CSV의 단일 성분 코드를 코드 목록에 추가(BE-10-10 C). 7: 성분 이름 연결(all_forms) 제품에도 제형 비교 적용(BE-10-12 A, 사전 내용 불변·런타임 규칙 변경 기록용). 8: DUR D 코드 수확 범위 확대(복합 행 머리·MIXTURE_*·`[D######]Eng(Ko)` 목록)와 정확 일치·충돌 배제 매칭(BE-10-14 A)
+# `check_contraindications.MAX_API_CODES_PER_DRUG`(=2)와 같은 값. 성분의 D 코드가 이보다 많으면 런타임이 앞 2개만 묻고 `codes_truncated`가 된다(보고용, import하지 않는다).
+API_CODES_CAP = 2
 
 # 사전이 다루지 않는 범위(메타에 명시, 보고·AG-02가 읽는다). 코드 없음 ≠ 금기 없음이다.
 BOUNDARIES = {
@@ -230,6 +234,168 @@ def snapshot_sets(snap: Path) -> dict[str, Any]:
     return out
 
 
+# --------------------------------------------------------------------------- DUR D 코드 수확·매칭(BE-10-14 A)
+
+_D_CODE_RE = re.compile(r"^D\d{6}$")
+_BRACKET_CODE_RE = re.compile(r"\[(D\d{6})\]\s*([^/\[\]]*)")           # `[D000982]Naproxen(나프록센)/[D000225]Rilpivirine(릴피비린)`
+_TRAILING_KO_PAREN_RE = re.compile(r"^(.*?)\s*\(([^()]*[가-힣][^()]*)\)\s*$")  # 끝의 한글 괄호만 한글명으로 본다
+
+
+def _split_en_ko(text: str) -> tuple[str, str]:
+    """`Naproxen(나프록센)` → ("Naproxen", "나프록센"). 끝에 한글 괄호가 없으면 (원문, "")."""
+    m = _TRAILING_KO_PAREN_RE.match(text.strip())
+    return (m.group(1).strip(), m.group(2).strip()) if m else (text.strip(), "")
+
+
+def harvest_dur_codes(items: Iterable[dict[str, Any]], manual: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    """성분정보 행에서 D 코드 ↔ 이름 **관측**을 모은다. 매칭은 하지 않는다(`resolve_api_codes`가 한다).
+
+    관측 자리 세 곳(2026-11-17 스냅샷·`data/api_samples` 무필터 응답으로 확인):
+      ① 행 머리 `INGR_CODE`·`INGR_ENG_NAME`·`INGR_NAME`(병용 op만 `INGR_KOR_NAME`). `MIX_TYPE=복합` 행의 `INGR_CODE`도 성분 하나의 코드다
+         (D000147 아세트아미노펜이 단일·복합 행에 같은 이름으로 나온다). 복합 행은 `compound_head`로 따로 센다.
+      ② 병용 상대 `MIXTURE_INGR_CODE`·`MIXTURE_INGR_ENG_NAME`·`MIXTURE_INGR_KOR_NAME`.
+      ③ 복합 성분 목록 `MIX_INGR`(금기·주의 op)·`MIX`·`MIXTURE_MIX`(병용 op)의 `[D######]Eng(Ko)` 항목.
+    `manual`(`ingr_codes.json`, 수기 코드→한글명)은 한글 관측으로만 더한다.
+    돌려주는 값: {코드: {"en": Counter, "ko": Counter, "n": 관측 수, "compound_head": 복합 행 머리 관측 수}}.
+    """
+    obs: dict[str, dict[str, Any]] = {}
+
+    def add(code: Any, en: Any, ko: Any, *, compound_head: bool = False) -> None:
+        c = str(code or "").strip().upper()
+        if not _D_CODE_RE.match(c):
+            return
+        o = obs.setdefault(c, {"en": Counter(), "ko": Counter(), "n": 0, "compound_head": 0})
+        o["n"] += 1
+        o["compound_head"] += compound_head
+        if str(en or "").strip():
+            o["en"][" ".join(str(en).split())] += 1
+        if str(ko or "").strip():
+            o["ko"][str(ko).strip()] += 1
+
+    for it in items:
+        r = {str(k).strip(): v for k, v in it.items()}
+        add(r.get("INGR_CODE"), r.get("INGR_ENG_NAME"), r.get("INGR_NAME") or r.get("INGR_KOR_NAME"), compound_head=r.get("MIX_TYPE") == "복합")
+        add(r.get("MIXTURE_INGR_CODE"), r.get("MIXTURE_INGR_ENG_NAME"), r.get("MIXTURE_INGR_KOR_NAME"), compound_head=r.get("MIXTURE_MIX_TYPE") == "복합")
+        for key in ("MIX_INGR", "MIX", "MIXTURE_MIX"):
+            for code, name in _BRACKET_CODE_RE.findall(str(r.get(key) or "")):
+                en, ko = _split_en_ko(name)
+                add(code, en, ko)
+    for code, ko in (manual or {}).items():
+        add(code, None, ko)
+    return obs
+
+
+def resolve_api_codes(obs: dict[str, dict[str, Any]], ingredients: list[dict[str, Any]]) -> tuple[dict[int, set[str]], dict[str, Any]]:
+    """D 코드 관측 → 단일 성분 항목에 붙일 코드. **정확 일치만** 쓰고 모호하면 붙이지 않는다(안전 우선).
+
+    사전 쪽 키: 단일 성분 항목의 영문 키(`components[0].key` = 염 이름을 뗀 `ingredient_key`)와 한글 키(`display`가 한글일 때 `normalize_name(split_ko_salt)`).
+    코드 쪽 키: 관측된 영문명들의 `ingredient_key` 집합 E, 한글명들의 한글 키 집합 K.
+    규칙(순서대로):
+      1. E가 둘 이상(같은 코드가 서로 다른 성분 이름으로 관측) → `inconsistent_en`, 붙이지 않는다.
+      2. K가 둘 이상 → 한글은 매칭에 쓰지 않는다(`ko_varies`, 영문만 쓴다). 한글 표기 흔들림(인디나빌/인디나비르)으로 코드를 버리지 않기 위함.
+      3. 영문 키로 찾은 항목 집합 A, 한글 키로 찾은 항목 집합 B. A·B가 둘 다 있는데 겹치지 않으면 → `conflict`, 붙이지 않는다.
+         (영문은 X를, 한글은 Y를 가리키는 코드. 어느 쪽이 맞는지 코드가 정할 수 없다.)
+      4. 그 밖에는 A ∪ B 전부에 붙인다. 영문 키가 없고 한글만 맞는 경우는 `ko_only`로 센다(수기 `ingr_codes.json`·한글만 있는 관측).
+         같은 한글 표시명을 가진 철자 변형 항목(esomeprazol/esomeprazole)은 둘 다 받는다(둘 다 같은 물질을 가리키므로, 기존 판과 같은 동작).
+      5. 복합 성분 항목(`set_key`에 `+`)에는 붙이지 않는다(조합 단위 D 코드는 없고 제품 `api_codes`는 성분 합집합으로 만든다).
+      6. 한 항목의 코드가 `API_CODES_CAP`을 넘으면 붙이되 `over_cap`으로 보고한다(런타임이 앞 2개만 묻는다).
+    """
+    en_to_ids: dict[str, list[int]] = defaultdict(list)
+    ko_to_ids: dict[str, list[int]] = defaultdict(list)
+    for ing in ingredients:
+        if len(ing["components"]) != 1:
+            continue
+        en_to_ids[ing["components"][0]["key"]].append(ing["id"])
+        if re.search(r"[가-힣]", ing["display"] or ""):
+            ko_to_ids[normalize_name(split_ko_salt(ing["display"])[0])].append(ing["id"])
+
+    attached: dict[int, set[str]] = defaultdict(set)
+    rep: dict[str, Any] = {"codes_observed": len(obs), "attached": 0, "unmatched": 0, "inconsistent_en": [], "conflict": [], "ko_varies": 0, "ko_only": 0}
+    for code in sorted(obs):
+        o = obs[code]
+        en_keys = {k for k in (ingredient_key(e) for e in o["en"]) if k}
+        ko_keys = {k for k in (normalize_name(split_ko_salt(k)[0]) for k in o["ko"]) if k}
+        if len(en_keys) > 1:
+            rep["inconsistent_en"].append({"code": code, "en": sorted(o["en"])})
+            continue
+        if len(ko_keys) > 1:
+            rep["ko_varies"] += 1
+            ko_keys = set()
+        a = set(en_to_ids.get(next(iter(en_keys)), [])) if en_keys else set()
+        b = set(ko_to_ids.get(next(iter(ko_keys)), [])) if ko_keys else set()
+        if a and b and not (a & b):
+            rep["conflict"].append({"code": code, "en": sorted(o["en"]), "ko": sorted(o["ko"]),
+                                    "en_hits": [ingredients[i]["display"] for i in sorted(a)], "ko_hits": [ingredients[i]["display"] for i in sorted(b)]})
+            continue
+        targets = a | b
+        if not targets:
+            rep["unmatched"] += 1
+            continue
+        if not a:
+            rep["ko_only"] += 1
+        rep["attached"] += 1
+        for i in targets:
+            attached[i].add(code)
+    rep["ingredients_with_codes"] = len(attached)
+    rep["over_cap"] = [{"ingredient": ingredients[i]["display"], "codes": sorted(c)} for i, c in sorted(attached.items()) if len(c) > API_CODES_CAP]
+    rep["inconsistent_en_count"], rep["conflict_count"], rep["over_cap_count"] = len(rep["inconsistent_en"]), len(rep["conflict"]), len(rep["over_cap"])
+    for k in ("inconsistent_en", "conflict", "over_cap"):
+        rep[k] = rep[k][:30]   # 보고 표본(전체 수는 *_count)
+    return dict(attached), rep
+
+
+OTC_INGREDIENT_KEYS = tuple(CURATED_ALIASES)   # diff 보고의 상비약 성분 표(빌더가 이미 아는 일반 별칭 집합. 평가 문항에서 가져오지 않았다)
+
+
+def diff_api_codes(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """두 사전 판의 `api_codes` 차이. 성분은 `set_key`로 잇는다(id는 재료가 바뀌면 밀릴 수 있다).
+
+    돌려주는 값: 성분 수(코드 있음 전/후, 생김·사라짐·바뀜), 제품 수(코드 있음 전/후), 상비약 성분 표, 사라진 코드 목록(0이어야 정상).
+    """
+    def by_key(d: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        return {i["set_key"]: i for i in d.get("ingredients", [])}
+
+    o, n = by_key(old), by_key(new)
+    gained = [k for k in n if n[k]["api_codes"] and not (o.get(k, {}).get("api_codes"))]
+    lost = [{"set_key": k, "old": o[k]["api_codes"], "new": n.get(k, {}).get("api_codes", [])} for k in o
+            if o[k]["api_codes"] and set(o[k]["api_codes"]) - set(n.get(k, {}).get("api_codes", []))]
+    changed = [k for k in n if k in o and o[k]["api_codes"] and n[k]["api_codes"] and set(o[k]["api_codes"]) != set(n[k]["api_codes"])]
+    otc = []
+    for k in OTC_INGREDIENT_KEYS:
+        if k in n or k in o:
+            otc.append({"key": k, "display": (n.get(k) or o.get(k))["display"], "old": o.get(k, {}).get("api_codes", []), "new": n.get(k, {}).get("api_codes", [])})
+    prod_old = sum(1 for p in old.get("products", []) if p.get("api_codes"))
+    prod_new = sum(1 for p in new.get("products", []) if p.get("api_codes"))
+    return {"old_version": old.get("meta", {}).get("version"), "new_version": new.get("meta", {}).get("version"),
+            "ingredients_with_codes": {"old": sum(1 for i in o.values() if i["api_codes"]), "new": sum(1 for i in n.values() if i["api_codes"])},
+            "gained": len(gained), "lost": lost, "changed": len(changed), "gained_sample": gained[:40],
+            "products_with_codes": {"old": prod_old, "new": prod_new}, "otc_ingredients": otc}
+
+
+def diff_otc_products(old: DrugDict, new: DrugDict, names: Iterable[str] | None = None) -> list[dict[str, Any]]:
+    """상비약 제품 표본(`SAMPLE_OTC`)의 1순위 후보 `api_codes` 전/후(제품 코드는 성분 합집합이라 성분 보강이 제품에 닿았는지 본다)."""
+    rows = []
+    for q in (SAMPLE_OTC if names is None else names):
+        a, b = old.lookup_name(q, top_k=1), new.lookup_name(q, top_k=1)
+        ta, tb = (a.candidates[0] if a.candidates else None), (b.candidates[0] if b.candidates else None)
+        rows.append({"query": q, "top": tb.name if tb else None, "old": list(ta.api_codes) if ta else [], "new": list(tb.api_codes) if tb else []})
+    return rows
+
+
+def format_diff(diff: dict[str, Any], products: list[dict[str, Any]] | None = None) -> str:
+    lines = [f"api_codes diff: {diff['old_version']} → {diff['new_version']}",
+             f"- 코드 있는 성분 {diff['ingredients_with_codes']['old']} → {diff['ingredients_with_codes']['new']} (생김 {diff['gained']}, 바뀜 {diff['changed']}, 사라짐 {len(diff['lost'])})",
+             f"- 코드 있는 제품 {diff['products_with_codes']['old']} → {diff['products_with_codes']['new']}",
+             "", "| 상비약 성분 | 이전 | 이후 |", "|---|---|---|"]
+    lines += [f"| {r['display']} ({r['key']}) | {', '.join(r['old']) or '-'} | {', '.join(r['new']) or '-'} |" for r in diff["otc_ingredients"]]
+    if products:
+        lines += ["", "| 상비약 제품(1순위 후보) | 이전 | 이후 |", "|---|---|---|"]
+        lines += [f"| {r['query']} → {r['top']} | {', '.join(r['old']) or '-'} | {', '.join(r['new']) or '-'} |" for r in products]
+    if diff["lost"]:
+        lines += ["", f"⚠ 사라진 코드 {len(diff['lost'])}건(정상이면 0): " + json.dumps(diff["lost"][:10], ensure_ascii=False)]
+    return "\n".join(lines)
+
+
 def _file_hash(paths: Iterable[Path]) -> str:
     h = hashlib.sha256()
     for p in paths:
@@ -353,27 +519,13 @@ def build_dictionary(
         if ko:
             ko_by_key[key] = ko  # 큐레이션이 투표보다 우선(표시명 통일)
 
-    # API D 코드(한글·영문 성분명) → 단일 성분 키
-    api_by_key: dict[str, set[str]] = defaultdict(set)
-    api_ko_by_key: dict[str, str] = {}
-    code_ko = snaps.get("ingr_codes", {})
-    for it in snaps.get("dur_ingr", []):
-        d = it["INGR_CODE"]
-        if it.get("MIX_TYPE", "단일") == "복합" and it.get("MIX_INGR"):
-            continue
-        k_en = ingredient_key(it.get("INGR_ENG_NAME") or "")
-        k_ko = it.get("INGR_NAME") or code_ko.get(d, "")
-        if k_en:
-            api_by_key[k_en].add(d)
-            if k_ko:
-                api_ko_by_key.setdefault(k_en, k_ko)
-        if k_ko:
-            ko_to_en = normalize_name(split_ko_salt(k_ko)[0])
-            api_by_key[f"ko:{ko_to_en}"].add(d)
-    for d, k_ko in code_ko.items():
-        api_by_key[f"ko:{normalize_name(split_ko_salt(k_ko)[0])}"].add(d)
-    for k, k_ko in api_ko_by_key.items():
-        ko_by_key.setdefault(k, k_ko)
+    # API D 코드 관측(BE-10-14 A: 단일·복합 행 머리, MIXTURE_*, `[D######]Eng(Ko)` 목록, 수기 ingr_codes.json). 매칭은 표시명 확정 뒤 `resolve_api_codes`.
+    dur_obs = harvest_dur_codes(snaps.get("dur_ingr", []), snaps.get("ingr_codes", {}))
+    for o in dur_obs.values():   # 영문 키에 한글명이 아직 없으면 API 한글명을 표시명 후보로(기존 동작 유지. 한글명이 하나로 일관된 코드만)
+        if len(o["ko"]) == 1 and o["en"]:
+            k_en = ingredient_key(o["en"].most_common(1)[0][0])
+            if k_en:
+                ko_by_key.setdefault(k_en, next(iter(o["ko"])))
 
     # 성분 표시명·별칭·API 코드 확정
     ko_aliases: dict[str, set[str]] = defaultdict(set)
@@ -399,8 +551,10 @@ def build_dictionary(
             for ko in ({ko_by_key[k]} if k in ko_by_key else set()) | ko_aliases.get(k, set()):
                 names.add(ko)
                 names.add(split_ko_salt(ko)[0])
-            ing["api_codes"] = sorted(api_by_key.get(k, set()) | api_by_key.get(f"ko:{normalize_name(ing['display'])}", set()))
         ing["names"] = sorted(n for n in names if n)
+    api_attached, api_report = resolve_api_codes(dur_obs, ingredients)
+    for ing in ingredients:
+        ing["api_codes"] = sorted(api_attached.get(ing["id"], set()))
     ing_by_set: dict[str, list[int]] = defaultdict(list)
     for ing in ingredients:
         ing_by_set[ing["set_key"]].append(ing["id"])
@@ -534,6 +688,7 @@ def build_dictionary(
 
     stats = compute_stats(out_products, out_ingredients)
     stats["dose_single_codes_added"] = {"codes": len(dose_added), "ingredients": len(dose_added_by_key)}
+    stats["api_code_harvest"] = api_report
     blob = json.dumps({"rev": BUILDER_REV, "bm25_tokenizer": BM25_TOKENIZER, "rules": normalize_rules_signature(), "form_rules": forms_rules_signature(), **(hashes or {})}, sort_keys=True)
     version = f"be10-dict-s{SCHEMA_VERSION}-{hashlib.sha256(blob.encode()).hexdigest()[:12]}"
     data = {"meta": {"schema": SCHEMA_VERSION, "version": version, "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -624,22 +779,32 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="BE-10 제품·성분 사전 빌더(오프라인)")
     ap.add_argument("--out", default=str(DATA / "mock" / "dict"))
     ap.add_argument("--limit-kids", type=int, default=None, help="병용금기 JSON 앞부분만 읽기(시험용)")
+    ap.add_argument("--data-dir", default=str(DATA), help="원본 데이터 폴더(기본 저장소 루트 data/)")
+    ap.add_argument("--snap-dir", default=str(SNAP), help="스냅샷 폴더(기본 data/mock/api_snapshots)")
+    ap.add_argument("--diff-against", default=None, help="기존 사전 JSON. 새 판과 api_codes 차이를 build_report.json의 diff와 표준 출력에 낸다")
     args = ap.parse_args(argv)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    data_dir, snap = Path(args.data_dir), Path(args.snap_dir)
 
-    snaps = snapshot_sets(SNAP)
-    hashes = material_hashes(DATA, SNAP)
-    kids = list(kids_json_records(DATA / COMBO_JSON_NAME, args.limit_kids))
-    data, stats = build_dictionary(kids, list(kids_csv_records(DATA)), snaps, hashes, list(kids_dose_records(DATA)))
+    snaps = snapshot_sets(snap)
+    hashes = material_hashes(data_dir, snap)
+    kids = list(kids_json_records(data_dir / COMBO_JSON_NAME, args.limit_kids))
+    data, stats = build_dictionary(kids, list(kids_csv_records(data_dir)), snaps, hashes, list(kids_dose_records(data_dir)))
     (out / "drug_dict.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
     dd = DrugDict(data)
-    manifest = json.loads((SNAP / "prmsn-detail" / "manifest.json").read_text(encoding="utf-8")) if (SNAP / "prmsn-detail" / "manifest.json").exists() else {}
+    manifest = json.loads((snap / "prmsn-detail" / "manifest.json").read_text(encoding="utf-8")) if (snap / "prmsn-detail" / "manifest.json").exists() else {}
     report = {"version": data["meta"]["version"], "stats": stats, "sample_otc": sample_check(dd), "unmatched": classify_unmatched(dd, manifest.get("unmatched", []))}
+    if args.diff_against:
+        old = json.loads(Path(args.diff_against).read_text(encoding="utf-8"))
+        report["diff"] = diff_api_codes(old, data)
+        report["diff"]["otc_products"] = diff_otc_products(DrugDict(old), dd)
     (out / "build_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps({"version": report["version"], **stats}, ensure_ascii=False, indent=1))
     print("unmatched:", json.dumps(report["unmatched"]["counts"], ensure_ascii=False))
+    if "diff" in report:
+        print(format_diff(report["diff"], report["diff"]["otc_products"]))
     return 0
 
 
