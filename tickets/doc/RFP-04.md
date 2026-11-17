@@ -52,6 +52,8 @@ RFP 6장 FR-03: "문서 RAG: 표를 마크다운으로 보존해 파싱, 메타�
   - RFP-04-03 A: `backend/tests/test_ag05_followup.py`의 간헐 실패를 시험에서 trace id·시계를 고정해 없앴다(같은 시험 30회 반복 실패 4 → 0, 코드 동작 변경 없음).
 - 2026-11-17 **완료 처리(schedule-writer)**: §2·§3 모두 체크, 대기 결정 없음. 병합 기록: 커밋 `2477370`(AG-05 trace 시험 간헐 실패 제거)·`5bf5de9`(연도·부처 필터·추적 시험), 병합 `5d8c0a6`, 병합 뒤 pytest 2280 passed·2 xfailed, 실패 2건은 worktree에 `data/`가 없어서 나는 기존 것, ruff 0. 근거 보고는 로컬 `data/mock/briefs/reports/rfp04-worker.md`(1차·2차). 후속(이 티켓 밖): 로컬 `year` 빈 칸 30,744행 보충과 원격 `year` NULL 확인·UPDATE는 [BE-16 §3](../backend/BE-16.md#3-하위-작업)의 새 하위 작업이며 사용자 승인이 필요하다(Recap 22). 승인 전에는 검색 도구 인자에 연도 필터를 노출하지 않는다.
 
+- 2026-11-17 **승인(schedule-writer 등록)**: 사용자 "recap-22,23 승인"으로 연도 칸 보충(로컬 30,744행 `year = base_date` 앞 4자리, 원격은 SELECT 확인 뒤 UPDATE)과 원격 읽기 전용 확인을 승인했다. 실행 대기: 메인이 원격 쓰기 flag 절차로 실행, 로컬 보정 스크립트는 `python-expert`. 후속은 [BE-16 §3](../backend/BE-16.md#3-하위-작업).
+
 ## 6. 결정 현황
 결정 번호는 `RFP-04-nn`이다. 2026-11-17 quality-engineer 보고(`rfp04-worker.md`)의 결정 후보를 등록하고 같은 날 사용자 "권고를 따름"으로 모두 A로 완료했다(대기 0건).
 
