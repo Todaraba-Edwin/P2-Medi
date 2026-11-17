@@ -477,5 +477,6 @@ def test_fill_handles_both_particle_marks_independently():
 
 
 def test_phrase_approval_2026_11_16_clears_drafts():
-    assert fp.DRAFT_KEYS == () and fp.REFUSE_DRAFT_KEYS == ()
+    # 2026-11-16 승인으로 초안은 모두 비었다. 2026-11-18에 새 초안 1개(AG-10 오탈자 보정 고지)가 생겼고, 그 밖의 초안은 없어야 한다.
+    assert set(fp.DRAFT_KEYS) <= {"TYPO_CORRECTED_LINE"} and fp.REFUSE_DRAFT_KEYS == ()
     assert set(fp.REFUSE_APPROVED_KEYS) == set(fp.REFUSE_MESSAGES)

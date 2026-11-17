@@ -324,6 +324,7 @@ def finalize(
     not_checked: list[str] | None = None,
     refuse_reasons: list[str] | None = None,
     age_unknown: bool = False,
+    name_corrections: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """응답 딕셔너리를 만든다. 고정 문구는 인자·모델 출력과 무관하게 항상 들어간다.
 
@@ -341,6 +342,8 @@ def finalize(
       안내 줄 `age_info_line`(상수 `AGE_INFO_LINE`, 0-E 3번 승인)을 붙인다. 판정이 아니라 원문 값 안내다. 값이 없는 줄에는 붙지 않는다
       (지금 도구는 나이가 없으면 연령금기 항목을 만들지 않아 실제 경로에서는 None이 유지된다. 항목 모양은 AG-02 결정 뒤).
     """
+    # `name_corrections`: `[{"input": 질문에 적힌 조각, "name": 보정한 사전 이름}]` 오탈자 보정으로 확정한 약(AG-10). 주면 보정 고지 줄
+    # (`TYPO_CORRECTED_LINE`)을 요약 앞에 싣는다. 보정해 놓고 고지 없이 결과만 보이지 않게 하는 자리다. 없으면 응답에 이 키가 없다(기존 출력 불변).
     items = [it for it in items or [] if isinstance(it, dict)]
     buckets = [(it, _bucket(it)) for it in items]
     buckets.sort(key=lambda p: (p[1], _kind_rank(p[0].get("kind"))))  # 안정 정렬: FOUND 먼저, 같은 묶음은 입력·종류 순서
@@ -428,6 +431,11 @@ def finalize(
         "warnings": warnings,
         "events": events,
     }
+    corrections = [{"input": str(c["input"]), "name": str(c["name"]),
+                    "text": fp.TYPO_CORRECTED_LINE.format(input=c["input"], name=c["name"])}
+                   for c in name_corrections or [] if isinstance(c, dict) and c.get("input") and c.get("name")]
+    if corrections:
+        resp["name_corrections"] = corrections
     resp["text"] = render_text(resp)
     return resp
 
@@ -444,6 +452,7 @@ def render_text(resp: dict[str, Any]) -> str:
         lines.append(resp["emergency"])
     if resp.get("notice"):
         lines.append(resp["notice"])
+    lines.extend(c["text"] for c in resp.get("name_corrections") or [])  # 보정 고지는 요약보다 먼저(무엇을 확인했는지부터)
     if resp.get("summary"):
         lines.append(resp["summary"])
     for e in resp["entries"]:

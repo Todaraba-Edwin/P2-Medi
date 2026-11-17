@@ -139,7 +139,7 @@ def _cli(tmp_path: Path, monkeypatch: Any, script: list[str], n: int, *extra: st
     g = ScriptGraph(script)
 
     class FakeAgent(R.GraphAdapter):
-        def __init__(self, resources: Any, *, info: dict[str, Any] | None = None) -> None:
+        def __init__(self, resources: Any, *, info: dict[str, Any] | None = None, condition: str = "C2") -> None:
             super().__init__(g, info=info)
 
     monkeypatch.setattr(R, "GraphAgent", FakeAgent)

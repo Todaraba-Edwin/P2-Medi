@@ -193,7 +193,13 @@ REFUSE_DRAFT_KEYS = tuple(k for k in REFUSE_MESSAGES if k not in REFUSE_APPROVED
 # FALLBACK_NONE_SCOPE_DOC(Recap 0-1, 하네스 3.4절 표).
 # 2026-11-16 문구 승인 표 17줄(3번만 조사 자동, 나머지 원문 승인)로 뺀 것: START_EMERGENCY_119·START_EXTERNAL_AI_NOTICE·
 # REFERENCE_ONLY_LINE·REFUSE_MESSAGES·CAUTION_LABELS·PHARMACIST_ADVICE_NO_NAMES·BLOCKED_NO_SOURCE_KIND·INVALID_CODE·PAIR_NOT_CHECKED.
-DRAFT_KEYS: tuple[str, ...] = ()
+# 2026-11-18 초안 추가: TYPO_CORRECTED_LINE(AG-10 오탈자 보정 고지, 사용자 승인 전).
+DRAFT_KEYS: tuple[str, ...] = ("TYPO_CORRECTED_LINE",)
+
+# 오탈자 보정 고지(AG-10 §2 "OO로 보정하여 검색" 표시, RFP-26-09 A). **초안(사용자 승인 전)**: 승인 전에는 서비스 경로에서 보정을 켜지 않는다
+# (`GraphDeps.typo_correct` 기본 False → 지금처럼 되묻기). 평가 실행(`eval_runner --typo-correct`)에서만 이 초안이 답에 붙는다.
+# 이름 뒤에 조사를 붙이지 않는 꼴로 썼다(오탈자 조각은 받침 판단이 어긋날 수 있다). 가부·안전 표현 없음.
+TYPO_CORRECTED_LINE = "'{input}' → '{name}': 이름이 비슷한 이 약으로 보고 확인했어요. 찾으시는 약이 아니면 약 이름을 다시 알려 주세요."
 
 # 상한 도달 안내(원문 승인, AG-08-09 A): 모델 호출 상한으로 끝났을 때 LLM 요약 없이 코드가 붙인다
 LIMIT_REACHED = "답을 정리하다 시간이 다 되어 여기까지 확인한 결과만 보여 드려요. 확인하지 못한 항목은 약국·약사에게 물어보세요."
