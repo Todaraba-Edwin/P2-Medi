@@ -14,13 +14,23 @@ L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden [--p
 실제 그래프를 만들어 돌린다(평가 모드: API 병기 끔, LLM 캐시 끔). **실제 모델을 부르고 원격 DB를 읽으므로 비용 상한이 필수다.** judge는 붙이지 않는다.
 `--prompt-set`을 주지 않으면 서비스와 같은 기본 묶음(`wiring.DEFAULT_PROMPT_SET`, 2026-11-17부터 `prompt_set@v3`, 모두 adopted)을 쓰고 결과 meta에 그 이름이 남는다.
 `--allow-draft`는 draft 프롬프트가 든 묶음을 점검할 때만 붙인다(기본 L2 사용법에는 필요 없다).
-비교 조건(9.5절): `--condition`은 `C2`(ReAct 그래프, 기본)와 `C1`(AG-16 고정 파이프라인, `--agent graph`에서만)을 받는다. 그 밖의 값(`C1+`는 오탈자
-보정 재검색 연결 전, C0·C3는 미연결)은 실행 없이 거부한다(종료 코드 2). graph 에이전트 결과 meta에는 조건별 하네스 적용표 `harness`(`harness@v1`, RFP-33-03)를 적는다.
+비교 조건(9.5절): `--condition`은 `C2`(ReAct 그래프, 기본)와 `C1`·`C1+`(AG-16 고정 파이프라인, `--agent graph`에서만)를 받는다. 그 밖의 값
+(C0·C3는 미연결)은 실행 없이 거부한다(종료 코드 2). graph 에이전트 결과 meta에는 조건별 하네스 적용표 `harness`(`harness@v1`, RFP-33-03)를 적는다.
 Validator 규칙 집계(AG-07-02 B): 문항별 `validator`(H22·H24 검사 코드·규칙별 건수)와 `metrics.validator_rule_counts`는 보조 기록이다(9장 지표 아님).
 `--compare A.json B.json`은 두 결과를 나란히 보여 준다(회귀 경보 전용).
 
-오탈자 보정(AG-10): `--typo-correct`는 Router의 오탈자 보정 후 진행을 켠다(graph·C2 전용, 기본은 꺼짐 = 되묻기). 결과 meta `typo_correction`에
-켰는지·고지 문구 상태(초안/승인)·기준값이 남는다. `--ids dev-056,dev-057`은 개발셋에서 그 문항만 돌린다(시험셋에는 쓰지 못한다).
+측정 기간 동결(9.6절, BE-08): graph 결과 meta `run_settings`에 호출 상한·LLM 설정(온도 미지정)·검색 방식·API 끔·파일별 기준일을 적는다.
+`--baseline 이전결과.json`을 주면 실행 전에 동결 값(세트 해시·모델·호출 상한·사전·코퍼스·채점 규칙·judge 모델·루브릭, 같은 C1·C1+끼리는 규칙 버전)을
+비교해 다르면 시작하지 않는다(종료 코드 2). 이유가 있으면 `--freeze-diff-reason "이유"`로 기록하고 실행한다. 점검은 `evaluation/freeze_check.py`.
+
+judge(AG-11-02·05): `--judge sonnet --judge-max-usd X`는 Claude Sonnet 5.5(`evaluation/judge/sonnet_judge.py`)로 J1·J3~J5와 Ragas 3지표(J1·J2,
+`ragas_metrics.py`)를 채점한다(graph 전용, **실제 호출·비용 발생**, `anthropic` SDK는 `backend[eval]`). judge 요소는 코드 채점 칸의 보류(None)만 채우고
+안전 응답 통과를 다시 계산한다. 근거 청크는 그래프가 받은 순서(`run.evidence_order`)로 준다. 결과 meta `judge`에 모델·루브릭 버전·judge 프롬프트
+sha256, `judge_usage`에 호출·재시도·오류율·비용이 남는다. judge 비용은 에이전트 상한(`--max-usd`)과 따로 센다. 기본(`--judge none`)은 코드 채점만이다.
+
+오탈자 보정(AG-10): 스위치는 **비교 조건이 정한다**(`resolve_typo_correct`). C1은 항상 끔, C1+는 항상 켬, C2는 기본 켬(서비스 배선과 같다,
+AG-10-04 A)이고 `--no-typo-correct`로만 끌 수 있다(보정 전 결과와 비교할 때). 조건과 어긋나는 플래그는 실행 없이 거부한다.
+결과 meta `typo_correction`에 켰는지·고지 문구 상태·기준값이 남는다. `--ids dev-056,dev-057`은 개발셋에서 그 문항만 돌린다(시험셋에는 쓰지 못한다).
 
 L3(개발셋 전체): `--subset` 없이 150문항 1회, `--subset dev_reliability_core --repeats 3`으로 개발 안전 핵심 40문항 3회(`pass^3`·`pass@3`·판정 일치율).
 graph 에이전트 실행은 문항 오류가 3건 연속이면 멈추고 결과 `stopped`에 사유·위치를 남긴다(AG-06-09 A, 하네스 차단은 오류가 아님).
@@ -45,12 +55,15 @@ from typing import Any, ClassVar, Protocol
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-for p in (str(HERE), str(ROOT / "backend")):
+for p in (str(HERE), str(HERE / "judge"), str(ROOT / "backend")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 import eval_metrics as M  # noqa: E402
+import freeze_check as FZ  # noqa: E402
+import ragas_metrics as RG  # noqa: E402
 import sealed_guard as G  # noqa: E402
+import sonnet_judge as SJ  # noqa: E402
 
 EVAL_SET_DIR = HERE / "eval_set"
 MANIFEST = EVAL_SET_DIR / "manifest.json"
@@ -58,10 +71,10 @@ SET_FILES = {"dev": EVAL_SET_DIR / "dev_set.jsonl", "test": EVAL_SET_DIR / "test
 OUT_DIR = ROOT / "logs" / "eval"  # 로컬 전용(`logs/`는 .gitignore)
 RUNNER_VERSION = "ag11-runner@v0-skeleton"
 # 러너가 실제로 연결한 비교 조건(9.5절). C1(AG-16 고정 파이프라인)은 2026-11-18에 연결했다(`app.agent.pipeline.build.build_for_condition`).
-# C1+(오탈자 보정 후 재검색 1회)는 파이프라인 쪽 구현 전이라 받지 않는다.
-SUPPORTED_CONDITIONS: tuple[str, ...] = ("C2", "C1")
+# C1+(오탈자 보정 후 재검색 1회, Router의 AG-10 보정 재사용)는 2026-11-18에 연결했다(AG-16-06 A).
+SUPPORTED_CONDITIONS: tuple[str, ...] = ("C2", "C1", "C1+")
 DEFAULT_CONDITION = "C2"
-GRAPH_ONLY_CONDITIONS: tuple[str, ...] = ("C1",)  # 그래프를 실제로 만들어야 뜻이 있는 조건(offline-fixed는 조건과 무관한 연결 확인용이라 C2 표기만 허용)
+GRAPH_ONLY_CONDITIONS: tuple[str, ...] = ("C1", "C1+")  # 그래프를 실제로 만들어야 뜻이 있는 조건(offline-fixed는 조건과 무관한 연결 확인용이라 C2 표기만 허용)
 
 JUDGE_MODEL = "claude-sonnet-5-5"  # RFP-26-01 고정. 이 골격은 호출하지 않는다
 RUBRIC_VERSIONS = {"J1": "J1@v1", "J2": "J2@v1", "J3": "J3@v1", "J4": "J4@v1", "J5": "J5@v1"}
@@ -85,21 +98,50 @@ class NotCalledJudge:
     rubric_versions = RUBRIC_VERSIONS
     called = 0
 
-    def score(self, item: dict[str, Any], answer: dict[str, Any], contexts: Sequence[str]) -> dict[str, Any]:
+    def score(self, item: dict[str, Any], answer: dict[str, Any], contexts: Sequence[Any], **_: Any) -> dict[str, Any]:
         return {"rubric": None, "items": {}, "overall_pass": None, "status": "not_called"}
 
 
-class SonnetJudge:
-    """실제 judge 자리(AG-11에서 구현). 이 골격에서는 만들기만 해도 막는다: 호출 경로가 실수로 열리지 않게."""
+# 실제 judge(AG-11-02·05, 2026-11-18 연결): `evaluation/judge/sonnet_judge.SonnetJudge`. 전송 계층(`JudgeTransport`)을 주입해야 만들어진다
+# (인자 없이 만들면 TypeError). 실제 호출은 `--judge sonnet --judge-max-usd X`로만 열린다.
+SonnetJudge = SJ.SonnetJudge
+JUDGE_NONE, JUDGE_SONNET = "none", "sonnet"
+JUDGE_BUDGET_STOP = "JUDGE_BUDGET"  # judge 비용 상한에 닿아 그 뒤 문항의 judge 채점을 건너뜀
 
-    model_id = JUDGE_MODEL
-    rubric_versions = RUBRIC_VERSIONS
 
-    def __init__(self, *_: Any, **__: Any) -> None:
-        raise NotImplementedError("judge 호출은 AG-11 본 구현에서 연다(이 골격은 호출 0, 비용 상한 지시서 필요)")
+def is_real_judge(judge: Any) -> bool:
+    """루브릭을 실제로 채점하는 judge인가(자리 표시 `NotCalledJudge`가 아니고 루브릭 단위 채점 `score_rubric`이 있다)."""
+    return judge is not None and not isinstance(judge, NotCalledJudge) and hasattr(judge, "score_rubric")
 
-    def score(self, item: dict[str, Any], answer: dict[str, Any], contexts: Sequence[str]) -> dict[str, Any]:  # pragma: no cover
-        raise NotImplementedError
+
+def judge_contexts(rec: M.RunRecord) -> list[SJ.Context]:
+    """judge·Ragas에 줄 근거 청크. 판정 항목은 최종 답의 근거 상세(`sonnet_judge.contexts_from_answer`, 보정 40문항과 같은 재료)이고
+    검색 청크는 그 머리 줄에 그래프 `evidence`의 본문 원문(`RunRecord.evidence_texts`)을 붙인다.
+    **순서는 그래프가 근거를 받은 순서**(`RunRecord.evidence_order`, AG-11-05 A)다. 순서 기록에 없는 청크(등급 정의 블록 등)는 뒤에 둔다.
+    순서 기록이 없는 실행(예전 결과·가짜 에이전트)은 근거 상세 순서 그대로다."""
+    ctx = SJ.contexts_from_answer(rec.answer)
+    bodies = rec.evidence_texts or {}
+    if bodies:  # 검색 청크: 근거 상세에는 머리 줄(종류·출처·기준일)만 있어 본문을 그대로 붙인다(요약·자르기 없음)
+        ctx = [SJ.Context(c.id, f"{c.text}\n{bodies[c.id]}") if c.id in bodies else c for c in ctx]
+    order = rec.evidence_order
+    if not order:
+        return ctx
+    rank = {eid: i for i, eid in enumerate(order)}
+    return sorted(ctx, key=lambda c: rank.get(c.id, len(rank)))  # 안정 정렬: 순서 기록에 없는 것은 원래 순서로 뒤에
+
+
+def merge_judge(row: dict[str, Any], judged: dict[str, Any]) -> None:
+    """judge 요소를 코드 채점 칸에 합친다(코드가 None으로 비워 둔 judge 요소만 채운다. 코드 요소는 덮지 않는다).
+    안전 응답 통과(9.3절 "필수 요소 모두")는 `eval_metrics.score_item`과 같은 규칙으로 다시 계산한다."""
+    els = row.get("elements") or {}
+    for el, v in (judged.get("elements") or {}).items():
+        if el in els and els[el] is None and v is not None:
+            els[el] = bool(v)
+    if row.get("safety"):
+        pend = sorted(k for k, v in els.items() if v is None)
+        code_pass = bool(row["safety"]["code_pass"])
+        failed = not code_pass or any(v is False for v in els.values())
+        row["safety"] = {"code_pass": code_pass, "pending_judge": pend, "pass": False if failed else (None if pend else True)}
 
 
 # --------------------------------------------------------------------------- 에이전트 어댑터
@@ -118,17 +160,24 @@ def extract_trace(state: dict[str, Any]) -> M.RunRecord:
         for tc in _get(msg, "tool_calls") or []:
             calls.append(M.ToolCall(str(_get(tc, "name", "")), dict(_get(tc, "args") or {})))
     ids: set[str] = set(state.get("known_ids") or ())
+    order: list[str] = []  # 근거 ID를 도구가 돌려준 순서대로(AG-11-05 A: Context Precision의 검색 순위). 결과 파일에는 ID·순서만 남는다
+    texts: dict[str, str] = {}  # 검색 청크 본문(요약·자르기 없음). judge에 줄 재료로 실행 중에만 든다(`RunRecord.evidence_texts`, 파일에 안 씀)
     for it in state.get("evidence") or []:
         if isinstance(it, dict):
             if it.get("evidence_id"):
                 ids.add(str(it["evidence_id"]))
+                if str(it["evidence_id"]) not in order:
+                    order.append(str(it["evidence_id"]))
+                if isinstance(it.get("text"), str) and it["text"].strip():
+                    texts.setdefault(str(it["evidence_id"]), it["text"])
             for m in it.get("matches") or []:
                 if isinstance(m, dict) and m.get("row_evidence_id"):
                     ids.add(str(m["row_evidence_id"]))
     clar = state.get("clarify") or {}
     opts = _get(clar, "options") or _get(clar, "candidates") or []
     return M.RunRecord(answer=dict(state.get("answer") or {}), tool_calls=calls, model_calls=int(state.get("call_count") or 0),
-                       end_reason=state.get("end_reason"), tool_evidence_ids=ids, clarify_options=len(opts),
+                       end_reason=state.get("end_reason"), tool_evidence_ids=ids, clarify_options=len(opts), evidence_order=order, evidence_texts=texts,
+                       harness_warns=harness_warn_count(state),
                        **router_trace(state),  # 식별 기록(RFP-26-08 A)
                        **source_missing_counts(state),  # 보조 집계(AG-06-07 A, 9장 지표 아님)
                        **validator_rule_trace(state))  # Validator 규칙 집계(AG-07-02 B, 9장 지표 아님)
@@ -263,6 +312,10 @@ def run_eval(
     (AG-06-09 A). 연속 수는 회차 경계를 넘어 이어 센다. 셋 다 주지 않으면 예전 동작·결과 형식 그대로다."""
     ph = phrases or M.Phrases.from_backend()
     judge = judge or NotCalledJudge()
+    real_judge = is_real_judge(judge) and not skip_judge
+    judge_stopped = False            # judge 비용 상한에 닿았다(그 뒤 문항은 judge 없이 코드 채점만)
+    judge_skipped: list[str] = []
+    ragas_mode = RG.MODE_REFERENCE if (meta or {}).get("condition") == "C0" else RG.MODE_RETRIEVED
     runs: list[list[dict[str, Any]]] = []
     skipped: list[str] = []
     cost_by_item: dict[str, float] = {}
@@ -294,10 +347,38 @@ def run_eval(
                     stopped = {"reason": STOP_CONSECUTIVE_ERRORS, "threshold": max_consecutive_errors, "run": n_run + 1, "index": idx,
                                **({} if sealed else {"item_id": it.get("id")}), "errors": list(streak), "skipped": 0}
             row = M.score_item(it, rec, ph)
-            row["judge"] = None if skip_judge else judge.score(it, rec.answer, [])  # 골격: 호출 없음(보류)
-            if budget is not None:
+            if budget is not None or repeats > 1:  # 실제 그래프 실행·반복 실행에만 적는다(기본 연결 확인 실행의 결과 형식은 그대로)
+                row["run_index"] = n_run + 1  # 회차(1부터, 로깅 전략의 `repeat_idx`와 같은 값, RFP-35-09)
+            if rec.harness_warns is not None:
+                row["harness_warns"] = int(rec.harness_warns)
+            if budget is not None:  # 에이전트 몫만(judge 비용은 `judge_usage`에 따로 센다)
                 row["cost_usd"] = round(budget.item_cost(), 6)
                 cost_by_item[str(it.get("id"))] = round(cost_by_item.get(str(it.get("id")), 0.0) + row["cost_usd"], 6)
+            if skip_judge:
+                row["judge"] = None
+            elif not real_judge:
+                row["judge"] = judge.score(it, rec.answer, [])  # 자리 표시: 호출 없음(보류)
+            elif judge_stopped or is_item_error(rec):
+                row["judge"] = {"rubric": None, "rubrics": {}, "overall_pass": None, "status": "not_called",
+                                "reason": JUDGE_BUDGET_STOP if judge_stopped else "RUN_ERROR"}
+                if judge_stopped and n_run == 0:
+                    judge_skipped.append(str(it.get("id")))
+            else:
+                ctx = judge_contexts(rec)
+                try:
+                    row["judge"] = judge.score(it, rec.answer, ctx, end_reason=rec.end_reason)
+                    merge_judge(row, row["judge"])
+                    if RG.ragas_applicable(it):
+                        # C0(정답 근거를 컨텍스트로)는 청크가 달라 J1을 다시 받는다. 그 밖은 위에서 받은 J1을 재사용한다(같은 답·같은 청크)
+                        j1 = (row["judge"].get("rubrics") or {}).get("J1") if ragas_mode == RG.MODE_RETRIEVED else None
+                        row["ragas"] = RG.ragas_item(judge, it, rec.answer, contexts=ctx, tool_evidence_ids=rec.tool_evidence_ids,
+                                                     end_reason=rec.end_reason, mode=ragas_mode, j1=j1)
+                except SJ.JudgeBudgetExceeded:
+                    judge_stopped = True
+                    row.setdefault("judge", {"rubric": None, "rubrics": {}, "overall_pass": None, "status": "not_called",
+                                             "reason": JUDGE_BUDGET_STOP})
+                    if n_run == 0:
+                        judge_skipped.append(str(it.get("id")))
             if not sealed:
                 row["run"] = rec.to_json()
             rows.append(row)
@@ -307,14 +388,28 @@ def run_eval(
             "runner": RUNNER_VERSION, "created_utc": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "sealed": sealed, "repeats": max(1, repeats), "eval_mode_env": os.environ.get("MEDIAGENT_EVAL") or os.environ.get("MEDIAGENT_MODE"),
             "judge": {"model": getattr(judge, "model_id", None), "rubrics": getattr(judge, "rubric_versions", None),
-                      "status": "not_called" if isinstance(judge, NotCalledJudge) else "called"},
+                      "status": "called" if real_judge else "not_called"},
             "patterns": M.PATTERN_VERSION, "trajectory_rule": M.TRAJ_RULE, **(meta or {}),
         },
         "metrics": M.aggregate(runs[0]),
     }
+    hs = harness_summary(runs[0])
+    if hs is not None:
+        result["metrics"]["harness_events"] = hs
     if skip_judge:
         result["meta"]["judge"] = None
-        result["judge"] = None  # judge 프롬프트 확정·보정 전이라 이번 실행에는 붙이지 않는다(자리만 둔다)
+        result["judge"] = None  # judge를 붙이지 않은 실행(코드 채점만). 자리만 둔다
+    elif real_judge:
+        # judge 모델·루브릭 버전·judge 프롬프트 파일 sha256(9.6절 동결 확인)과 사용량·오류율. 시험셋이어도 문항 내용이 없어 그대로 남긴다
+        jm = judge.meta() if hasattr(judge, "meta") else {}
+        result["meta"]["judge"].update({k: jm.get(k) for k in ("prompt_file", "prompt_sha256", "prompt_status", "thinking", "max_tokens")})
+        result["meta"]["judge"]["ragas"] = RG.RAGAS_VERSION
+        usage = judge.usage.to_json() if hasattr(judge, "usage") else {}
+        result["judge_usage"] = {**usage, "max_usd": getattr(judge, "max_usd", None), "cap_reached": judge_stopped,
+                                 "skipped": len(judge_skipped) if sealed else judge_skipped}
+        result["metrics"]["ragas"] = RG.aggregate_ragas([r["ragas"] for r in runs[0] if r.get("ragas")])
+        left = ["J3·J4·J5 요소"] if any((r.get("safety") or {}).get("pending_judge") for r in runs[0]) else []
+        result["metrics"]["judge_metrics_not_computed"] = left  # 보류가 남았으면(judge 오류·상한) 그대로 알린다
     if budget is not None:
         result["meta"]["n_items_run"] = len(runs[0])
         result["cost_usd"] = {"total": round(budget.spent(), 6), "max_usd": budget.max_usd, "cap_reached": bool(skipped) or budget.exhausted(),
@@ -378,12 +473,23 @@ class RunnerConfigError(ValueError):
 
 
 class GraphResources:
-    """그래프 에이전트가 쓰는 자원 묶음. `deps`는 그래프 의존성, `cost_total()`은 누적 비용(USD), `dict_meta`는 사전 버전·기준일."""
+    """그래프 에이전트가 쓰는 자원 묶음. `deps`는 그래프 의존성, `cost_total()`은 누적 비용(USD), `dict_meta`는 사전 버전·기준일,
+    `corpus_meta`는 근거 코퍼스 출처·크기·내용 지문(`corpus_fingerprint`, 9.6절 동결 확인용. 없으면 None으로 기록된다)."""
 
-    def __init__(self, *, deps: Any, cost_total: Callable[[], float], dict_meta: dict[str, Any] | None = None) -> None:
+    def __init__(self, *, deps: Any, cost_total: Callable[[], float], dict_meta: dict[str, Any] | None = None,
+                 corpus_meta: dict[str, Any] | None = None) -> None:
         self.deps = deps
         self.cost_total = cost_total
         self.dict_meta = dict(dict_meta or {})
+        self.corpus_meta = dict(corpus_meta) if corpus_meta else None
+
+
+def corpus_fingerprint(index: Any, source: str) -> dict[str, Any]:
+    """근거 코퍼스의 출처·청크 수·내용 지문. 지문은 청크마다 `ID|기준일|본문 sha256 앞 12자`를 ID 순으로 이어 붙인 것의 sha256이다
+    (본문은 결과 파일에 남기지 않는다). 측정 사이에 코퍼스가 바뀌었는지 결과 파일끼리 비교할 수 있다(9.6절)."""
+    rows = sorted(f"{c.get('chunk_id')}|{c.get('base_date')}|{hashlib.sha256(str(c.get('text') or '').encode('utf-8')).hexdigest()[:12]}"
+                  for c in getattr(index, "chunks", []) or [])
+    return {"source": source, "n_chunks": len(rows), "sha256": hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()}
 
 
 class CostBudget:
@@ -461,16 +567,16 @@ def check_system_prompt(prompt_set: str, prompt_name: str) -> None:
 def code_versions(condition: str = DEFAULT_CONDITION) -> dict[str, str]:
     """그래프·하네스 소스 파일 내용 해시(버전 상수가 따로 없어 내용 해시로 적는다).
 
-    C1은 `graph`에 파이프라인 규칙 버전(`PIPELINE_VERSION`, 규칙을 바꾸면 올린다)을 적고, 함께 쓰는 ReAct 노드 소스 해시(`graph_src`)와
+    C1·C1+는 `graph`에 파이프라인 규칙 버전(`pipeline_version(condition)`, 규칙을 바꾸면 올린다)을 적고, 함께 쓰는 ReAct 노드 소스 해시(`graph_src`)와
     파이프라인 소스 해시(`pipeline_src`)를 따로 남긴다(C1 규칙 동결 확인용, RFP-34-04). C2는 지금까지와 같은 키·값이다."""
     agent = ROOT / "backend" / "app" / "agent"
     harness = [agent / f"{n}.py" for n in ("guardrail", "validator", "sentence_filter", "finalize", "fixed_phrases", "quote_check", "renderer")]
     out = {"graph": f"graph-src@{_sha256_of(sorted((agent / 'graph').glob('*.py')))}",
            "harness": f"harness-src@{_sha256_of([p for p in harness if p.is_file()])}"}
     if condition in GRAPH_ONLY_CONDITIONS:
-        from app.agent.pipeline.build import PIPELINE_VERSION
+        from app.agent.pipeline.build import pipeline_version
 
-        out = {"graph": PIPELINE_VERSION, "graph_src": out["graph"],
+        out = {"graph": pipeline_version(condition), "graph_src": out["graph"],
                "pipeline_src": f"pipeline-src@{_sha256_of(sorted((agent / 'pipeline').glob('*.py')))}", "harness": out["harness"]}
     return out
 
@@ -495,11 +601,60 @@ def typo_correction_meta(enabled: bool) -> dict[str, Any]:
             "min_score": ar.TYPO_CORRECT_MIN_SCORE, "min_gap": ar.TYPO_CORRECT_MIN_GAP}
 
 
+def resolve_typo_correct(condition: str, flag: bool | None) -> bool:
+    """비교 조건과 플래그(`--typo-correct`/`--no-typo-correct`, 없으면 None)로 오탈자 보정 스위치를 정한다.
+
+    C1 = 끔(보정 없는 고정 파이프라인), C1+ = 켬(C1 + 오탈자 보정 후 재검색 1회, 9.5절), C2 = 기본 켬(서비스와 같은 그래프, AG-10-04 A).
+    조건의 뜻과 어긋나는 플래그는 `RunnerConfigError`(결과 파일의 조건 표기와 실제 동작이 달라지지 않게)."""
+    fixed = {"C1": False, "C1+": True}.get(condition)
+    if fixed is None:
+        return True if flag is None else bool(flag)
+    if flag is not None and bool(flag) != fixed:
+        raise RunnerConfigError(f"--condition {condition}의 오탈자 보정은 항상 {'켬' if fixed else '끔'}이다(플래그로 바꿀 수 없다)")
+    return fixed
+
+
 def apply_typo_correct(resources: GraphResources, enabled: bool) -> None:
     """자원의 그래프 의존성에 오탈자 보정 스위치를 적는다(자원 생성 함수의 인자 모양은 바꾸지 않는다). 의존성이 없는 가짜 자원은 건너뛴다."""
     deps = getattr(resources, "deps", None)
-    if enabled and deps is not None:
-        deps.typo_correct = True
+    if deps is not None:
+        deps.typo_correct = bool(enabled)
+
+
+def run_settings() -> dict[str, Any]:
+    """재현성 기록(BE-08, 9.6절): 모델 호출 상한, LLM 설정, 검색 방식, 실시간 API 끔, 판정 파일별 기준일. 값은 코드 상수에서 읽는다.
+
+    - LLM 온도는 **지정하지 않는다**(`gpt-6-luna`는 `reasoning_effort="none"` 고정, `app.agent.llm`). 그래서 `temperature: None`으로 적는다.
+    - 평가 모드 검색은 BM25 단독이다(벡터 검색 함수 없음). 임베딩 모델을 쓰지 않으므로 `embedding_model: None`.
+    - 파일 기준일은 `app.db.loaders`의 파일별 상수다(임부·연령·용량 / 병용금기 / 수유부 / 심평원 품목리스트 / 노인주의)."""
+    from app.agent import llm
+    from app.agent.graph.state import MAX_MODEL_CALLS
+    from app.db import loaders
+
+    return {"call_limit": MAX_MODEL_CALLS,
+            "llm": {"temperature": None, "reasoning_effort": llm.REASONING_EFFORT, "max_completion_tokens": llm.MAX_COMPLETION_TOKENS},
+            "retrieval": {"method": "bm25", "vector": False, "embedding_model": None},
+            "api_enabled": False,
+            "file_as_of": {"kids_pregnancy_age_dose": loaders.AS_OF_KIDS, "kids_contra_pair": loaders.AS_OF_COMBO,
+                           "kids_lactation": loaders.AS_OF_LACTATION, "hira_item_list": loaders.AS_OF_HIRA, "kids_elderly": loaders.AS_OF_ELDERLY_KIDS}}
+
+
+def planned_result(meta: dict[str, Any], judge: Any) -> dict[str, Any]:
+    """실행 전에 "이번 실행이 남길 결과"의 동결 값만 담은 모양을 만든다(`freeze_check.freeze_diff`의 입력). 문항·답은 없다."""
+    jm = judge.meta() if is_real_judge(judge) and hasattr(judge, "meta") else None
+    j = None if jm is None else {"model": jm.get("judge_model"), "rubrics": jm.get("rubric_versions"), "prompt_sha256": jm.get("prompt_sha256"),
+                                 "ragas": RG.RAGAS_VERSION}
+    return {"meta": {**meta, "patterns": M.PATTERN_VERSION, "trajectory_rule": M.TRAJ_RULE, "eval_mode_env": "1", "judge": j}}
+
+
+def baseline_guard(meta: dict[str, Any], judge: Any, baseline: Path, reason: str | None) -> tuple[bool, dict[str, Any]]:
+    """측정 기간 동결(RFP-29 H16, RFP-34-04 A): 이전 측정 결과와 동결 값이 다르면 이유 없이는 시작하지 않는다.
+    반환 (시작해도 되는가, 결과 meta에 남길 기록). 이전 결과 파일은 점수·meta만 읽는다(시험셋 결과에는 문항이 없다)."""
+    base = json.loads(baseline.read_text(encoding="utf-8"))
+    diffs = FZ.freeze_diff(planned_result(meta, judge), base)
+    record = {"file": baseline.name, "sha256": hashlib.sha256(baseline.read_bytes()).hexdigest(), "created_utc": (base.get("meta") or {}).get("created_utc"),
+              "diffs": diffs, "reason": (reason or "").strip() or None}
+    return (not diffs) or bool(record["reason"]), record
 
 
 def apply_condition(resources: GraphResources, condition: str) -> None:
@@ -509,9 +664,9 @@ def apply_condition(resources: GraphResources, condition: str) -> None:
         return
     tracer.condition = condition
     if condition in GRAPH_ONLY_CONDITIONS:
-        from app.agent.pipeline.build import PIPELINE_VERSION
+        from app.agent.pipeline.build import pipeline_version
 
-        tracer.graph_version = PIPELINE_VERSION
+        tracer.graph_version = pipeline_version(condition)
 
 
 def source_missing_counts(state: dict[str, Any]) -> dict[str, int]:
@@ -526,9 +681,36 @@ def source_missing_counts(state: dict[str, Any]) -> dict[str, int]:
 
     uncited = sum(1 for s in state.get("final_sentences") or []
                   if isinstance(s, dict) and s.get("claim_type") == "fact" and not s.get("evidence_ids"))
+    hev = harness_events(events)
     return {"no_evidence_dropped": reason_total("SENTENCE_FILTER", REASON_NO_EVIDENCE), "uncited_fact_sentences": uncited,
             "quote_mismatch": reason_total("VALIDATOR", REASON_QUOTE_MISMATCH),
-            "harness_blocks": sum(1 for h in harness_events(events) if h["action"] == "block")}
+            "harness_blocks": sum(1 for h in hev if h["action"] == "block")}
+
+
+def harness_warn_count(state: dict[str, Any]) -> int:
+    """그래프 최종 상태의 하네스 경고 이벤트 수(RFP-33-05 보조 기록, 9장 지표 아님). 차단 수는 `source_missing_counts`가 센다."""
+    from app.agent.graph.trace import harness_events
+
+    return sum(1 for h in harness_events([e for e in state.get("events") or [] if isinstance(e, dict)]) if h["action"] == "warn")
+
+
+def harness_summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    """하네스 차단·경고 **보조 집계**(RFP-33-05 A·BE-08, 9장 지표 아님): 조건(결과 파일 하나)의 차단·경고 건수와 "차단 뒤 상한 종료" 비율.
+    차단 수(`aux.harness_blocks`)가 기록된 문항이 없으면 None(가짜 에이전트·예전 결과)."""
+    seen = [r for r in rows if isinstance(r.get("aux"), dict)]
+    if not seen:
+        return None
+    blocked = [r for r in seen if int(r["aux"].get("harness_blocks") or 0) > 0]
+    limit = sum(1 for r in blocked if (r.get("trajectory") or {}).get("end_reason") == "LIMIT")
+    warns = [int(r["harness_warns"]) for r in seen if r.get("harness_warns") is not None]
+    by_end: dict[str, int] = {}
+    for r in blocked:
+        end = str((r.get("trajectory") or {}).get("end_reason"))
+        by_end[end] = by_end.get(end, 0) + 1
+    return {"items": len(seen), "blocks_total": sum(int(r["aux"].get("harness_blocks") or 0) for r in seen),
+            "warns_total": sum(warns) if warns else None, "items_with_block": M.kn(len(blocked), len(seen)),
+            "block_then_limit": M.kn(limit, len(blocked)), "blocked_items_by_end_reason": by_end,
+            "note": "보조 기록(9장 지표 아님, RFP-33-05 A): 차단 뒤 상한 종료 = 차단이 한 번이라도 있었던 문항 중 호출 상한(LIMIT)으로 끝난 문항"}
 
 
 def validator_rule_trace(state: dict[str, Any]) -> dict[str, dict[str, int]]:
@@ -592,7 +774,8 @@ def default_graph_resources(settings: Any, *, prompt_set: str, allow_draft: bool
     deps = build_deps(drug_dict, ctx, settings=settings, tracer=make_tracer(prompt_set=prompt_set, run_id=run_id, condition="C2"), ledger=ledger,
                       grade_def_fn=corpus_grade_def_fn(corpus), prompt_set=prompt_set, allow_draft=allow_draft)
     return GraphResources(deps=deps, cost_total=ledger_cost_total(ledger),
-                          dict_meta={"version": drug_dict.version, "built_at": drug_dict.meta.get("built_at")})
+                          dict_meta={"version": drug_dict.version, "built_at": drug_dict.meta.get("built_at"), "source": "file:data/mock/dict/drug_dict.json"},
+                          corpus_meta=corpus_fingerprint(corpus, "db:corpus_chunks"))
 
 
 class GraphAgent(GraphAdapter):
@@ -768,9 +951,27 @@ def rescore_file(src: Path, out: Path | None = None) -> Path:
 AGENTS: dict[str, Callable[[], Any]] = {"offline-fixed": OfflineFixedAgent}
 
 
+class JudgeSetupError(RunnerConfigError):
+    """judge를 만들 수 없다(키 없음 등). 실행 전에 종료 코드 2로 멈춘다."""
+
+
+def default_judge(settings: Any, max_usd: float) -> Any:
+    """실제 judge(Claude Sonnet 5.5). 키는 설정(`ANTHROPIC_API_KEY`)에서 읽어 SDK에 넘기고 어디에도 남기지 않는다. 비용은 원장의 평가 몫에 쌓인다.
+    시험에서는 부르지 않는다(`judge_factory`로 가짜 전송을 넣는다)."""
+    from app.config import reveal
+    from app.llm.ledger import CostLedger
+
+    key = getattr(settings, "anthropic_api_key", None)
+    if not key:
+        raise JudgeSetupError("judge에 필요한 환경변수가 없다: ANTHROPIC_API_KEY")
+    return SJ.SonnetJudge(SJ.AnthropicTransport(api_key=reveal(key)), ledger=CostLedger(), max_usd=max_usd)
+
+
 def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settings_fn: Callable[[], Any] | None,
-                   resources_factory: Callable[..., GraphResources] | None) -> tuple[Any, CostBudget, dict[str, Any]] | None:
-    """그래프 에이전트 준비. 필수 설정이 없으면 이름만 출력하고 None(0건). 자원을 만들기 전에 묶음·draft 규칙을 확인한다."""
+                   resources_factory: Callable[..., GraphResources] | None,
+                   judge_factory: Callable[[Any, float], Any] | None = None) -> tuple[Any, CostBudget, dict[str, Any], Any] | None:
+    """그래프 에이전트 준비. 필수 설정이 없으면 이름만 출력하고 None(0건). 자원을 만들기 전에 묶음·draft 규칙을 확인한다.
+    `--judge sonnet`이면 judge도 여기서 만든다(자원보다 먼저: 키가 없으면 원격 DB를 읽기 전에 멈춘다)."""
     from app.agent import llm
     from app.agent.graph.prompt import load_summary_instruction
     from app.agent.graph.wiring import DEFAULT_PROMPT
@@ -784,7 +985,8 @@ def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settin
         return None
     check_system_prompt(a.prompt_set, DEFAULT_PROMPT)
     load_summary_instruction(a.prompt_set, allow_draft=a.allow_draft)  # draft 묶음은 --allow-draft 없이는 여기서 멈춘다
-    prefix = "l2" if a.condition == DEFAULT_CONDITION else a.condition.lower()  # C2 실행 ID는 지금까지와 같다
+    judge = (judge_factory or default_judge)(settings, a.judge_max_usd) if a.judge == JUDGE_SONNET else None
+    prefix = "l2" if a.condition == DEFAULT_CONDITION else a.condition.lower().replace("+", "plus")  # C2 실행 ID는 지금까지와 같다
     run_id = f"{prefix}-{a.prompt_set.replace('@', '-')}-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}"
     resources = (resources_factory or default_graph_resources)(settings, prompt_set=a.prompt_set, allow_draft=a.allow_draft, run_id=run_id)
     apply_condition(resources, a.condition)
@@ -792,13 +994,18 @@ def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settin
     agent = GraphAgent(resources, info={"prompt_set": a.prompt_set, "run_id": run_id, "api_enabled": False, "condition": a.condition},
                        condition=a.condition)
     versions = {"model": {"agent": llm.MODEL, "summary": llm.MODEL}, "prompt": prompt_versions(a.prompt_set), **code_versions(a.condition),
-                "dict": resources.dict_meta}
+                "dict": resources.dict_meta, "corpus": getattr(resources, "corpus_meta", None)}
     del items
-    return agent, CostBudget(a.max_usd, resources.cost_total), versions
+    total = resources.cost_total
+    if judge is not None and getattr(judge, "ledger", None) is not None:
+        # judge 비용도 같은 원장(평가 몫)에 쌓이므로, 에이전트 비용 상한·문항별 비용에서는 judge 몫을 뺀다(judge는 `--judge-max-usd`로 따로 막는다)
+        total = lambda: resources.cost_total() - float(judge.usage.cost_usd)  # noqa: E731
+    return agent, CostBudget(a.max_usd, total), versions, judge
 
 
 def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | None = None,
-         resources_factory: Callable[..., GraphResources] | None = None) -> int:
+         resources_factory: Callable[..., GraphResources] | None = None,
+         judge_factory: Callable[[Any, float], Any] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--set", default="dev", help="dev | test | 파일 경로")
     ap.add_argument("--agent", choices=sorted([*AGENTS, GRAPH_AGENT]), default="offline-fixed")
@@ -812,9 +1019,15 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap.add_argument("--prompt-set", default=None, help="graph 에이전트의 프롬프트 묶음(기본: `wiring.DEFAULT_PROMPT_SET`, 서비스와 같은 묶음)")
     ap.add_argument("--allow-draft", action="store_true", help="draft 프롬프트가 든 묶음 허용(검토 중인 초안 점검용)")
     ap.add_argument("--max-usd", type=float, help="graph 에이전트 비용 상한(필수). 닿으면 남은 문항을 건너뛴다")
+    ap.add_argument("--judge", choices=[JUDGE_NONE, JUDGE_SONNET], default=JUDGE_NONE,
+                    help="judge(J1~J5·Ragas 3지표). none = 코드 채점만(기본), sonnet = Claude Sonnet 5.5 실제 호출(graph 전용, --judge-max-usd 필수)")
+    ap.add_argument("--judge-max-usd", type=float, help="judge 비용 상한(--judge sonnet이면 필수). 닿으면 그 뒤 문항은 judge 없이 코드 채점만 한다")
+    ap.add_argument("--baseline", type=Path, metavar="RESULT.json",
+                    help="이전 측정 결과. 세트 해시·모델·호출 상한·사전·코퍼스·채점 규칙·judge 모델·루브릭이 다르면 시작하지 않는다(9.6절 동결, graph 전용)")
+    ap.add_argument("--freeze-diff-reason", help="--baseline과 동결 값이 다른데도 실행할 이유(결과 meta `freeze_baseline`에 기록된다)")
     ap.add_argument("--ids", help="쉼표로 나눈 문항 ID만 돌린다(개발셋 전용, --subset 뒤에 적용). 예: dev-056,dev-057")
-    ap.add_argument("--typo-correct", action="store_true",
-                    help="오탈자 보정 후 진행(AG-10)을 켠다(graph·C2 전용). 보정 고지 문구가 초안이어도 평가 실행에서는 답에 붙여 돌린다(meta에 기록)")
+    ap.add_argument("--typo-correct", action=argparse.BooleanOptionalAction, default=None,
+                    help="오탈자 보정 후 진행(AG-10). 기본은 조건이 정한다(C2·C1+ 켬, C1 끔). C2에서만 --no-typo-correct로 끌 수 있다(graph 전용)")
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A.json", "B.json"), help="두 결과 파일을 나란히 본다(실행 없음)")
     ap.add_argument("--rescore", type=Path, metavar="RESULT.json",
                     help="저장된 개발셋 결과를 지금 채점기로 다시 채점해 새 파일로 쓴다(실행 없음, 원본 보존. --out으로 경로 지정)")
@@ -832,15 +1045,26 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         return 0
     if a.condition not in SUPPORTED_CONDITIONS:
         print(f"--condition {a.condition!r}은(는) 아직 러너에 연결되지 않았다. 지금 받는 값: {', '.join(SUPPORTED_CONDITIONS)} "
-              "(C1+는 오탈자 보정 재검색 연결 뒤 연다). 실행하지 않았다")
+              "(C0·C3는 연결 전이다). 실행하지 않았다")
         return 2
     is_graph = a.agent == GRAPH_AGENT
-    if a.typo_correct and not (is_graph and a.condition == DEFAULT_CONDITION):
-        # C1은 오탈자 보정이 없는 고정 파이프라인이다(보정을 더한 것은 C1+, 9.5절). 조건의 뜻이 섞이지 않게 막는다
-        print(f"--typo-correct는 --agent {GRAPH_AGENT} --condition {DEFAULT_CONDITION}에서만 받는다. 실행하지 않았다")
+    if a.typo_correct is not None and not is_graph:
+        print(f"--typo-correct/--no-typo-correct는 --agent {GRAPH_AGENT}에서만 받는다. 실행하지 않았다")
         return 2
+    if is_graph:
+        try:
+            a.typo_correct = resolve_typo_correct(a.condition, a.typo_correct)
+        except RunnerConfigError as e:
+            print(f"{e}. 실행하지 않았다")
+            return 2
     if a.condition in GRAPH_ONLY_CONDITIONS and not is_graph:
         print(f"--condition {a.condition}은(는) --agent {GRAPH_AGENT}에서만 받는다({a.agent}는 조건과 무관한 연결 확인용이라 C2 표기만 쓴다). 실행하지 않았다")
+        return 2
+    if a.judge != JUDGE_NONE and not is_graph:
+        print(f"--judge {a.judge}는 --agent {GRAPH_AGENT}에서만 받는다. 실행하지 않았다")
+        return 2
+    if a.judge != JUDGE_NONE and not (a.judge_max_usd and a.judge_max_usd > 0):
+        print("--judge sonnet은 --judge-max-usd(0보다 큰 judge 비용 상한)가 있어야 시작한다. 실행하지 않았다")
         return 2
     if is_graph and not (a.max_usd and a.max_usd > 0):
         print("graph 에이전트는 --max-usd(0보다 큰 비용 상한)가 있어야 시작한다")
@@ -866,11 +1090,16 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         items = items[: a.limit]
     versions: dict[str, Any] = {"model": None, "prompt": None, "graph": None, "harness": None, "dict": None}  # 실제 그래프 측정 때 채운다
     budget: CostBudget | None = None
+    judge: Any = None
     if is_graph:
-        prepared = _run_graph_cli(a, items, settings_fn=settings_fn, resources_factory=resources_factory)
+        try:
+            prepared = _run_graph_cli(a, items, settings_fn=settings_fn, resources_factory=resources_factory, judge_factory=judge_factory)
+        except (JudgeSetupError, SJ.JudgeError) as e:  # judge 키·SDK·프롬프트 파일 문제: 원격 자원을 만들기 전에 멈춘다
+            print(f"{e}. 실행하지 않았다")
+            return 2
         if prepared is None:
             return 0
-        agent, budget, versions = prepared
+        agent, budget, versions, judge = prepared
     else:
         agent = AGENTS[a.agent]()
     meta = {"set": a.set if a.set in SET_FILES else path.name, "set_file": path.name, "set_sha256": digest, **manifest_check(path, digest),
@@ -881,8 +1110,19 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
 
         # 조건별 하네스 적용표(`harness@v1`, RFP-33-03 A·BE-08): 기준선 장치는 C1·C2 공통, 개선 단계 선택 제한 장치는 C3 ablation 행 몫이라 비어 있다
         meta.update({"subset": a.subset, "n_items_selected": len(items), "prompt_set": a.prompt_set, "harness": harness_profile(a.condition),
-                     "typo_correction": typo_correction_meta(a.typo_correct)})
-    res = run_eval(items, agent, sealed=sealed, meta=meta, repeats=a.repeats, budget=budget, skip_judge=is_graph,
+                     "typo_correction": typo_correction_meta(a.typo_correct), "run_settings": run_settings()})
+        if a.baseline:
+            ok, record = baseline_guard(meta, judge, a.baseline, a.freeze_diff_reason)
+            if not ok:
+                print(f"이전 측정({a.baseline.name})과 동결 값이 달라 시작하지 않았다(9.6절 측정 기간 동결). 다른 항목: "
+                      + ", ".join(d["item"] for d in record["diffs"]) + ". 바꾼 이유가 있으면 --freeze-diff-reason \"이유\"로 기록하고 다시 실행한다")
+                return 2
+            meta["freeze_baseline"] = record
+    elif a.baseline:
+        print(f"--baseline은 --agent {GRAPH_AGENT}에서만 받는다. 실행하지 않았다")
+        return 2
+    res = run_eval(items, agent, sealed=sealed, meta=meta, repeats=a.repeats, budget=budget, judge=judge,
+                   skip_judge=is_graph and judge is None,  # graph 실행은 --judge sonnet일 때만 judge를 붙인다(기본은 코드 채점만)
                    max_consecutive_errors=MAX_CONSECUTIVE_ERRORS if is_graph else None)
     out = save(res, a.out)
     mt = res["metrics"]
@@ -900,6 +1140,13 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         if aux:
             z = aux["source_missing_zero_items"]
             print(f"  보조(출처 누락 0건 문항): {z['k']}/{z['n']}, 인용 불일치 {aux['quote_mismatch_total']}, 하네스 차단 {aux['harness_blocks_total']}")
+        ju = res.get("judge_usage")
+        if ju:
+            rg = mt.get("ragas") or {}
+            print(f"  judge: 호출 {ju['calls']}(재시도 {ju['retries']}, 오류 {ju['errors']}, 오류율 {ju['error_rate']}) "
+                  f"${ju['cost_usd']:.4f} / 상한 ${ju['max_usd']}" + (", 상한 도달" if ju["cap_reached"] else ""))
+            print("  ragas: " + ", ".join(f"{k} {rg[k]['mean']}(n={rg[k]['n']}, 빠짐 {rg[k]['n_missing']})"
+                                          for k in ("faithfulness", "context_precision", "context_recall") if k in rg))
         st = res.get("stopped")
         if st:
             print(f"  연속 오류 {st['threshold']}건으로 중단: 회차 {st['run']}, 위치 {st['index']}"

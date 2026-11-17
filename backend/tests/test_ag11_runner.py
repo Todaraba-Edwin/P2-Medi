@@ -267,10 +267,14 @@ def test_run_eval_sealed_keeps_scores_only():
     assert len(open_res["items"]) == 2 and open_res["items"][0]["run"]["tool_calls"][0]["name"] == "identify_drug"
 
 
-def test_real_judge_cannot_be_constructed():
-    with pytest.raises(NotImplementedError):
+def test_real_judge_needs_an_injected_transport():
+    """2026-11-18 judge 연결(AG-11-02·05): `R.SonnetJudge`는 실제 클래스(`evaluation/judge/sonnet_judge.py`)다. 전송 계층을 주입해야 만들어지고
+    (인자 없이는 TypeError), 자리 표시 judge는 여전히 아무것도 부르지 않는다. 실제 호출 경로는 `--judge sonnet --judge-max-usd`로만 열린다."""
+    with pytest.raises(TypeError):
         R.SonnetJudge()
     assert R.NotCalledJudge().score({}, {}, [])["status"] == "not_called"
+    assert R.NotCalledJudge().score({}, {}, [], end_reason="NORMAL")["status"] == "not_called"
+    assert R.is_real_judge(R.NotCalledJudge()) is False and R.is_real_judge(None) is False
 
 
 def test_save_writes_json(tmp_path: Path):

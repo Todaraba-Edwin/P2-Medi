@@ -408,16 +408,67 @@ def test_tool_error_becomes_harness_warn_event_and_pipeline_continues(dd):
 
 
 # --------------------------------------------------------------------------- 설정 전환·코드 공유
-def test_condition_switch_and_c1_plus_placeholder(dd):
+def test_condition_switch_and_c1_plus_builds(dd):
     assert PipelineConfig().condition == "C1" and PipelineConfig(typo_retry=True).condition == "C1+"
-    with pytest.raises(NotImplementedError):
-        make(dd, [GOOD_DRAFT], condition="C1+")
+    g_plus, *_ = make(dd, [GOOD_DRAFT], condition="C1+")  # C1+는 같은 그래프에 오탈자 보정만 켠다(AG-16-06 A). 오탈자가 없으면 C1과 같다
+    assert run_question(g_plus, PAIR_Q)["end_reason"] == "NORMAL"
     with pytest.raises(ValueError, match="C1"):
         make(dd, [GOOD_DRAFT], condition="C9")
     g, *_ = make(dd, [GOOD_DRAFT], condition="C1")
     assert run_question(g, PAIR_Q)["end_reason"] == "NORMAL"
     prof = harness_profile("C1")
     assert prof["version"] == "harness@v1" and prof["selection_limits"] == [] and "TOOL_OUTPUT_CONTRACT" in prof["baseline"]
+
+
+# --------------------------------------------------------------------------- C1+ (AG-16-06 A): C1 + 오탈자 보정 후 재검색 1회
+TYPO_Q = "게보란정이랑 와파린정 같이 먹어도 되나요?"  # `게보린정`에서 모음 하나만 다른 합성 오탈자(자모 1칸)
+
+
+def test_c1_plus_corrects_a_clear_typo_then_runs_the_same_fixed_order(dd):
+    g, tm, sm, rec = make(dd, [GOOD_DRAFT], condition="C1+")
+    st = run_question(g, TYPO_Q)
+    assert st["end_reason"] == "NORMAL" and tm.calls == []  # 도구 선택 모델은 여전히 불리지 않는다
+    assert rec.names() == ["identify_drug", "identify_drug", "check_contraindications", "search_reason", "search_label", "search_label"]
+    assert [c[1] for c in rec.calls[:2]] == [{"name": "게보린정"}, {"name": "와파린정"}]  # 보정한 이름으로 조회한다(재검색은 Router 안에서 1회)
+    line = fp.TYPO_CORRECTED_LINE.format(input="게보란정", name="게보린정")
+    assert [c["text"] for c in st["answer"]["name_corrections"]] == [line]  # 보정 고지가 함께 나간다
+    assert next(e for e in st["events"] if e.get("event") == "ROUTER")["n_corrected"] == 1
+
+
+def test_c1_keeps_asking_for_the_same_typo(dd):
+    g, tm, sm, rec = make(dd, [GOOD_DRAFT], condition="C1")
+    st = run_question(g, TYPO_Q)
+    assert st["end_reason"] == "CLARIFY" and rec.calls == [] and sm.calls == [] and "name_corrections" not in st["answer"]
+
+
+def test_c1_forces_correction_off_even_if_deps_has_it_on(dd):
+    """조건의 뜻이 섞이지 않게 C1은 주입된 의존성의 보정 스위치를 무시한다. 주입된 객체는 바꾸지 않는다(사본)."""
+    rec = Rec()
+    reg = make_registry(rec)
+    ctx = ToolContext(drug_dict=dd)
+    deps = GraphDeps(drug_dict=dd, tool_model=ScriptedToolModel(script=[]), summary_model=AdviceSummary([GOOD_DRAFT]), tools=build_tools(ctx, reg),
+                     tool_ctx=ctx, system_prompt="시험용 시스템 프롬프트", registry=reg, typo_correct=True)
+    assert run_question(build_for_condition(deps, "C1"), TYPO_Q)["end_reason"] == "CLARIFY"
+    assert deps.typo_correct is True
+    deps.typo_correct = False
+    assert run_question(build_for_condition(deps, "C1+"), TYPO_Q)["end_reason"] == "NORMAL" and deps.typo_correct is False
+
+
+def test_c1_plus_still_asks_when_the_candidate_is_not_clear(dd):
+    g, tm, sm, rec = make(dd, [GOOD_DRAFT], condition="C1+")
+    st = run_question(g, "타이래놀 먹어도 되나요?")  # 짧은 이름: 뚜렷한 후보가 없다 → C1과 같은 예외 규칙 2(되묻기)
+    assert st["end_reason"] == "CLARIFY" and rec.calls == []
+
+
+def test_pipeline_versions_and_harness_table_by_condition():
+    from app.agent.pipeline.build import PIPELINE_PLUS_VERSION, pipeline_version
+
+    assert pipeline_version("C1") == PIPELINE_VERSION and pipeline_version("C1+") == PIPELINE_PLUS_VERSION != PIPELINE_VERSION
+    assert pipeline_version("C2") is None
+    assert harness_profile("C1+") == {**harness_profile("C1"), "condition": "C1+"}  # 기준선 장치는 공통
+    assert harness_profile("C2")["baseline"] == harness_profile("C1")["baseline"]
+    with pytest.raises(ValueError, match="조건"):
+        harness_profile("C3")
 
 
 def test_c2_condition_builds_react_graph_with_same_deps(dd):

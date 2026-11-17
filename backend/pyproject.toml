@@ -26,6 +26,11 @@ dev = [
     "numpy>=1.26",  # BE-10 embed_compare 코사인 검색(없으면 느린 순수 파이썬 경로)
     "hnswlib>=0.8.0",  # BE-16-06 recall 측정용, 로컬 전용(scripts/hnsw_recall_local.py)
 ]
+eval = [
+    # AG-11 judge(Claude Sonnet 5.5) 전송 계층 `evaluation/judge/sonnet_judge.AnthropicTransport`(AG-11-02 A, 2026-11-17 사용자 승인).
+    # 평가 실행(`eval_runner --judge sonnet`)에서만 쓴다. 서비스 런타임(`app/`)은 import하지 않는다(PRD-08-06 A).
+    "anthropic>=2.9,<3",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

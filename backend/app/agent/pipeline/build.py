@@ -11,12 +11,17 @@
                                                                                  finalize → END
 
 같은 모델·같은 도구 함수·같은 Guardrail·Validator·고정 문구(`GraphDeps`를 ReAct 그래프와 그대로 공유). 차이는 도구를 부르는 순서·횟수를 누가 정하나(코드 대 LLM)뿐이다.
-평가 설정 식별자(C1·C1+·C2)로 그래프를 고르는 `build_for_condition`을 둔다(BE-08·eval_runner 연결용). C1+는 설정 자리만 있다(AG-10 뒤 구현).
+평가 설정 식별자(C1·C1+·C2)로 그래프를 고르는 `build_for_condition`을 둔다(BE-08·eval_runner 연결용).
+
+C1+(강화, AG-16-06 A 2026-11-17): C1과 **같은 그래프·같은 규칙**에 오탈자 보정 후 재검색 1회만 더한다(RFP-23 §5.2). 보정은 새 코드가 아니라
+`router` 노드가 쓰는 AG-10 보정(`router.correct_typo`: 자모 유사도 0.90 이상·2위와 0.05 이상 차이·숫자 불변·보정 이름으로 사전 1회 재조회)을
+그대로 켠 것이다. 뚜렷하지 않으면 C1과 똑같이 되묻기(예외 규칙 2)로 끝난다. 보정한 답에는 공유 `finalize`가 보정 고지를 붙인다.
+C1은 주입된 의존성의 보정 스위치가 켜져 있어도 **항상 끈다**(조건의 뜻이 섞이지 않게 여기서 강제한다).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -27,6 +32,7 @@ from app.agent.pipeline.nodes import after_identify, make_pipeline_nodes
 from app.agent.pipeline.state import PIPELINE_WRITABLE, PipelineState
 
 PIPELINE_VERSION = "c1-pipeline@v1"  # 결과 파일 `graph_version`용. 규칙을 바꾸면 올리고 이전 결과와 섞지 않는다(RFP 9.6절, BE-08 RFP-34-04)
+PIPELINE_PLUS_VERSION = "c1plus-pipeline@v1"  # C1+ 규칙 버전(C1 규칙 + 오탈자 보정 후 재검색 1회). 보정 기준을 바꾸면 올린다
 RECURSION_LIMIT = 30  # 노드 9개 + 되감기 1회를 넉넉히 덮는다
 CONDITION_C1, CONDITION_C1_PLUS, CONDITION_C2 = "C1", "C1+", "C2"
 HARNESS_VERSION = "harness@v1"
@@ -36,7 +42,7 @@ HARNESS_BASELINE = ("ARG_SCHEMA", "TOOL_OUTPUT_CONTRACT", "STATE_KEY_LIMIT", "FI
 
 @dataclass(frozen=True)
 class PipelineConfig:
-    """C1(기본)·C1+(강화) 전환. `typo_retry=True`가 C1+(오탈자 보정 후 재검색 1회)이며 구현은 AG-10 뒤로 미룬다(지금은 `NotImplementedError`)."""
+    """C1(기본)·C1+(강화) 전환. `typo_retry=True`가 C1+(오탈자 보정 후 재검색 1회, Router의 AG-10 보정 재사용)다."""
 
     typo_retry: bool = False
 
@@ -47,8 +53,8 @@ class PipelineConfig:
 
 def build_pipeline(deps: GraphDeps, config: PipelineConfig | None = None) -> Any:
     cfg = config or PipelineConfig()
-    if cfg.typo_retry:
-        raise NotImplementedError("C1+(오탈자 보정 후 재검색 1회)는 AG-10 오탈자 보정 뒤에 구현한다(RFP-23 §5.2). 지금은 설정 자리만 있다")
+    # 보정 스위치는 조건이 정한다: C1은 끔, C1+는 켬. 주입된 `deps`는 바꾸지 않는다(사본)
+    deps = replace(deps, typo_correct=cfg.typo_retry)
     nodes = {name: guard_node(deps, name, fn, PIPELINE_WRITABLE) for name, fn in make_pipeline_nodes(deps).items()}
     g = StateGraph(PipelineState)
     for name, fn in nodes.items():
@@ -77,10 +83,18 @@ def build_for_condition(deps: GraphDeps, condition: str) -> Any:
     raise ValueError(f"그래프를 만들 수 없는 조건: {condition!r} (C1·C1+·C2 중 하나)")
 
 
+def pipeline_version(condition: str) -> str | None:
+    """조건의 파이프라인 규칙 버전. 고정 파이프라인이 아니면(C2) None."""
+    return {CONDITION_C1: PIPELINE_VERSION, CONDITION_C1_PLUS: PIPELINE_PLUS_VERSION}.get(condition)
+
+
 def harness_profile(condition: str) -> dict[str, Any]:
-    """결과 파일에 적을 조건별 하네스 적용표(`harness@v1`). 개선 단계 장치(`known_ids`·단위 보조 차단·반복 경고)는 C3 ablation 행이 따로 적는다."""
+    """결과 파일에 적을 조건별 하네스 적용표(`harness@v1`). 기준선 장치는 C1·C1+·C2 공통이다(RFP-33-03 A).
+    개선 단계 장치(`known_ids`·단위 보조 차단·반복 경고)는 C3 ablation 행이 따로 적는다. 모르는 조건은 오류다(표에 없는 조건을 조용히 적지 않는다)."""
+    if condition not in (CONDITION_C1, CONDITION_C1_PLUS, CONDITION_C2):
+        raise ValueError(f"하네스 적용표에 없는 조건: {condition!r} (C1·C1+·C2 중 하나)")
     return {"version": HARNESS_VERSION, "condition": condition, "baseline": list(HARNESS_BASELINE), "selection_limits": []}
 
 
-__all__ = ["CONDITION_C1", "CONDITION_C1_PLUS", "CONDITION_C2", "HARNESS_VERSION", "PIPELINE_VERSION", "PipelineConfig", "build_for_condition",
-           "build_pipeline", "harness_profile", "initial_state", "run_question"]
+__all__ = ["CONDITION_C1", "CONDITION_C1_PLUS", "CONDITION_C2", "HARNESS_VERSION", "PIPELINE_PLUS_VERSION", "PIPELINE_VERSION", "PipelineConfig",
+           "build_for_condition", "build_pipeline", "harness_profile", "initial_state", "pipeline_version", "run_question"]
