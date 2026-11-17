@@ -57,10 +57,30 @@ CITATION_DATE_LABELS = {
     "published": "발간일",
 }
 
-# 자료 키 → 기준일(파일 자료만)
+# 자료 키 → 원문 날짜 정밀도(BE-16-11 A, BE-06-08 A "원본 기준"). 표에 없는 자료는 일 단위 그대로다.
+# 심평원 DUR 품목리스트는 원문이 "2026.6"(일자 없음)이라 화면·응답에는 월 단위 `YYYY-MM`만 내보낸다.
+# DB `as_of`(DATE)와 `loaders.AS_OF_HIRA`(적재값 2026-06-01)는 바꾸지 않는다. 자르는 일은 표시 단계(`display_as_of`)만 한다.
+DATE_PRECISION_MONTH = "month"
+DATASET_DATE_PRECISION: dict[str, str] = {"elderly": DATE_PRECISION_MONTH}
+
+
+def display_as_of(dataset_key: str | None, value: str | None) -> str | None:
+    """표시용 기준일. 월 단위 자료면 `YYYY-MM-DD`(또는 그 앞부분이 날짜인 문자열) → `YYYY-MM`. 그 밖의 자료·값은 그대로 돌려준다."""
+    if value is None or DATASET_DATE_PRECISION.get(dataset_key or "") != DATE_PRECISION_MONTH:
+        return value
+    s = str(value).strip()
+    if len(s) >= 7 and s[:4].isdigit() and s[4] == "-" and s[5:7].isdigit():
+        return s[:7]
+    return value
+
+
+# 자료 키 → 기준일(파일 자료만, 표시값. 월 단위 자료는 `display_as_of`로 자른 값)
 DATASET_AS_OF = {
-    "contra_pair": AS_OF_COMBO, "pregnancy": AS_OF_KIDS, "age": AS_OF_KIDS, "dose": AS_OF_KIDS,
-    "lactation": AS_OF_LACTATION, "elderly": AS_OF_HIRA,
+    k: display_as_of(k, v)
+    for k, v in {
+        "contra_pair": AS_OF_COMBO, "pregnancy": AS_OF_KIDS, "age": AS_OF_KIDS, "dose": AS_OF_KIDS,
+        "lactation": AS_OF_LACTATION, "elderly": AS_OF_HIRA,
+    }.items()
 }
 
 # `source_kind` 값과 표지 종류 문구(쉬운 말, 내부 용어 없음)

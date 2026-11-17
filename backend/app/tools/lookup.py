@@ -26,6 +26,7 @@ from app.db.loaders import (
     age_to_days,
     is_valid_code,
 )
+from app.tools.provenance import display_as_of
 
 FOUND = "FOUND"
 NOT_LISTED = "NOT_LISTED"
@@ -79,6 +80,8 @@ class Item:
     def __post_init__(self) -> None:
         if self.dataset_key is None and self.kind in DATASET_KEYS:
             self.dataset_key = self.kind
+        # 표시 기준일: FOUND(DB 행 값)·NOT_LISTED(상수) 모두 같은 규칙으로 자른다(BE-16-11 A, 월 단위 자료만)
+        self.as_of = display_as_of(self.dataset_key, self.as_of)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
