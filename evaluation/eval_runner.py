@@ -14,9 +14,13 @@ L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden [--p
 실제 그래프를 만들어 돌린다(평가 모드: API 병기 끔, LLM 캐시 끔). **실제 모델을 부르고 원격 DB를 읽으므로 비용 상한이 필수다.** judge는 붙이지 않는다.
 `--prompt-set`을 주지 않으면 서비스와 같은 기본 묶음(`wiring.DEFAULT_PROMPT_SET`, 2026-11-17부터 `prompt_set@v3`, 모두 adopted)을 쓰고 결과 meta에 그 이름이 남는다.
 `--allow-draft`는 draft 프롬프트가 든 묶음을 점검할 때만 붙인다(기본 L2 사용법에는 필요 없다).
-비교 조건(9.5절): `--condition`은 지금 `C2`(ReAct 그래프)만 받는다. C1 고정 파이프라인(AG-16)은 러너 연결 전이라 다른 값은 실행 없이 거부한다(종료 코드 2).
+비교 조건(9.5절): `--condition`은 `C2`(ReAct 그래프, 기본)와 `C1`(AG-16 고정 파이프라인, `--agent graph`에서만)을 받는다. 그 밖의 값(`C1+`는 오탈자
+보정 재검색 연결 전, C0·C3는 미연결)은 실행 없이 거부한다(종료 코드 2). graph 에이전트 결과 meta에는 조건별 하네스 적용표 `harness`(`harness@v1`, RFP-33-03)를 적는다.
 Validator 규칙 집계(AG-07-02 B): 문항별 `validator`(H22·H24 검사 코드·규칙별 건수)와 `metrics.validator_rule_counts`는 보조 기록이다(9장 지표 아님).
 `--compare A.json B.json`은 두 결과를 나란히 보여 준다(회귀 경보 전용).
+
+오탈자 보정(AG-10): `--typo-correct`는 Router의 오탈자 보정 후 진행을 켠다(graph·C2 전용, 기본은 꺼짐 = 되묻기). 결과 meta `typo_correction`에
+켰는지·고지 문구 상태(초안/승인)·기준값이 남는다. `--ids dev-056,dev-057`은 개발셋에서 그 문항만 돌린다(시험셋에는 쓰지 못한다).
 
 L3(개발셋 전체): `--subset` 없이 150문항 1회, `--subset dev_reliability_core --repeats 3`으로 개발 안전 핵심 40문항 3회(`pass^3`·`pass@3`·판정 일치율).
 graph 에이전트 실행은 문항 오류가 3건 연속이면 멈추고 결과 `stopped`에 사유·위치를 남긴다(AG-06-09 A, 하네스 차단은 오류가 아님).
@@ -53,8 +57,11 @@ MANIFEST = EVAL_SET_DIR / "manifest.json"
 SET_FILES = {"dev": EVAL_SET_DIR / "dev_set.jsonl", "test": EVAL_SET_DIR / "test_set.SEALED.jsonl"}
 OUT_DIR = ROOT / "logs" / "eval"  # 로컬 전용(`logs/`는 .gitignore)
 RUNNER_VERSION = "ag11-runner@v0-skeleton"
-# 러너가 실제로 연결한 비교 조건(9.5절). C1(AG-16 고정 파이프라인)은 eval_runner 연결 때 여기에 더한다.
-SUPPORTED_CONDITIONS: tuple[str, ...] = ("C2",)
+# 러너가 실제로 연결한 비교 조건(9.5절). C1(AG-16 고정 파이프라인)은 2026-11-18에 연결했다(`app.agent.pipeline.build.build_for_condition`).
+# C1+(오탈자 보정 후 재검색 1회)는 파이프라인 쪽 구현 전이라 받지 않는다.
+SUPPORTED_CONDITIONS: tuple[str, ...] = ("C2", "C1")
+DEFAULT_CONDITION = "C2"
+GRAPH_ONLY_CONDITIONS: tuple[str, ...] = ("C1",)  # 그래프를 실제로 만들어야 뜻이 있는 조건(offline-fixed는 조건과 무관한 연결 확인용이라 C2 표기만 허용)
 
 JUDGE_MODEL = "claude-sonnet-5-5"  # RFP-26-01 고정. 이 골격은 호출하지 않는다
 RUBRIC_VERSIONS = {"J1": "J1@v1", "J2": "J2@v1", "J3": "J3@v1", "J4": "J4@v1", "J5": "J5@v1"}
@@ -451,12 +458,60 @@ def check_system_prompt(prompt_set: str, prompt_name: str) -> None:
         raise RunnerConfigError(f"묶음 {prompt_set}의 시스템 프롬프트({ref})와 그래프가 쓰는 프롬프트({prompt_name})가 다르다")
 
 
-def code_versions() -> dict[str, str]:
-    """그래프·하네스 소스 파일 내용 해시(버전 상수가 따로 없어 내용 해시로 적는다)."""
+def code_versions(condition: str = DEFAULT_CONDITION) -> dict[str, str]:
+    """그래프·하네스 소스 파일 내용 해시(버전 상수가 따로 없어 내용 해시로 적는다).
+
+    C1은 `graph`에 파이프라인 규칙 버전(`PIPELINE_VERSION`, 규칙을 바꾸면 올린다)을 적고, 함께 쓰는 ReAct 노드 소스 해시(`graph_src`)와
+    파이프라인 소스 해시(`pipeline_src`)를 따로 남긴다(C1 규칙 동결 확인용, RFP-34-04). C2는 지금까지와 같은 키·값이다."""
     agent = ROOT / "backend" / "app" / "agent"
     harness = [agent / f"{n}.py" for n in ("guardrail", "validator", "sentence_filter", "finalize", "fixed_phrases", "quote_check", "renderer")]
-    return {"graph": f"graph-src@{_sha256_of(sorted((agent / 'graph').glob('*.py')))}",
-            "harness": f"harness-src@{_sha256_of([p for p in harness if p.is_file()])}"}
+    out = {"graph": f"graph-src@{_sha256_of(sorted((agent / 'graph').glob('*.py')))}",
+           "harness": f"harness-src@{_sha256_of([p for p in harness if p.is_file()])}"}
+    if condition in GRAPH_ONLY_CONDITIONS:
+        from app.agent.pipeline.build import PIPELINE_VERSION
+
+        out = {"graph": PIPELINE_VERSION, "graph_src": out["graph"],
+               "pipeline_src": f"pipeline-src@{_sha256_of(sorted((agent / 'pipeline').glob('*.py')))}", "harness": out["harness"]}
+    return out
+
+
+def select_ids(items: list[dict[str, Any]], ids: Sequence[str]) -> list[dict[str, Any]]:
+    """문항 ID 목록으로 고른다(세트 순서 유지). 세트에 없는 ID가 있으면 실행 전에 멈춘다(조용히 줄어든 표본으로 돌지 않게)."""
+    want = list(dict.fromkeys(i.strip() for i in ids if i and i.strip()))
+    have = {str(it.get("id")) for it in items}
+    missing = [i for i in want if i not in have]
+    if not want or missing:
+        raise RunnerConfigError(f"--ids에 세트에 없는 문항이 있다: {missing}" if missing else "--ids가 비어 있다")
+    keep = set(want)
+    return [it for it in items if str(it.get("id")) in keep]
+
+
+def typo_correction_meta(enabled: bool) -> dict[str, Any]:
+    """오탈자 보정(AG-10) 실행 설정 기록. 고지 문구가 초안인지 승인됐는지와 보정 기준값을 함께 적는다(결과를 다른 설정의 결과와 섞지 않게)."""
+    from app.agent import fixed_phrases as fp
+    from app.agent import router as ar
+
+    return {"enabled": enabled, "notice": "TYPO_CORRECTED_LINE", "notice_status": "draft" if "TYPO_CORRECTED_LINE" in fp.DRAFT_KEYS else "approved",
+            "min_score": ar.TYPO_CORRECT_MIN_SCORE, "min_gap": ar.TYPO_CORRECT_MIN_GAP}
+
+
+def apply_typo_correct(resources: GraphResources, enabled: bool) -> None:
+    """자원의 그래프 의존성에 오탈자 보정 스위치를 적는다(자원 생성 함수의 인자 모양은 바꾸지 않는다). 의존성이 없는 가짜 자원은 건너뛴다."""
+    deps = getattr(resources, "deps", None)
+    if enabled and deps is not None:
+        deps.typo_correct = True
+
+
+def apply_condition(resources: GraphResources, condition: str) -> None:
+    """자원의 계측기에 비교 조건을 적는다(span의 `condition`, C1이면 `graph_version`도). 자원 생성 함수의 인자 모양은 바꾸지 않는다."""
+    tracer = getattr(resources.deps, "tracer", None)
+    if tracer is None:
+        return
+    tracer.condition = condition
+    if condition in GRAPH_ONLY_CONDITIONS:
+        from app.agent.pipeline.build import PIPELINE_VERSION
+
+        tracer.graph_version = PIPELINE_VERSION
 
 
 def source_missing_counts(state: dict[str, Any]) -> dict[str, int]:
@@ -541,13 +596,15 @@ def default_graph_resources(settings: Any, *, prompt_set: str, allow_draft: bool
 
 
 class GraphAgent(GraphAdapter):
-    """자원으로 그래프를 만들어 돌리는 에이전트. 문항 ID를 계측기에 알린다(질문 원문은 넘기지 않는다)."""
+    """자원으로 그래프를 만들어 돌리는 에이전트. 문항 ID를 계측기에 알린다(질문 원문은 넘기지 않는다).
+    `condition`이 `C2`면 ReAct 그래프, `C1`이면 AG-16 고정 파이프라인이다(같은 `deps`, 도구 순서를 정하는 주체만 다르다)."""
 
-    def __init__(self, resources: GraphResources, *, info: dict[str, Any] | None = None) -> None:
-        from app.agent.graph.build import build_graph
+    def __init__(self, resources: GraphResources, *, info: dict[str, Any] | None = None, condition: str = DEFAULT_CONDITION) -> None:
+        from app.agent.pipeline.build import build_for_condition
 
-        super().__init__(build_graph(resources.deps), info=info)
+        super().__init__(build_for_condition(resources.deps, condition), info=info)
         self.resources = resources
+        self.condition = condition
 
     def __call__(self, item: dict[str, Any]) -> M.RunRecord:
         tracer = getattr(self.resources.deps, "tracer", None)
@@ -727,10 +784,14 @@ def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settin
         return None
     check_system_prompt(a.prompt_set, DEFAULT_PROMPT)
     load_summary_instruction(a.prompt_set, allow_draft=a.allow_draft)  # draft 묶음은 --allow-draft 없이는 여기서 멈춘다
-    run_id = f"l2-{a.prompt_set.replace('@', '-')}-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}"
+    prefix = "l2" if a.condition == DEFAULT_CONDITION else a.condition.lower()  # C2 실행 ID는 지금까지와 같다
+    run_id = f"{prefix}-{a.prompt_set.replace('@', '-')}-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}"
     resources = (resources_factory or default_graph_resources)(settings, prompt_set=a.prompt_set, allow_draft=a.allow_draft, run_id=run_id)
-    agent = GraphAgent(resources, info={"prompt_set": a.prompt_set, "run_id": run_id, "api_enabled": False})
-    versions = {"model": {"agent": llm.MODEL, "summary": llm.MODEL}, "prompt": prompt_versions(a.prompt_set), **code_versions(),
+    apply_condition(resources, a.condition)
+    apply_typo_correct(resources, a.typo_correct)
+    agent = GraphAgent(resources, info={"prompt_set": a.prompt_set, "run_id": run_id, "api_enabled": False, "condition": a.condition},
+                       condition=a.condition)
+    versions = {"model": {"agent": llm.MODEL, "summary": llm.MODEL}, "prompt": prompt_versions(a.prompt_set), **code_versions(a.condition),
                 "dict": resources.dict_meta}
     del items
     return agent, CostBudget(a.max_usd, resources.cost_total), versions
@@ -741,7 +802,8 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--set", default="dev", help="dev | test | 파일 경로")
     ap.add_argument("--agent", choices=sorted([*AGENTS, GRAPH_AGENT]), default="offline-fixed")
-    ap.add_argument("--condition", default="C2", help=f"비교 조건(9.5절). 지금은 {', '.join(SUPPORTED_CONDITIONS)}만 연결됨")
+    ap.add_argument("--condition", default=DEFAULT_CONDITION,
+                    help=f"비교 조건(9.5절). 연결된 값: {', '.join(SUPPORTED_CONDITIONS)} (C1은 --agent graph에서만)")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--repeats", type=int, default=1)
     ap.add_argument("--allow-sealed", action="store_true", help=f"시험셋 열람 허용(환경변수 {G.SEALED_ENV}도 필요)")
@@ -750,6 +812,9 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap.add_argument("--prompt-set", default=None, help="graph 에이전트의 프롬프트 묶음(기본: `wiring.DEFAULT_PROMPT_SET`, 서비스와 같은 묶음)")
     ap.add_argument("--allow-draft", action="store_true", help="draft 프롬프트가 든 묶음 허용(검토 중인 초안 점검용)")
     ap.add_argument("--max-usd", type=float, help="graph 에이전트 비용 상한(필수). 닿으면 남은 문항을 건너뛴다")
+    ap.add_argument("--ids", help="쉼표로 나눈 문항 ID만 돌린다(개발셋 전용, --subset 뒤에 적용). 예: dev-056,dev-057")
+    ap.add_argument("--typo-correct", action="store_true",
+                    help="오탈자 보정 후 진행(AG-10)을 켠다(graph·C2 전용). 보정 고지 문구가 초안이어도 평가 실행에서는 답에 붙여 돌린다(meta에 기록)")
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A.json", "B.json"), help="두 결과 파일을 나란히 본다(실행 없음)")
     ap.add_argument("--rescore", type=Path, metavar="RESULT.json",
                     help="저장된 개발셋 결과를 지금 채점기로 다시 채점해 새 파일로 쓴다(실행 없음, 원본 보존. --out으로 경로 지정)")
@@ -767,9 +832,16 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         return 0
     if a.condition not in SUPPORTED_CONDITIONS:
         print(f"--condition {a.condition!r}은(는) 아직 러너에 연결되지 않았다. 지금 받는 값: {', '.join(SUPPORTED_CONDITIONS)} "
-              "(C1 고정 파이프라인은 AG-16 eval_runner 연결 뒤 연다). 실행하지 않았다")
+              "(C1+는 오탈자 보정 재검색 연결 뒤 연다). 실행하지 않았다")
         return 2
     is_graph = a.agent == GRAPH_AGENT
+    if a.typo_correct and not (is_graph and a.condition == DEFAULT_CONDITION):
+        # C1은 오탈자 보정이 없는 고정 파이프라인이다(보정을 더한 것은 C1+, 9.5절). 조건의 뜻이 섞이지 않게 막는다
+        print(f"--typo-correct는 --agent {GRAPH_AGENT} --condition {DEFAULT_CONDITION}에서만 받는다. 실행하지 않았다")
+        return 2
+    if a.condition in GRAPH_ONLY_CONDITIONS and not is_graph:
+        print(f"--condition {a.condition}은(는) --agent {GRAPH_AGENT}에서만 받는다({a.agent}는 조건과 무관한 연결 확인용이라 C2 표기만 쓴다). 실행하지 않았다")
+        return 2
     if is_graph and not (a.max_usd and a.max_usd > 0):
         print("graph 에이전트는 --max-usd(0보다 큰 비용 상한)가 있어야 시작한다")
         return 2
@@ -779,8 +851,17 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         a.prompt_set = DEFAULT_PROMPT_SET
     path = SET_FILES.get(a.set, Path(a.set))
     sealed = G.check_access(path, allow_sealed=a.allow_sealed)  # 시험셋이면 여기서 막힌다(파일을 열기 전)
+    if a.ids and sealed:  # 파일을 읽기 전에 막는다
+        print("--ids는 시험셋에 쓰지 않는다(문항 ID로 고르는 것은 열람이다). 실행하지 않았다")
+        return 2
     digest = sha256_file(path, allow_sealed=a.allow_sealed)
     items = select_subset(G.load_jsonl(path, allow_sealed=a.allow_sealed), a.subset)
+    if a.ids:
+        try:
+            items = select_ids(items, a.ids.split(","))
+        except RunnerConfigError as e:
+            print(f"{e}. 실행하지 않았다")
+            return 2
     if a.limit:
         items = items[: a.limit]
     versions: dict[str, Any] = {"model": None, "prompt": None, "graph": None, "harness": None, "dict": None}  # 실제 그래프 측정 때 채운다
@@ -796,7 +877,11 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
             "set_version": items[0].get("set_version") if items else None, "n_items_run": len(items), "condition": a.condition,
             "agent": a.agent, "agent_info": getattr(agent, "info", {}), "versions": versions}
     if is_graph:
-        meta.update({"subset": a.subset, "n_items_selected": len(items), "prompt_set": a.prompt_set})
+        from app.agent.pipeline.build import harness_profile
+
+        # 조건별 하네스 적용표(`harness@v1`, RFP-33-03 A·BE-08): 기준선 장치는 C1·C2 공통, 개선 단계 선택 제한 장치는 C3 ablation 행 몫이라 비어 있다
+        meta.update({"subset": a.subset, "n_items_selected": len(items), "prompt_set": a.prompt_set, "harness": harness_profile(a.condition),
+                     "typo_correction": typo_correction_meta(a.typo_correct)})
     res = run_eval(items, agent, sealed=sealed, meta=meta, repeats=a.repeats, budget=budget, skip_judge=is_graph,
                    max_consecutive_errors=MAX_CONSECUTIVE_ERRORS if is_graph else None)
     out = save(res, a.out)
