@@ -469,3 +469,72 @@ def test_default_tracer_writes_eval_spans_with_prompt_set_under_log_dir(tmp_path
     rows = [json.loads(x) for x in spans.read_text(encoding="utf-8").splitlines() if x.strip()]
     assert rows and {r.get("prompt_set") for r in rows} == {"prompt_set@v3"} and {r.get("item_id") for r in rows} == {"syn-000"}
     assert not (ROOT / "logs" / "eval" / run_id).exists()  # 저장소 로그 폴더에는 쓰지 않았다
+
+
+# --------------------------------------------------------------------------- 평가 세트 프로필 → 그래프 프로필 변환(L2 스모크 ValidationError)
+
+DEV_SET = ROOT / "evaluation" / "eval_set" / "dev_set.jsonl"
+
+
+def test_every_dev_set_profile_converts_to_a_valid_graph_profile():
+    """개발셋 150행의 프로필이 모두 변환 뒤 그래프 `ProfileState`를 통과한다(질문 문장은 읽지 않고 출력하지 않는다)."""
+    from app.agent.router import ProfileState
+
+    n = 0
+    for line in DEV_SET.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        gp = R.to_graph_profile(row.get("profile"))
+        if gp is not None:
+            ProfileState.model_validate(gp)
+        n += 1
+    assert n == 150
+
+
+@pytest.mark.parametrize(("profile", "expected"), [
+    ({"age": {"value": 5, "unit": "세"}, "pregnant": False}, {"age_years": 5.0, "pregnant": False}),
+    ({"age": {"value": 18, "unit": "개월"}, "pregnant": False}, {"age_years": 1.5, "pregnant": False}),
+    ({"age": {"value": 7, "unit": "개월"}, "pregnant": None}, {"age_years": 0.58}),  # router `_AGE_MONTH_RE`와 같은 규칙: 개월/12, 소수 둘째 자리
+    ({"age": None, "pregnant": True}, {"pregnant": True}),
+    ({"age": None, "pregnant": False}, {"pregnant": False}),
+])
+def test_to_graph_profile_converts_units_to_years(profile, expected):
+    assert R.to_graph_profile(profile) == expected
+
+
+@pytest.mark.parametrize("profile", [None, {}, {"age": None, "pregnant": None}, {"age": None}])
+def test_to_graph_profile_returns_none_for_empty(profile):
+    assert R.to_graph_profile(profile) is None
+
+
+@pytest.mark.parametrize("profile", [
+    {"age": {"value": 3, "unit": "주"}, "pregnant": False},  # 모르는 단위
+    {"age": {"value": 3, "unit": None}, "pregnant": False},
+    {"age": {"value": "다섯", "unit": "세"}, "pregnant": False},  # 숫자가 아닌 값
+    {"age": {"value": True, "unit": "세"}, "pregnant": False},
+    {"age": {"value": -1, "unit": "세"}, "pregnant": False},
+    {"age": 5, "pregnant": False},  # 단위 없는 숫자
+    {"age": None, "pregnant": "yes"},
+    {"age": None, "pregnant": False, "sex": "F"},  # 모르는 키를 조용히 버리지 않는다
+])
+def test_to_graph_profile_rejects_unknown_shapes(profile):
+    with pytest.raises(R.ProfileFormatError):
+        R.to_graph_profile(profile)
+
+
+def test_graph_adapter_passes_converted_profile_and_stops_on_bad_profile():
+    """어댑터는 변환한 프로필을 넘긴다. 형식 오류는 에이전트 실패(경로 Fail)로 섞지 않고 실행을 멈춘다."""
+    seen: list[Any] = []
+
+    class FakeGraph:
+        def invoke(self, state):
+            seen.append(state.get("profile"))
+            return {"answer": {}, "end_reason": "NORMAL"}
+
+    ad = R.GraphAdapter(FakeGraph())
+    rec = ad({"id": "x", "question": "q", "profile": {"age": {"value": 24, "unit": "개월"}, "pregnant": False}})
+    assert rec.error is None and seen == [{"age_years": 2.0, "pregnant": False}]
+    with pytest.raises(R.ProfileFormatError):
+        ad({"id": "y", "question": "q", "profile": {"age": {"value": 1, "unit": "년반"}, "pregnant": False}})
+    assert len(seen) == 1

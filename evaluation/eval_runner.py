@@ -112,6 +112,50 @@ def extract_trace(state: dict[str, Any]) -> M.RunRecord:
                        **source_missing_counts(state))  # 보조 집계(AG-06-07 A, 9장 지표 아님)
 
 
+class ProfileFormatError(ValueError):
+    """평가 세트 프로필을 그래프 프로필로 바꿀 수 없다(모르는 단위·키·값). 조용히 버리지 않고 실행을 멈춘다."""
+
+
+_PROFILE_KEYS = frozenset({"age", "pregnant"})
+
+
+def _age_years(age: Any) -> float | None:
+    if age is None:
+        return None
+    if not isinstance(age, dict) or set(age) != {"value", "unit"}:
+        raise ProfileFormatError(f"age 형식은 None 또는 {{value, unit}}이어야 한다: {type(age).__name__}")
+    value, unit = age["value"], age["unit"]
+    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+        raise ProfileFormatError(f"age.value는 0 이상의 숫자여야 한다: {value!r}")
+    if unit == "세":
+        return float(value)
+    if unit == "개월":
+        return round(value / 12, 2)  # router `_AGE_MONTH_RE` 처리와 같은 규칙(개월/12, 소수 둘째 자리)
+    raise ProfileFormatError(f"처리하지 못하는 age.unit: {unit!r}")
+
+
+def to_graph_profile(profile: dict[str, Any] | None) -> dict[str, Any] | None:
+    """평가 세트 프로필 `{"age": None | {"value", "unit"}, "pregnant": bool | None}` → 그래프 `ProfileState` 입력
+    `{"age_years", "pregnant"}`(값이 있는 키만). 둘 다 없으면 None. 모르는 키·단위·값은 `ProfileFormatError`."""
+    if profile is None:
+        return None
+    if not isinstance(profile, dict):
+        raise ProfileFormatError(f"profile은 dict여야 한다: {type(profile).__name__}")
+    extra = set(profile) - _PROFILE_KEYS
+    if extra:
+        raise ProfileFormatError(f"모르는 profile 키: {sorted(extra)}")
+    pregnant = profile.get("pregnant")
+    if pregnant is not None and not isinstance(pregnant, bool):
+        raise ProfileFormatError(f"pregnant는 bool 또는 None이어야 한다: {pregnant!r}")
+    out: dict[str, Any] = {}
+    age = _age_years(profile.get("age"))
+    if age is not None:
+        out["age_years"] = age
+    if pregnant is not None:
+        out["pregnant"] = pregnant
+    return out or None
+
+
 class GraphAdapter:
     """컴파일된 AG-01 그래프를 평가 에이전트로 쓴다. `graph`에 가짜 모델을 넣었으면 LLM 호출 0이다.
     평가 모드(API Tool 끔)는 그래프를 만들 때 `wiring.build_tool_context(mode="eval")`로 정한다(9.4절, 이 어댑터는 그래프를 만들지 않는다)."""
@@ -123,9 +167,10 @@ class GraphAdapter:
     def __call__(self, item: dict[str, Any]) -> M.RunRecord:
         from app.agent.graph.build import run_question
 
+        profile = to_graph_profile(item.get("profile"))  # 형식 오류는 에이전트 실패(경로 Fail)로 섞지 않고 실행을 멈춘다
         t0 = time.perf_counter()
         try:
-            state = run_question(self.graph, item["question"], item.get("profile") or None)
+            state = run_question(self.graph, item["question"], profile)
             rec = extract_trace(state)
         except Exception as e:  # noqa: BLE001 - 문항 하나의 실패가 전체 실행을 멈추지 않게(오류는 경로 Fail로 집계)
             rec = M.RunRecord(answer={}, error=type(e).__name__)
