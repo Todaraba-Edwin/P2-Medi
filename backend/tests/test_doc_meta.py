@@ -47,7 +47,7 @@ def test_table_shape() -> None:
 
 
 def test_portal_dates_recorded_but_base_date_unchanged() -> None:
-    """수정일·등록일은 기록만 한다. base_date(파일명 접미)와 별개이며 표시·판정 기준일은 바뀌지 않았다(BE-16-02 대기)."""
+    """수정일·등록일은 기록만 한다. base_date(파일명 접미)와 별개이며 표시·판정 기준일은 바뀌지 않았다(BE-16-02 A)."""
     m = get_meta(sf.COMBO_JSON_NAME)
     assert (m.modified_date, m.registered_date, m.update_cycle) == ("2026-09-23", "2026-08-18", "수시(1회성)")
     assert m.base_date == "2026-07-31"
@@ -150,3 +150,52 @@ def test_dates_read_from_pdfs() -> None:
     assert get_meta(sf.GOSI_PDF_NAME).effective_date == "2026-07-21"
     assert {y: m.enacted_or_revised_date for y, m in ((m.year, m) for m in DOC_META.values() if m.doc_type == "발간물")} == {
         2021: None, 2022: None, 2023: "2022-12-31", 2024: "2024-03-15", 2025: "2024-12", 2026: "2025-11"}
+
+
+def test_be16_01_user_answers_reflected_and_unknowns_stay_none() -> None:
+    """BE-16-01 B(2026-11-11) 사용자 답 §1.1 1~3번이 반영됐고, 근거가 없는 칸은 None('미확인')으로 남는다(지어내지 않음)."""
+    # 1. 안전상비 별표: 고시 제2016-156호(시행 2016-08-24), 본문과 같은 고시
+    gosi, byeol = get_meta(sf.SAFE_GOSI_PDF_NAME), get_meta(sf.SAFE_BYEOLPYO_PDF_NAME)
+    assert (byeol.issuer, byeol.doc_type, byeol.notice_no, byeol.enacted_or_revised_date, byeol.effective_date) == (
+        "보건복지부", "고시 별표", "제2016-156호", "2016-08-24", "2016-08-24")
+    assert (byeol.notice_no, byeol.effective_date) == (gosi.notice_no, gosi.effective_date)
+    # 2. 약사법 제28조 제2항 발췌: 소관 보건복지부, 제공 국가법령정보센터
+    law = get_meta("약사법_제2항.pdf")
+    assert (law.issuer, law.provider, law.source_url) == ("보건복지부", "국가법령정보센터", "https://www.law.go.kr")
+    # 3. 심평원 「기능과 역할」 발간등록번호 3건(2021·2022·2026)
+    hira = {m.year: m for m in DOC_META.values() if m.doc_type == "발간물"}
+    assert {y: hira[y].notice_no for y in (2021, 2022, 2026)} == {
+        2021: "G000BX1-2020-138", 2022: "G000BX1-2021-122", 2026: "G000BX1-2025-129"}
+    # 근거가 없는 칸은 None 그대로
+    assert byeol.base_date is None and gosi.base_date is None  # 고시는 데이터 기준일 개념이 없다
+    assert hira[2021].enacted_or_revised_date is None and hira[2022].enacted_or_revised_date is None
+    assert all(hira[y].source_url is None for y in (2021, 2022, 2023, 2024, 2025))
+    rule = get_meta("약사법 시행규칙(보건복지부령)(제01181호)(20260621).pdf")
+    assert rule.source_url is None and rule.provider is None
+
+
+@pytest.mark.parametrize(
+    ("name", "as_of_attr"),
+    [
+        (sf.COMBO_JSON_NAME, "AS_OF_COMBO"),
+        (sf.PREG_CSV_NAME, "AS_OF_KIDS"),
+        (sf.AGE_CSV_NAME, "AS_OF_KIDS"),
+        (sf.DOSE_CSV_NAME, "AS_OF_KIDS"),
+        (sf.LACT_CSV_NAME, "AS_OF_LACTATION"),
+        (sf.ELDERLY_KIDS_CSV_NAME, "AS_OF_ELDERLY_KIDS"),
+    ],
+)
+def test_doc_meta_base_date_equals_citation_as_of(name: str, as_of_attr: str) -> None:
+    """출처 표의 '기준일'(`loaders.AS_OF_*`, 파일 단위)과 문서 메타 표의 `base_date`가 같다(PRD-12 §5 자료마다 따로, BE-16 §2)."""
+    from app.db import loaders
+
+    assert get_meta(name).base_date == getattr(loaders, as_of_attr)
+
+
+@pytest.mark.xfail(strict=True, reason="BE-06 §3 후속(BE-06-08 A): AS_OF_HIRA '2026-06-01'은 원본 '2026.6'에 없는 날을 붙인 값. 정정되면 이 표시를 지운다")
+def test_dur_list_as_of_is_month_like_doc_meta() -> None:
+    from app.db import loaders
+
+    dur = {m.base_date for m in DOC_META.values() if m.source_file.startswith("의약품안전사용서비스(DUR)_")}
+    assert dur == {"2026-06"}
+    assert loaders.AS_OF_HIRA == "2026-06"
