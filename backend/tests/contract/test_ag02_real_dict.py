@@ -1,19 +1,30 @@
 """AG-02 계약(실제 사전): 오탐 3건이 판정으로 가지 않음, 코드 없음 ≠ NOT_LISTED, 상비약 아세트아미노펜 점검(BE-10-09 후속).
 
-`data/mock/dict/drug_dict.json`(로컬 전용)이 없으면 건너뛴다. DB는 로컬 KIDS 연령·임부 CSV만 메모리 SQLite에 적재한다(병용금기 540MB 제외, 외부 호출 없음).
+`data/mock/dict/drug_dict.json`(로컬 전용, 고정 판 `be10-dict-s1-1055d3576876`)이 없으면 건너뛴다. DB는 로컬 KIDS 연령·임부 CSV만 메모리 SQLite에 적재한다(병용금기 540MB 제외, 외부 호출 없음).
 """
 
 from __future__ import annotations
 
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
 
-from app.agent.tools.context import ToolContext
-from app.agent.tools.registry import invoke
-from app.db import loaders
-from app.tools.drug_dict import DEFAULT_DICT_PATH, DrugDict
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "e2e"))
+
+from golden_synth import APAP, D_APAP, FORM_MAP, FakeDur, _ing, golden_conn  # noqa: E402
+
+from app.agent import fixed_phrases as fp  # noqa: E402
+from app.agent.finalize import finalize  # noqa: E402
+from app.agent.graph.wiring import build_tool_context  # noqa: E402
+from app.agent.tools import check_contraindications as cc  # noqa: E402
+from app.agent.tools.context import ToolContext  # noqa: E402
+from app.agent.tools.contract import check_items  # noqa: E402
+from app.agent.tools.registry import invoke  # noqa: E402
+from app.agent.tools.schemas import CheckContraArgs  # noqa: E402
+from app.db import loaders  # noqa: E402
+from app.tools.drug_dict import DEFAULT_DICT_PATH, DrugDict  # noqa: E402
 
 DATA = Path(__file__).resolve().parents[3] / "data"
 AGE_CSV = DATA / "한국의약품안전관리원_연령금기_20260721.csv"
@@ -177,3 +188,39 @@ def test_kids_row_fold_preserves_code_union_on_real_dict(real_ctx):
         checked += 1
         folded += r.resolved
     assert checked > 3000 and folded / checked > 0.9
+
+
+# --------------------------------------------------------------------------- 쌍의 DUR API 코드(레인 D, 2026-11-17)
+IBU = "172802ATB"  # KIDS 코드(합성)
+
+
+def _pair_dict(ibu_api: list[str]) -> DrugDict:
+    ings = [_ing(0, "Acetaminophen", "아세트아미노펜", [APAP], [D_APAP]), _ing(1, "Ibuprofen", "이부프로펜", [IBU], ibu_api)]
+    return DrugDict({"meta": {"version": "lane-d-synth", "built_at": "2026-11-17T00:00:00+00:00", "form_map": FORM_MAP}, "products": [], "ingredients": ings})
+
+
+def _pair(fd: FakeDur, d: DrugDict):
+    ctx = build_tool_context(d, mode="service", dur_client=fd, conn_factory=golden_conn)
+    out = cc.check_contraindications(CheckContraArgs(drugs=[{"name": "아세트아미노펜"}, {"name": "이부프로펜"}]), ctx)
+    assert check_items("check_contraindications", out["items"]) == []
+    return out["items"], next(i for i in out["items"] if i["kind"] == "contra_pair")
+
+
+def test_missing_api_code_marks_pair_incomplete_without_any_call():
+    """한쪽 성분의 DUR API 코드가 사전에 없으면 호출 0회인데도 `API_PAIR_INCOMPLETE`·`NOTICE_API_FAIL`이 붙는다(현황 고정, 합성 사전)."""
+    fd = FakeDur()
+    items, it = _pair(fd, _pair_dict([]))
+    assert it["status"] == "NOT_LISTED" and "API_PAIR_INCOMPLETE" in it["flags"]
+    assert it["api"] == {"outcome": "API_UNAVAILABLE"} and fd.calls == []  # 조회가 "빠진" 게 아니라 시도하지 않았다
+    assert finalize(items)["notice"] == fp.NOTICE_API_FAIL
+
+
+def test_with_api_code_pair_is_queried_once():
+    fd = FakeDur()
+    items, it = _pair(fd, _pair_dict(["D000999"]))
+    assert "API_SAME" in it["flags"] and len(fd.calls) == 1 and finalize(items)["notice"] is None
+
+
+def test_real_dict_ibuprofen_has_api_code(real_ctx):
+    """고정 판 사전에서 이부프로펜 성분에 DUR API 코드가 있다(없으면 상비약 쌍마다 위 '실시간 확인 못 함'이 붙는다)."""
+    assert real_ctx.drug_dict.lookup_name("이부프로펜").candidates[0].api_codes != ()
