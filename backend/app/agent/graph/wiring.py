@@ -15,7 +15,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.agent.graph.nodes import GraphDeps
-from app.agent.graph.prompt import load_system_prompt
+from app.agent.graph.prompt import load_summary_instruction, load_system_prompt
 from app.agent.tools.context import ToolContext, ingredient_api_fns
 from app.agent.tools.langchain_adapter import build_tools
 from app.tools.drug_dict import DrugDict
@@ -75,8 +75,16 @@ def build_deps(
     tracer: Any = None,
     ledger: Any = None,
     grade_def_fn: Any = None,
+    prompt_set: str | None = None,
+    allow_draft: bool = False,
+    summary_instruction: str | None = None,
 ) -> GraphDeps:
-    """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음)."""
+    """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음).
+
+    요약 지시: `prompt_set`을 주지 않으면(기본 `prompt_set@v2`) 코드 상수를 쓴다(동작 불변). 묶음을 명시하고 그 묶음에 `answer_summary`가 있으면
+    그 파일 본문을 쓴다. draft 프롬프트가 든 묶음은 `allow_draft=True`를 명시해야 한다(검토 카드 승인 전에는 기준선에 넣지 않는다, PRD-16-03).
+    `summary_instruction`을 직접 주면 그 값이 우선한다(시험용). 시스템 프롬프트는 이 인자와 무관하게 `prompt_name`·`system_prompt`로 정한다.
+    """
     tools = build_tools(tool_ctx, registry)
     if tool_model is None or summary_model is None:
         from app.agent import llm
@@ -96,8 +104,11 @@ def build_deps(
             structured = llm.make_chat_model(settings, purpose="summary").with_structured_output(
                 llm.answer_draft_json_schema(), method="json_schema", strict=True, include_raw=True)
             summary_model = CachedSummary(structured, model=llm.MODEL, estimate_usd=est, ledger=ledger)
+    if summary_instruction is None and prompt_set is not None:
+        summary_instruction = load_summary_instruction(prompt_set, allow_draft=allow_draft)  # 묶음에 요약 프롬프트가 없으면 None(상수)
     kwargs: dict[str, Any] = {}
     if registry is not None:
         kwargs["registry"] = registry
     return GraphDeps(drug_dict=drug_dict, tool_model=tool_model, summary_model=summary_model, tools=tools, tool_ctx=tool_ctx,
-                     system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, grade_def_fn=grade_def_fn, **kwargs)
+                     system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, grade_def_fn=grade_def_fn,
+                     summary_instruction=summary_instruction, **kwargs)

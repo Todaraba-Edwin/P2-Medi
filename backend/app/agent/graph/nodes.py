@@ -38,7 +38,8 @@ from app.agent.tools.schemas import POST_WRITABLE_KEYS
 from app.agent.validator import FAIL, validate
 from app.tools.drug_dict import DrugDict
 
-# 최종 요약 호출에 붙는 지시(코드 상수, 초안). 요약 프롬프트 파일(`answer_summary@v1`, AG-06 프롬프트)이 생기면 그쪽으로 옮긴다.
+# 최종 요약 호출에 붙는 지시(코드 상수). 기본 묶음(`prompt_set@v2`)은 이 상수를 쓴다. 요약 프롬프트 파일(`answer_summary@v1`, AG-06)이 든 묶음을
+# 명시적으로 고르면 `GraphDeps.summary_instruction`에 그 본문이 들어와 이 상수 자리를 대신한다(파일은 draft, 사용자 승인 전에는 기본이 아니다).
 SUMMARY_INSTRUCTION = (
     "위 질문에 대해, 아래 근거 데이터 블록에 있는 내용만 사용해 쉬운 한국어 문장으로 답한다. "
     "문장마다 근거 ID(evidence_ids)와 종류(claim_type)를 단다. 근거가 없는 부분은 확인하지 못했다고 쓰고 약국·약사 확인을 권한다. "
@@ -62,6 +63,7 @@ class GraphDeps:
     max_rewind: int = MAX_REWIND
     tracer: Any = None              # L2 계측(`graph.trace.GraphTracer`). None이면 계측하지 않는다(RFP-34-02)
     grade_def_fn: GradeDefFn | None = None  # 임부금기 등급 정의 원문 공급(BE-06-16 A). None이면 등급 정의 블록을 만들지 않는다
+    summary_instruction: str | None = None  # 요약 호출 지시(프롬프트 파일 본문). None이면 코드 상수 `SUMMARY_INSTRUCTION`(기본 묶음 v2)
 
 
 # --------------------------------------------------------------------------- 보조
@@ -88,7 +90,8 @@ def _tool_texts(messages: list[Any]) -> list[str]:
 def _summary_messages(state: AgentState, deps: GraphDeps) -> list[Any]:
     """도구 메시지 형식을 쓰지 않고 근거 데이터 블록을 한 사용자 메시지에 담는다(구조화 출력 호출은 도구 없이)."""
     blocks = "\n".join(_tool_texts(state.get("messages", []))) or "(도구 결과 없음)"
-    return [SystemMessage(deps.system_prompt), HumanMessage(f"질문: {_question_of(state)}\n\n근거 데이터:\n{blocks}\n\n{SUMMARY_INSTRUCTION}")]
+    instruction = deps.summary_instruction or SUMMARY_INSTRUCTION
+    return [SystemMessage(deps.system_prompt), HumanMessage(f"질문: {_question_of(state)}\n\n근거 데이터:\n{blocks}\n\n{instruction}")]
 
 
 # --------------------------------------------------------------------------- 노드 팩토리
