@@ -100,7 +100,7 @@ RFP-26-02의 "구조화된 정답 → 정답 문장" 규칙이다(`build_eval_se
 Ragas 대상은 9.3절대로 정상·모호 문항이다. 한국어 판정 영향은 RFP-26 §5.3의 소량 시험으로 확인한다(미확인).
 
 ## 6. 기대 경로 규칙
-- 판정 문항(정상·오탈자·응급·대부분의 오정보): `required` = `identify_drug`·`check_contraindications`, `order` = `identify_drug → check_contraindications`. 임부 M(`judgment_m`)의 `recommended` 문장은 **결정 대기(RFP-26-12)** 이다(세트와 이 문장이 맞지 않을 수 있다).
+- 판정 문항(정상·오탈자·응급·대부분의 오정보): `required` = `identify_drug`·`check_contraindications`, `order` = `identify_drug → check_contraindications`. 임부 M(`judgment_m`)은 `recommended`에 `search_reason`·`search_notice`를 둔다(RFP-26-12 B, 2026-11-17: 세트는 그대로 두고 RFP-26 §7.6 문구를 맞췄다. `recommended`는 Warn에만 영향을 주고 Fail은 바꾸지 않는다).
 - 멀티홉: TC-21은 `search_reason`까지 필수(AG-04-07 A, 2026-11-17: `multihop_m`의 required에서 `search_notice`를 뺐다. 등급 정의는 코드가 붙인다. RFP-29-03 A), TC-22는 `search_reason` 필수, TC-15는 `search_notice`·`search_label` 권장, TC-23은 `check_contraindications` 필수.
 - 모호·약 미식별: `identify_drug` 필수, `check_contraindications` 금지. 주제 근거 없음: `identify_drug` 필수, `search_label` 권장.
 - 범위 외: 도구 6개 모두 금지(`forbidden`). 질문 틀의 `expected_path`(M4)를 그대로 쓴 문항은 그 값을 따른다.
