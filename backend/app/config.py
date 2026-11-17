@@ -5,10 +5,23 @@ CLAUDE.md §3의 변수 이름을 필드로 선언. 값은 기본값 없이 선�
 원문이 나오지 않는다(S-04, 2026-11-11). 원문은 쓰는 곳에서 `reveal(settings.x)`로만 꺼낸다.
 """
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 저장소 루트(backend/app/config.py → parents[2]). `cd backend`로 띄워도 루트 `.env`를 찾게 한다(2026-11-17 /chat 501 재현).
+REPO_ROOT: Path = Path(__file__).resolve().parents[2]
+
+
+def default_env_files() -> tuple[str, ...]:
+    """읽을 `.env` 후보. 현재 폴더 `.env`가 우선이고, 없으면 저장소 루트 `.env`를 읽는다.
+
+    pydantic-settings는 튜플에서 **뒤 파일이 앞 파일을 덮고** 없는 파일은 건너뛰므로 우선순위가 높은 현재 폴더를 뒤에 둔다.
+    `REPO_ROOT`는 호출할 때 읽는다(시험에서 monkeypatch로 가짜 폴더로 바꿀 수 있게).
+    """
+    return (str(REPO_ROOT / ".env"), ".env")
 
 
 class Settings(BaseSettings):
@@ -53,12 +66,12 @@ class Settings(BaseSettings):
     supabase_jwks_url: str | None = None
 
     # hide_input_in_errors: 검증 오류(ValidationError)에 .env 입력 값(input_value=…)을 담지 않는다(sec-guard)
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, hide_input_in_errors=True)
+    model_config = SettingsConfigDict(env_file=default_env_files(), case_sensitive=False, hide_input_in_errors=True)
 
 
 def get_settings() -> Settings:
-    """전역 설정 싱글톤."""
-    return Settings()
+    """전역 설정. 현재 폴더와 저장소 루트의 `.env`를 차례로 본다(`default_env_files`)."""
+    return Settings(_env_file=default_env_files())
 
 
 def reveal(value: Any) -> str | None:
