@@ -392,8 +392,26 @@ class DrugDict:
     # -- 생성·적재
     @classmethod
     def load(cls, path: str | Path = DEFAULT_DICT_PATH, embed_fn: EmbedFn | None = None) -> DrugDict:
+        """파일에서 만든다(개발·평가용. 평가 러너는 이 경로를 쓴다)."""
         with open(path, encoding="utf-8") as f:
             return cls(json.load(f), embed_fn=embed_fn)
+
+    @classmethod
+    def from_db(cls, conn_factory: Callable[[], Any], *, paramstyle: str = "format", version: str | None = None,
+                embed_fn: EmbedFn | None = None) -> DrugDict:
+        """DB 사전 테이블(`drug_dict_meta`·`drug_dict_entry`, BE-06-24 B)에서 만든다. 서비스 경로 기본.
+
+        연결은 `conn_factory()`로 한 번 열고 읽은 뒤 닫는다(읽기 전용 SELECT만). `version`이 없으면 가장 늦게 적재한 판.
+        판이 없거나 불완전하면 `app.db.drug_dict_store`의 예외로 올린다(빈 사전으로 대신하지 않는다). 파일은 읽지 않는다.
+        """
+        from app.db.drug_dict_store import read_payload  # noqa: PLC0415 - 파일 경로만 쓰는 개발·평가는 DB 모듈을 불러오지 않는다
+
+        conn = conn_factory()
+        try:
+            payload = read_payload(conn, paramstyle=paramstyle, version=version)
+        finally:
+            conn.close()
+        return cls(payload, embed_fn=embed_fn)
 
     @property
     def version(self) -> str:
