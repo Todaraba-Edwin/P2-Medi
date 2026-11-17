@@ -2,7 +2,9 @@
 
 * 칸 값은 파일 이름 또는 PDF·추출 텍스트 첫 쪽 문구에서 사람이 읽어 확인한 것만 적는다. 확인하지 못한 칸은 None(보고서에 '미확인').
 * `source_url`·`dataset_id`·`modified_date` 등은 사용자가 알려 준 값(CLAUDE.md 3·4장, 포털 확인값 2026-11-11)만 적고 나머지는 None이다. 지어내지 않는다.
-* 수정일(`modified_date`)은 사용자 판단상 최종 판단일이지만, 표시·판정 기준일은 이번에 바꾸지 않았다(BE-16-02 대기). 값은 기록만 한다.
+* 수정일(`modified_date`)은 사용자 판단상 최종 판단일이지만, 표시·판정 기준일은 바꾸지 않는다(BE-16-02 A, 2026-11-11). 값은 기록·최신본 점검에만 쓴다.
+* 화면 출처 표의 날짜(`api/schemas.date_lines`)는 이 표가 아니라 판정 행의 `notice_date`(행 단위)와 `loaders.AS_OF_*`(파일 단위)에서 온다.
+  이 표의 `base_date`와 `AS_OF_*`가 같은지는 `tests/test_doc_meta.py`가 검사한다.
 * 기준일(`base_date`)은 `_YYYYMMDD` 접미를 코드로 파싱한다. 날짜가 없는 DUR 품목리스트(`2026.6`)는 `YYYY-MM`(월 단위)이다.
 """
 
@@ -43,7 +45,7 @@ class DocMeta:
     base_date: str | None                # 데이터 기준일(파일명 접미 또는 고시 개정일)
     year: int | None
     source_url: str | None = None        # 사용자가 알려 준 것만, 나머지 None
-    # --- 2026-11-11 추가(BE-16, 기록만. 표시·판정 기준일(`AS_OF_*`)·base_date는 바꾸지 않는다. 수정일 표시 여부는 BE-16-02 대기)
+    # --- 2026-11-11 추가(BE-16, 기록만. 표시·판정 기준일(`AS_OF_*`)·base_date는 바꾸지 않는다. 수정일은 표시하지 않음, BE-16-02 A)
     dataset_id: str | None = None        # data.go.kr 데이터셋 번호
     modified_date: str | None = None     # 포털 수정일(사용자 판단: 최종 판단일)
     registered_date: str | None = None   # 포털 등록일
