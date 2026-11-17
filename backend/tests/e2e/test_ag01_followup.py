@@ -190,7 +190,7 @@ def test_record_then_replay_cache_status_reaches_spans(dd, cache_env, monkeypatc
     monkeypatch.setenv("LLM_CACHE", "record")
     st1, sink1, (itm1, ism1), (tm1, sm1) = _cached_run(dd, g, _script_with_usage(g), ledger)
     assert st1["end_reason"] == "NORMAL" and len(itm1.calls) == 3 and ism1.calls == 1
-    assert tm1.statuses == ["stored"] * 3 and sm1.statuses == ["stored"]
+    assert tm1.status_counts == {"stored": 3} and sm1.status_counts == {"stored": 1}
     spent = ledger.spent("dev")
     assert spent == pytest.approx(3 * estimate_cost_usd(1000, 50) + estimate_cost_usd(1500, 200), rel=1e-6)  # 실호출만 원장에
     assert [r["cache"] for r in _node_spans(sink1) if r["node"] == "model"] == ["stored"] * 3
@@ -198,7 +198,7 @@ def test_record_then_replay_cache_status_reaches_spans(dd, cache_env, monkeypatc
     monkeypatch.setenv("LLM_CACHE", "replay")
     st2, sink2, (itm2, ism2), (tm2, sm2) = _cached_run(dd, g, [], ledger)  # 내부 모델 스크립트가 비어도 저장본으로 끝까지 간다
     assert st2["end_reason"] == "NORMAL" and itm2.calls == [] and ism2.calls == 0
-    assert tm2.statuses == ["hit"] * 3 and sm2.statuses == ["hit"]
+    assert tm2.status_counts == {"hit": 3} and sm2.status_counts == {"hit": 1}
     model_spans = [r for r in _node_spans(sink2) if r["node"] == "model"]
     assert [r["cache"] for r in model_spans] == ["hit"] * 3 and model_spans[-1]["output_summary"]["summary_call"]["cache"] == "hit"
     assert ledger.spent("dev") == pytest.approx(spent)  # 적중은 비용 0
@@ -211,7 +211,7 @@ def test_eval_mode_forces_cache_off_even_if_record(dd, cache_env, monkeypatch):
     monkeypatch.setenv("MEDIAGENT_EVAL", "1")
     st, sink, (itm, _), (tm, sm) = _cached_run(dd, g, _script_with_usage(g), CostLedger(cache_env / "ledger.json"))
     assert st["end_reason"] == "NORMAL" and len(itm.calls) == 3
-    assert set(tm.statuses) == {"off"} and sm.statuses == ["off"]
+    assert tm.status_counts == {"off": 3} and sm.status_counts == {"off": 1}
     assert {r["cache"] for r in _node_spans(sink) if r["node"] == "model"} == {"off"}
     assert not list((cache_env / "cache").glob("*.json"))
 

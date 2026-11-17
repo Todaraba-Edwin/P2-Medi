@@ -54,10 +54,12 @@ def missing_settings(settings: Any) -> list[str]:
 def default_resources(settings: Any) -> GraphDeps:
     """실제 자원으로 그래프 의존성 원본을 만든다(첫 요청 때 한 번). 시험에서는 부르지 않는다(가짜로 바꾼다).
 
-    - 사전: `DrugDict.load()`(기본 경로). 접속: 호출마다 새 읽기 전용 연결(`psycopg`, `paramstyle="format"`).
+    - 접속: 호출마다 새 읽기 전용 연결(`psycopg`, `paramstyle="format"`).
+    - 사전: DB `drug_dict_meta`·`drug_dict_entry`에서 가장 늦게 적재한 판(`DrugDict.from_db`, BE-06-24 B). 파일
+      `data/mock/dict/drug_dict.json`은 읽지 않는다(런타임 데이터는 DB 원칙, 파일은 개발·평가용).
     - 코퍼스: 원격 `corpus_chunks`를 한 번 읽어 메모리 인덱스로(`CorpusIndex.from_db`). 벡터 검색은 붙이지 않는다(BM25 단독).
     - 라벨 공급자는 없다(None: 식별·라벨 절 도구가 "원문 없음"으로 처리). 등급 정의는 코퍼스에서 읽는다.
-    - 모델 객체는 `build_deps`가 만든다(호출은 하지 않음).
+    - 모델 객체는 `build_deps(service=True)`가 만든다(호출은 하지 않음). 개발 원장·개발 LLM 캐시를 타지 않는다(BE-06-23 A).
     """
     import psycopg  # noqa: PLC0415 - 실제 연결을 여는 이 함수 안에서만 import한다
 
@@ -74,11 +76,12 @@ def default_resources(settings: Any) -> GraphDeps:
         conn.read_only = True  # 이 연결의 트랜잭션은 읽기 전용
         return conn
 
-    drug_dict = DrugDict.load()
+    drug_dict = DrugDict.from_db(conn_factory, paramstyle="format")
     corpus = CorpusIndex.from_db(conn_factory)
     ctx = build_tool_context(drug_dict, settings=settings, mode="service", dur_client=DurClient.from_settings(settings),
                              conn_factory=conn_factory, paramstyle="format", corpus=corpus, vector_search_fn=None, label_provider=None)
-    return build_deps(drug_dict, ctx, settings=settings, tracer=None, ledger=None, grade_def_fn=corpus_grade_def_fn(corpus))
+    return build_deps(drug_dict, ctx, settings=settings, tracer=None, ledger=None, grade_def_fn=corpus_grade_def_fn(corpus),
+                      service=True)
 
 
 def request_deps(base: GraphDeps) -> GraphDeps:
