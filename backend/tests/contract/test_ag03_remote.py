@@ -168,6 +168,56 @@ def test_search_returns_rows_sorted_and_read_only():
     assert all(c.read_only and c.closed for c in db.conns)
 
 
+def _ef_set(db: FakeDb) -> list[str]:
+    return [s for s, _ in db.log if s.startswith("SET hnsw.ef_search")]
+
+
+@pytest.mark.parametrize(
+    ("flt", "k", "expected"),
+    [
+        (ChunkFilter(), 10, cr.EF_SEARCH_UNFILTERED),                                # 무필터 → 40
+        (ChunkFilter(ingr_codes=frozenset({WAR})), 10, cr.EF_SEARCH_FILTERED),       # 강한 필터(SQL WHERE) → 100
+        (ChunkFilter(layers=frozenset({"L3"})), 10, cr.EF_SEARCH_FILTERED),          # 약한 필터(앱 후필터) → 100(BE-16-09 B)
+        (ChunkFilter(ingr_names=frozenset({"warfarin"})), 10, cr.EF_SEARCH_FILTERED),
+        (ChunkFilter(base_date="2026-07-31"), 10, cr.EF_SEARCH_FILTERED),
+        (ChunkFilter(), 60, 60),                                                     # k가 ef보다 크면 k
+        (ChunkFilter(layers=frozenset({"L1"})), 150, 150),
+    ],
+)
+def test_ef_search_per_path(flt, k, expected):
+    """BE-16-07 A·BE-16-09 B·BE-16-10 A: 무필터 40, 강한·약한 필터 100, 항상 k 이상. 가짜 연결로 실제 보낸 SET을 본다."""
+    assert (cr.EF_SEARCH_UNFILTERED, cr.EF_SEARCH_FILTERED, cr.EF_SEARCH) == (40, 100, 100)
+    db = FakeDb([], vector_rows=[("a", 0.5)])
+    fn = cr.PgVectorSearch(db, fake_embed)
+    fn("질의", k=k, filters=flt)
+    assert _ef_set(db) == [f"SET hnsw.ef_search = {expected}"]
+    assert fn.last_stats.ef_search == expected
+    assert cr.ef_search_for(flt, k) == expected
+
+
+def test_ef_search_set_on_same_read_only_connection_before_query():
+    db = FakeDb([], vector_rows=[("a", 0.5)])
+    cr.PgVectorSearch(db, fake_embed)("질의", k=5, filters=ChunkFilter())
+    sqls = [s for s, _ in db.log]
+    assert sqls[0] == "SET hnsw.ef_search = 40" and sqls[1].startswith("SELECT chunk_id, 1 -")
+    assert len(db.conns) == 1 and db.conns[0].read_only and db.conns[0].closed
+
+
+def test_ef_search_overrides_and_skip_paths():
+    db = FakeDb([], vector_rows=[])
+    fn = cr.PgVectorSearch(db, fake_embed, ef_search=120, ef_search_unfiltered=30)
+    fn("질의", k=5, filters=ChunkFilter())
+    fn("질의", k=5, filters=ChunkFilter(item_seq="1"))
+    assert _ef_set(db) == ["SET hnsw.ef_search = 30", "SET hnsw.ef_search = 120"]
+    fn("  ", k=5, filters=ChunkFilter())  # 빈 질의는 DB를 열지 않는다
+    assert fn.last_stats.mode == "skipped" and fn.last_stats.ef_search is None and len(_ef_set(db)) == 2
+
+
+def test_has_any_filter_treats_empty_frozenset_as_filter():
+    assert not cr.has_any_filter(ChunkFilter())
+    assert cr.has_any_filter(ChunkFilter(layers=frozenset()))  # 빈 집합도 조건(후보 0)이라 필터 경로
+
+
 def test_weak_filter_uses_global_search_without_layer_predicate():
     db = FakeDb([], vector_rows=[("a", 0.5)])
     fn = cr.PgVectorSearch(db, fake_embed)

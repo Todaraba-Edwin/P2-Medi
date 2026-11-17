@@ -19,7 +19,7 @@ import sys
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -30,7 +30,12 @@ DIM = 1536
 EMBED_MODEL = "text-embedding-3-small"
 TABLE = "corpus_chunks"
 FETCH_BATCH = 5000
-EF_SEARCH = 100
+# HNSW `ef_search`는 경로별로 다르다(BE-16-07 A·BE-16-09 B·BE-16-10 A, 근거 BE-16 §7.8 로컬 recall@10):
+# 무필터는 40(recall 0.994 대 ef 100 0.9945, 원격 지연 13.6ms 대 157.3ms), 필터가 하나라도 있으면 100 유지
+# (강한 필터 = SQL WHERE, 약한 필터 = 전역 검색 뒤 앱 후필터. 후필터 뒤 남는 수가 ef에 비례해 줄므로 안전 쪽).
+EF_SEARCH_UNFILTERED = 40
+EF_SEARCH_FILTERED = 100
+EF_SEARCH = EF_SEARCH_FILTERED  # 하위 호환 별칭(필터 경로 값)
 
 # 항상 읽는 열(임베딩 제외). 순서는 아래 SELECT와 같다.
 BASE_COLUMNS = (
@@ -127,6 +132,16 @@ def has_strong_filter(flt: ChunkFilter) -> bool:
     return bool(flt.ingr_codes or flt.item_seq or flt.pair_ids or flt.notice_no)
 
 
+def has_any_filter(flt: ChunkFilter) -> bool:
+    """조건이 하나라도 있는가(강한 필터든 앱 후필터로만 거는 약한 필터든). 없으면 무필터 경로다."""
+    return any(getattr(flt, f.name) is not None for f in fields(flt))
+
+
+def ef_search_for(flt: ChunkFilter, k: int, *, unfiltered: int = EF_SEARCH_UNFILTERED, filtered: int = EF_SEARCH_FILTERED) -> int:
+    """경로별 `hnsw.ef_search` 값. 무필터 `unfiltered`, 필터(강한·약한) `filtered`. 항상 `k` 이상이다(색인이 k개를 못 내지 않게)."""
+    return int(max(filtered if has_any_filter(flt) else unfiltered, k))
+
+
 def build_where(flt: ChunkFilter) -> tuple[list[str], list[Any]]:
     """`ChunkFilter` → SQL 조건·파라미터(`%s`). **강한 필터가 있을 때만** 약한 조건(layer·kind…)을 함께 건다."""
     if not has_strong_filter(flt):
@@ -170,6 +185,7 @@ class SearchStats:
     rows: int = 0
     embed_ms: float = 0.0
     sql_ms: float = 0.0
+    ef_search: int | None = None  # 이번 질의에 쓴 `hnsw.ef_search`(경로별, BE-16-07 A)
     error: str | None = None   # 예외 클래스 이름만(메시지에는 비밀이 있을 수 있어 싣지 않는다)
 
 
@@ -180,7 +196,8 @@ class PgVectorSearch:
     conn_factory: ConnFactory
     embed: QueryEmbedder
     dim: int = DIM
-    ef_search: int = EF_SEARCH
+    ef_search: int = EF_SEARCH_FILTERED              # 필터 경로(강한·약한)
+    ef_search_unfiltered: int = EF_SEARCH_UNFILTERED  # 무필터 경로
     cache_size: int = 64
     last_stats: SearchStats = field(default_factory=SearchStats)
     _cache: OrderedDict[str, tuple[float, ...]] = field(default_factory=OrderedDict, repr=False)
@@ -217,7 +234,9 @@ class PgVectorSearch:
             conn = _open_read_only(self.conn_factory)
             try:
                 cur = conn.cursor()
-                cur.execute(f"SET hnsw.ef_search = {int(max(self.ef_search, k))}")
+                ef = ef_search_for(filters, k, unfiltered=self.ef_search_unfiltered, filtered=self.ef_search)
+                st.ef_search = ef
+                cur.execute(f"SET hnsw.ef_search = {ef}")
                 cur.execute(sql, [lit, *params, lit, int(k)])
                 rows = [(str(r[0]), float(r[1])) for r in cur.fetchall()]
             finally:
