@@ -258,20 +258,35 @@ def test_remote_dry_run_read_only_and_rollback(tmp_path, fake_dsn):
     (["--apply", "--yes", "--expect", "30744"], False),  # 승인 파일 없음
 ])
 def test_remote_apply_refused_before_connect(tmp_path, fake_dsn, extra, with_flag):
-    if with_flag:
-        flag(tmp_path)
+    f = flag(tmp_path) if with_flag else tmp_path / y.FLAG_REL
 
     def no_connect(*a, **k):
         pytest.fail("거부는 연결 전이어야 한다")
 
-    assert y.main(["remote", "--repo-root", str(tmp_path), *extra], connect_fn=no_connect) == 2
+    assert y.main(["remote", "--repo-root", str(tmp_path), *extra], connect_fn=no_connect, flag=f) == 2
+
+
+def test_approval_flag_is_pinned_to_script_repo():
+    assert y.APPROVAL_FLAG == y.REPO / y.FLAG_REL
+
+
+def test_remote_apply_ignores_flag_under_repo_root(tmp_path, fake_dsn, monkeypatch):
+    """--repo-root 아래에 승인 파일을 만들어도 승인으로 치지 않는다(이중 안전장치 우회 방지)."""
+    flag(tmp_path)  # 공격자가 고른 --repo-root 아래 승인 파일
+    monkeypatch.setattr(y, "APPROVAL_FLAG", tmp_path / "pinned" / "absent.flag")  # 고정 위치에는 없음
+
+    def no_connect(*a, **k):
+        pytest.fail("거부는 연결 전이어야 한다")
+
+    rc = y.main(["remote", "--repo-root", str(tmp_path), "--apply", "--yes", "--expect", "30744"], connect_fn=no_connect)
+    assert rc == 2
 
 
 def test_remote_apply_commits_when_counts_match(tmp_path, fake_dsn):
-    flag(tmp_path)
+    f = flag(tmp_path)
     conn = Conn()
     rep = y.run_remote(args_for(tmp_path, "--apply", "--yes", "--expect", "30744"), connect_fn=lambda d, autocommit: conn,
-                       log=lambda s: None)
+                       log=lambda s: None, flag=f)
     assert rep["committed"] and rep["updated"] == 30_744
     assert conn.executed[0] == "BEGIN" and conn.executed[-1] == "COMMIT" and "ROLLBACK" not in conn.executed
     upd = [s for s in conn.executed if s.startswith("UPDATE")]
@@ -285,9 +300,10 @@ def test_remote_apply_commits_when_counts_match(tmp_path, fake_dsn):
     {"null_left": 5},                 # 남은 NULL ≠ 유도 불가
 ])
 def test_remote_apply_rolls_back_on_mismatch(tmp_path, fake_dsn, kw):
-    flag(tmp_path)
+    f = flag(tmp_path)
     conn = Conn(**kw)
-    rc = y.main(["remote", "--repo-root", str(tmp_path), "--apply", "--yes", "--expect", "30744"], connect_fn=lambda d, autocommit: conn)
+    rc = y.main(["remote", "--repo-root", str(tmp_path), "--apply", "--yes", "--expect", "30744"], connect_fn=lambda d, autocommit: conn,
+                flag=f)
     assert rc == 3
     assert conn.executed[-1] == "ROLLBACK" and "COMMIT" not in conn.executed
     logs = list((tmp_path / "logs" / "remote").glob("rfp04_year_*.json"))

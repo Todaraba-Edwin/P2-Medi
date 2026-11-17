@@ -91,6 +91,16 @@ def test_guard_allows_read_statements(sql):
     assert p.guard_sql(sql) == sql
 
 
+@pytest.mark.parametrize("sql", [
+    "SELECT pg_terminate_backend(123)", "SELECT set_config('statement_timeout', '0', false)",
+    "SELECT * FROM dblink('host=x', 'SELECT 1') AS t(a int)", "SELECT pg_advisory_lock(1)",
+    "EXPLAIN (ANALYZE) SELECT PG_TERMINATE_BACKEND (1)",
+])
+def test_guard_rejects_side_effect_functions(sql):
+    with pytest.raises(p.ProbeRefused, match="부작용 함수"):
+        p.guard_sql(sql)
+
+
 def test_read_only_block_always_rolls_back_even_on_error():
     conn = Conn()
     s = p.Session(conn)

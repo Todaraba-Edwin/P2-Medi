@@ -54,6 +54,8 @@ INGR_RANGE = (10, 50)
 
 _ALLOWED = re.compile(r"^\s*(BEGIN READ ONLY|SET LOCAL |SHOW |SELECT |EXPLAIN |ROLLBACK)", re.IGNORECASE)
 _FORBIDDEN = re.compile(r"\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|CREATE|REINDEX|VACUUM|ANALYZE\s+\w|GRANT|COPY)\b", re.IGNORECASE)
+# SELECT로 부를 수 있는 부작용 함수(세션 종료·설정 변경·외부 연결·잠금). 읽기 전용 트랜잭션에서도 일부는 동작한다.
+_FORBIDDEN_FUNCS = re.compile(r"\b(pg_terminate\w*|pg_cancel_backend|set_config|dblink\w*|pg_advisory\w*)\s*\(", re.IGNORECASE)
 
 
 class ProbeRefused(RuntimeError):
@@ -61,12 +63,20 @@ class ProbeRefused(RuntimeError):
 
 
 def guard_sql(sql: str) -> str:
-    """허용 접두만 통과. `EXPLAIN (ANALYZE, …)`의 ANALYZE 옵션은 허용하고 `ANALYZE 표` 명령은 막는다."""
+    """허용 접두만 통과. `EXPLAIN (ANALYZE, …)`의 ANALYZE 옵션은 허용하고 `ANALYZE 표` 명령은 막는다.
+
+    이 허용·금지 목록은 실수를 일찍 잡는 **보조 장치**일 뿐이다(정규식은 SQL을 완전히 해석하지 못한다).
+    읽기 전용의 실제 보장은 ① 블록마다 `BEGIN READ ONLY`로 열고 ② `SHOW transaction_read_only`가 on인지
+    확인한 뒤 ③ 끝에서 예외와 상관없이 `ROLLBACK`하는 것이다(`Session.read_only`). 부작용 함수
+    (`pg_terminate_backend`·`set_config`·`dblink`·`pg_advisory_lock` 등)는 SELECT로도 부를 수 있어 따로 막는다.
+    """
     if not _ALLOWED.match(sql):
         raise ProbeRefused(f"허용되지 않은 문장: {sql.split()[0] if sql.split() else ''}")
     body = re.sub(r"^\s*EXPLAIN\s*\([^)]*\)", "", sql, flags=re.IGNORECASE)
     if _FORBIDDEN.search(body):
         raise ProbeRefused("쓰기·관리 키워드가 든 문장")
+    if _FORBIDDEN_FUNCS.search(body):
+        raise ProbeRefused("부작용 함수가 든 문장")
     return sql
 
 

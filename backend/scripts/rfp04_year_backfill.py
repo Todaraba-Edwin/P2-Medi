@@ -9,7 +9,8 @@ chunk_id는 `kind|key|text` 해시라 year를 더해도 ID·벡터는 그대로�
                   `all.sqlite`에 year 열이 있으면 같은 규칙으로 UPDATE, 없으면 보고만 한다.
   remote          (기본 dry-run) 읽기 전용 트랜잭션에서 `year IS NULL` 대상 수·유도 불가 수·kind별 분포 SELECT. 쓰기 0.
   remote --apply --yes --expect N
-                  승인 파일 `data/mock/review/rfp04_year_approved.flag`(사용자 승인 뒤 메인이 만든다)가 있어야 한다(원격 연결 전 확인).
+                  승인 파일 `<이 스크립트의 저장소>/data/mock/review/rfp04_year_approved.flag`(사용자 승인 뒤 메인이 만든다)가
+                  있어야 한다(원격 연결 전 확인). 위치는 저장소 루트에 고정이며 --repo-root로 바꿀 수 없다.
                   한 트랜잭션: 사전 대상 수 = N 확인 → UPDATE → 영향 행 수 = 사전 수 = N 확인 → 남은 NULL = 유도 불가 수 확인 → COMMIT.
                   하나라도 다르면 ROLLBACK. 실행 기록 `logs/remote/rfp04_year_<UTC 시각>.json`.
 
@@ -48,6 +49,9 @@ LOCAL_FILES = ("l1_notice.jsonl", "l3_eyak.jsonl")
 SQLITE_NAME = "all.sqlite"
 BACKUP_SUFFIX = ".before_rfp04year.jsonl"
 FLAG_REL = Path("data") / "mock" / "review" / "rfp04_year_approved.flag"
+# 승인 파일은 이 스크립트가 든 저장소 루트에 고정한다. --repo-root(logs/·data/mock/corpus 위치)로 바꿀 수 없다.
+# 시험만 run_remote(..., flag=)·main(..., flag=) 인자로 바꾼다(be06_dict_load.APPROVAL_FLAG와 같은 관례).
+APPROVAL_FLAG = REPO / FLAG_REL
 EXPECT_LOCAL = 30_744  # l1_notice 2,904 + l3_eyak 27,840 (rfp04-worker 보고)
 APPLY_TIMEOUT = "10min"  # 3만 행 UPDATE는 HNSW 색인 갱신을 동반할 수 있다
 _YEAR_RE = re.compile(r"^(\d{4})")
@@ -355,10 +359,11 @@ def save_log(rep: dict[str, Any], log_dir: Path) -> Path:
 
 
 def run_remote(args: argparse.Namespace, connect_fn: Callable[..., Any] | None = None,
-               log: Callable[[str], None] = print) -> dict[str, Any]:
-    root: Path = args.repo_root
+               log: Callable[[str], None] = print, flag: Path | None = None) -> dict[str, Any]:
+    """flag는 시험 전용 주입점이다. None이면 모듈 상수 APPROVAL_FLAG(저장소 루트 고정)를 쓴다."""
+    root: Path = args.repo_root  # logs/ 위치에만 쓴다. 승인 파일 위치와 무관
     if args.apply:
-        gate(args, root / FLAG_REL)
+        gate(args, APPROVAL_FLAG if flag is None else flag)
     conn = connect(connect_fn)
     rep: dict[str, Any] = {"started_utc": datetime.now(UTC).isoformat(timespec="seconds")}
     try:
@@ -384,18 +389,20 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--apply", action="store_true", help="쓰기(없으면 dry-run)")
     ap.add_argument("--yes", action="store_true", help="remote --apply 동의(승인 파일도 필요)")
     ap.add_argument("--expect", type=int, help=f"대상 수 기대값(remote --apply 필수, local은 선택: 보통 {EXPECT_LOCAL})")
-    ap.add_argument("--repo-root", type=Path, default=REPO, help="data/·logs/를 찾을 저장소 루트(기본: 이 스크립트의 저장소)")
+    ap.add_argument("--repo-root", type=Path, default=REPO,
+                    help="logs/·data/mock/corpus를 찾을 저장소 루트(기본: 이 스크립트의 저장소). 승인 파일 위치는 바꾸지 않는다")
     ap.add_argument("--corpus-dir", type=Path, help="로컬 코퍼스 폴더(기본: <repo-root>/data/mock/corpus)")
     return ap
 
 
-def main(argv: Sequence[str] | None = None, connect_fn: Callable[..., Any] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, connect_fn: Callable[..., Any] | None = None,
+         flag: Path | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.mode == "local":
             run_local(args.corpus_dir or args.repo_root / "data" / "mock" / "corpus", args.apply, args.expect)
         else:
-            run_remote(args, connect_fn)
+            run_remote(args, connect_fn, flag=flag)
     except Refused as e:
         print(f"거부: {redact(str(e))}", file=sys.stderr)
         return 2
