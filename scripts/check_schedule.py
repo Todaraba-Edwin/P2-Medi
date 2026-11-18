@@ -1,5 +1,5 @@
 """schedule.md·schedule-done.md와 tickets/ 일관성, Top 5 최신 여부를 점검한다. 사용: python3 scripts/check_schedule.py
-점검: 티켓 파일 <-> schedule 행(SCH·제목·체크·링크), 선행 관계(존재·순환·나중 SCH), Index·앵커, Top 5(5개, 미완, 선행 충족 또는 Top 5 안),
+점검: 티켓 파일 <-> schedule 행(SCH·제목·체크·링크), 선행 관계(존재·순환·나중 SCH), Index·앵커, Top 5 트랙 4표(트랙당 5행 이하, 접두어·미완·SCH, 진행 병렬·부분 병렬·직렬과 선행 관계),
 Recap·사용자 결정 큐 섹션, 마지막 갱신일, (RFP-35-06) SCH 우선순위 합·Recap 번호 차례·본문의 낡은 "대기 N건". 문제가 있으면 목록을 출력하고 종료 코드 1을 돌려준다. 코드는 읽기만 한다.
 """
 import collections
@@ -130,12 +130,38 @@ for i, m in tick.items():
     if bad:
         errors.append(f"{i}: 깨진 앵커 {bad[:2]}")
 
-# Top 5
+# Top 5: 트랙 4표(RFP-30-05 A). 절 제목·앵커는 그대로 두고 그 안의 "### 트랙" 표를 읽는다.
+TRACKS = {"Agent": ("AG",), "BackEnd": ("BE",), "FrontEnd": ("FE",), "Docs": ("RFP", "PRD")}
+PROG = ("병렬", "부분 병렬", "직렬")
 sec = s.split("## 지금 해야 할 일 (Top 5)")[1].split("\n## ")[0] if "## 지금 해야 할 일 (Top 5)" in s else ""
-top = re.findall(r"^\| `\[.\]` \| (SCH-\d+) \| `([A-Z]+-\d+)` \|", sec, re.M)
-if len(top) != 5:
-    errors.append(f"Top 5 행 수가 {len(top)}개")
+tsec = {}
+for blk in re.split(r"^### ", sec, flags=re.M)[1:]:
+    name = blk.split("\n", 1)[0].strip()
+    if name in TRACKS:
+        tsec[name] = blk
+for name in TRACKS:
+    if name not in tsec:
+        errors.append(f"Top 5: '### {name}' 트랙 표 없음")
+# 행: 완료 | SCH | Label | Title | 진행 | 선행 | 지금 할 수 있는 것 | ⛔ | 완료일
+ROW = re.compile(r"^\| `\[.\]` \| (SCH-\d+) \| `([A-Z]+-\d+)` \|(.*)\|\s*$", re.M)
+top, rows = [], []
+for name, blk in tsec.items():
+    rs = ROW.findall(blk)
+    if len(rs) > 5:
+        errors.append(f"Top 5 {name}: 행 수 {len(rs)}개(트랙당 최대 5행)")
+    for sc, i, rest in rs:
+        cells = [c.strip() for c in rest.split("|")]
+        if len(cells) != 6:
+            errors.append(f"Top 5 {name} {i}: 열 수가 맞지 않음(완료·SCH·Label·Title·진행·선행·지금 할 수 있는 것·⛔·완료일)")
+            continue
+        top.append((sc, i))
+        rows.append((name, i, cells[1], cells[3], cells[4]))
+        if not i.startswith(tuple(p + "-" for p in TRACKS[name])):
+            errors.append(f"Top 5 {name}: {i}는 이 트랙의 접두어({'·'.join(TRACKS[name])})가 아님")
 ids = [i for _, i in top]
+for i, n in collections.Counter(ids).items():
+    if n > 1:
+        errors.append(f"Top 5: {i}가 트랙 표에 {n}번 있음")
 for sc, i in top:
     m = tick.get(i)
     if not m:
@@ -145,9 +171,23 @@ for sc, i in top:
         errors.append(f"Top 5: {i}는 {m['status']}라 목록에 있으면 안 됨")
     if m["sch"] != sc:
         errors.append(f"Top 5: {i} SCH 표기 불일치")
-    for p in m["pre"]:
-        if p in tick and tick[p]["status"] != "done" and p not in ids:
-            errors.append(f"Top 5: {i}의 선행 {p}가 미완이고 Top 5에도 없음")
+for name, i, prog, now, _ in rows:
+    if prog not in PROG:
+        errors.append(f"Top 5 {name} {i}: 진행 '{prog}'는 {'·'.join(PROG)} 중 하나여야 함")
+        continue
+    undone = [p for p in tick.get(i, {}).get("pre", []) if p in tick and tick[p]["status"] != "done"]
+    if prog == "병렬":
+        for p in undone:
+            if p not in ids:
+                errors.append(f"Top 5 {name} {i}: 병렬인데 선행 {p}가 미완이고 트랙 표에도 없음(부분 병렬·직렬로)")
+    elif prog == "직렬":
+        if not undone:
+            errors.append(f"Top 5 {name} {i}: 직렬인데 선행이 모두 done(병렬로)")
+        for p in undone:
+            if p not in ids:
+                warns.append(f"Top 5 {name} {i}: 직렬로 기다리는 선행 {p}가 트랙 표에 없음(진행하는 곳이 없음)")
+    elif not now or now == "-":
+        errors.append(f"Top 5 {name} {i}: 부분 병렬인데 '지금 할 수 있는 것'이 비어 있음")
 # Top 5에 들어가야 할 후보 경고: 가장 앞선 SCH의 미완 티켓 중 선행이 모두 done인 필수 티켓이 Top 5 밖에 있는지
 ready = [i for i, m in tick.items() if m["status"] in ("todo", "doing") and m["priority"] == "필수" and all(tick[p]["status"] == "done" for p in m["pre"] if p in tick)]
 lowest = min((ORDER[tick[i]["sch"]] for i in ready), default=None)
@@ -207,8 +247,7 @@ def expand(cell):
     for pre, nums in re.findall(r"((?:RFP|PRD|AG|BE|FE)-\d+)-(\d{2}(?:·\d{2})*)", cell):
         out |= {f"{pre}-{n}" for n in nums.split("·")}
     return out
-toprows = re.findall(r"^\| `\[.\]` \| SCH-\d+ \| `([A-Z]+-\d+)` \|.*\| ([^|]*) \| [^|]* \|$", sec, re.M)
-for i, cell in toprows:
+for _, i, _, _, cell in rows:
     shown = expand(cell)
     mine = {k for k in pending if k.startswith(i + "-")}
     if not mine <= shown:
@@ -311,8 +350,9 @@ for src, text, own in [("schedule.md", s, None)] + [(m_["path"], m_["text"], i) 
                 r = re.match(r"^\| (SCH-\d+) \|", line)
                 exp = sum(1 for k in pending if tick.get(k.rsplit("-", 1)[0], {}).get("sch") == r.group(1)) if r else len(pending)
             else:
-                ids = TID.findall(line[:m_.start()])
-                exp = owed(ids[-1] if ids else own)
+                # 전역 ids(Top 5 목록)를 덮어쓰지 않게 이름을 따로 둔다(요약 줄 'Top 5 ['RFP-3']' 버그 원인)
+                tids = TID.findall(line[:m_.start()])
+                exp = owed(tids[-1] if tids else own)
             if int(m_.group(2)) != exp:
                 errors.append(f"{src}:{n}: '{m_.group(0)}' != 실제 대기 {exp}건")
         off += len(line) + 1
@@ -329,7 +369,9 @@ if rep.is_dir():
         if not pdf.with_suffix(".md").exists():
             errors.append(f"리포트 {pdf.name}: 같은 이름의 md가 없다")
 
-print(f"티켓 {total}개, schedule 행 {len(sched)}개, SCH별 {dict(cnt)}, Top 5 {ids}, 대기 결정 {len(pending)}건")
+tracks = {name: [f"{i}({prog})" for n, i, prog, _, _ in rows if n == name] for name in TRACKS}
+print(f"티켓 {total}개, schedule 행 {len(sched)}개, SCH별 {dict(cnt)}, 대기 결정 {len(pending)}건")
+print("Top 5 트랙: " + " / ".join(f"{name} {v}" for name, v in tracks.items()))
 for w in warns:
     print("경고:", w)
 for e in errors:
