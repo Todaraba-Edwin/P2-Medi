@@ -14,6 +14,8 @@
   배지(`badges[{kind, grade, source}]`)는 그 줄에 붙는다(병용 → 임부 → 연령, 등급 불일치는 파일 → 성분 API, PRD-15). 화면은 줄·배지를 조합·재정렬하지 않는다.
   제품 줄은 `finalize.product_rows`(약 키마다 한 줄)에서 만들고 `evidence_id`는 None이다(근거는 배지별, BE-06-39~41 A). 그 줄이 대신 보여 주는
   근거 줄(금기 발견·찾음)은 따로 내지 않고, 목록에 없음·확인하지 못함 줄과 쌍 줄은 근거 ID마다 그대로 둔다.
+  제품 줄에 흡수되지 않은 같은 약·같은 주의 종류(용량·노인 등)의 반복 근거 줄은 `finalize.line_groups`대로 한 줄로 합친다(BE-06-47 A,
+  근거 ID는 첫 근거, 근거 상세는 근거마다 그대로). 칸은 늘리지 않는다.
 - 응급은 `end_reason` 값이 아니라 `emergency` 필드로만 표현한다(BE-06-02 A). 되묻기 후보는 `candidates[]`(BE-06-03 A).
   상단 배너(상한 도달·API 실패)는 기존 `notice` 한 칸이다(BE-06-06 A). 용법용량은 표 구조 없이 원문 인용 텍스트만(`detail[].rows`, BE-06-04 B).
 - `detail[]`은 도구 항목을 코드가 렌더한 것(AG-06 `renderer`)이고 LLM 문장(`LLM_SUMMARY`)은 없다. `summary`만 LLM 문장(검증 통과분) 또는 코드 문구다.
@@ -669,7 +671,8 @@ def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]]) -> Fin
 def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]]) -> list[Finding]:
     """판정 줄 = 제품 줄(`product_rows`, 묶음 found·identified) → 남은 근거 줄(쌍 줄 포함, `entries` 순서).
 
-    `product_rows`가 없는 출력(이전 `finalize`)은 지금까지처럼 근거 줄마다 한 줄이다.
+    남은 근거 줄 중 `line_groups`(같은 약 키·같은 주의 종류·같은 출처, BE-06-47 A)에 든 줄은 첫 줄 자리에 한 줄로 합친다.
+    `product_rows`·`line_groups`가 없는 출력(이전 `finalize`)은 지금까지처럼 근거 줄마다 한 줄이다.
     """
     entries = [e for e in resp.get("entries") or [] if isinstance(e, dict)]
     all_rows = [r for r in resp.get("product_rows") or [] if isinstance(r, dict)]
@@ -690,8 +693,45 @@ def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_
             return None
         return _NOT_JUDGED_CHIP if row_bucket_by_eid.get(e.get("evidence_id")) in (None, "not_listed") else None
 
-    out.extend(_finding(e, detail_by_id, badges_by_id, chip_default=chip_default(e)) for e in entries if id(e) not in taken)
+    # 반복 주의 줄 묶기(BE-06-47 A): 제품 줄에 흡수되지 않고 남은 근거 줄 중 `finalize.line_groups`(같은 약 키·같은 주의 종류·같은 출처)
+    # 묶음은 첫 근거 줄 자리에 한 줄로 낸다. 근거 상세(`detail[]`)·출처 표 행은 근거 ID마다 그대로 남는다(정보 손실 없음)
+    group_of: dict[str, list[str]] = {}
+    for g in resp.get("line_groups") or []:
+        ids = [x for x in g.get("evidence_ids") or [] if isinstance(x, str) and x] if isinstance(g, dict) else []
+        for x in ids:
+            group_of.setdefault(x, ids)
+    rest = [e for e in entries if id(e) not in taken]
+    by_eid = {e.get("evidence_id"): e for e in rest if e.get("evidence_id")}
+    merged: set[int] = set()
+    for e in rest:
+        if id(e) in merged:
+            continue
+        members = [by_eid[x] for x in group_of.get(e.get("evidence_id") or "", []) if x in by_eid and id(by_eid[x]) not in merged]
+        if len(members) > 1 and any(m is e for m in members):
+            merged.update(id(m) for m in members)
+            out.append(_group_finding(members, detail_by_id, badges_by_id))
+            continue
+        out.append(_finding(e, detail_by_id, badges_by_id, chip_default=chip_default(e)))
     return out
+
+
+def _group_finding(members: list[dict[str, Any]], detail_by_id: dict[str, DetailItem],
+                   badges_by_id: dict[str, list[Badge]]) -> Finding:
+    """같은 약·같은 주의 종류의 근거 줄 여럿 → 한 줄(BE-06-47 A). 줄 글자·출처 표지는 묶음 안에서 같고(묶음 키가 종류·출처 종류·자료),
+    근거 ID는 첫 줄의 것(화면이 근거 상세의 출처 표지를 찾는 열쇠, 같은 자료라 표지가 같다)이다. 줄마다 달 수 있는 칸
+    (꼬리 안내·등급·고시 번호·배지)은 나온 순서로 합치고 같은 값은 한 번만 둔다. 근거 상세는 근거마다 그대로 남는다."""
+    first = members[0]
+
+    def union(key: str) -> list[Any]:
+        return list(dict.fromkeys(x for m in members for x in m.get(key) or []))
+
+    badges: list[Badge] = []
+    for m in members:
+        for b in badges_by_id.get(m.get("evidence_id") or "", []) if m.get("bucket") == "found" else []:
+            if all((y.kind, y.text) != (b.kind, b.text) for y in badges):
+                badges.append(b)
+    e = {**first, "notes": union("notes"), "grades": union("grades"), "notice_nos": union("notice_nos")}
+    return _finding(e, detail_by_id, {first.get("evidence_id") or "": badges})
 
 
 def _candidates(clarify: dict[str, Any] | None) -> list[Candidate]:

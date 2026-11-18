@@ -386,6 +386,31 @@ def _product_rows(buckets: list[tuple[dict[str, Any], int]], badges: list[dict[s
     return out
 
 
+def _line_groups(buckets: list[tuple[dict[str, Any], int]]) -> list[dict[str, Any]]:
+    """반복 주의 줄 묶음(BE-06-47 A). 같은 약 키·같은 주의 종류·같은 출처의 금기 발견(`FOUND`) 근거가 둘 이상이면 한 묶음이다.
+
+    성분 이름으로 식별한 약은 도구가 제형 코드마다 항목을 하나씩 만든다(`check_contraindications._merged`, 예: 이부프로펜 용량주의 24건).
+    `entries`는 평가가 근거 ID로 읽으므로 그대로 두고, 응답 변환이 이 묶음으로 화면 줄을 하나로 합친다. 근거 상세(`detail[]`)는 모두 남는다.
+    - 대상: 금기가 아닌 단일 약 주의(용량·수유부·노인 등). 금기 종류(병용·임부·연령)는 판정(등급·나이 값)을 배지로 갖고
+      제품 줄(`product_rows`)이 같은 글자만 하나로 모으므로 여기서 묶지 않는다. 쌍 항목·식별 항목도 묶지 않는다.
+    - 묶음 키는 도구의 약 키(`drug_keys`, `_item_keys`)이고 표시 이름으로 묶지 않는다. 출처 종류·자료가 다르면 묶지 않는다(출처 표지가 달라짐).
+    - `evidence_ids`는 나온 순서이고 첫 ID가 합친 줄의 근거 ID가 된다.
+    """
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for it, b in buckets:
+        kind, eid = it.get("kind"), it.get("evidence_id")
+        if b != BUCKET_FOUND or not eid or kind in fp.BADGE_ORDER or kind in _PAIR_ITEM_KINDS or kind == "identify":
+            continue
+        keys = _item_keys(it)
+        if not keys:
+            continue
+        gk = (tuple(keys), kind, it.get("source_kind"), it.get("dataset_key"))
+        g = groups.setdefault(gk, {"key": keys[0] if len(keys) == 1 else " · ".join(keys), "kind": kind, "evidence_ids": []})
+        if eid not in g["evidence_ids"]:
+            g["evidence_ids"].append(eid)
+    return [g for g in groups.values() if len(g["evidence_ids"]) > 1]
+
+
 def _first_value(items: list[dict[str, Any]], *keys: str) -> str | None:
     """항목들에서 첫 비어 있지 않은 문자열 값(없으면 None). 값을 지어내지 않는다."""
     for it in items:
@@ -573,6 +598,7 @@ def finalize(
         "summary": summary,
         "entries": entries,
         "product_rows": _product_rows(buckets, badges),  # BE-06-12 A: 제품별 줄(배지 여러 개). `entries`는 그대로
+        "line_groups": _line_groups(buckets),  # BE-06-47 A: 같은 약·같은 주의 종류의 반복 근거 묶음(응답 변환이 한 줄로 합침)
         "badges": badges,
         "detail": rendered.detail,
         "citations": rendered.citations,
