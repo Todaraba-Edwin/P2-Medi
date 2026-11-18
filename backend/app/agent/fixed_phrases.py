@@ -71,6 +71,9 @@ NOT_CHECKED_LINES = {"pregnancy": PREGNANCY_NOT_CHECKED}  # 금기 종류 키 �
 AGE_INFO_LINE = "나이를 특정할 수 없어 판정하지 않고, 이 약의 나이별 연령금기 기준을 원문 그대로 보여 드려요."
 # 되묻기·오탈자 카드 안내(UI-620, 0-E 7-5 승인)
 CLARIFY_PICK_LINE = "어느 제품인지 고르면 금기를 확인해 드려요."
+# 되묻기 후보가 1개일 때의 질문(AG-05 §3 "여러 개예요" 후속). **원문 승인(AG-05-05 A, 2026-11-18 사용자 "권장대로")**.
+# `router._clarify`가 접두·중간 일치 후보 1개(AG-05-01 A로 되묻기 유지)일 때 쓴다. 가부·안전·용량 표현 없음, 물음표 1개.
+CLARIFY_ONE_CANDIDATE = "'{drug}'은(는) 아래 약을 말씀하신 건가요? 맞으면 골라 주시고, 아니면 약 이름을 다시 알려 주세요."
 
 # 성분코드 없음·참고 전용·이름 모호·조회 실패·잘림: 판정 문구가 아니다
 CODE_NOT_LINKED = FLAG_NOTES["CODE_NOT_LINKED"]

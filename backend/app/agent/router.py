@@ -26,6 +26,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agent.fixed_phrases import CLARIFY_ONE_CANDIDATE
 from app.tools.drug_dict import (
     MATCH_BM25,
     MATCH_CONTAINS,
@@ -670,11 +671,8 @@ def _entity(raw: str, r: LookupResult, strength: str | None = None) -> Entity:
     return Entity(**base, status=ST_AMBIGUOUS, branch=BRANCH_AMBIGUOUS, flags=flags, options=options)
 
 
-# 되묻기 후보가 1개일 때의 질문(AG-05 §3 "여러 개예요" 후속, 2026-11-18). **초안(사용자 승인 전)**이라 `CLARIFY_ONE_CANDIDATE_APPROVED = False`면
-# 쓰지 않는다. `fixed_phrases.DRAFT_KEYS`에 올리지 않은 이유: `test_ag08_finalize.py::test_phrase_approvals_clear_all_drafts`가 초안 0개를 단언하고
-# 그 시험 파일은 이 작업 범위 밖이다. 승인되면 상수를 `fixed_phrases`로 옮기고 이 스위치를 지운다. 가부·안전 표현 없음, 질문 1개.
-CLARIFY_ONE_CANDIDATE = "'{drug}'은(는) 아래 약을 말씀하신 건가요? 맞으면 골라 주시고, 아니면 약 이름을 다시 알려 주세요."
-CLARIFY_ONE_CANDIDATE_APPROVED = False
+# 되묻기 후보가 1개일 때의 질문 `CLARIFY_ONE_CANDIDATE`: 원문 승인(AG-05-05 A, 2026-11-18)으로 원본을 `fixed_phrases`로 옮기고(위 import)
+# 승인 스위치를 지웠다.
 # 후보가 여럿일 때의 질문 **초안**(2026-11-18 2차). 지금 문장("…여러 개예요. 어떤 약인지 하나를 골라 주세요.")에는 물음표가 없어, 평가의 코드 채점
 # `ONE_QUESTION`(`evaluation/eval_metrics.py` `element_checks`: 요약의 "?"가 정확히 1개)이 모호 문항에서 늘 실패한다(개발셋 재집계는 보고).
 # 평가 정의는 측정 중 동결이라 문장 쪽을 고치는 안이며, 고정 문구라 승인 전에는 쓰지 않는다. 가부·안전·용량 표현 없음, 질문 1개.
@@ -693,8 +691,7 @@ def _clarify(ents: list[Entity]) -> Clarify | None:
     elif t.status == ST_TYPO:
         q = f"'{t.raw}'와(과) 비슷한 약이 있어요. 찾으시는 약이 아래 중에 있나요? 하나를 골라 주세요."
     elif t.n_candidates <= 1 and len(t.options) == 1:  # 후보 1개(접두·중간 일치, AG-05-01 A로 되묻기 유지)에는 "여러 개"라고 하지 않는다
-        q = (CLARIFY_ONE_CANDIDATE.format(drug=t.raw) if CLARIFY_ONE_CANDIDATE_APPROVED
-             else f"'{t.raw}': 어떤 약인지 하나를 골라 주세요.")  # 승인 전: 아래 기존 문장에서 틀린 절("여러 개예요")만 뺀 꼴
+        q = CLARIFY_ONE_CANDIDATE.format(drug=t.raw)
     elif CLARIFY_MANY_CANDIDATES_APPROVED:
         q = CLARIFY_MANY_CANDIDATES.format(drug=t.raw)
     else:

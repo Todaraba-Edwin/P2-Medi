@@ -23,9 +23,10 @@ from app.tools.drug_dict import DrugDict
 
 DEFAULT_PROMPT = "agent_system@v2"
 DEFAULT_PROMPT_SET = "prompt_set@v3"  # 서비스·평가 공통 기본 묶음(2026-11-17 v3 채택). 결과 meta·trace의 `prompt_set`이 이 값이 된다
-# 서비스 배선(`build_deps(service=True)`)의 오탈자 보정(AG-10) 기본값. BE-06-35 A(2026-11-17): 프런트 `ChatResponseSchema`(strictObject)가
-# `name_corrections` 칸을 받기 전까지 끈다. FE-02에서 프런트가 칸을 받게 되면 True로 되돌린다. 명시 인자 `typo_correct=True`는 이 값과 무관하게 켠다.
-SERVICE_TYPO_CORRECT_DEFAULT = False
+# 서비스 배선(`build_deps(service=True)`)의 오탈자 보정(AG-10) 기본값. BE-06-35 A(2026-11-17)로 프런트 `ChatResponseSchema`(strictObject)가
+# `name_corrections` 칸을 받기 전까지 껐고, 프런트가 칸을 받은 뒤(`9205b8c`) AG-11 기준선 측정 종결(AG-11-15 A) 다음 2026-11-18에 켰다.
+# 명시 인자 `typo_correct=False`는 이 값과 무관하게 끈다. 평가·개발 경로(service=False)의 기본은 여전히 끔이다.
+SERVICE_TYPO_CORRECT_DEFAULT = True
 
 
 def is_eval_mode(mode: str | None = None) -> bool:
@@ -90,8 +91,8 @@ def build_deps(
     `service=True`(앱 서버 `/chat`, BE-06-23 A)면 모델 래퍼가 개발 원장·개발 LLM 캐시를 거치지 않는다(`ledger`를 함께 주면 `ValueError`).
     기본값 False는 평가(`mode=eval`)·개발 경로이며 원장·캐시 동작은 예전과 같다.
 
-    `typo_correct`(오탈자 보정 후 진행, AG-10): 주지 않으면 서비스 경로는 `SERVICE_TYPO_CORRECT_DEFAULT`(지금 False, BE-06-35 A:
-    프런트가 응답 `name_corrections` 칸을 받기 전까지 끔), 평가·개발 경로는 끔이다. 명시 인자(`True`/`False`)는 그대로 따른다.
+    `typo_correct`(오탈자 보정 후 진행, AG-10): 주지 않으면 서비스 경로는 `SERVICE_TYPO_CORRECT_DEFAULT`(지금 True, BE-06-35 A:
+    프런트가 응답 `name_corrections` 칸을 받은 뒤 2026-11-18 켬), 평가·개발 경로는 끔이다. 명시 인자(`True`/`False`)는 그대로 따른다.
     평가 실행기는 자원을 만든 뒤 비교 조건에 맞춰 `deps.typo_correct`를 직접 적는다(`eval_runner.apply_typo_correct`).
 
     요약 지시: `prompt_set`을 주지 않으면 기본 묶음 `DEFAULT_PROMPT_SET`(`prompt_set@v3`)을 쓴다. 묶음에 `answer_summary`가 있으면 그 파일 본문을,

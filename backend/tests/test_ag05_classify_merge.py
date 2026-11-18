@@ -234,8 +234,7 @@ class TestManyCandidatesDraft:
         assert _q_count(s) == 1
 
     def test_all_templates_have_one_question_mark_when_both_drafts_on(self, dd, monkeypatch):
-        monkeypatch.setattr(R, "CLARIFY_MANY_CANDIDATES_APPROVED", True)
-        monkeypatch.setattr(R, "CLARIFY_ONE_CANDIDATE_APPROVED", True)
+        monkeypatch.setattr(R, "CLARIFY_MANY_CANDIDATES_APPROVED", True)  # 후보 1개 문구는 AG-05-05 A로 스위치 없이 늘 켜져 있다
         for q in ("보라를 먹어도 되나요", "누리정 먹어도 되나요", "배가 먹어도 되나요"):
             c = route_input(q, dd).clarify
             assert c is not None and _q_count(c.question) == 1, q
