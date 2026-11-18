@@ -240,7 +240,10 @@ def test_each_request_gets_its_own_tool_context_with_default_remaining_calls(mon
     assert fake.deps.tool_ctx.remaining_calls == DEFAULT_REMAINING  # 공유 원본은 그대로
     # 무거운 자원은 공유한다(사전·DB 팩토리·모델). 도구 목록은 요청의 컨텍스트에 묶인 새 것이다
     assert ctx1.drug_dict is ctx2.drug_dict is fake.deps.drug_dict and ctx1.conn_factory is ctx2.conn_factory
-    assert deps1.tool_model is deps2.tool_model is fake.deps.tool_model and deps1.tools is not deps2.tools
+    # 모델 객체도 공유한다. 요청마다 다른 것은 그 위의 얇은 사용량 래퍼뿐이다(BE-06-36 A: 요청 단위 토큰·비용 귀속)
+    assert deps1.tool_model.inner is deps2.tool_model.inner is fake.deps.tool_model and deps1.tools is not deps2.tools
+    assert deps1.summary_model.inner is deps2.summary_model.inner is fake.deps.summary_model
+    assert deps1.tool_model is not deps2.tool_model
     assert deps1.tracer is None and deps2.tracer is None  # 서비스 경로 trace 없음(RFP-22-06 A)
 
 
