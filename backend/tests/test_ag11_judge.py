@@ -350,3 +350,128 @@ def test_calib_cli_refuses_sealed_name(tmp_path: Path):
     p.write_text("{}\n", encoding="utf-8")
     with pytest.raises(G.SealedAccessError):
         SJ.main(["--calib-items", str(p), "--out", str(tmp_path / "o.json"), "--max-usd", "0.5", "--dry-run"])
+
+
+# ------------------------------------------------------------------ 보정 40 CLI 실행(AG-12, 2026-11-18): 키는 설정에서, 상한 초과 시 부분 저장
+
+def _calib_rows(path: Path) -> Path:
+    rows = [{"id": "syn-1", "rubrics": ["J3"], "question": "q1", "expected_response_type": "correct", "reference": "r", "answer": answer()},
+            {"id": "syn-2", "rubrics": ["J3"], "question": "q2", "expected_response_type": "correct", "reference": "r", "answer": answer()},
+            {"id": "syn-3", "rubrics": ["J3"], "question": "q3", "expected_response_type": "correct", "reference": "r", "answer": answer()}]
+    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    return path
+
+
+def test_transport_from_settings_reads_key_without_env(monkeypatch):
+    """키는 `Settings`(현재 폴더·루트 `.env`)에서 읽어 SDK에 넘긴다. 환경변수가 없어도 된다. 키 없으면 JudgeError(키 값은 메시지에 없음)."""
+    from app.config import Settings
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(SJ.JudgeError, match="ANTHROPIC_API_KEY"):
+        SJ.transport_from_settings(Settings(_env_file=None))
+    seen: dict[str, Any] = {}
+
+    def fake_transport(*, api_key: str | None = None, **_: Any) -> str:
+        seen["key"] = api_key
+        return "transport"
+
+    monkeypatch.setattr(SJ, "AnthropicTransport", fake_transport)
+    assert SJ.transport_from_settings(Settings(_env_file=None, anthropic_api_key=FAKE_KEY)) == "transport"
+    assert seen["key"] == FAKE_KEY
+
+
+def test_calib_cli_writes_result_in_calib_agreement_format(tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]):
+    monkeypatch.setenv("MEDIAGENT_LEDGER_PATH", str(tmp_path / "ledger.json"))
+    p = _calib_rows(tmp_path / "calib40-items.jsonl")
+    out = tmp_path / "calib40-judge.json"
+    judge, t = mk([j3_out(), j3_out(True, False, True), j3_out()], max_usd=1.0)
+    rc = SJ.main(["--calib-items", str(p), "--out", str(out), "--max-usd", "1.0"], judge_factory=lambda max_usd, prompt_path: judge)
+    assert rc == 0 and len(t.calls) == 3
+    res = json.loads(out.read_text(encoding="utf-8"))
+    assert res["meta"]["judge_model"] == "claude-sonnet-5-5" and res["meta"]["usage"]["calls"] == 3 and res["meta"]["partial"] is False
+    assert res["meta"]["n_items"] == 3 and res["meta"]["calib_items_sha256"] == hashlib.sha256(p.read_bytes()).hexdigest()
+    labels, _, errors = A.judge_to_labels(res)
+    assert labels["syn-2"]["J3_R2"] is False and labels["syn-1"]["J3_R2"] is True and errors == []
+    assert FAKE_KEY not in capsys.readouterr().out
+    # 이미 있으면 덮어쓰지 않는다
+    assert SJ.main(["--calib-items", str(p), "--out", str(out), "--max-usd", "1.0"], judge_factory=lambda max_usd, prompt_path: judge) == 2
+
+
+def test_calib_cli_budget_exceeded_saves_partial_and_stops(tmp_path: Path, monkeypatch):
+    """상한은 호출 **전에** 본다. 넘기면 멈추고 그때까지의 결과를 `.partial.json`에 남긴다(이미 쓴 비용의 결과를 버리지 않는다)."""
+    monkeypatch.setenv("MEDIAGENT_LEDGER_PATH", str(tmp_path / "ledger.json"))
+    p = _calib_rows(tmp_path / "calib40-items.jsonl")
+    out = tmp_path / "calib40-judge.json"
+    judge, t = mk([j3_out(), j3_out(), j3_out()], max_usd=0.006)  # 호출당 $0.0046 → 2번째 호출 전 "누적+최대 호출 비용 > 상한"
+    rc = SJ.main(["--calib-items", str(p), "--out", str(out), "--max-usd", "0.006"], judge_factory=lambda max_usd, prompt_path: judge)
+    assert rc == 3 and len(t.calls) == 1 and not out.exists()
+    part = json.loads(out.with_suffix(".partial.json").read_text(encoding="utf-8"))
+    assert part["meta"]["partial"] is True and "상한" in part["meta"]["stopped"] and list(part["items"]) == ["syn-1"]
+    assert part["meta"]["usage"]["calls"] == 1 and part["meta"]["usage"]["cost_usd"] <= 0.006
+
+
+# ------------------------------------------------------------------ judge_rubric@v2(AG-12-06 A, 2026-11-18): 입력 표시 v2는 v2 파일에서만
+
+PROMPT_V2 = SJ.HERE / "judge_rubric@v2.md"
+
+
+def _code_answer() -> dict[str, Any]:
+    """답 본문 = 모델 요약 + 코드가 붙인 판정 줄·고정 문구(`finalize.render_text` 모양)."""
+    a = answer("합성 요약: 비슷한 약이 있어요. 하나를 골라 주세요.")
+    a["text"] = a["summary"] + "\n[합성약] 금기 목록에 없음(안전하다는 뜻이 아님)\n금기 목록에 없다는 것이 안전하다는 뜻이 아니에요. 근처 약국·약사에게 확인하세요."
+    return a
+
+
+def test_v2_prompt_file_l0_checks_sections_and_frontmatter():
+    dev_q = LP.load_dev_questions()
+    assert LP.check_prompt_file(PROMPT_V2, dev_questions=dev_q) == []
+    p = SJ.load_prompt(PROMPT_V2)
+    assert p["version"] == "v2" and p["render"] == SJ.RENDER_V2 and p["rubric_versions"]["J3"] == "J3@v2"
+    assert sorted(p["frontmatter"]["changed_from_v1"]) == ["J3", "J5", "SYSTEM"]
+    v1 = SJ.load_prompt()
+    assert v1["render"] == SJ.RENDER_V1 and v1["rubric_versions"] == SJ.RUBRIC_VERSIONS
+    # J1·J2·J4·OUTPUT 문장은 v1과 같다(루브릭 뜻 불변). SYSTEM·J3·J5만 다르다
+    for sec in ("J1", "J2", "J4", "OUTPUT"):
+        assert p["sections"][sec] == v1["sections"][sec], sec
+    for sec in ("SYSTEM", "J3", "J5"):
+        assert p["sections"][sec] != v1["sections"][sec], sec
+    assert "근거 상세" in p["sections"]["SYSTEM"] and "[코드 부착]" in p["sections"]["SYSTEM"]
+    assert "되묻는 답" in p["sections"]["J5"] and "청크 머리글" in p["sections"]["J3"]
+
+
+def test_mark_code_lines_marks_only_non_summary_lines():
+    marked = SJ.mark_code_lines("요약 한 줄\n요약 두 줄", "요약 한 줄\n요약 두 줄\n[약] 주의\n\n고정 문구")
+    assert marked.splitlines() == ["요약 한 줄", "요약 두 줄", "[코드 부착] [약] 주의", "", "[코드 부착] 고정 문구"]
+    assert SJ.mark_code_lines(None, "") == "" and SJ.mark_code_lines(None, "x") == "[코드 부착] x"
+
+
+def test_render_v2_marks_code_lines_and_names_chunks_as_detail():
+    inp = SJ.input_from_item(item("근거 없음", "no_evidence"), _code_answer())
+    v1 = SJ.render_user("J5", inp, SJ.load_prompt())
+    v2 = SJ.render_user("J5", inp, SJ.load_prompt(PROMPT_V2))
+    assert "[코드 부착]" not in v1 and "[근거 청크(검색 순위 순)]" in v1 and "[루브릭 J5@v1]" in v1
+    assert "[루브릭 J5@v2]" in v2 and "[근거 상세 = 근거 청크" in v2 and "[근거 청크(검색 순위 순)]" not in v2
+    assert "[코드 부착] [합성약] 금기 목록에 없음" in v2 and "[코드 부착] 금기 목록에 없다는 것이" in v2
+    assert "[코드 부착] 합성 요약" not in v2 and "합성 요약: 비슷한 약이 있어요" in v2
+    assert "<chunk id=\"pregnancy:X\"" in v2  # 청크 본문·ID는 그대로
+
+
+def test_v2_judge_tags_results_and_meta_with_v2_and_calib_agreement_reads_them(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("MEDIAGENT_LEDGER_PATH", str(tmp_path / "ledger.json"))
+    t = FakeTransport([j3_out(True, False, True), "bad", "bad"])
+    j = SJ.SonnetJudge(t, max_usd=1.0, prompt_path=PROMPT_V2)
+    assert j.rubric_versions["J3"] == "J3@v2" and j.meta()["prompt_version"] == "v2" and j.meta()["render_version"] == SJ.RENDER_V2
+    assert j.meta()["prompt_changed_from_v1"] == ["SYSTEM", "J3", "J5"] and j.meta()["prompt_file"] == "judge_rubric@v2.md"
+    rows = [{"id": "syn-v2", "rubrics": ["J3", "J5"], "question": "q", "expected_response_type": "correct", "reference": "r", "answer": _code_answer()}]
+    res = SJ.calib_result(j, rows)
+    assert res["items"]["syn-v2"]["J3"]["rubric"] == "J3@v2" and res["items"]["syn-v2"]["J5"]["rubric"] == "J5@v2"
+    assert "[코드 부착]" in t.calls[0]["messages"][0]["content"]
+    labels, _, errors = A.judge_to_labels(res)
+    assert labels["syn-v2"]["J3_R2"] is False and errors == [{"id": "syn-v2", "rubric": "J5", "status": SJ.STATUS_ERROR}]
+
+
+def test_calib_cli_prompt_option_selects_v2(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    p = _calib_rows(tmp_path / "calib15-v2-items.jsonl")
+    rc = SJ.main(["--calib-items", str(p), "--out", str(tmp_path / "o.json"), "--max-usd", "0.3", "--dry-run", "--prompt", str(PROMPT_V2)])
+    out = capsys.readouterr().out
+    assert rc == 0 and "judge_rubric@v2.md render@v2" in out and "호출 3회" in out

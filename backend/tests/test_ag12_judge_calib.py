@@ -298,3 +298,48 @@ def test_not_called_judge_never_calls():
     assert j.called == 0 and j.model_id == "claude-sonnet-5-5"
     labels, _, errs = A.judge_to_labels({"items": out})
     assert labels == {} and len(errs) == 2
+
+
+# ------------------------------------------------------------------ 재보정 선택(AG-12-07 A, 2026-11-18): 이미 쓴 문항 제외·층 할당 덮어쓰기·파일 접두
+
+def test_select_recalib_excludes_used_ids_and_uses_alloc_override(fake_files, tmp_path: Path):
+    res_path, set_path = fake_files
+    result = S.load_result(res_path)
+    dev = S.load_set(set_path)
+    first = S.select(result, dev)
+    out = tmp_path / "out"
+    S.write_outputs(first, out, result_path=res_path, set_path=set_path, result_meta=result["meta"])
+    used = S.used_ids_from_manifest(out / S.MANIFEST)
+    assert len(used) == 40
+    alloc = S.parse_alloc("J3=8,J5=7")
+    assert {k: v[1] for k, v in alloc.items()} == {"J3": 8, "J5": 7}
+    sel = S.select(result, dev, alloc=alloc, exclude_ids=used, rubrics_only={"J3", "J5"})
+    assert all(set(p["rubrics"]) <= {"J3", "J5"} for p in sel["selected"]) and sel["rubrics_only"] == ["J3", "J5"]
+    ids = [p["res"]["id"] for p in sel["selected"]]
+    assert len(ids) == 15 == sel["n_total"] and not (set(ids) & used) and sel["shortfall"] == {}
+    assert {p["stratum"] for p in sel["selected"]} == {"J3", "J5"} and len(sel["by_stratum"]["J3"]) == 8 and len(sel["by_stratum"]["J5"]) == 7
+    assert sum(1 for e in sel["excluded"] if e["reason"].startswith("앞선 보정")) == 40
+    assert all(p["res"]["branch_label"] in ("오정보", "근거 없음") for p in sel["selected"])
+    man = S.write_outputs(sel, out, result_path=res_path, set_path=set_path, result_meta=result["meta"], name="calib15-v2",
+                          exclude_manifest=out / S.MANIFEST)
+    assert (out / "calib15-v2-labels.csv").exists() and (out / "calib15-v2-items.jsonl").exists() and (out / "calib15-v2-manifest.json").exists()
+    assert man["n"] == 15 and man["alloc"] == {"J3": 8, "J5": 7} and man["name"] == "calib15-v2" and man["n_excluded_used"] == 40
+    assert man["rubrics_only"] == ["J3", "J5"]
+    assert (out / S.LABELS_CSV).read_text(encoding="utf-8-sig").startswith("id,")  # 기존 40 라벨 파일은 그대로
+    with open(out / "calib15-v2-labels.csv", encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 15 and all(r["J4_R1"] == S.NA and r["J1(뒷받침안됨/전체주장)"] == S.NA for r in rows)
+    assert all("J1" not in r["적용루브릭"] for r in rows)
+    items = [json.loads(ln) for ln in (out / "calib15-v2-items.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert all("J1" not in it["rubrics"] for it in items)
+    with pytest.raises(SystemExit):
+        S.parse_alloc("J9=1")
+
+
+def test_cli_recalib_options(fake_files, tmp_path: Path, capsys):
+    res_path, set_path = fake_files
+    out = tmp_path / "o"
+    assert S.main(["--result", str(res_path), "--set", str(set_path), "--out-dir", str(out)]) == 0
+    assert S.main(["--result", str(res_path), "--set", str(set_path), "--out-dir", str(out), "--alloc", "J3=8,J5=7",
+                   "--exclude-manifest", str(out / S.MANIFEST), "--name", "calib15-v2", "--rubrics", "J3,J5"]) == 0
+    assert "선택 15/15" in capsys.readouterr().out and (out / "calib15-v2-manifest.json").exists()

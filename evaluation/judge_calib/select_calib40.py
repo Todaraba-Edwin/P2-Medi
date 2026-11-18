@@ -29,6 +29,10 @@
   이미 있는 CSV는 덮어쓰지 않는다(라벨이 지워지지 않게, `--force`로만 덮어씀). `--check`는 파일을 쓰지 않고 선택 결과만 출력한다.
 
 사람 라벨은 judge 결과를 보기 전에 한다(RFP-26 §7.3 1번). 라벨이 끝나면 `calib_agreement.py`로 일치율·Cohen's κ를 낸다.
+
+재보정(AG-12-06·07 A, 2026-11-18): 같은 규칙·시드로 `--alloc "J3=8,J5=7" --exclude-manifest data/mock/judge_calib/calib40-manifest.json
+--rubrics J3,J5 --name calib15-v2`처럼 돌리면 앞선 보정에 쓴 문항을 빼고(README §5 3번) J3·J5 층만 뽑아 라벨·judge 대상도 J3·J5로
+좁힌(J1 칸 N/A) `calib15-v2-*` 파일을 만든다.
 """
 
 from __future__ import annotations
@@ -165,8 +169,32 @@ def exclusion_reason(res: dict[str, Any], src: dict[str, Any] | None, run: dict[
 
 # --------------------------------------------------------------------------- 선택
 
-def select(result: dict[str, Any], dev: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """층화 round-robin 선택. 반환: {"selected": [...], "by_stratum": {...}, "excluded": [...], "cells": {...}, "core_ratio": float}."""
+def parse_alloc(spec: str | None) -> dict[str, tuple[frozenset[str], int]]:
+    """`--alloc "J3=8,J5=7"` → 층별 할당(적지 않은 층은 0). 없으면 기본 `ALLOC`(40문항). 모르는 층 이름은 오류."""
+    if not spec:
+        return dict(ALLOC)
+    out: dict[str, tuple[frozenset[str], int]] = {}
+    for part in spec.split(","):
+        name, _, n = part.strip().partition("=")
+        if name not in ALLOC:
+            raise SystemExit(f"모르는 층: {name!r} (가능: {list(ALLOC)})")
+        out[name] = (ALLOC[name][0], int(n))
+    return out
+
+
+def used_ids_from_manifest(path: Path) -> set[str]:
+    """앞선 보정 manifest(`by_stratum`)의 문항 ID. 재보정은 라벨에 쓴 문항을 다시 쓰지 않는다(README §5 3번, RFP-26 §7.3 3번)."""
+    man = json.loads(path.read_text(encoding="utf-8"))
+    return {i for ids in (man.get("by_stratum") or {}).values() for i in ids}
+
+
+def select(result: dict[str, Any], dev: dict[str, dict[str, Any]], *, alloc: dict[str, tuple[frozenset[str], int]] | None = None,
+           exclude_ids: set[str] | None = None, rubrics_only: set[str] | None = None) -> dict[str, Any]:
+    """층화 round-robin 선택. 반환: {"selected": [...], "by_stratum": {...}, "excluded": [...], "cells": {...}, "core_ratio": float}.
+    `alloc`은 층별 할당(기본 ALLOC), `exclude_ids`는 앞선 보정에 이미 쓴 문항(제외 사유를 남긴다), `rubrics_only`는 라벨·judge 대상 루브릭을
+    그 집합으로 좁힌다(재보정 J3·J5만: 오정보 NORMAL 답의 J1 칸은 N/A가 되고 judge도 부르지 않는다)."""
+    alloc = alloc or ALLOC
+    exclude_ids = exclude_ids or set()
     pools: dict[str, dict[tuple[str, str, str], list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     excluded: list[dict[str, str]] = []
     for res in result["items"]:
@@ -176,17 +204,24 @@ def select(result: dict[str, Any], dev: dict[str, dict[str, Any]]) -> dict[str, 
         if why:
             excluded.append({"id": res["id"], "reason": why})
             continue
+        if res["id"] in exclude_ids:
+            excluded.append({"id": res["id"], "reason": "앞선 보정 라벨에 이미 쓴 문항(재사용 금지)"})
+            continue
         st = stratum_of(res)
-        if st is None:
+        if st is None or st not in alloc:
             excluded.append({"id": res["id"], "reason": f"할당 층 없음(branch={res.get('branch_label')})"})
             continue
         cell = (str(res.get("composition_group")), str(src.get("subtype")), str(run.get("end_reason")))
-        pools[st][cell].append({"res": res, "src": src, "run": run, "stratum": st, "cell": cell})
+        rub = [r for r in rubrics_for(res, run) if rubrics_only is None or r in rubrics_only]
+        if not rub:
+            excluded.append({"id": res["id"], "reason": f"대상 루브릭 없음(rubrics_only={sorted(rubrics_only or [])})"})
+            continue
+        pools[st][cell].append({"res": res, "src": src, "run": run, "stratum": st, "cell": cell, "rubrics": rub})
 
     selected: list[dict[str, Any]] = []
     by_stratum: dict[str, list[str]] = {}
     shortfall: dict[str, int] = {}
-    for st, (_, quota) in ALLOC.items():
+    for st, (_, quota) in alloc.items():
         cells = {c: sorted(v, key=lambda x: _rank(x["res"]["id"])) for c, v in pools[st].items()}
         order = sorted(cells)  # 칸 이름순(결정적)
         picked: list[dict[str, Any]] = []
@@ -205,7 +240,9 @@ def select(result: dict[str, Any], dev: dict[str, dict[str, Any]]) -> dict[str, 
     cells_count = Counter(f"{p['stratum']}|{'|'.join(p['cell'])}" for p in selected)
     return {"selected": selected, "by_stratum": by_stratum, "excluded": excluded, "shortfall": shortfall,
             "cells": dict(sorted(cells_count.items())), "core_count": core,
-            "core_ratio": round(core / len(selected), 4) if selected else 0.0}
+            "core_ratio": round(core / len(selected), 4) if selected else 0.0,
+            "alloc": {k: v[1] for k, v in alloc.items()}, "n_total": sum(v[1] for v in alloc.values()), "n_excluded_used": len(exclude_ids),
+            "rubrics_only": sorted(rubrics_only) if rubrics_only else None}
 
 
 # --------------------------------------------------------------------------- 시트 렌더링
@@ -244,7 +281,7 @@ def render_detail(answer: dict[str, Any]) -> str:
 def render_row(p: dict[str, Any]) -> list[str]:
     res, src, run = p["res"], p["src"], p["run"]
     a = run.get("answer") or {}
-    rub = rubrics_for(res, run)
+    rub = p.get("rubrics") or rubrics_for(res, run)
     elements = res.get("elements") or {}
     code_el = ", ".join(f"{k}={'' if v is None else v}" for k, v in elements.items())
     row = [res["id"], p["stratum"], str(res.get("branch_label")), str(res.get("composition_group")), str(src.get("subtype")),
@@ -267,7 +304,7 @@ def judge_input(p: dict[str, Any]) -> dict[str, Any]:
     """judge 입력 묶음(RFP-26 §7.1 입력: 질문·기대 응답 유형·정답 근거·답변·rubric). 조건 이름은 넣지 않는다(블라인드)."""
     res, src, run = p["res"], p["src"], p["run"]
     a = run.get("answer") or {}
-    return {"id": res["id"], "stratum": p["stratum"], "rubrics": rubrics_for(res, run), "question": src.get("question"),
+    return {"id": res["id"], "stratum": p["stratum"], "rubrics": p.get("rubrics") or rubrics_for(res, run), "question": src.get("question"),
             "expected_response_type": res.get("expected_response_type"), "required_elements": sorted(required_elements(src)),
             "reference": src.get("reference"), "answer_key": src.get("answer"), "answer_evidence": src.get("answer_evidence"),
             "answer": {"summary": a.get("summary"), "text": a.get("text"), "entries": a.get("entries"), "detail": a.get("detail"),
@@ -277,10 +314,16 @@ def judge_input(p: dict[str, Any]) -> dict[str, Any]:
 
 # --------------------------------------------------------------------------- 쓰기
 
+def file_names(name: str = "calib40") -> tuple[str, str, str]:
+    """출력 파일 이름(라벨 CSV, judge 입력, manifest). 기본 `calib40-*`, 재보정은 `--name calib15-v2`처럼 접두를 바꾼다."""
+    return f"{name}-labels.csv", f"{name}-items.jsonl", f"{name}-manifest.json"
+
+
 def write_outputs(sel: dict[str, Any], out_dir: Path, *, result_path: Path, set_path: Path, result_meta: dict[str, Any],
-                  force: bool = False) -> dict[str, Any]:
+                  force: bool = False, name: str = "calib40", exclude_manifest: Path | None = None) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = out_dir / LABELS_CSV
+    labels_csv, items_jsonl, manifest_name = file_names(name)
+    csv_path = out_dir / labels_csv
     if csv_path.exists() and not force:
         print(f"이미 있음(덮어쓰지 않음, --force로만): {csv_path}")
     else:
@@ -289,10 +332,12 @@ def write_outputs(sel: dict[str, Any], out_dir: Path, *, result_path: Path, set_
             w.writerow(HEAD)
             for p in sel["selected"]:
                 w.writerow(render_row(p))
-    (out_dir / ITEMS_JSONL).write_text("".join(json.dumps(judge_input(p), ensure_ascii=False) + "\n" for p in sel["selected"]),
+    (out_dir / items_jsonl).write_text("".join(json.dumps(judge_input(p), ensure_ascii=False) + "\n" for p in sel["selected"]),
                                        encoding="utf-8")
     manifest = {
-        "select_version": SELECT_VERSION, "seed": SEED, "n": len(sel["selected"]), "alloc": {k: v[1] for k, v in ALLOC.items()},
+        "select_version": SELECT_VERSION, "seed": SEED, "n": len(sel["selected"]), "alloc": sel.get("alloc") or {k: v[1] for k, v in ALLOC.items()},
+        "name": name, "exclude_manifest": str(exclude_manifest) if exclude_manifest else None, "n_excluded_used": sel.get("n_excluded_used", 0),
+        "rubrics_only": sel.get("rubrics_only"),
         "result_file": str(result_path), "result_sha256": sha256_file(result_path),
         "result_meta": {k: result_meta.get(k) for k in ("set", "set_version", "set_sha256", "condition", "prompt_set", "trajectory_rule",
                                                           "created_utc", "agent_info")},
@@ -302,12 +347,13 @@ def write_outputs(sel: dict[str, Any], out_dir: Path, *, result_path: Path, set_
         "excluded": sel["excluded"], "rubric_cols": RUBRIC_COLS,
         "note": "사람 라벨은 judge 결과를 보기 전에 한다(RFP-26 §7.3). 시험셋은 쓰지 않았다(RFP-26-04). judge 호출 0.",
     }
-    (out_dir / MANIFEST).write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    (out_dir / manifest_name).write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return manifest
 
 
 def summarize(sel: dict[str, Any]) -> str:
-    lines = [f"선택 {len(sel['selected'])}/{N_TOTAL}, 안전 핵심 {sel['core_count']} ({sel['core_ratio']:.0%}, 기준 ≥ {CORE_MIN_RATIO:.0%})"]
+    n_total = sel.get("n_total", N_TOTAL)
+    lines = [f"선택 {len(sel['selected'])}/{n_total}, 안전 핵심 {sel['core_count']} ({sel['core_ratio']:.0%}, 기준 ≥ {CORE_MIN_RATIO:.0%})"]
     for st, ids in sel["by_stratum"].items():
         lines.append(f"  {st}: {len(ids)} {ids}")
     if sel["shortfall"]:
@@ -326,19 +372,29 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
     ap.add_argument("--force", action="store_true", help="이미 있는 라벨 CSV를 덮어쓴다(라벨이 지워진다)")
     ap.add_argument("--check", action="store_true", help="파일을 쓰지 않고 선택 결과만 출력")
+    ap.add_argument("--alloc", default=None, help='층별 할당 덮어쓰기(예: "J3=8,J5=7". 적지 않은 층은 0). 기본은 40문항 ALLOC')
+    ap.add_argument("--exclude-manifest", type=Path, default=None, help="앞선 보정 manifest. 그 by_stratum 문항은 제외(재보정용)")
+    ap.add_argument("--name", default="calib40", help="출력 파일 접두(기본 calib40 → calib40-labels.csv 등. 재보정은 calib15-v2)")
+    ap.add_argument("--rubrics", default=None, help='라벨·judge 대상 루브릭만(예: "J3,J5"). 기본은 문항에 적용되는 전부')
     a = ap.parse_args(argv)
     result = load_result(a.result)
     dev = load_set(a.set)
-    sel = select(result, dev)
+    alloc = parse_alloc(a.alloc)
+    exclude_ids = used_ids_from_manifest(a.exclude_manifest) if a.exclude_manifest else set()
+    rubrics_only = {r.strip() for r in a.rubrics.split(",") if r.strip()} if a.rubrics else None
+    if rubrics_only and not rubrics_only <= set(RUBRIC_COLS):
+        raise SystemExit(f"모르는 루브릭: {sorted(rubrics_only - set(RUBRIC_COLS))} (가능: {list(RUBRIC_COLS)})")
+    sel = select(result, dev, alloc=alloc, exclude_ids=exclude_ids, rubrics_only=rubrics_only)
     print(summarize(sel))
     if sel["core_ratio"] < CORE_MIN_RATIO:
         print(f"경고: 안전 핵심 비율 {sel['core_ratio']:.0%} < {CORE_MIN_RATIO:.0%}")
-    if sel["shortfall"] or len(sel["selected"]) != N_TOTAL:
+    if sel["shortfall"] or len(sel["selected"]) != sel["n_total"]:
         print("경고: 할당을 채우지 못했다(위 '부족'). 입력 결과를 확인하라")
     if a.check:
         return 0
-    write_outputs(sel, a.out_dir, result_path=a.result, set_path=a.set, result_meta=result.get("meta") or {}, force=a.force)
-    print(f"출력: {a.out_dir / LABELS_CSV}, {a.out_dir / ITEMS_JSONL}, {a.out_dir / MANIFEST}")
+    write_outputs(sel, a.out_dir, result_path=a.result, set_path=a.set, result_meta=result.get("meta") or {}, force=a.force,
+                  name=a.name, exclude_manifest=a.exclude_manifest)
+    print("출력: " + ", ".join(str(a.out_dir / n) for n in file_names(a.name)))
     return 0
 
 

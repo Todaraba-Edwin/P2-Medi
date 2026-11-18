@@ -964,7 +964,9 @@ def default_judge(settings: Any, max_usd: float) -> Any:
     key = getattr(settings, "anthropic_api_key", None)
     if not key:
         raise JudgeSetupError("judge에 필요한 환경변수가 없다: ANTHROPIC_API_KEY")
-    return SJ.SonnetJudge(SJ.AnthropicTransport(api_key=reveal(key)), ledger=CostLedger(), max_usd=max_usd)
+    # AG-11-09 A·AG-12-06~08 A(2026-11-18): 본 측정 judge 프롬프트는 채택·동결한 v2(J5는 보조 지표). 결과 meta에 파일·sha256이 남는다.
+    return SJ.SonnetJudge(SJ.AnthropicTransport(api_key=reveal(key)), ledger=CostLedger(), max_usd=max_usd,
+                          prompt_path=SJ.HERE / "judge_rubric@v2.md")
 
 
 def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settings_fn: Callable[[], Any] | None,
