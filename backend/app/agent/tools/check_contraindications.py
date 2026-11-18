@@ -50,7 +50,7 @@ FLAG_LOOKUP_FAILED = "LOOKUP_FAILED"
 @dataclass
 class Drug:
     key: str                      # 근거 ID에 쓰는 약 키(품목기준코드·성분명·코드)
-    label: str                    # 사용자 입력 그대로(표시용)
+    label: str                    # 표시용: 사용자 입력 이름, 이름 없이 코드만 오면 사전 제품명(`_resolve`)
     ok: bool = False              # 판정에 쓸 코드가 있다
     kids_codes: list[str] = field(default_factory=list)
     api_codes: list[str] = field(default_factory=list)
@@ -103,8 +103,19 @@ def _api_to_kids(ctx: ToolContext, code: str) -> list[str]:
     return [k for ing in ctx.drug_dict.ingredients if code in ing.get("api_codes", []) for k in ing.get("kids_codes", [])]
 
 
+def _dict_product_name(ctx: ToolContext, item_seq: str | None) -> str | None:
+    """품목기준코드의 사전 확정 제품명. 사전에 없거나 이름이 비면 None(지어내지 않는다)."""
+    i = ctx.drug_dict._by_seq.get(item_seq or "")
+    if i is None:
+        return None
+    name = str(ctx.drug_dict.products[i].get("name") or "").strip()
+    return name or None
+
+
 def _resolve(ctx: ToolContext, arg: DrugArg) -> Drug:
-    label = arg.name or arg.item_seq or arg.ingredient_code or ""
+    # 표시명: 사용자가 적은 이름 > 품목기준코드의 사전 제품명 > 코드(AG-10-07 A, 이슈 F3). 이름 없이 코드만 오면(되묻기·보정으로 확정된 약)
+    # 표시명 자리(`drugs`·`subject`·쌍 줄 머리·요약 입력 블록)에 코드가 나가지 않게 사전 이름을 쓴다. 근거 ID·`drug_keys`(`key`)는 그대로다.
+    label = arg.name or _dict_product_name(ctx, arg.item_seq) or arg.item_seq or arg.ingredient_code or ""
     if arg.ingredient_code:
         code = arg.ingredient_code
         if KIDS_CODE_RE.match(code):
