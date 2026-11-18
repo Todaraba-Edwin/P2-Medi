@@ -34,6 +34,10 @@ _FLAG_TEXT = {**fp.FLAG_LINES, "INVALID_CODE": fp.INVALID_CODE, "PAIR_NOT_CHECKE
 # 실시간 확인 실패 꼬리표: 하나라도 있으면 상단 배너(`NOTICE_API_FAIL`)를 건다. 파일 판정은 그대로다
 _API_FAIL_FLAGS = ("API_FAIL", "API_PAIR_INCOMPLETE")
 _GRADES = ("1", "2", "M")
+# `pharmacist_advice_kinds` 값(AG-08-28 A). 화면에 나오는 글자가 아니라 구역 구분 키다
+ADVICE_KIND_MISSING = "missing"
+ADVICE_KIND_GRADE_DEF = "grade_def"
+ADVICE_KINDS = (ADVICE_KIND_MISSING, ADVICE_KIND_GRADE_DEF)
 
 
 def _kind_rank(kind: str | None) -> int:
@@ -501,8 +505,11 @@ def finalize(
     unresolved = any(e["unresolved"] for e in entries) or limit_reached or bool(not_checked_lines)
     names = list(dict.fromkeys(n for e in entries if e["unresolved"] for n in _names_of(e)))
     advice: list[str] = []
+    # AG-08-28 A: `pharmacist_advice`와 같은 길이·같은 순서의 줄 종류. 화면이 구역(약 조합 권고 / 등급 정의 권고)별로 거를 때 쓴다
+    advice_kinds: list[str] = []
     if any(e["unresolved"] for e in entries):
         advice.append(josa.fill(fp.PHARMACIST_ADVICE, drugs=" · ".join(names)) if names else fp.PHARMACIST_ADVICE_NO_NAMES)
+        advice_kinds.append(ADVICE_KIND_MISSING)
     gd_lines: list[str] = []
     gd_blocks: list[dict[str, Any]] = []
     for g in grade_defs or []:
@@ -522,6 +529,7 @@ def finalize(
                      "missing_reason": g["missing_reason"], "missing_text": gd_lines[-1]})
     if gd_lines:
         advice.append(fp.GRADE_DEF_PHARMACIST_ADVICE)
+        advice_kinds.append(ADVICE_KIND_GRADE_DEF)
 
     refuse_keys = list(refuse_reasons or []) or ([refuse_reason] if refuse_reason else [])
     if refuse_keys:
@@ -560,6 +568,7 @@ def finalize(
         "grade_def_missing": gd_lines,
         "grade_defs": gd_blocks,
         "pharmacist_advice": advice,
+        "pharmacist_advice_kinds": advice_kinds,  # AG-08-28 A: 줄마다 "missing"(약 조합 미확보) | "grade_def"(등급 정의 미확보)
         "pharmacist_advice_fixed": fp.PHARMACIST_ADVICE_FIXED if unresolved else None,
         "fixed_notice": fp.FIXED_NOTICE,
         "disclaimer": fp.DISCLAIMER,
