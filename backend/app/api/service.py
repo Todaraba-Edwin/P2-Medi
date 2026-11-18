@@ -8,6 +8,8 @@
   무거운 자원과 모델 객체는 공유한다. 판정은 바뀌지 않는다.
 - 새 환경변수를 만들지 않는다(BE-06-19 A). 로그에는 "붙임/안 붙임"과 빠진 변수 **이름**만 남기고 값·접속 문자열·키는 남기지 않는다.
 - 서비스 경로는 trace를 켜지 않는다(RFP-22-06 A): `tracer=None`.
+- L4 요청 단위 사용량(BE-06-36 A): 스트림이 그래프 스레드에 `REQUEST_USAGE`를 넣으면 `request_deps`가 두 모델을 `UsageMeter`로 감싸
+  호출 수·토큰·추정 비용(숫자만)을 그 요청의 `RequestUsage`에 더한다. 메시지·모델 출력은 보지 않는다.
 """
 
 from __future__ import annotations
@@ -15,10 +17,12 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import replace
+from contextvars import ContextVar
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from app.agent.graph.build import build_graph
+from app.agent.graph.metered import usage_of
 from app.agent.graph.nodes import GraphDeps
 from app.agent.tools.context import ToolContext
 from app.agent.tools.langchain_adapter import build_tools
@@ -84,10 +88,91 @@ def default_resources(settings: Any) -> GraphDeps:
                       service=True)
 
 
-def request_deps(base: GraphDeps) -> GraphDeps:
-    """요청 하나가 쓸 의존성. `ToolContext`와 그에 묶인 도구 목록만 새로 만들고 나머지(사전·모델·프롬프트)는 원본을 공유한다."""
+# --------------------------------------------------------------------------- L4 요청 단위 사용량(BE-06-36 A)
+# 서비스 모델 객체는 요청 사이에 공유되므로(`metered._CachedBase.usage`는 프로세스 누적) 요청 하나의 합계를 따로 센다.
+# 요청 귀속: 스트림이 그래프 스레드 안에서 `REQUEST_USAGE`에 그 요청의 합계 객체를 넣고, `request_deps`가 그 객체에 묶인
+# 얇은 계량 래퍼(`UsageMeter`)를 요청 전용 의존성에 끼운다. 동시 요청은 각자 다른 래퍼·합계 객체를 쓰므로 섞이지 않는다.
+# 세는 것은 **숫자만**(호출 수·입력/출력/캐시 토큰·추정 비용)이다. 메시지·도구 인자·모델 출력은 보지도 남기지도 않는다.
+
+
+@dataclass
+class RequestUsage:
+    """요청 하나의 모델 사용량 합계(내용 없음). 그래프 안의 병렬 노드가 함께 쓸 수 있어 잠근다."""
+
+    calls: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    tokens_cached: int = 0
+    cost_usd: float = 0.0
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def add(self, tokens_in: int, tokens_out: int, tokens_cached: int, cost_usd: float) -> None:
+        with self._lock:
+            self.calls += 1
+            self.tokens_in += tokens_in
+            self.tokens_out += tokens_out
+            self.tokens_cached += tokens_cached
+            self.cost_usd += cost_usd
+
+    def fields(self) -> dict[str, float]:
+        """L4 집계 칸(`SERVICE_FIELDS`의 `tokens_in`·`tokens_out`·`cost_usd`). 모델 호출이 없었으면 빈 사전(칸을 0으로 지어내지 않는다)."""
+        with self._lock:
+            if not self.calls:
+                return {}
+            return {"tokens_in": self.tokens_in, "tokens_out": self.tokens_out, "cost_usd": round(self.cost_usd, 8)}
+
+
+REQUEST_USAGE: ContextVar[RequestUsage | None] = ContextVar("mediagent_request_usage", default=None)
+
+CostFn = Callable[[int, int, int], float]
+
+
+def _default_cost(tokens_in: int, tokens_out: int, tokens_cached: int) -> float:
+    from app.agent.llm import estimate_cost_usd  # noqa: PLC0415 - 단가 원본은 llm.py 한 곳(지연 import)
+
+    return estimate_cost_usd(tokens_in, tokens_out, tokens_cached)
+
+
+def _usage_message(result: Any) -> Any:
+    """모델 결과에서 토큰이 붙은 메시지. 도구 모델은 `AIMessage`, 요약 모델은 `{"raw": AIMessage, ...}`(가짜는 초안 dict뿐 → None)."""
+    if isinstance(result, dict):
+        return result.get("raw")
+    return result
+
+
+class UsageMeter:
+    """모델 객체를 감싸 `.invoke` 결과의 토큰 수만 요청 합계에 더하는 사용량 콜백. 결과는 손대지 않고 그대로 돌려준다.
+
+    기록 실패가 응답을 망치지 않게 집계 중 예외는 삼키고 종류 이름만 로그에 남긴다(모델 호출 자체의 예외는 그대로 올린다)."""
+
+    def __init__(self, inner: Any, usage: RequestUsage, cost_fn: CostFn | None = None) -> None:
+        self.inner = inner
+        self._usage = usage
+        self._cost_fn = cost_fn or _default_cost
+
+    def invoke(self, *args: Any, **kwargs: Any) -> Any:
+        result = self.inner.invoke(*args, **kwargs)
+        try:
+            tin, tout, tcached = usage_of(_usage_message(result))
+            self._usage.add(tin, tout, tcached, self._cost_fn(tin, tout, tcached) if (tin or tout) else 0.0)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("usage meter failed: %s", type(exc).__name__)
+        return result
+
+    def __getattr__(self, name: str) -> Any:  # 그 밖의 속성(`usage`·`status_counts` 등)은 원본 그대로
+        return getattr(self.inner, name)
+
+
+def request_deps(base: GraphDeps, usage: RequestUsage | None = None, *, cost_fn: CostFn | None = None) -> GraphDeps:
+    """요청 하나가 쓸 의존성. `ToolContext`와 그에 묶인 도구 목록만 새로 만들고 나머지(사전·모델·프롬프트)는 원본을 공유한다.
+
+    `usage`(없으면 지금 맥락의 `REQUEST_USAGE`)가 있으면 두 모델을 그 합계에 묶인 `UsageMeter`로 감싼다(BE-06-36 A)."""
     ctx = replace(base.tool_ctx, remaining_calls=_DEFAULT_REMAINING_CALLS)
-    return replace(base, tool_ctx=ctx, tools=build_tools(ctx, base.registry), tracer=None)
+    deps = replace(base, tool_ctx=ctx, tools=build_tools(ctx, base.registry), tracer=None)
+    usage = usage if usage is not None else REQUEST_USAGE.get()
+    if usage is None:
+        return deps
+    return replace(deps, tool_model=UsageMeter(base.tool_model, usage, cost_fn), summary_model=UsageMeter(base.summary_model, usage, cost_fn))
 
 
 class LazyGraphRunner:
@@ -122,4 +207,5 @@ def make_service_runner(settings: Any, *, resources_factory: ResourcesFactory | 
     return LazyGraphRunner(settings, resources_factory or default_resources)
 
 
-__all__ = ["REQUIRED_ENV", "LazyGraphRunner", "default_resources", "make_service_runner", "missing_settings", "request_deps"]
+__all__ = ["REQUEST_USAGE", "REQUIRED_ENV", "LazyGraphRunner", "RequestUsage", "UsageMeter", "default_resources", "make_service_runner",
+           "missing_settings", "request_deps"]

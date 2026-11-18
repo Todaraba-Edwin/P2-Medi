@@ -10,7 +10,9 @@
 - 연결이 끊기면 생성기가 닫히며 `stop`을 세운다. 스레드는 다음 노드 경계에서 멈춘다(진행 중인 노드 하나는 끝까지 돈다).
 - 서비스 집계 지표 L4(RFP-34-01·03 A, H13): 요청이 끝나면 **내용 없는 값만** `metrics.log(...)`에 넘긴다 — 요청 한 건(`node="chat"`,
   지연, 종료 사유 또는 오류 유형)과 하네스 **차단** 이벤트의 규칙 ID. 질문·약 이름·프로필·모델 출력은 넘기지 않는다. 분 단위 합산과 표준 출력은
-  L1 `SpanLogger(mode="service")`·`Aggregator`가 한다(앱은 파일로 저장하지 않는다). 토큰·비용은 서비스 경로에 계측기가 없어 아직 넣지 않는다.
+  L1 `SpanLogger(mode="service")`·`Aggregator`가 한다(앱은 파일로 저장하지 않는다). 토큰·비용(BE-06-36 A)은 요청 단위 합계(`RequestUsage`)를
+  그래프 스레드 맥락(`REQUEST_USAGE`)에 넣어 서비스 실행기(`service.LazyGraphRunner`)의 요청 전용 모델 래퍼(`UsageMeter`)가 숫자만 더하고,
+  끝에 `tokens_in`·`tokens_out`·`cost_usd` 칸으로 넘긴다. 그 래퍼를 쓰지 않는 실행기(시험용 `GraphRunner` 등)는 칸이 없다.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from app.agent.graph.trace import harness_events
 from app.api.events import AnswerEvent, AnyEvent, ErrorEvent, EventSequence
 from app.api.runner import ChatRunner
 from app.api.schemas import response_from_state
+from app.api.service import REQUEST_USAGE, RequestUsage
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +53,10 @@ class MetricsSink(Protocol):
 
 
 def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reason: str | None, error_type: str | None,
-                    block_rules: list[str]) -> None:
-    """요청 한 건의 내용 없는 값을 집계기에 넘긴다. 기록 실패가 응답을 망치지 않게 예외는 종류 이름만 로그에 남긴다."""
+                    block_rules: list[str], usage: RequestUsage | None = None) -> None:
+    """요청 한 건의 내용 없는 값을 집계기에 넘긴다. 기록 실패가 응답을 망치지 않게 예외는 종류 이름만 로그에 남긴다.
+
+    `usage`(요청 단위 모델 사용량, BE-06-36 A)는 숫자 칸 `tokens_in`·`tokens_out`·`cost_usd`로만 더한다(모델 호출이 없었으면 칸 없음)."""
     if metrics is None:
         return
     try:
@@ -60,6 +65,8 @@ def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reaso
             fields["end_reason"] = end_reason
         if error_type:
             fields["error_type"] = error_type
+        if usage is not None:
+            fields.update(usage.fields())
         metrics.log(**fields)
         for rule in block_rules:
             metrics.log(harness_event={"rule": rule})  # 규칙 ID만(L1이 `harness_rule`로 센다)
@@ -68,7 +75,11 @@ def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reaso
 
 
 def _run_in_thread(runner: ChatRunner, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Sequence[str],
-                   loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[Any], stop: threading.Event) -> None:
+                   loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[Any], stop: threading.Event,
+                   usage: RequestUsage | None = None) -> None:
+    if usage is not None:
+        REQUEST_USAGE.set(usage)  # 이 스레드(= 이 요청)의 맥락에만. 실행기가 요청 전용 모델 래퍼를 이 합계에 묶는다
+
     def put(item: Any) -> None:
         try:
             loop.call_soon_threadsafe(queue.put_nowait, item)
@@ -108,8 +119,10 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[Any] = asyncio.Queue()
     stop = threading.Event()
-    threading.Thread(target=_run_in_thread, args=(runner, question, profile, tuple(confirmed_item_seqs), loop, queue, stop), daemon=True, name="chat-graph").start()
-    final: dict[str, Any] = {}  # 응답 변환에 쓰는 값만 모은다(`answer`·`end_reason`·`clarify`)
+    usage = RequestUsage()  # 이 요청의 모델 사용량(숫자만, BE-06-36 A)
+    threading.Thread(target=_run_in_thread, args=(runner, question, profile, tuple(confirmed_item_seqs), loop, queue, stop, usage),
+                     daemon=True, name="chat-graph").start()
+    final: dict[str, Any] = {}  # 응답 변환에 쓰는 값만 모은다(`answer`·`end_reason`·`clarify`·`entities`)
     last_stage: str | None = None
     try:
         while True:
@@ -124,8 +137,9 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
                 block_rules.extend(h["rule"] for h in harness_events(update.get("events") or []) if h["action"] == "block" and h["rule"])
                 if node == "guardrail_in" and update.get("emergency"):
                     yield seq.emergency()
-                elif node == "router" and "clarify" in update:
-                    final["clarify"] = update["clarify"]
+                elif node == "router":
+                    # 되묻기 묶음과 확정 엔티티(표시 이름 표에만 씀, 이슈 F3). 지표·로그에는 싣지 않는다
+                    final.update({k: update[k] for k in ("clarify", "entities") if k in update})
                 elif node == "model":
                     for stage in _tool_stages(update):
                         if stage != last_stage:
@@ -151,7 +165,7 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
             error_type = ERROR_CLIENT_GONE
         _record_metrics(metrics, latency_ms=(time.monotonic() - started) * 1000,
                         end_reason=answered.response.end_reason if answered and error_type is None else None,
-                        error_type=error_type, block_rules=block_rules)
+                        error_type=error_type, block_rules=block_rules, usage=usage)
 
 
 __all__ = ["METRICS_NODE", "TOOL_STAGE", "MetricsSink", "chat_events"]

@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -505,10 +506,53 @@ def _publisher_and_dataset(d: dict[str, Any]) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _detail_item(d: dict[str, Any]) -> DetailItem:
+# ---------------------------------------------------------------- 표시 이름(이슈 F3, 2026-11-18)
+# 모델이 약을 품목기준코드로만 넘기면(오탈자 보정·되묻기로 확정된 약에서 흔함) 도구가 그 코드를 표시명 자리에 둔다
+# (`check_contraindications._resolve`: `label = arg.name or arg.item_seq`). 응답 변환에서 **이름 칸의 값이 정확히 품목기준코드**이고
+# 같은 응답·같은 요청에 그 코드의 사전 확정 이름이 있을 때만 그 이름으로 바꾼다. 판정·근거 ID·`item_seq` 칸은 바꾸지 않는다.
+_ITEM_SEQ_RE = re.compile(r"^\d{9}$")  # 품목기준코드(요청 모델 `ConfirmedDrug.item_seq`·router `_ITEM_SEQ_RE`와 같은 형식)
+NAME_JOIN = " · "  # 쌍 줄 머리 구분자(`finalize._drug`와 같은 값)
+_ENTITY_RESOLVED = "RESOLVED"  # router `ST_RESOLVED`
+
+
+def display_names(resp: dict[str, Any], entities: Sequence[Any] | None = None) -> dict[str, str]:
+    """품목기준코드 → 사전 확정 이름. 우선순위: ① 식별 근거(`identify` FOUND)의 사전 제품명 ② 제품 줄의 식별 이름(`product_rows[].name`)
+    ③ router가 확정한 엔티티(`RESOLVED`, 오탈자 보정이면 `raw`가 보정한 사전 이름). 이름이 코드 꼴이거나 비었으면 쓰지 않는다."""
+    out: dict[str, str] = {}
+
+    def put(seq: Any, name: Any) -> None:
+        if isinstance(seq, str) and _ITEM_SEQ_RE.match(seq) and isinstance(name, str) and name.strip() \
+                and not _ITEM_SEQ_RE.match(name.strip()):
+            out.setdefault(seq, name.strip())
+
+    for d in resp.get("detail") or []:
+        if isinstance(d, dict) and d.get("kind") == "identify" and d.get("status") == "FOUND":
+            put(d.get("item_seq"), d.get("name"))
+    for r in resp.get("product_rows") or []:
+        if isinstance(r, dict):
+            put(r.get("key"), r.get("name"))
+    for e in entities or []:
+        if isinstance(e, dict) and e.get("status") == _ENTITY_RESOLVED:
+            put(e.get("item_seq"), e.get("raw"))
+    return out
+
+
+def _named(label: str, names: dict[str, str]) -> str:
+    return names.get(label, label)
+
+
+def _named_head(head: str, names: dict[str, str]) -> str:
+    """줄 머리(`약 · 약`)의 조각 중 품목기준코드인 것만 이름으로 바꾼다."""
+    if not names:
+        return head
+    return NAME_JOIN.join(_named(p, names) for p in head.split(NAME_JOIN))
+
+
+def _detail_item(d: dict[str, Any], names: dict[str, str] | None = None) -> DetailItem:
+    names = names or {}
     pub, ds = _publisher_and_dataset(d)
     sk = d.get("source_kind") if d.get("source_kind") in ("API_DIRECT", "FILE", "CORPUS_QUOTE") else None
-    drugs = [str(x) for x in d["drugs"]] if isinstance(d.get("drugs"), list) else None
+    drugs = [_named(str(x), names) for x in d["drugs"]] if isinstance(d.get("drugs"), list) else None
     reason = d.get("missing_reason")
     flags = list(d.get("flags") or [])
     name = drugs[0] if drugs and len(drugs) == 1 else (str(d["name"]) if d.get("name") else None)
@@ -601,9 +645,11 @@ _NOT_JUDGED_CHIP = {"contra_kinds": [], "dup": False}
 
 
 def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]], *,
-             chip_default: dict[str, Any] | None = None) -> Finding:
+             chip_default: dict[str, Any] | None = None, display: dict[str, str] | None = None) -> Finding:
+    if display and isinstance(e.get("drug"), str):
+        e = {**e, "drug": _named_head(e["drug"], display)}  # 줄 머리의 품목기준코드 조각 → 사전 확정 이름(F3)
     d = detail_by_id.get(e.get("evidence_id") or "")
-    names = list(d.drugs) if d and d.drugs else []
+    names = list(d.drugs) if d and d.drugs else []  # 근거 상세의 `drugs`는 이미 이름으로 바꿨다(`_detail_item`)
     is_pair = e.get("kind") in PAIR_KINDS and len(names) == 2
     if not names and e.get("drug") and e["drug"] != "이 약" and not is_pair:
         names = [e["drug"]]  # 식별 항목 등 `drugs`가 없는 근거: finalize가 만든 이름 그대로
@@ -634,7 +680,7 @@ def _absorbed(row: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[s
     return [e for e in entries if e.get("evidence_id") in ids and e.get("kind") not in PAIR_KINDS and e.get("bucket") in _ABSORB_BUCKETS]
 
 
-def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]]) -> Finding:
+def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]], display: dict[str, str] | None = None) -> Finding:
     """`finalize.product_rows` 한 줄 → 제품 줄 `Finding`(BE-06-12 A, PRD-14 식별된 약 한 줄, PRD-09-05 성분 칩).
 
     - `evidence_id`는 None이다(BE-06-41 A): 근거 연결은 배지마다 `evidence_id`. 한 근거를 쌍 줄·두 약의 제품 줄이 함께 가리켜 ID로 줄을 찾으면 겹친다.
@@ -659,8 +705,9 @@ def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]]) -> Fin
     # 그것도 없으면 흡수한 첫 줄의 종류(성분 중복·주의). 근거 ID와 달리 종류는 줄을 가리키는 열쇠가 아니다
     kinds = [b.get("kind") for b in row.get("badges") or []] + sorted((e.get("kind") for e in absorbed), key=lambda k: k != "identify")
     kind = next((k for k in kinds if k), None)
+    drug = _named(str(row["drug"]), display or {})  # 줄 머리가 품목기준코드면 사전 확정 이름(F3)
     return Finding(
-        target="product", bucket=row["bucket"], evidence_id=None, kind=kind, drug=row["drug"], drugs=[row["drug"]], text=row["text"],
+        target="product", bucket=row["bucket"], evidence_id=None, kind=kind, drug=drug, drugs=[drug], text=row["text"],
         badges=[_badge(b) for b in row.get("badges") or []],
         ingredients=[Ingredient(**i) for i in row.get("ingredients") or [] if isinstance(i, dict) and i.get("name")],
         notes=list(dict.fromkeys(notes)), unresolved=bool(row.get("unresolved")), sub_line=sub_line,
@@ -668,7 +715,8 @@ def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]]) -> Fin
     )
 
 
-def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]]) -> list[Finding]:
+def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]],
+              display: dict[str, str] | None = None) -> list[Finding]:
     """판정 줄 = 제품 줄(`product_rows`, 묶음 found·identified) → 남은 근거 줄(쌍 줄 포함, `entries` 순서).
 
     남은 근거 줄 중 `line_groups`(같은 약 키·같은 주의 종류·같은 출처, BE-06-47 A)에 든 줄은 첫 줄 자리에 한 줄로 합친다.
@@ -682,7 +730,7 @@ def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_
     for r in rows:
         absorbed = _absorbed(r, entries)
         taken.update(id(e) for e in absorbed)
-        out.append(_product_finding(r, absorbed))
+        out.append(_product_finding(r, absorbed, display))
     # 따로 남는 "찾음" 줄의 성분 칩(결정 후보 4 B): 그 약에 판정 항목이 없거나(제품 줄 없음) 목록에 없음뿐이면 판정 대상 아님 → 원인 아님(글자 없음).
     # 판정을 시도했지만 확인하지 못한 약(`unconfirmed` 줄)은 칸 없음 = 모름 그대로("원인 확인 못 함", BE-06-42 A).
     # `product_rows`가 없는 이전 출력은 판단할 근거가 없어 그대로 둔다
@@ -709,14 +757,14 @@ def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_
         members = [by_eid[x] for x in group_of.get(e.get("evidence_id") or "", []) if x in by_eid and id(by_eid[x]) not in merged]
         if len(members) > 1 and any(m is e for m in members):
             merged.update(id(m) for m in members)
-            out.append(_group_finding(members, detail_by_id, badges_by_id))
+            out.append(_group_finding(members, detail_by_id, badges_by_id, display))
             continue
-        out.append(_finding(e, detail_by_id, badges_by_id, chip_default=chip_default(e)))
+        out.append(_finding(e, detail_by_id, badges_by_id, chip_default=chip_default(e), display=display))
     return out
 
 
 def _group_finding(members: list[dict[str, Any]], detail_by_id: dict[str, DetailItem],
-                   badges_by_id: dict[str, list[Badge]]) -> Finding:
+                   badges_by_id: dict[str, list[Badge]], display: dict[str, str] | None = None) -> Finding:
     """같은 약·같은 주의 종류의 근거 줄 여럿 → 한 줄(BE-06-47 A). 줄 글자·출처 표지는 묶음 안에서 같고(묶음 키가 종류·출처 종류·자료),
     근거 ID는 첫 줄의 것(화면이 근거 상세의 출처 표지를 찾는 열쇠, 같은 자료라 표지가 같다)이다. 줄마다 달 수 있는 칸
     (꼬리 안내·등급·고시 번호·배지)은 나온 순서로 합치고 같은 값은 한 번만 둔다. 근거 상세는 근거마다 그대로 남는다."""
@@ -731,7 +779,7 @@ def _group_finding(members: list[dict[str, Any]], detail_by_id: dict[str, Detail
             if all((y.kind, y.text) != (b.kind, b.text) for y in badges):
                 badges.append(b)
     e = {**first, "notes": union("notes"), "grades": union("grades"), "notice_nos": union("notice_nos")}
-    return _finding(e, detail_by_id, {first.get("evidence_id") or "": badges})
+    return _finding(e, detail_by_id, {first.get("evidence_id") or "": badges}, display=display)
 
 
 def _candidates(clarify: dict[str, Any] | None) -> list[Candidate]:
@@ -743,12 +791,15 @@ def _candidates(clarify: dict[str, Any] | None) -> list[Candidate]:
             for o in clarify.get("options") or [] if isinstance(o, dict) and o.get("name") and target]
 
 
-def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, clarify: dict[str, Any] | None = None) -> ChatResponse:
+def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, clarify: dict[str, Any] | None = None,
+                     entities: Sequence[Any] | None = None) -> ChatResponse:
     """`finalize()` 출력 딕셔너리 → `ChatResponse`. 값을 지어내지 않고 옮기며, 출처 표·날짜 줄·줄별 배지 배치만 코드로 만든다.
 
     `clarify`(라우터의 되묻기 묶음 `{target_raw, options[]}`)는 `end_reason == CLARIFY`일 때만 `candidates[]`로 옮긴다.
+    `entities`(router가 정리한 약 엔티티)는 품목기준코드 → 사전 확정 이름 표(`display_names`)에만 쓴다(이슈 F3). 응답에 옮기지 않는다.
     """
-    detail = [_detail_item(d) for d in resp.get("detail") or [] if isinstance(d, dict)]
+    display = display_names(resp, entities)
+    detail = [_detail_item(d, display) for d in resp.get("detail") or [] if isinstance(d, dict)]
     detail_by_id = {d.evidence_id: d for d in detail if d.evidence_id}
     badges_by_id: dict[str, list[Badge]] = {}
     for b in resp.get("badges") or []:
@@ -768,7 +819,7 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
         not_checked_lines=list(resp.get("not_checked_lines") or []),
         grade_defs=[GradeDef(**g) for g in resp.get("grade_defs") or [] if isinstance(g, dict)],
         summary=resp.get("summary"),
-        findings=_findings(resp, detail_by_id, badges_by_id),  # 제품 줄 연결(BE-06-39~41 A)
+        findings=_findings(resp, detail_by_id, badges_by_id, display),  # 제품 줄 연결(BE-06-39~41 A)
         candidates=_candidates(clarify) if end_reason == "CLARIFY" else [],
         detail=detail,
         citations=build_citations(detail),
@@ -783,5 +834,8 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
 
 
 def response_from_state(state: dict[str, Any]) -> ChatResponse:
-    """그래프 최종 상태 → 응답(상태의 `answer`·`end_reason`·`clarify`만 읽는다. 질문·메시지·프로필은 싣지 않는다)."""
-    return to_chat_response(state["answer"], end_reason=state.get("end_reason"), clarify=state.get("clarify"))
+    """그래프 최종 상태 → 응답(상태의 `answer`·`end_reason`·`clarify`·`entities`만 읽는다. 질문·메시지·프로필은 싣지 않는다).
+
+    `entities`는 표시 이름 표에만 쓰고 응답 칸으로 옮기지 않는다(이슈 F3)."""
+    return to_chat_response(state["answer"], end_reason=state.get("end_reason"), clarify=state.get("clarify"),
+                            entities=state.get("entities"))
