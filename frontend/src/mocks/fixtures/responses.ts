@@ -154,6 +154,8 @@ const pairFinding: NonNullable<Body["findings"]>[number] = {
   ],
   source_label: fileLabel(DATASET_CONTRA_PAIR),
   notice_nos: ["20260001"],
+  // 서버 `Finding.reasons`(FE-02-06 A): 근거 `rows[].reason` 원문 그대로, 중복 제거
+  reasons: ["합성 사유 문장"],
 };
 
 /** 미확보 근거 항목(허가사항)의 "확인하지 못함" 제품 줄: 서버 `_finding`이 내는 모양(배지·출처 표지 없음) */

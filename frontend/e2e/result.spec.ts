@@ -97,6 +97,17 @@ for (const viewport of NARROW) {
   test.describe(`결과 카드 ${viewport.width}px`, () => {
     test.use({ viewport });
 
+    test("병용금기 사유 원문: 카드 보조줄에 `사유:`로 보이고 2줄을 넘지 않으며 가로 넘침이 없다(FE-02-06 A)", async ({ page }) => {
+      await page.goto("/dev/preview/result");
+      const reasons = sample(page, "long-reason").locator('[data-slot="reason"]');
+      await expect(reasons).toHaveCount(2);
+      await expect(reasons.nth(1)).toHaveText("사유: 합성 둘째 사유 문장");
+      const box = await reasons.nth(0).boundingBox();
+      expect(box!.height).toBeLessThanOrEqual(2 * 17 + 1); // 2줄 말줄임(줄 높이 17px)
+      await expect(reasons.nth(0)).toContainText("일부러 길게 적었습니다"); // 글자는 DOM에 그대로
+      await expectNoHorizontalScroll(page);
+    });
+
     test("①②③④ 모든 표본: 제목이 쪼개지지 않고, 배지가 잘리지 않고, 제목 줄이 유지되고, 가로 스크롤이 없다", async ({ page }) => {
       await page.goto("/dev/preview/result");
       const cards = page.getByTestId("result-card");

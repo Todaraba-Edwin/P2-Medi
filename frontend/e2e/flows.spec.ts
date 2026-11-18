@@ -364,8 +364,11 @@ for (const width of [360, 320]) {
         "라마바캡슐 허가사항에는 이 항목이 따로 적혀 있지 않아요",
         "지금은 허가사항을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요",
       ]);
+      // 권고는 구역마다 1개(FE-02-05 A): 허가사항 구역의 미확보 묶음 하나. 항목 3개는 그 아래 목록이다
       const advice = sheet(page).getByTestId("pharmacist-advice");
-      await expect(advice).toHaveCount(3);
+      await expect(advice).toHaveCount(1);
+      await expect(sheet(page).getByTestId("missing-group")).toHaveCount(1);
+      await expect(sheet(page).getByTestId("missing-box")).toHaveCount(3);
       // 약 이름은 서버처럼 " · "로 잇는다(finalize.py 291행, FE-IMPL-06b fixture 정정)
       await expect(advice.first()).toHaveText("복용 전에 꼭 약국·약사에게 가나다정 · 라마바캡슐을 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요.");
       expect(await sheet(page).locator("details").count()).toBe(0);

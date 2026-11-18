@@ -38,6 +38,14 @@ const longTitle = check({
   ],
 });
 
+/** 긴 사유 원문: 카드는 2줄 말줄임, 글자는 자르지 않는다(FE-02-06 A). 사유가 여럿이면 한 줄씩 */
+const LONG_REASON =
+  "합성 긴 사유 문장입니다. 두 약을 함께 쓰면 부작용이 커질 수 있다고 고시에 적힌 내용을 받은 그대로 보여 주는지 보기 위한 표본으로, 한 줄을 훌쩍 넘고 두 줄도 넘기는 길이로 일부러 길게 적었습니다.";
+const longReason = check({
+  ...fixtures.foundResponse,
+  findings: [{ ...pairLine, reasons: [LONG_REASON, "합성 둘째 사유 문장"] }],
+});
+
 /** 성분 6개: 5개 이상이면 원인·중복 먼저 + 외 N개 */
 const manyIngredients = check({
   ...fixtures.pregnancyResponse,
@@ -64,6 +72,7 @@ const mixed = check({
 
 export const RESULT_SAMPLES: ResultSample[] = [
   { id: "found", title: "병용금기 발견(쌍 줄)", board: "Result-Found", response: fixtures.foundResponse },
+  { id: "long-reason", title: "병용금기 사유 원문(2줄 말줄임, 사유 둘)", board: null, response: longReason },
   { id: "pregnancy", title: "임부금기 발견(등급 배지 1개)", board: null, basis: "임신 기준", response: fixtures.pregnancyResponse },
   { id: "mixed", title: "발견 + 목록에 없음", board: "Result-Mixed", basis: "임신 기준", response: mixed },
   { id: "both", title: "병용 + 임부(쌍 줄과 제품 줄)", board: "Result-Both", basis: "임신 기준", response: fixtures.pairAndPregnancyResponse },

@@ -116,6 +116,22 @@ describe("ProductLine", () => {
     expect(container.querySelector('[data-slot="age-info"]')?.textContent).toBe("받은 안내 문구");
   });
 
+  it("병용금기 쌍 줄: 받은 사유 원문이 `사유:` 보조줄에 한 줄씩 글자 그대로 있고 2줄 말줄임이다(FE-02-06 A)", () => {
+    const long = "합성 긴 사유 문장 ".repeat(30).trim();
+    const finding = { ...fixtures.foundResponse.findings[0], reasons: [long, "둘째 사유"] };
+    const { container } = line(finding);
+    const reasons = [...container.querySelectorAll('[data-slot="reason"]')];
+    expect(texts(reasons)).toEqual([`사유: ${long}`, "사유: 둘째 사유"]); // 글자를 자르지 않는다(DOM 전체 글자)
+    for (const reason of reasons) expect(reason.className).toContain("line-clamp-2");
+    expect(screen.getByTestId("status-badge").textContent).not.toContain("사유");
+    expect(container.textContent).not.toMatch(/\d+\s?(mg|밀리그램|정|캡슐)\b/); // 카드에 용량 숫자가 없다(RFP-21-03)
+  });
+
+  it("사유 칸이 비어 있으면(서버가 주기 전·용량 숫자로 뺀 경우) 사유 줄을 그리지 않는다", () => {
+    const { container } = line({ ...fixtures.foundResponse.findings[0], reasons: [] });
+    expect(container.querySelector('[data-slot="reason"]')).toBeNull();
+  });
+
   it("M등급 덧붙임 글은 한 번만 보인다", () => {
     line(fixtures.pregnancyMResponse.findings[0]);
     expect(screen.getAllByText(PHRASES.BADGE_PREGNANCY_M_NOTE)).toHaveLength(1);

@@ -10,7 +10,7 @@ import * as copy from "./copy";
 import { EvidenceDetail } from "./EvidenceDetail";
 import { EvidenceEntryButton, EvidencePanel } from "./EvidencePanel";
 import { GradeDefBlock } from "./GradeDefBlock";
-import { MissingBox } from "./MissingBox";
+import { MissingBox, MissingGroup } from "./MissingBox";
 import { PermitText } from "./PermitText";
 import { groupByPublisher, rowTexts } from "./sections";
 import { SourceTable } from "./SourceTable";
@@ -204,36 +204,55 @@ describe("PermitText", () => {
   });
 });
 
-describe("MissingBox", () => {
+describe("MissingBox·MissingGroup", () => {
   const response = fixtures.missingEvidenceResponse;
   const item = response.detail[1];
 
   it("미확보 문구는 응답 값 그대로이고 화면 상수가 아니다", () => {
-    render(<MissingBox item={item} advice={response.pharmacist_advice} />);
+    render(<MissingBox item={item} />);
     expect(screen.getByTestId("missing-text").textContent).toBe(PHRASES.MISSING_SEARCH_MISS);
-    render(<MissingBox item={{ ...item, missing_text: "서버가 준 다른 미확보 문구" }} advice={[]} />);
+    render(<MissingBox item={{ ...item, missing_text: "서버가 준 다른 미확보 문구" }} />);
     expect(screen.getByText("서버가 준 다른 미확보 문구")).toBeInTheDocument();
     expect(JSON.stringify(copy)).not.toMatch(/찾지 못|불러오지 못|확인할 수 없|적혀 있지/);
   });
 
-  it("박스 안에 약사 확인 권고가 받은 글자 그대로 있고 접히지 않는다", () => {
-    const advice = ["복용 전에 꼭 약국·약사에게 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요."];
-    render(<MissingBox item={item} advice={advice} />);
-    const box = screen.getByTestId("missing-box");
-    const adviceBox = within(box).getByTestId("pharmacist-advice");
-    expect(adviceBox.textContent).toBe(advice[0]);
-    expect(adviceBox.closest(CLOSED)).toBeNull();
-    expect(box.querySelector("details, button")).toBeNull();
-    expect(box.textContent).not.toContain("삐!");
+  it("항목 박스에는 약사 확인 권고가 없다(권고는 구역 묶음이 한 번만 그린다)", () => {
+    render(<MissingBox item={item} />);
+    expect(screen.getByTestId("missing-box").querySelector('[data-testid="pharmacist-advice"]')).toBeNull();
   });
 
-  it("EvidenceDetail: 허가사항 구역의 미확보 항목이 미확보 박스로 나오고 권고는 응답의 줄이다", () => {
+  it("묶음: 권고 박스 1개가 받은 글자 그대로 맨 위에 있고 접히지 않으며, 그 아래에 미확보 항목이 모두 있다", () => {
+    const advice = ["복용 전에 꼭 약국·약사에게 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요."];
+    const items = [item, { ...item, drug_name: "라마바캡슐", missing_text: "받은 둘째 미확보 문구" }, { ...item, drug_name: "마바사정", missing_text: "받은 셋째 미확보 문구" }];
+    render(<MissingGroup items={items} advice={advice} />);
+    const group = screen.getByTestId("missing-group");
+    const adviceBoxes = within(group).getAllByTestId("pharmacist-advice");
+    expect(adviceBoxes).toHaveLength(1);
+    expect(adviceBoxes[0].textContent).toBe(advice[0]);
+    expect(adviceBoxes[0].closest(CLOSED)).toBeNull();
+    expect(group.firstElementChild).toBe(adviceBoxes[0].closest("[data-testid='pharmacist-advice']"));
+    const boxes = within(group).getAllByTestId("missing-box");
+    expect(boxes).toHaveLength(items.length);
+    expect(texts(boxes.map((box) => box.querySelector('[data-testid="missing-text"]')!))).toEqual(items.map((i) => i.missing_text));
+    expect(boxes.map((box) => box.querySelector("b")?.textContent)).toEqual(items.map((i) => `${i.drug_name} · ${i.section}`));
+    // 권고가 항목보다 위에 있다
+    expect(adviceBoxes[0].compareDocumentPosition(boxes[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(group.querySelector("details, button")).toBeNull();
+    expect(group.textContent).not.toContain("삐!");
+  });
+
+  it("묶음: 미확보 항목이 없으면 아무것도 그리지 않는다", () => {
+    const { container } = render(<MissingGroup items={[]} advice={["받은 권고"]} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("EvidenceDetail: 허가사항 구역의 미확보 항목이 미확보 박스로 나오고 권고는 구역에 하나, 응답의 줄이다", () => {
     const withAdvice: ChatResponse = { ...response, pharmacist_advice: ["받은 권고 첫 문장. 받은 권고 둘째 문장."] };
     render(<EvidenceDetail response={withAdvice} />);
     const label = screen.getAllByTestId("evidence-section").find((el) => el.getAttribute("data-section") === "label")!;
     const box = within(label).getByTestId("missing-box");
     expect(box.querySelector("b")?.textContent).toBe(`${item.drug_name} · ${item.section}`);
-    expect(within(box).getByTestId("pharmacist-advice").textContent).toBe(withAdvice.pharmacist_advice[0]);
+    expect(within(label).getByTestId("pharmacist-advice").textContent).toBe(withAdvice.pharmacist_advice[0]);
     expect(within(label).queryByTestId("permit-text")).toBeNull();
   });
 });

@@ -3,6 +3,6 @@ export { EvidenceDetail } from "./EvidenceDetail";
 export { EvidenceEntryButton, EvidencePanel } from "./EvidencePanel";
 export type { EvidenceMode, EvidencePanelProps } from "./EvidencePanel";
 export { GradeDefBlock } from "./GradeDefBlock";
-export { MissingBox } from "./MissingBox";
+export { MissingBox, MissingGroup } from "./MissingBox";
 export { PermitText } from "./PermitText";
 export { SourceTable } from "./SourceTable";
