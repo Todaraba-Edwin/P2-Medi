@@ -160,6 +160,9 @@ export const FindingSchema = z
     age_criteria: stringList,
     age_info_line: optionalNullableString, // 나이 기준 값의 안내 문구(서버 상수). 나이 기준 값이 있을 때만 온다
     sub_line: optionalNullableString, // 표지 아래 보조줄(서버가 만든 값: 식별된 약의 성분 이름 등)
+    // 병용금기 쌍 줄의 금기 사유 원문(FE-02-06 A, 서버 `Finding.reasons`). 원문 그대로·중복 제거, 용량 숫자가 걸리는 사유는 서버가 뺀다.
+    // 서버가 칸을 주기 전에도 깨지지 않게 기본값은 빈 목록이다
+    reasons: stringList,
   })
   .superRefine((finding, ctx) => {
     if (finding.target === "pair" && finding.drugs.length !== 2) ctx.addIssue({ code: "custom", message: "쌍 줄은 drugs에 두 약을 담는다" });

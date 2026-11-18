@@ -6,7 +6,7 @@ import { SECTION_TITLES } from "./copy";
 import { EvidenceBox, SourceTag } from "./EvidenceBox";
 import { GradeDefBlock } from "./GradeDefBlock";
 import { LookupPairs } from "./LookupPairs";
-import { MissingBox } from "./MissingBox";
+import { MissingGroup } from "./MissingBox";
 import { PermitText } from "./PermitText";
 import { buildSections, isLookupFinding, rowTexts } from "./sections";
 import { SourceTable } from "./SourceTable";
@@ -75,9 +75,7 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
                 ))}
               </EvidenceBox>
             ))}
-            {sections.reasonsMissing.map((item, index) => (
-              <MissingBox key={`missing-${index}`} item={item} advice={advice} />
-            ))}
+            <MissingGroup items={sections.reasonsMissing} advice={advice} />
           </Section>
         )}
         {sections.labels.length > 0 && (
@@ -87,9 +85,9 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
                 {text}
               </p>
             ))}
-            {sections.labels.map((item, index) =>
-              item.missing_text !== null ? <MissingBox key={index} item={item} advice={advice} /> : <PermitText key={index} item={item} />,
-            )}
+            {sections.labels.map((item, index) => (item.missing_text === null ? <PermitText key={index} item={item} /> : null))}
+            {/* 미확보는 인용 뒤에 구역 묶음 하나로: 권고 1개 + 항목 목록(FE-02-05 A) */}
+            <MissingGroup items={sections.labels.filter((item) => item.missing_text !== null)} advice={advice} />
           </Section>
         )}
         {sections.citations.length > 0 && (

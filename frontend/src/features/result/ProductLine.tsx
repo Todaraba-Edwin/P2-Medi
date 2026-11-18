@@ -11,6 +11,9 @@ const STATUS_CLASS: Record<Finding["bucket"], string> = {
   unconfirmed: "border border-dashed border-faint bg-bg text-ink-2",
 };
 
+// 화면 라벨(사유 줄 머리, PRD-09 §7.4 `· 사유: {금기사유 원문}`). 판정·고정 문구가 아니다
+const REASON_LABEL = "사유: ";
+
 function SubLine({ children, slot }: { children: React.ReactNode; slot: string }) {
   return (
     <p data-slot={slot} className="m-0 text-xs leading-[17px] break-words text-mute">
@@ -73,6 +76,13 @@ export function ProductLine({ finding, omitLookupLines = false }: { finding: Fin
         <SubLine key={`age-${index}`} slot="age-criteria">
           {value}
         </SubLine>
+      ))}
+      {/* 병용금기 사유 원문(서버 `reasons`, FE-02-06 A): 받은 글자를 자르지 않고 CSS 2줄 말줄임만 쓴다(전체 글자는 DOM에 남는다). 전문은 근거 상세 "사유 원문" */}
+      {finding.reasons.map((reason, index) => (
+        <p key={`reason-${index}`} data-slot="reason" className="m-0 line-clamp-2 text-xs leading-[17px] break-words text-mute">
+          {REASON_LABEL}
+          {reason}
+        </p>
       ))}
       {finding.note && <SubLine slot="note">{finding.note}</SubLine>}
       {badgeNotes.map((note, index) => (

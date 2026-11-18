@@ -123,15 +123,29 @@ describe.each(cases)("%s", (_name, response) => {
     expect(new Set(help).size).toBe(help.length);
   });
 
-  it("미확보 박스: 응답 문구와 약사 확인 권고가 있고 '없음·안전' 암시가 없다(PRD-11 §8 ⑤⑪)", () => {
+  it("미확보 묶음: 구역마다 권고 박스 1개가 위에 있고 목록에 미확보 항목이 모두 있으며 '없음·안전' 암시가 없다(PRD-11 §8 ⑤⑪, FE-02-05 A)", () => {
     const { q } = draw(response);
     for (const box of q('[data-testid="missing-box"]')) {
       expect(box.querySelector('[data-testid="missing-text"]')?.textContent ?? "").not.toBe("");
-      if (response.pharmacist_advice.length > 0) expect(box.querySelector('[data-testid="pharmacist-advice"]')).not.toBeNull();
+      expect(box.querySelector('[data-testid="pharmacist-advice"]')).toBeNull(); // 항목마다 권고를 되풀이하지 않는다
       expect(box.closest("details, [data-state='closed'], [hidden]")).toBeNull();
       expect(box.textContent ?? "").not.toMatch(/상호작용(이)? 없|금기가 없|안전해요|안전합니다/);
       expect(box.textContent ?? "").not.toContain("삐!");
     }
+    const groups = q('[data-testid="missing-group"]');
+    // 묶음 안의 미확보 항목을 모두 합치면 응답의 미확보 항목(사유 원문·허가사항 구역)과 같다
+    const inGroups = groups.flatMap((group) => [...group.querySelectorAll('[data-testid="missing-box"]')]);
+    expect(inGroups).toHaveLength(response.detail.filter((item) => item.missing_text !== null && item.kind !== "identify").length);
+    for (const group of groups) {
+      const advice = group.querySelectorAll('[data-testid="pharmacist-advice"]');
+      if (response.pharmacist_advice.length > 0) {
+        expect(advice).toHaveLength(1); // 구역마다 권고 박스 1개
+        expect(group.firstElementChild).toBe(advice[0]); // 목록 위
+        expect(group.closest("details, [data-state='closed'], [hidden]")).toBeNull();
+      }
+    }
+    // 구역마다 묶음은 하나만 있다
+    for (const section of q('[data-testid="evidence-section"]')) expect(section.querySelectorAll('[data-testid="missing-group"]').length).toBeLessThanOrEqual(1);
     // 미확보 항목이 있으면 접히지 않는 고정 안내에도 권고 한 줄이 있다(서버가 fixed_notice에 싣는다)
     if (response.detail.some((item) => item.missing_text !== null)) {
       expect(response.pharmacist_advice.length).toBeGreaterThan(0);

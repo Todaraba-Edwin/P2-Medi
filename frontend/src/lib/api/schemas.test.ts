@@ -35,7 +35,7 @@ describe("ChatResponse v1 zod", () => {
       disclaimer: "고지",
     });
     expect(parsed).toMatchObject({ end_reason: null, emergency: null, notice: null, candidates: [], detail: [], citations: [] });
-    expect(parsed.findings[0]).toMatchObject({ target: "product", drugs: [], badges: [], ingredients: [], retried: null, age_criteria: [], age_info_line: null });
+    expect(parsed.findings[0]).toMatchObject({ target: "product", drugs: [], badges: [], ingredients: [], retried: null, age_criteria: [], age_info_line: null, reasons: [] });
   });
 
   it.each([
@@ -87,6 +87,8 @@ describe("ChatResponse v1 zod", () => {
     ["성분 이름 없음", { ingredients: [{ code: "100001ATB" }] }, false],
     ["나이 기준 값 줄", { age_criteria: ["12세 미만", "6개월 미만"] }, true],
     ["retried 값", { retried: false }, true],
+    ["사유 원문 줄(reasons)", { reasons: ["합성 사유 문장"] }, true],
+    ["사유 칸이 문자열이 아님", { reasons: [1] }, false],
   ])("판정 줄: %s", (_name, patch, ok) => {
     expect(ChatResponseSchema.safeParse(finding(patch)).success).toBe(ok);
   });
