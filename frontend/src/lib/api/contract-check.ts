@@ -15,30 +15,21 @@ type Expect<T extends true> = T;
 /** zod를 통과한 모양 ⊆ 생성 타입, 칸 이름 집합 같음 */
 type Conforms<Schema extends z.ZodType, G> = Extends<z.output<Schema>, G> extends true ? SameKeys<z.output<Schema>, G> : false;
 
-// TODO(BE-06-40 A): 서버 `Ingredient.contra_kinds`·`dup`이 `None`(모름)을 받게 된 뒤 `pnpm gen:api`로 다시 만들고, 아래 임시 타입 다섯 개를
-// 지우고 대조를 `Gen["Ingredient"]`·`Gen["Finding"]`·`Gen["ChatResponse"]`·`Gen["AnswerEvent"]`·`Gen["ChatEvent"]`로 되돌린다.
-// 그때까지는 프런트가 먼저 `null`을 받으므로(서버보다 넓음) 이 두 칸의 값 모양만 넓혀서 대조한다. 칸 이름 집합과 나머지 칸은 그대로 대조된다
-type Replace<T, R> = Omit<T, keyof R> & R;
-type IngredientGen = Replace<Gen["Ingredient"], { contra_kinds?: string[] | null; dup?: boolean | null }>;
-type FindingGen = Replace<Gen["Finding"], { ingredients?: IngredientGen[] }>;
-type ChatResponseGen = Replace<Gen["ChatResponse"], { findings?: FindingGen[] }>;
-type AnswerEventGen = Replace<Gen["AnswerEvent"], { response: ChatResponseGen }>;
-
 export type ContractChecks = [
   Expect<Conforms<typeof S.DateLineSchema, Gen["DateLine"]>>,
   Expect<Conforms<typeof S.CitationSchema, Gen["Citation"]>>,
   Expect<Conforms<typeof S.QuoteSchema, Gen["Quote"]>>,
   Expect<Conforms<typeof S.SentenceRefSchema, Gen["SentenceRef"]>>,
   Expect<Conforms<typeof S.DetailItemSchema, Gen["DetailItem"]>>,
-  Expect<Conforms<typeof S.IngredientSchema, IngredientGen>>,
+  Expect<Conforms<typeof S.IngredientSchema, Gen["Ingredient"]>>,
   Expect<Conforms<typeof S.BadgeSchema, Gen["Badge"]>>,
   Expect<Conforms<typeof S.SearchedSchema, Gen["Searched"]>>,
-  Expect<Conforms<typeof S.FindingSchema, FindingGen>>,
+  Expect<Conforms<typeof S.FindingSchema, Gen["Finding"]>>,
   Expect<Conforms<typeof S.CandidateSchema, Gen["Candidate"]>>,
   Expect<Conforms<typeof S.NameCorrectionSchema, Gen["NameCorrection"]>>,
   Expect<Conforms<typeof S.EmergencySchema, Gen["Emergency"]>>,
   Expect<Conforms<typeof S.GradeDefSchema, Gen["GradeDef"]>>,
-  Expect<Conforms<typeof S.ChatResponseSchema, ChatResponseGen>>,
+  Expect<Conforms<typeof S.ChatResponseSchema, Gen["ChatResponse"]>>,
   Expect<Conforms<typeof S.AgeInputSchema, Gen["AgeInput"]>>,
   Expect<Conforms<typeof S.ConfirmedDrugSchema, Gen["ConfirmedDrug"]>>,
   Expect<Conforms<typeof S.RequestContextSchema, Gen["ConversationContext"]>>,
@@ -46,10 +37,10 @@ export type ContractChecks = [
   Expect<Conforms<typeof S.ErrorBodySchema, Gen["ErrorBody"]>>,
   Expect<Conforms<typeof S.ProgressEventSchema, Gen["ProgressEvent"]>>,
   Expect<Conforms<typeof S.EmergencyEventSchema, Gen["EmergencyEvent"]>>,
-  Expect<Conforms<typeof S.AnswerEventSchema, AnswerEventGen>>,
+  Expect<Conforms<typeof S.AnswerEventSchema, Gen["AnswerEvent"]>>,
   Expect<Conforms<typeof S.ErrorEventSchema, Gen["ErrorEvent"]>>,
   Expect<Conforms<typeof S.DoneEventSchema, Gen["DoneEvent"]>>,
-  Expect<Extends<z.output<typeof S.ChatEventSchema>, Exclude<Gen["ChatEvent"], Gen["AnswerEvent"]> | AnswerEventGen>>,
+  Expect<Extends<z.output<typeof S.ChatEventSchema>, Gen["ChatEvent"]>>,
   // 값 목록(enum)은 양쪽이 같아야 한다
   Expect<Extends<Gen["ProgressEvent"]["stage"], z.infer<typeof S.ProgressStageSchema>>>,
   Expect<Extends<Gen["ErrorEvent"]["code"], z.infer<typeof S.ErrorCodeSchema>>>,

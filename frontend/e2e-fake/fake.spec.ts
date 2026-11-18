@@ -62,13 +62,17 @@ test("정상(병용금기 1건): 진행 → 결과 카드·배지·확인하지 
   expect(seen[0].contentType).toContain("application/x-ndjson");
   expect(seen[0].body.question).toBe(Q.found);
   await expect(page.locator('[data-turn="turn-1"]')).toHaveAttribute("data-status", "done");
-  // 판정 줄: 쌍 줄(병용금기 배지) + 식별된 약 두 줄
+  // 판정 줄: 제품 줄 둘(약마다 병용금기 배지와 성분 칩) + 쌍 줄(BE-06-39 A: 식별 줄이 제품 줄로 흡수됐다)
   await expect(lines(page)).toHaveCount(3);
-  await expect(lines(page).nth(0)).toHaveAttribute("data-bucket", "found");
-  await expect(lines(page).nth(0).getByTestId("status-badge")).toHaveText(["삐! 병용금기"]);
-  await expect(lines(page).nth(0).getByTestId("line-title")).toHaveText(`${AZI} · ${COLD}`);
-  await expect(lines(page).nth(1)).toHaveAttribute("data-bucket", "identified");
-  await expect(lines(page).nth(2)).toHaveAttribute("data-bucket", "identified");
+  await expect(lines(page).getByTestId("line-title")).toHaveText([AZI, COLD, `${AZI} · ${COLD}`]);
+  for (const index of [0, 1, 2]) {
+    await expect(lines(page).nth(index)).toHaveAttribute("data-bucket", "found");
+    await expect(lines(page).nth(index).getByTestId("status-badge")).toHaveText(["삐! 병용금기"]);
+  }
+  // 복합제 줄의 성분 칩은 원인·중복을 모름(`null`)으로 받아 그린다(BE-06-40 A)
+  const comboChips = lines(page).nth(1).getByTestId("ingredient-chip");
+  await expect(comboChips).toHaveCount(4);
+  for (const chip of await comboChips.all()) await expect(chip).toHaveAttribute("data-state", "unknown");
   await expect(page.getByTestId("result-summary")).toContainText("병용금기");
   // 실시간 확인을 못 했다는 배너와 임신 여부를 몰라 확인하지 못한 줄(서버 값 그대로)
   await expect(page.getByTestId("result-notice")).toHaveText("실시간 확인을 하지 못해 아래 결과는 기준일 자료로 확인한 것이에요.");
@@ -165,8 +169,19 @@ test("응급: 119 배너가 맨 위에 뜨고 전화 링크가 눌리며, 금기
   await expect(page.getByTestId("result-card")).toBeVisible(); // 응급이어도 금기 조회를 막지 않는다
   await expect119Reachable(page, bannerTel(page));
   await expectInFirstScreen(page, banner(page));
-  const [bannerBox, cardBox] = [await banner(page).boundingBox(), await page.getByTestId("result-card").boundingBox()];
-  expect(bannerBox!.y).toBeLessThan(cardBox!.y);
+  // 결과 카드는 배너 뒤에 오고, 카드가 흐르는 스크롤 영역은 배너 아래에서 시작한다(카드가 길면 영역 안에서 스크롤되므로 카드 자체의 y로 비교하지 않는다)
+  const bannerBox = (await banner(page).boundingBox())!;
+  const result = await page.getByTestId("result-card").evaluate((card) => {
+    const bannerEl = document.querySelector('[data-testid="emergency-banner"]')!;
+    let scroller: HTMLElement | null = card.parentElement;
+    while (scroller && !(/(auto|scroll)/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)) scroller = scroller.parentElement;
+    return {
+      afterBanner: Boolean(bannerEl.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING),
+      areaTop: (scroller ?? card).getBoundingClientRect().top,
+    };
+  });
+  expect(result.afterBanner).toBe(true);
+  expect(result.areaTop).toBeGreaterThanOrEqual(bannerBox.y + bannerBox.height - 0.5);
   await expect(lines(page).nth(0).getByTestId("status-badge")).toHaveText(["삐! 병용금기"]);
   await expect(page.locator('a[href="tel:119"]')).toHaveCount(1); // 119는 배너 하나뿐
   await expect(page.getByTestId("mascot")).toHaveCount(0);
