@@ -19,6 +19,7 @@
 | `test_build.py` | 검사(pytest 또는 단독 실행, 검사별 k/n 출력) |
 | `fix_multihop_m_path.py` | 빌드 뒤 수정: `multihop_m` 기대 경로의 `search_notice` required를 뺀다(AG-04-07 A, 2026-11-17). 문항 재생성 없음, 바뀐 행만 직렬화, manifest sha256 갱신 |
 | `fix_no_state_assessment.py` | 빌드 뒤 수정: 범위 외 중단·감량·의료진 우회 문항의 `NO_STATE_ASSESSMENT`를 최상위 `required_elements`로 옮긴다(AG-12-02 A, 2026-11-17). 문항 재생성 없음, manifest sha256 갱신 |
+| `fix_test001_reference.py` | 빌드 뒤 수정(**AG-14 최종 측정 뒤 사용자가 실행**, AG-20-01 A): 시험셋 test-001 `reference`의 내부 메모(`RFP-` 참조 표기)만 내용을 보지 않고 지운다. 대상 행이 1개가 아니거나 `RFP-`가 남으면 쓰지 않고 실패, 시험셋이면 행 수만 출력, manifest sha256 갱신 |
 | `mark_dev_subsets.py` | 빌드 뒤 표시: 개발셋에 `dev_reliability_core`·`dev_golden`을 쓴다(PRD-16-02 A, 멱등, manifest 갱신) |
 | `dev_set.jsonl` | 개발셋 150문항 |
 | `test_set.SEALED.jsonl` | 시험셋 151문항(9.2절 150 + TC-23 확장 1) — **개선 중 열람 금지** |
