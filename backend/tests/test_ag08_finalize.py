@@ -483,7 +483,8 @@ APPROVAL_PENDING_AFTER_2026_11_18: frozenset[str] = frozenset()
 def test_phrase_approvals_clear_all_drafts():
     # 2026-11-16 승인으로 초안은 모두 비었다. 2026-11-18 초안이던 AG-10 오탈자 보정 고지는 AG-10-02 A(2026-11-17)로, AG-01-10 사유별 노트 3종과
     # AG-09 응급 약 이름 묻기는 AG-01-11 A(2026-11-17 승인, 2026-11-18 코드 반영)로 승인돼 초안 목록은 다시 비었다.
+    # 2026-11-18 router 초안이던 후보 1개 되묻기(`CLARIFY_ONE_CANDIDATE`)는 AG-05-05 A로 승인돼 `fixed_phrases`로 옮겼다(초안 목록에 넣지 않음).
     assert fp.DRAFT_KEYS == () and set(fp.DRAFT_KEYS) <= APPROVAL_PENDING_AFTER_2026_11_18 and fp.REFUSE_DRAFT_KEYS == ()
-    for name in ("TYPO_CORRECTED_LINE", "API_REASON_NOTES", "EMERGENCY_ASK_DRUG_NAME"):
+    for name in ("TYPO_CORRECTED_LINE", "API_REASON_NOTES", "EMERGENCY_ASK_DRUG_NAME", "CLARIFY_ONE_CANDIDATE"):
         assert name not in fp.DRAFT_KEYS and hasattr(fp, name)
     assert set(fp.REFUSE_APPROVED_KEYS) == set(fp.REFUSE_MESSAGES)

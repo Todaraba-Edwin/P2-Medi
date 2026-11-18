@@ -72,21 +72,21 @@ def test_not_found_is_not_listed_and_never_says_safe(client):
     _fixed_phrases_ok(a)
 
 
-def test_typo_goes_to_clarify_while_service_default_is_off(client):
-    """BE-06-35 A(2026-11-17): 프런트가 `name_corrections` 칸을 받기 전까지 서비스 배선의 보정 기본은 끔이다.
-    가짜 서버(서비스 배선과 같은 `build_deps(service=True)`)의 오탈자 시나리오는 되묻기로 끝나고 보정 고지 칸이 비어 있다."""
-    assert wiring.SERVICE_TYPO_CORRECT_DEFAULT is False
-    types, a, last = _run(client, "typo")
+def test_typo_goes_to_clarify_when_service_default_is_turned_off(monkeypatch):
+    """서비스 기본 상수를 끄면(BE-06-35 A 이전 상태) 가짜 서버(서비스 배선과 같은 `build_deps(service=True)`)의 오탈자 시나리오는
+    되묻기로 끝나고 보정 고지 칸이 비어 있다(되돌릴 스위치가 한 곳임을 확인)."""
+    monkeypatch.setattr(wiring, "SERVICE_TYPO_CORRECT_DEFAULT", False)
+    types, a, last = _run(TestClient(dfs.create_app(slow_seconds=0.0, metrics=None)), "typo")
     assert types == ["answer", "done"] and last.root.end_reason == "CLARIFY"
     assert a.name_corrections == [] and a.candidates and not a.findings
     _fixed_phrases_ok(a)
 
 
-def test_typo_is_corrected_with_notice_and_lookup_runs(monkeypatch):
-    """오탈자 보정(AG-10-02 A): 서비스 기본을 켜면(FE-02 반영 뒤 상수를 True로 되돌린 상태) 한 글자 틀린 이름을 되묻지 않고 보정해 조회하며,
-    응답에 보정 고지가 함께 나간다."""
-    monkeypatch.setattr(wiring, "SERVICE_TYPO_CORRECT_DEFAULT", True)
-    types, a, last = _run(TestClient(dfs.create_app(slow_seconds=0.0, metrics=None)), "typo")
+def test_typo_is_corrected_with_notice_and_lookup_runs(client):
+    """오탈자 보정(AG-10-02 A, BE-06-35 A로 2026-11-18 서비스 기본 켬): 기본 상태의 가짜 서버가 한 글자 틀린 이름을 되묻지 않고 보정해
+    조회하며, 응답 `name_corrections`에 보정 고지가 함께 나간다."""
+    assert wiring.SERVICE_TYPO_CORRECT_DEFAULT is True
+    types, a, last = _run(client, "typo")
     assert types == ["progress", "progress", "answer", "done"] and last.root.end_reason == "NORMAL"
     assert [(c.input, c.name) for c in a.name_corrections] == [(dfs.AZI_TYPO, dfs.AZI)]
     assert a.name_corrections[0].text == fp.TYPO_CORRECTED_LINE.format(input=dfs.AZI_TYPO, name=dfs.AZI)

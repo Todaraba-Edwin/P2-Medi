@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from build_drug_dict import build_dictionary  # noqa: E402
 
+from app.agent import fixed_phrases as fp  # noqa: E402
 from app.agent import router as R  # noqa: E402
 from app.agent import router_classify as C  # noqa: E402
 from app.agent.router import extract_mentions, route_input  # noqa: E402
@@ -51,24 +52,70 @@ class TestClarifyOneCandidate:
         r = route_input("마로 먹어도 되나요", dd)
         assert r.ambiguous and len(r.clarify.options) == 1
         assert "여러 개" not in r.clarify.question
-        assert r.clarify.question == "'마로': 어떤 약인지 하나를 골라 주세요."  # 승인 전: 기존 문장에서 틀린 절만 뺀 꼴
+        assert r.clarify.question == "'마로'은(는) 아래 약을 말씀하신 건가요? 맞으면 골라 주시고, 아니면 약 이름을 다시 알려 주세요."  # AG-05-05 A 원문
 
     def test_many_candidates_keep_existing_sentence(self, dd):
         r = route_input("보라를 먹어도 되나요", dd)
         assert len(r.clarify.options) == 2
         assert r.clarify.question == "'보라'에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요."
 
-    def test_draft_is_used_only_after_approval(self, dd, monkeypatch):
-        assert R.CLARIFY_ONE_CANDIDATE_APPROVED is False
-        monkeypatch.setattr(R, "CLARIFY_ONE_CANDIDATE_APPROVED", True)
+    def test_approved_phrase_lives_in_fixed_phrases_without_switch(self, dd):
+        """AG-05-05 A(2026-11-18): 원문 승인 문구의 원본은 `fixed_phrases`이고 router는 참조만 한다. 승인 스위치는 지웠다."""
+        assert fp.CLARIFY_ONE_CANDIDATE == "'{drug}'은(는) 아래 약을 말씀하신 건가요? 맞으면 골라 주시고, 아니면 약 이름을 다시 알려 주세요."
+        assert R.CLARIFY_ONE_CANDIDATE is fp.CLARIFY_ONE_CANDIDATE
+        assert not hasattr(R, "CLARIFY_ONE_CANDIDATE_APPROVED") and "CLARIFY_ONE_CANDIDATE" not in fp.DRAFT_KEYS
         q = route_input("마로 먹어도 되나요", dd).clarify.question
-        assert q == R.CLARIFY_ONE_CANDIDATE.format(drug="마로")
+        assert q == fp.CLARIFY_ONE_CANDIDATE.format(drug="마로")
 
-    def test_draft_has_no_verdict_or_dose(self):
-        t = R.CLARIFY_ONE_CANDIDATE
+    def test_approved_phrase_has_no_verdict_or_dose(self):
+        t = fp.CLARIFY_ONE_CANDIDATE
         assert t.count("?") == 1 and "{drug}" in t
         for bad in ("안전", "괜찮", "먹어도 돼", "복용하세요", "mg", "밀리그램"):
             assert bad not in t
+        assert not any(term in t for term in fp.FORBIDDEN_SCREEN_TERMS)
+
+
+# 승인 문구를 약 이름으로 채운 문장(합성 이름). 받침 유무를 모두 본다.
+_FILLED_ONE = [fp.CLARIFY_ONE_CANDIDATE.format(drug=n) for n in ("마로", "가온정", "아세트아미노펜")]
+
+
+class TestClarifyOneCandidatePassesChecks:
+    """AG-05-05 A 문구가 문장 필터(AG-06)·Validator(AG-07)·프롬프트 L0 검사에 걸리지 않는다.
+    Validator는 고정 문구를 검사 전에 지우므로(`strip_fixed`) **지우지 않은 문장**도 같은 패턴 함수에 직접 넣어 본다(`test_ag08_refuse_assess.py`와 같은 방식)."""
+
+    @pytest.mark.parametrize("text", _FILLED_ONE)
+    def test_sentence_filter_keeps_it(self, text):
+        from app.agent.answer_schema import AnswerDraft, Sentence
+        from app.agent.sentence_filter import filter_sentences, unsafe_reason
+
+        assert unsafe_reason(text) is None
+        f = filter_sentences(AnswerDraft(sentences=[Sentence(text=text, evidence_ids=[], claim_type="guidance")]), [])
+        assert f.dropped_count == 0
+
+    @pytest.mark.parametrize("text", _FILLED_ONE)
+    def test_validator_patterns_pass_without_fixed_stripping(self, text):
+        from app.agent import validator as V
+
+        norm = V._norm(text)
+        assert not V._has_safe_assertion(norm)
+        assert not V._has_bypass(norm)
+        assert not any(r.search(norm) for r in V._DECISION_PATTERNS), text
+        assert not V._has_grade_exception_misuse(norm)
+
+    def test_validator_public_entry_passes_and_strips_it_as_fixed(self):
+        from app.agent import validator as V
+
+        res = V.validate([{"text": t, "evidence_ids": [], "claim_type": "guidance"} for t in _FILLED_ONE], [],
+                         expected_claim_types=("guidance",))
+        assert res.status == V.PASS and res.dropped == []
+        assert V.strip_fixed(_FILLED_ONE[0]).strip() == "'마로"  # 자리표시자 밖 조각은 고정 문구로 등록됐다
+
+    def test_prompt_l0_checks_do_not_flag_it(self):
+        t = fp.CLARIFY_ONE_CANDIDATE
+        assert P._real_question_lines(t) == []
+        assert not any(p.search(t) for p in P.SECRET_PATTERNS)
+        body = P._norm(t)
+        assert [qid for qid, q in P.load_dev_questions().items() if q in body] == []
 
 
 # =========================================================================== 2. 잡음 낱말 2차 규칙

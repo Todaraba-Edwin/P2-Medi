@@ -175,22 +175,25 @@ def _deps(dd: DrugDict, **kw: Any) -> GraphDeps:
                       summary_model=ScriptedSummary([{"sentences": [GUIDE]}]), **kw)
 
 
-def test_service_wiring_default_is_off_until_frontend_accepts_and_explicit_on_works(dd):
-    """BE-06-35 A(2026-11-17): 프런트가 `name_corrections` 칸을 받기 전까지 서비스 배선의 보정 기본은 끔이다(한 곳의 모듈 상수).
-    명시 인자 `typo_correct=True`는 그대로 켜진다. 고지 문구는 승인 상수 그대로다(AG-10-02 A). 평가·개발 배선의 기본도 끔이다."""
+def test_service_wiring_default_is_on_and_eval_dev_default_stays_off(dd):
+    """BE-06-35 A: 프런트가 `name_corrections` 칸을 받은 뒤(2026-11-18) 서비스 배선의 보정 기본은 켬이다(한 곳의 모듈 상수).
+    명시 인자 `typo_correct=False`는 그대로 끈다. 고지 문구는 승인 상수 그대로다(AG-10-02 A). 평가·개발 배선의 기본은 끔으로 남는다
+    (평가 조건별 보정은 러너가 `deps.typo_correct`로 정한다)."""
     assert "TYPO_CORRECTED_LINE" not in fp.DRAFT_KEYS and hasattr(fp, "TYPO_CORRECTED_LINE")
-    assert wiring.SERVICE_TYPO_CORRECT_DEFAULT is False
-    assert _deps(dd, service=True).typo_correct is False
+    assert wiring.SERVICE_TYPO_CORRECT_DEFAULT is True
+    assert _deps(dd, service=True).typo_correct is True
     assert _deps(dd).typo_correct is False and GraphDeps.__dataclass_fields__["typo_correct"].default is False
     assert _deps(dd, service=True, typo_correct=True).typo_correct is True and _deps(dd, typo_correct=True).typo_correct is True
     assert _deps(dd, service=True, typo_correct=False).typo_correct is False
 
 
 def test_service_default_follows_the_single_constant(dd, monkeypatch):
-    """FE-02 반영 뒤 상수 하나만 True로 되돌리면 서비스 기본이 켜진다(명시 False는 여전히 끔)."""
+    """상수 하나만 False로 바꾸면 서비스 기본이 꺼진다(명시 True는 여전히 켬, 평가·개발 기본은 상수와 무관하게 끔)."""
+    monkeypatch.setattr(wiring, "SERVICE_TYPO_CORRECT_DEFAULT", False)
+    assert _deps(dd, service=True).typo_correct is False
+    assert _deps(dd, service=True, typo_correct=True).typo_correct is True
     monkeypatch.setattr(wiring, "SERVICE_TYPO_CORRECT_DEFAULT", True)
-    assert _deps(dd, service=True).typo_correct is True
-    assert _deps(dd).typo_correct is False and _deps(dd, service=True, typo_correct=False).typo_correct is False
+    assert _deps(dd).typo_correct is False
 
 
 def test_approved_phrase_is_the_decided_sentence():
@@ -299,9 +302,10 @@ def test_chat_response_rejects_a_notice_that_is_not_the_constant_sentence():
         api_schemas.to_chat_response(resp, end_reason="CLARIFY")
 
 
-def test_service_default_wiring_sends_typo_to_clarify(dd):
-    """BE-06-35 A: 서비스 기본 배선(보정 끔)에서는 오탈자 의심 이름이 예전처럼 되묻기로 끝나고 `name_corrections`가 없다(모델 호출 0)."""
-    deps = build_deps(dd, build_tool_context(dd, mode="eval", conn_factory=golden_conn), service=True,
+def test_service_wiring_with_correction_off_sends_typo_to_clarify(dd):
+    """서비스 배선에서 보정을 끄면(명시 `typo_correct=False`, BE-06-35 A 이전 기본) 오탈자 의심 이름이 예전처럼 되묻기로 끝나고
+    `name_corrections`가 없다(모델 호출 0). 서비스 기본은 2026-11-18부터 켬이다."""
+    deps = build_deps(dd, build_tool_context(dd, mode="eval", conn_factory=golden_conn), service=True, typo_correct=False,
                       tool_model=ScriptedToolModel(script=[AIMessage("조회를 마쳤다")], repeat_last=True),
                       summary_model=ScriptedSummary([{"sentences": [GUIDE]}]))
     assert deps.typo_correct is False
@@ -311,8 +315,8 @@ def test_service_default_wiring_sends_typo_to_clarify(dd):
 
 
 def test_service_graph_never_shows_a_corrected_result_without_the_notice(dd):
-    """서비스 배선에서 보정을 명시로 켜고(`typo_correct=True`) 끝까지 돌린 응답: 보정으로 확정한 약이 있으면 `name_corrections`가 반드시 찬다
-    (되묻기로 끝나면 둘 다 없다). 서비스 기본은 끔이다(BE-06-35 A)."""
+    """서비스 배선에서 보정을 켜고(`typo_correct=True`, 2026-11-18부터 서비스 기본과 같음) 끝까지 돌린 응답: 보정으로 확정한 약이 있으면
+    `name_corrections`가 반드시 찬다(되묻기로 끝나면 둘 다 없다)."""
     call = AIMessage("", tool_calls=[tool_call("check_contraindications", {"drugs": [{"item_seq": "300000001"}], "pregnancy": True}, "c1")])
     for q, corrected in (("임신 중인데 가나메솔정10밀리그램 먹어도 되나요", True), ("임신 중인데 가나미솔정10밀리그램 먹어도 되나요", False),
                          ("가나메솔정10밀리그램이랑 다라보톤캡슐 같이 먹어도 되나요", False)):
