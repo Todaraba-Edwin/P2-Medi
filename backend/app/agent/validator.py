@@ -1,6 +1,7 @@
 """AG-07 Validator 기준선: LLM 답변 문장의 출구 코드 검사(순수 함수, LLM·외부 호출 없음).
 
-코드 검사만 한다. `(개선)`(허용 근거 계층·주장 유형 누락·상태 불일치 문구·제품 단정)은 범위 밖이고, `(프롬프트 판정)`(의미 일치)은
+코드 검사만 한다. `(개선)` 중 허용 근거 계층(⑭·⑮)·주장 유형 누락(⑯)은 `validate(layer_check=True)`일 때만 보고(기본 꺼짐, AG-13-08 A),
+상태 불일치 문구·제품 단정은 범위 밖이다. `(프롬프트 판정)`(의미 일치)은
 `validator_judge`(기본 꺼짐, 규칙 다음 단계)가 맡는다. 검사별 처리(문장 삭제·되감기)는 `CHECK_ACTIONS` 표에 있다.
 
 **문장 필터(`sentence_filter`, H1)와의 역할 분담** — 필터는 근거 ID 유무·모르는 ID·성분코드 노출과 요약의 복용량 숫자·진단 단정·
@@ -51,6 +52,11 @@ GRADE_EXCEPTION_MISUSE = "GRADE_EXCEPTION_MISUSE"  # ⑩ H24 2등급 예외 단�
 UNCONFIRMED_AS_FACT = "UNCONFIRMED_AS_FACT"        # ⑪ AG-09: 확인하지 못한 항목만 인용한 사실 문장(근거 없는 내용을 사실로 말함)
 REFERENCE_AS_VERDICT = "REFERENCE_AS_VERDICT"      # ⑫ AG-09: 참고 전용·코드 미연결·미식별 항목을 인용해 금기 여부를 확정한 문장
 SOURCE_KIND_MISSING = "SOURCE_KIND_MISSING"        # ⑬ H29 출처 종류(`source_kind`)가 없거나 모르는 값인 판정 항목(FOUND·NOT_LISTED)을 인용한 문장
+# ⑭~⑯ (개선) AG-07 §2 `:36` 허용 근거 계층·`:41` 주장 유형 누락(AG-13-08 A, 2026-11-18 밤). `validate(layer_check=True)`일 때만 본다(기본 꺼짐,
+# 개선 장치는 C3에만 하나씩, RFP-33-03·AG-07-06 A와 같은 원칙). 근거: 개발셋 C2 judge 1회 실패 표(`AG07_LAYER_MISSING` 28행) 관찰.
+CLAIM_LAYER_NOT_ALLOWED = "CLAIM_LAYER_NOT_ALLOWED"  # ⑭ 금기 여부(목록에 있음·없음)를 말하면서 판정 항목(L0)을 하나도 인용하지 않았다
+INGREDIENT_NOT_IN_EVIDENCE = "INGREDIENT_NOT_IN_EVIDENCE"  # ⑮ "성분은 X" 꼴의 성분 구성 주장에서 X가 인용 근거 원문 어디에도 없다
+CLAIM_OMITTED = "CLAIM_OMITTED"                    # ⑯ 필요한 주장 유형 "금기 여부"인데 L0 FOUND 항목을 인용해 금기를 말한 문장이 없다(되감기)
 
 # 검사 이름 → 하네스 규칙 번호(RFP-29 §6). 여기 없는 검사는 VALIDATOR 이벤트의 기본 규칙(H2)으로만 집계한다.
 # H22(RFP-29-03 A): 기존 등급값·M 원문 필수·M 환산 차단을 한 번호로 묶는다(동작은 그대로, 번호만 명시).
@@ -86,7 +92,33 @@ CHECK_ACTIONS: dict[str, str] = {
     NUMBER_NOT_IN_EVIDENCE: DROPPED,
     MISSING_IMPLIES_NONE: DROPPED,
     MISSING_ADVICE_ABSENT: REWIND,
+    CLAIM_LAYER_NOT_ALLOWED: DROPPED,
+    INGREDIENT_NOT_IN_EVIDENCE: DROPPED,
+    CLAIM_OMITTED: REWIND,
 }
+
+# ---------------------------------------------------------------------------------------- (개선) 허용 근거 계층·주장 유형 누락
+# 허용 매트릭스(`P2-doc/PJ2-DUR-RAG-근거설계.md` 4장)를 이 답변 계약에서 코드로 볼 수 있는 부분만 옮겼다.
+#   L0 판정 항목: 판정 도구(`check_contraindications`)가 낸 DUR 파일·API 항목. 금기 여부(목록에 있음·없음)는 이것만 근거로 한다.
+#   L1 고시·L2 사유·L3 허가사항·L4 용어: 검색 청크(`kind == "chunk"`, `verdict_allowed=False`)·라벨 항목. 금기 사유·설명에는 쓰되 금기 여부를 정하지 않는다.
+# 문장 종류는 `claim_type`(fact·conclusion·guidance)만 있고 주장 유형(금기 여부·사유 등) 표기가 없어(AG-06 출력 계약), 아래 정규식으로 코드가 추정한다.
+CLAIM_CONTRA_STATUS = "contra_status"   # `router.CLAIM_CONTRA_STATUS`와 같은 값(순환 import를 피해 값을 적는다. 시험이 둘이 같음을 확인한다)
+CORE_CONTRA_KINDS = frozenset({"contra_pair", "pregnancy", "age"})   # 핵심 금기(병용·임부·연령). 주의(용량·수유·노인)는 누락 검사 대상이 아니다
+NON_VERDICT_KINDS = frozenset({"chunk", "label", "search_miss", "identify", "grade_def"})
+# 누락 사유(상태 기록): 묶음에 근거가 없었다(검색·조회 누락) / 묶음에는 있는데 답변 문장이 말하지 않았다
+GAP_RETRIEVAL_MISS, GAP_ANSWER_OMIT = "RETRIEVAL_MISS", "ANSWER_OMIT"
+# ⑭ 금기 여부 문장: "금기" 뒤 12자 안에 목록 등재·부재·해당·지정·등급을 말하는 서술이 온다(공백 제거 문장 기준).
+_STATUS_CLAIM = re.compile(r"금기[가-힣0-9·]{0,12}?(?:올라|있|없|해당|지정|입니다|예요|이에요|아니|아닙|[12Mm]등급)")
+# 금기 사유·기전 설명(L2·L3 허용)과 "확인하지 못했다"는 문장은 금기 여부 주장으로 보지 않는다
+_REASON_TALK = re.compile(r"사유|이유|때문|기전|혈중|농도|부작용|보고|증가|감소|위험이|효과")
+# ⑮ 성분 구성 주장 "성분은/는/인/이 X(·Y)" — X가 근거 원문에 없으면 모델 지식으로 보탠 성분명이다(J1 근거 충실 실패 관찰: dev-102·dev-107).
+_INGR_CLAIM = re.compile(
+    r"성분(?:은|는|인|이)\s*(?P<names>[가-힣A-Za-z][가-힣A-Za-z0-9·,\s]{1,80}?)"
+    r"(?=(?:이며|이고|입니다|이에요|예요|이라|라고|을|를|으로|로)(?:[^가-힣]|$)|[.,]|$)")
+_INGR_SPLIT = re.compile(r"[·,/]|\s+(?:및|와|과)\s+")
+# 이름이 아니라 서술이 잡힌 경우("성분은 확인되지 않았습니다", "성분이 같은 약")는 검사하지 않는다
+_INGR_NOT_NAME = re.compile(r"확인|않|없|있|나와|적혀|같|해당|정보|자료|내용|제공|표시|포함|다르|동일|알려|무엇|어떤|무슨|여러|가지|약의")
+
 
 # ⑬ H29: 판정 항목은 출처 종류가 `finalize` 표지 상수(`fp.SOURCE_KIND_TEXT`)에 있는 값이어야 근거로 쓴다(`finalize._bucket`과 같은 기준).
 # 출처 종류가 없는 판정 항목은 `finalize`가 "확인하지 못함"으로 내리므로, 그 항목을 인용한 모델 문장도 지운다(근거와 표지가 어긋나지 않게).
@@ -328,6 +360,8 @@ class ValidationResult:
     issues: list[Issue] = field(default_factory=list)
     rewind: list[str] = field(default_factory=list)   # 약사 확인 권고가 없어 되감을 미확보 항목의 근거 ID
     events: list[dict[str, Any]] = field(default_factory=list)
+    # (개선, `layer_check=True`일 때만) 주장 유형 누락: {"claim", "gap": RETRIEVAL_MISS|ANSWER_OMIT, "evidence_id"}. 문장 원문은 담지 않는다
+    claim_gaps: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def dropped(self) -> list[Issue]:
@@ -512,7 +546,78 @@ def _check_sentence(s: SimpleNamespace, items: list[dict[str, Any]], ctx: Simple
     for n in nums:
         if not any(re.search(rf"(?<![0-9A-Za-z.\-]){re.escape(n)}(?![0-9A-Za-z\-])", p) for p in ctx.pool):
             return NUMBER_NOT_IN_EVIDENCE
+
+    # ⑭·⑮ (개선) 허용 근거 계층. 기준선 검사를 모두 통과한 문장에만 더 본다(꺼져 있으면 기준선 결과와 같다)
+    if ctx.layer_check:
+        return _layer_issue(s, norm, cited, items, ctx)
     return None
+
+
+# ---------------------------------------------------------------------------------------- (개선) 허용 근거 계층(⑭·⑮)
+def is_verdict_item(it: dict[str, Any]) -> bool:
+    """L0 판정 항목인가: 판정 도구가 낸 DUR 파일·API 항목(FOUND·NOT_LISTED, 출처 종류 FILE·API_DIRECT). 검색 청크·라벨·검색 실패는 아니다."""
+    return (it.get("kind") not in NON_VERDICT_KINDS and it.get("verdict_allowed", True) is not False
+            and it.get("status") in _CONFIRMED_STATUS and it.get("source_kind") in VALID_SOURCE_KINDS - QUOTABLE_SOURCE_KINDS
+            and not _UNCONFIRMED_FLAGS & set(it.get("flags") or []))
+
+
+def _is_status_claim(raw_text: str, norm: str) -> bool:
+    """⑭ 금기 여부(목록에 있음·없음·등급)를 말하는 문장인가. 사유·기전 설명과 "확인하지 못했다"는 문장은 아니다."""
+    return bool(_STATUS_CLAIM.search(norm)) and not _REASON_TALK.search(norm) and not _UNCONFIRMED_SAID.search(_norm(raw_text))
+
+
+def _ingredient_names(text: str) -> list[str]:
+    """⑮ "성분은 X·Y" 꼴에서 성분 이름 후보를 뽑는다. 서술이 잡히면(이름이 아님) 빈 목록."""
+    out: list[str] = []
+    for m in _INGR_CLAIM.finditer(text):
+        names = [_norm(x) for x in _INGR_SPLIT.split(m.group("names")) if _norm(x)]
+        if not names or any(_INGR_NOT_NAME.search(n) for n in names):
+            continue
+        out.extend(n for n in names if len(n) >= 2)
+    return out
+
+
+def _layer_issue(s: SimpleNamespace, norm: str, cited: list[dict[str, Any]], items: list[dict[str, Any]],
+                 ctx: SimpleNamespace) -> str | None:
+    # ⑭ 금기 여부 문장은 L0 판정 항목을 하나 이상 인용해야 한다(검색 청크·라벨·검색 실패만 인용하면 계층 위반).
+    # 근거 ID 없이 쓸 수 있는 결론·안내 문장(`EVIDENCE_REQUIRED`)은 묶음 전체에 L0 항목이 하나라도 있어야 한다(dev-114: 검색 실패뿐인데 "금기 조회 결과에 없음")
+    if _is_status_claim(s.text, norm) and not any(is_verdict_item(it) for it in (cited or items)):
+        return CLAIM_LAYER_NOT_ALLOWED
+    # ⑮ 성분 구성 주장의 성분명은 근거 원문(도구 결과 문자열 전체)에 있어야 한다
+    names = _ingredient_names(strip_fixed(s.text))
+    if names and any(n not in ctx.pool_norm for n in names):
+        return INGREDIENT_NOT_IN_EVIDENCE
+    return None
+
+
+# ---------------------------------------------------------------------------------------- (개선) 주장 유형 누락(⑯)
+def _cites(s: SimpleNamespace, it: dict[str, Any]) -> bool:
+    ids = {it.get("evidence_id")} | {m.get("row_evidence_id") for m in _rows(it)}
+    return bool(ids & set(s.evidence_ids))
+
+
+def claim_gaps(kept: list[SimpleNamespace], items: list[dict[str, Any]], required_claims: Iterable[str]) -> list[dict[str, Any]]:
+    """⑯ 필요한 주장 유형 중 코드로 볼 수 있는 "금기 여부"의 누락을 찾는다(AG-07 §2 `:41`).
+
+    - 묶음에 핵심 금기(병용·임부·연령) 판정 항목이 하나도 없으면 `RETRIEVAL_MISS`(조회 누락, 기록만).
+    - 핵심 금기 FOUND 항목마다, 그 항목(또는 행)을 인용한 문장이 하나도 없으면 `ANSWER_OMIT`(되감기 대상).
+      NOT_LISTED는 대상이 아니다(`finalize`가 "금기 목록에 없음" 줄을 코드로 붙이고, 모델 요약이 말하지 않아도 숨겨지지 않는다).
+    "금기"라는 낱말까지 요구하지는 않는다: 개발셋 정상 답의 다수가 "주의가 필요한 것으로 조회됐다"처럼 쓰고(표지는 `finalize`가 코드로 붙임)
+    낱말 기준이면 정상 답 48건 중 34건이 되감기로 간다(2026-11-18 밤 오프라인 재생). 낱말 문제는 프롬프트 몫으로 남긴다.
+    한계·고지·기준일은 `finalize`가 코드로 붙이므로 보지 않는다(오탐). 등급 정의·용어는 Router 코드 규칙이 채우지 않는다(프롬프트 분류 몫).
+    """
+    if CLAIM_CONTRA_STATUS not in set(required_claims):
+        return []
+    core = [it for it in items if it.get("kind") in CORE_CONTRA_KINDS and is_verdict_item(it)]
+    if not core:
+        return [{"claim": CLAIM_CONTRA_STATUS, "gap": GAP_RETRIEVAL_MISS, "evidence_id": None}]
+    gaps: list[dict[str, Any]] = []
+    for it in core:
+        if it.get("status") != "FOUND":
+            continue
+        if not any(_cites(s, it) for s in kept):
+            gaps.append({"claim": CLAIM_CONTRA_STATUS, "gap": GAP_ANSWER_OMIT, "evidence_id": it.get("evidence_id")})
+    return gaps
 
 
 def _is_unconfirmed(it: dict[str, Any]) -> bool:
@@ -558,20 +663,28 @@ def validate(
     *,
     expected_claim_types: Iterable[str] | None = None,
     rendered: RenderResult | None = None,
+    layer_check: bool = False,
+    required_claims: Iterable[str] | None = None,
 ) -> ValidationResult:
     """답변 문장을 코드로 검사한다. `answer`는 `AnswerDraft`(또는 `(AnswerDraft, RenderResult)`·`{"sentences": [...]}`·문장 목록).
 
     - PASS: 걸러진 문장이 없고 되감기도 없다.
     - FIXED: 문장을 걸렀지만(제거) 남은 문장이 있고 되감기가 필요 없다.
     - FAIL: 입력이 있었는데 남은 문장이 없거나, 미확보 항목의 약사 확인 권고가 빠져 되감기가 필요하다.
+
+    `layer_check=True`(개선, 기본 꺼짐)면 ⑭ 허용 근거 계층·⑮ 근거에 없는 성분명을 문장마다 더 보고, `required_claims`(Router 상태
+    `required_claims`)가 주어지면 ⑯ 주장 유형 누락을 본다(`ANSWER_OMIT`는 되감기, `RETRIEVAL_MISS`는 `claim_gaps`에 기록만).
+    꺼져 있으면 결과·이벤트가 기준선과 같다.
     """
     raw_sents, rendered = _unwrap(answer, rendered)
     allowed = frozenset(expected_claim_types) if expected_claim_types is not None else frozenset(EVIDENCE_REQUIRED)
     by_id = {it["evidence_id"]: it for it in items if it.get("evidence_id")}
     row_to_item = {m["row_evidence_id"]: it for it in items for m in _rows(it) if m.get("row_evidence_id")}
     grades = tool_grades(items)
+    pool = _tool_strings(items)
     ctx = SimpleNamespace(by_id=by_id, row_to_item=row_to_item, index=build_text_index(items), grades=grades,
-                          has_m="M" in grades, pool=_tool_strings(items))
+                          has_m="M" in grades, pool=pool, layer_check=layer_check,
+                          pool_norm="\n".join(_norm(p) for p in pool) if layer_check else "")
     res = ValidationResult()
     kept: list[SimpleNamespace] = []
     for i, raw in enumerate(raw_sents):
@@ -592,10 +705,17 @@ def validate(
         del implied2
     for eid in rewind:
         res.issues.append(Issue(-1, MISSING_ADVICE_ABSENT, CHECK_ACTIONS[MISSING_ADVICE_ABSENT], eid))
+    # ⑯ (개선) 주장 유형 누락: 남은 문장 기준. 묶음에 있는데 답이 말하지 않은 FOUND 금기는 되감기(재생성), 조회 누락은 기록만
+    omitted: list[str] = []
+    if layer_check and required_claims is not None and kept:
+        res.claim_gaps = claim_gaps(kept, items, required_claims)
+        omitted = [str(g["evidence_id"]) for g in res.claim_gaps if g["gap"] == GAP_ANSWER_OMIT]
+        for eid in omitted:
+            res.issues.append(Issue(-1, CLAIM_OMITTED, CHECK_ACTIONS[CLAIM_OMITTED], eid))
     res.rewind = rewind
     res.kept = [s.raw for s in kept]
     n_dropped = len(res.dropped)
-    if rewind or (raw_sents and not kept):
+    if rewind or omitted or (raw_sents and not kept):
         res.status = FAIL
     elif n_dropped:
         res.status = FIXED
@@ -605,8 +725,15 @@ def validate(
         reasons[it.check] = reasons.get(it.check, 0) + 1
         if it.check in CHECK_RULES:
             rules[CHECK_RULES[it.check]] = rules.get(CHECK_RULES[it.check], 0) + 1
-    res.events.append({
+    event: dict[str, Any] = {
         "rule": "H2", "event": "VALIDATOR", "status": res.status, "total": len(raw_sents), "kept": len(res.kept),
         "dropped": n_dropped, "rewind": len(rewind), "reasons": reasons, "rules": rules,
-    })
+    }
+    if layer_check:   # 켰을 때만 키를 더한다(꺼져 있으면 기준선 이벤트와 같은 모양). 근거 ID만, 문장 원문 없음
+        gaps: dict[str, int] = {}
+        for g in res.claim_gaps:
+            gaps[g["gap"]] = gaps.get(g["gap"], 0) + 1
+        event["layer_check"] = True
+        event["claim_gaps"] = gaps
+    res.events.append(event)
     return res

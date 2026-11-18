@@ -54,10 +54,10 @@ class TestClarifyOneCandidate:
         assert "여러 개" not in r.clarify.question
         assert r.clarify.question == "'마로'은(는) 아래 약을 말씀하신 건가요? 맞으면 골라 주시고, 아니면 약 이름을 다시 알려 주세요."  # AG-05-05 A 원문
 
-    def test_many_candidates_keep_existing_sentence(self, dd):
+    def test_many_candidates_use_approved_phrase(self, dd):
         r = route_input("보라를 먹어도 되나요", dd)
         assert len(r.clarify.options) == 2
-        assert r.clarify.question == "'보라'에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요."
+        assert r.clarify.question == "'보라'에 해당하는 약이 여러 개예요. 어떤 약을 말씀하시는 건가요?"  # AG-05-10 A 원문(AG-13-07 A로 켬)
 
     def test_approved_phrase_lives_in_fixed_phrases_without_switch(self, dd):
         """AG-05-05 A(2026-11-18): 원문 승인 문구의 원본은 `fixed_phrases`이고 router는 참조만 한다. 승인 스위치는 지웠다."""

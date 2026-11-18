@@ -112,7 +112,8 @@ def _check_names() -> set[str]:
 def test_every_check_has_an_action():
     assert set(CHECK_ACTIONS) == _check_names()
     assert set(CHECK_ACTIONS.values()) <= {DROPPED, REWIND}
-    assert [k for k, v in CHECK_ACTIONS.items() if v == REWIND] == [V.MISSING_ADVICE_ABSENT]
+    # 기준선 되감기는 ⑥ 하나, (개선) ⑯ 주장 유형 누락(`layer_check=True`일 때만 생김, AG-13-08 A)이 둘째다
+    assert [k for k, v in CHECK_ACTIONS.items() if v == REWIND] == [V.MISSING_ADVICE_ABSENT, V.CLAIM_OMITTED]
     assert set(CHECK_RULES) <= set(CHECK_ACTIONS)
 
 
