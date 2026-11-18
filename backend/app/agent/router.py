@@ -222,7 +222,8 @@ _PARTICLES = tuple(sorted((
 ), key=len, reverse=True))
 
 _CONNECTORS = ("이랑", "하고", "이나", "랑", "과", "와", "및", "나")  # 붙여 쓴 입력("타이레놀이랑이부프로펜") 분리용
-_SPLIT_RE = re.compile(r"[,，+·&、;]|(?<!\d)/|/(?!\d)|\s+")  # 숫자 사이 "/"(5/850밀리그램)는 약 이름의 일부라 나누지 않는다
+# 숫자 사이 "/"(5/850밀리그램)는 약 이름의 일부라 나누지 않는다. 질량 단위 뒤 시간당 표기("12μg/h", 2026-11-18)도 나누지 않는다
+_SPLIT_RE = re.compile(r"[,，+·&、;]|(?<=\d)/(?!\d)|(?<=[gG])/(?!\d)(?!hr?(?![A-Za-z]))|(?<![\dgG])/|\s+")
 _PUNCT_RE = re.compile(r"^[\s\"'`(\[{<]+|[\s?!.…~\"'`)\]}>]+$")
 _NUM_UNIT_RE = re.compile(
     r"^\d+(\.\d+)?\s*(살|세|개월|주|주차|일|시간|번|회|kg|키로|밀리그램|밀리그람|밀리리터|mg|mcg|μg|ug|ml|g|l|알|정|포|캡슐|병|방울|"
@@ -278,9 +279,44 @@ def _is_noise(tok: str, dd: DrugDict | None = None) -> bool:
         return False
     if _VERB_END_RE.search(tok) or _SYMPTOM_END_RE.search(tok):
         return not any(_strong(dd, v) for v in vs)
+    rule2 = _noise_rule2(tok, vs, dd)
+    if rule2 == NOISE_FUNCTION_WORD:  # 닫힌 품사는 접두 일치로 보호하지 않는다("이제" → "이제티브정"). 아래 규칙보다 먼저 본다
+        return True
     if _noise_rule(tok, vs) is not None:  # AG-05 후속: 조사 뗀 변형까지 보는 일반 규칙. 사전에 이름으로 맞으면(접두·중간 포함) 버리지 않는다
         return not any(_name_match(dd, v) for v in vs)
-    return False
+    return rule2 is not None
+
+
+# --------------------------------------------------------------------------- 잡음 규칙 2차(AG-05 후속, 2026-11-18)
+# 남은 되묻기 Fail(응급 dev-051·054·055, 오정보 dev-107, `l3-pathfail-rca.md`)은 약 이름이 아니라 **잡음 낱말**이 모호·오탈자 의심 엔티티가 되어
+# 되묻기로 끝난 것이다(약은 모두 RESOLVED). 개발셋 낱말을 하나씩 넣지 않고 아래 두 가지 꼴만 본다. 둘 다 사전 정확·정규화 일치면 버리지 않는다.
+# 넣지 않은 안(2026-11-18 시험 뒤 되돌림): ① 한 음절 + 조사("배가")의 보호를 정확 일치로 좁히기 — "타이"(타이레놀 줄임)·"마로"(접두 일치)
+# 같은 줄여 부른 이름을 버리게 된다. ② "-아/어하다 + 하고"("아파하고") — 접두 일치로 보호하면 이득이 0이고, 보호를 좁히면 "나래하고" 같은 줄임 이름을 버린다.
+NOISE_FUNCTION_WORD = "function_word"  # 부사·관형사·대명사·수사(닫힌 목록. "아무", "이제", "하나"가 제품명 접두에 우연히 걸린다)
+NOISE_SHORT_UNKNOWN = "short_unknown"  # 조사를 뗀 한글 2음절 이하인데 사전에 이름으로 맞지 않음(BM25 유사·없음: "시간", "수유", "아닌", "드시")
+
+# 닫힌 품사라 목록이 유한하다. 개발셋에 나온 것만이 아니라 흔한 것을 함께 적었다(2026-11-18 사전 확인: 이 중 사전 정확·정규화 일치 0건).
+_FUNCTION_WORDS = frozenset("""
+아무 아무것 이제 하나 둘 셋 모든 모두 전부 일부 가장 제일 다음 이전 요즘 요새 자꾸 매우 아주 무척 조금 좀 많이 별로 전혀 항상 늘 거의
+다른 여러 몇 각 혹은 만약 만일 또한 역시 특히 그냥 벌써 아마 꼭 반드시 훨씬 점점 서로 따로 직접 대충 원래 보통 평소 이번 저번 지난번
+""".split())
+_SHORT_MAX = 2  # 2음절 이하. 실제 2음절 약 이름은 사전에 이름으로 맞아(정확·접두) 이 규칙에 걸리지 않는다
+
+
+def _is_hangul(s: str) -> bool:
+    return bool(s) and all("가" <= ch <= "힣" for ch in s)
+
+
+def _noise_rule2(tok: str, vs: list[str], dd: DrugDict) -> str | None:
+    """2차 잡음 규칙 이름(`NOISE_FUNCTION_WORD`·`NOISE_SHORT_UNKNOWN`). 없으면 None. 사전 정확·정규화 일치면 None."""
+    if any(_strong(dd, v) for v in vs):
+        return None
+    if any(v in _FUNCTION_WORDS for v in vs):
+        return NOISE_FUNCTION_WORD
+    core = vs[-1]
+    if _is_hangul(core) and len(core) <= _SHORT_MAX and not any(_name_match(dd, v) for v in vs):
+        return NOISE_SHORT_UNKNOWN
+    return None
 
 
 # --------------------------------------------------------------------------- 잡음 규칙 확장(AG-05 후속, 2026-11-12)
@@ -401,12 +437,17 @@ def _prefer_strength(dd: DrugDict, used: str, r: LookupResult, strength: str) ->
     return dataclasses.replace(r, candidates=tuple(cands[: len(r.candidates)]))
 
 
+# 제형 이름의 외래어 표기 변형. 사전에 두 표기가 모두 있다(예: "…캅셀300밀리그람"과 "…캡슐300밀리그램"). 오탈자가 아니라 옛 표기라 보정 고지 없이 쓴다.
+_FORM_SPELLINGS = (("캅셀", "캡슐"), ("캡슐", "캅셀"), ("패취", "패치"), ("패치", "패취"))
+
+
 def lookup_mention(dd: DrugDict, m: Mention) -> tuple[str, LookupResult, str | None]:
     """후보 하나의 사전 조회 문자열을 고른다. (조회에 쓴 문자열, 결과, 함량 표기)를 돌려준다.
 
     시도 순서(더 구체적인 것 먼저): ① 토큰 그대로(붙은 함량 포함, 지금까지의 동작) ② 토큰+떨어진 함량 ③ 함량을 뗀 이름.
     일치 등급(정확·정규화 3 > 접두·중간 2 > BM25 1 > 없음 0)이 가장 높은 것을 쓰고, 같으면 앞의 것을 쓴다.
-    ①이 정확·정규화 일치면 지금과 같은 결과다. ③을 썼고 후보가 여럿이면 함량이 든 후보를 앞으로 옮긴다(되묻기 유지, 자동 확정 없음)."""
+    ①이 정확·정규화 일치면 지금과 같은 결과다. ③을 썼고 후보가 여럿이면 함량이 든 후보를 앞으로 옮긴다(되묻기 유지, 자동 확정 없음).
+    ④ 그래도 정확·정규화 일치가 아니면 제형 표기 변형(`_FORM_SPELLINGS`)을 바꿔 보고, 정확·정규화 일치일 때만 쓴다."""
     used, r = _lookup_best(dd, m.token)
     name, glued = split_strength(m.token)
     strength = "/".join(s for s in (glued, m.strength) if s) or None
@@ -424,6 +465,12 @@ def lookup_mention(dd: DrugDict, m: Mention) -> tuple[str, LookupResult, str | N
             best_used, best, name_only = u3, r3, True
     if name_only:
         best = _prefer_strength(dd, best_used, best, strength)
+    if _rank(best) < 3:  # ④ 제형 외래어 표기 변형("캅셀"↔"캡슐"): 정확·정규화 일치로 올라갈 때만 쓴다(2026-11-18)
+        for a, b in _FORM_SPELLINGS:
+            if a in best_used:
+                u4, r4 = _lookup_best(dd, best_used.replace(a, b))
+                if _rank(r4) == 3:
+                    return u4, r4, strength
     return best_used, best, strength
 
 
@@ -623,6 +670,13 @@ def _entity(raw: str, r: LookupResult, strength: str | None = None) -> Entity:
     return Entity(**base, status=ST_AMBIGUOUS, branch=BRANCH_AMBIGUOUS, flags=flags, options=options)
 
 
+# 되묻기 후보가 1개일 때의 질문(AG-05 §3 "여러 개예요" 후속, 2026-11-18). **초안(사용자 승인 전)**이라 `CLARIFY_ONE_CANDIDATE_APPROVED = False`면
+# 쓰지 않는다. `fixed_phrases.DRAFT_KEYS`에 올리지 않은 이유: `test_ag08_finalize.py::test_phrase_approvals_clear_all_drafts`가 초안 0개를 단언하고
+# 그 시험 파일은 이 작업 범위 밖이다. 승인되면 상수를 `fixed_phrases`로 옮기고 이 스위치를 지운다. 가부·안전 표현 없음, 질문 1개.
+CLARIFY_ONE_CANDIDATE = "'{drug}'은(는) 아래 약을 말씀하신 건가요? 맞으면 골라 주시고, 아니면 약 이름을 다시 알려 주세요."
+CLARIFY_ONE_CANDIDATE_APPROVED = False
+
+
 def _clarify(ents: list[Entity]) -> Clarify | None:
     pending = [e for e in ents if e.status in (ST_AMBIGUOUS, ST_TYPO) or (e.status == ST_NOT_FOUND and e.options)]
     if not pending:
@@ -633,6 +687,9 @@ def _clarify(ents: list[Entity]) -> Clarify | None:
         q = f"'{t.raw}'은(는) 목록에서 찾지 못했어요. 혹시 아래 중에 찾으시는 약이 있나요? 없으면 약 이름을 다시 알려 주세요."
     elif t.status == ST_TYPO:
         q = f"'{t.raw}'와(과) 비슷한 약이 있어요. 찾으시는 약이 아래 중에 있나요? 하나를 골라 주세요."
+    elif t.n_candidates <= 1 and len(t.options) == 1:  # 후보 1개(접두·중간 일치, AG-05-01 A로 되묻기 유지)에는 "여러 개"라고 하지 않는다
+        q = (CLARIFY_ONE_CANDIDATE.format(drug=t.raw) if CLARIFY_ONE_CANDIDATE_APPROVED
+             else f"'{t.raw}': 어떤 약인지 하나를 골라 주세요.")  # 승인 전: 아래 기존 문장에서 틀린 절("여러 개예요")만 뺀 꼴
     else:
         q = f"'{t.raw}'에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요."
     return Clarify(question=q, target_raw=t.raw, options=t.options[:MAX_CLARIFY_OPTIONS], pending_raws=[e.raw for e in pending[1:]])
@@ -711,7 +768,10 @@ def corrections_of(entities: list[Entity] | list[dict[str, Any]] | None) -> list
 
 # "도 되/돼/될"(허락을 묻는 꼴: "줘도 되나요")과 "먹었"(이미 먹은 뒤 묻는 꼴)은 2026-11-12에 더했다. 잡음 엔티티가 줄면서 약 수(2개 이상이면 금기)에
 # 기대어 붙던 라벨이 빠지는 문항이 있어서다(개발셋 전후 비교, 유형 라벨이 바뀐 문항은 보고에 적음).
-_CONTRA_RE = re.compile(r"같이|함께|동시|병용|섞|겹|중복|상호작용|금기|먹어도|복용해도|먹여도|먹어|먹었|괜찮|피해야|써도|발라도|도\s*(?:되|돼|될)")
+# "먹으면 / 먹을·먹일·복용할 수 있나·있을까·있는지"(먹어도 되는지를 묻는 다른 꼴)는 2026-11-18에 더했다. 잡음 낱말 2차 규칙으로 약 수가 줄어 라벨이
+# 빠지는 문항이 있어서다. "몇 번까지 먹을 수 있어요"(용법)는 묻는 꼴(나·을까·는지)이 아니라 걸리지 않는다.
+_CONTRA_RE = re.compile(r"같이|함께|동시|병용|섞|겹|중복|상호작용|금기|먹어도|복용해도|먹여도|먹어|먹었|괜찮|피해야|써도|발라도|도\s*(?:되|돼|될)"
+                        r"|먹으면|(?:먹을|먹일|복용할)\s*수\s*있(?:나|을까|는지)")
 _INFO_RE = re.compile(r"효능|효과|용법|용량|부작용|주의사항|무슨 약|어떤 약|뭐에 좋|성분|사용법|어떻게 먹|설명")
 _DOC_RE = re.compile(r"등급|고시|규정|별표|지정|기준일|근거|출처|DUR|왜 금기|M등급")
 
@@ -840,25 +900,33 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
         ents.append(e)
 
     prof = extract_profile(text, profile)
-    has_sig = prof.age_years is not None or prof.pregnant is not None
-    clarify = _clarify(ents)
+    return assemble(text, ents, prof, truncated=truncated, emergency=emergency, guardrail_route=guardrail_route, dict_version=dd.version)
+
+
+def branch_label_of(ents: list[Entity], clarify: Clarify | None) -> str:
+    """엔티티 상태로 문항 분기 라벨을 정한다(라벨 우선순위 모호 > 오탈자 > 근거 없음)."""
     if clarify is not None:
         if any(e.status == ST_AMBIGUOUS for e in ents):
-            label = BRANCH_AMBIGUOUS
-        elif any(e.status == ST_TYPO for e in ents):
-            label = BRANCH_TYPO
-        else:
-            label = BRANCH_NO_EVIDENCE  # 후보를 보여 주는 NOT_FOUND만 있는 경우(AG-05-02 A)
-    elif any(e.status == ST_NOT_FOUND for e in ents):
-        label = BRANCH_NO_EVIDENCE
-    elif any(e.corrected_from for e in ents):
-        label = BRANCH_TYPO  # 오탈자를 보정해 진행한다(되묻기 아님, `ambiguous=False`)
-    else:
-        label = BRANCH_NORMAL
+            return BRANCH_AMBIGUOUS
+        if any(e.status == ST_TYPO for e in ents):
+            return BRANCH_TYPO
+        return BRANCH_NO_EVIDENCE  # 후보를 보여 주는 NOT_FOUND만 있는 경우(AG-05-02 A)
+    if any(e.status == ST_NOT_FOUND for e in ents):
+        return BRANCH_NO_EVIDENCE
+    if any(e.corrected_from for e in ents):
+        return BRANCH_TYPO  # 오탈자를 보정해 진행한다(되묻기 아님, `ambiguous=False`)
+    return BRANCH_NORMAL
+
+
+def assemble(text: str, ents: list[Entity], prof: ProfileState, *, truncated: bool = False, emergency: bool = False,
+             guardrail_route: str | None = None, dict_version: str = "") -> RouterResult:
+    """정리된 엔티티·프로필에서 되묻기·분기 라벨·유형 라벨·주장 유형을 계산해 `RouterResult`를 만든다(`route_input`과 LLM 분류 병합이 같이 쓴다)."""
+    has_sig = prof.age_years is not None or prof.pregnant is not None
+    clarify = _clarify(ents)
     n_res = sum(1 for e in ents if e.status == ST_RESOLVED)
     intent = classify_intent(text, len(ents), has_profile_signal=has_sig)
     return RouterResult(
         drug_mentions=[e.raw for e in ents], entities=ents, intent=intent, required_claims=required_claims(intent, text),
-        profile=prof, branch_label=label, ambiguous=clarify is not None, clarify=clarify, truncated=truncated,
-        n_pairs=n_res * (n_res - 1) // 2, emergency=emergency, guardrail_route=guardrail_route, dict_version=dd.version,
+        profile=prof, branch_label=branch_label_of(ents, clarify), ambiguous=clarify is not None, clarify=clarify, truncated=truncated,
+        n_pairs=n_res * (n_res - 1) // 2, emergency=emergency, guardrail_route=guardrail_route, dict_version=dict_version,
     )
