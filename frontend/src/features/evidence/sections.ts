@@ -54,6 +54,31 @@ export function buildSections(response: ChatResponse): EvidenceSections {
   };
 }
 
+const ADVICE_MISSING = "missing"; // 미확보 항목 권고(허가사항·사유 원문 구역의 미확보 묶음)
+const ADVICE_GRADE_DEF = "grade_def"; // 등급 정의 권고(등급 정의 블록)
+
+export interface AdviceByZone {
+  /** 미확보 묶음(`MissingGroup`)에 보일 권고 줄 */
+  missing: string[];
+  /** 등급 정의 블록(`GradeDefBlock`)에 보일 권고 줄 */
+  gradeDef: string[];
+}
+
+/**
+ * 약사 확인 권고 줄을 구역별로 고른다(AG-08-28 A). 서버가 준 종류 칸(`pharmacist_advice_kinds`, 같은 길이·순서)만 보고 고르며
+ * 문구를 비교하지 않는다. 받은 글자·순서는 그대로다.
+ * 종류 칸이 없거나(옛 응답) 길이가 어긋나면 고르지 않고 두 구역 모두에 전부 보인다(권고를 숨기지 않는 쪽으로 물러선다).
+ */
+export function adviceOf(response: Pick<ChatResponse, "pharmacist_advice" | "pharmacist_advice_kinds">): AdviceByZone {
+  const lines = response.pharmacist_advice;
+  const kinds = response.pharmacist_advice_kinds;
+  if (kinds.length === 0 || kinds.length !== lines.length) return { missing: lines, gradeDef: lines };
+  return {
+    missing: lines.filter((_, index) => kinds[index] === ADVICE_MISSING),
+    gradeDef: lines.filter((_, index) => kinds[index] === ADVICE_GRADE_DEF),
+  };
+}
+
 export interface PublisherGroup {
   publisher: string;
   rows: Citation[];

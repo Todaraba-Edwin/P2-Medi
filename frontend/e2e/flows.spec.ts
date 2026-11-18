@@ -377,6 +377,45 @@ for (const width of [360, 320]) {
       await expectNoHorizontalScroll(page);
     });
 
+    test("등급 정의 미확보 + 허가사항 미확보: 권고가 구역마다 그 종류의 줄만 보인다(AG-08-28 A)", async ({ page }) => {
+      await answered(page, "gradeDefAndMissing");
+      await page.getByTestId("evidence-entry").click();
+      const missingAdvice = "복용 전에 꼭 약국·약사에게 라마바캡슐을 함께 먹어도 되는지 물어보세요. 비어 있다고 괜찮다는 뜻이 아니에요.";
+      const gradeDefAdvice = "등급의 뜻이 궁금하면 약국·약사에게 물어보세요.";
+      // 등급 정의 블록(판정 구역): 등급 뜻 권고만. 허가사항 미확보 묶음: 약 조합 권고만. 두 구역에 같은 줄이 섞이지 않는다
+      await expect(sheet(page).getByTestId("grade-def-missing").getByTestId("pharmacist-advice").locator("p")).toHaveText([gradeDefAdvice]);
+      await expect(sheet(page).getByTestId("missing-group").getByTestId("pharmacist-advice").locator("p")).toHaveText([missingAdvice]);
+      await expect(sheet(page).getByTestId("pharmacist-advice")).toHaveCount(2);
+      await expect(sheet(page).getByTestId("missing-box")).toHaveCount(1);
+      expect(await sheet(page).locator("details").count()).toBe(0);
+      await expect(sheet(page).getByTestId("mascot")).toHaveCount(0);
+      await expectContained(sheet(page), '[data-testid="missing-text"], [data-testid="pharmacist-advice"], [data-testid="grade-def-missing"]');
+      await expectNoHorizontalScroll(page);
+    });
+
+    test("제품 줄 묶음: evidence_id가 없는 줄들도 근거 상세가 열리고, 복합제 칩은 모름으로 이름만 보인다(BE-06-40·41 A)", async ({ page }) => {
+      const errors: string[] = [];
+      page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+      });
+      page.on("pageerror", (error) => errors.push(error.message));
+      await answered(page, "productRows");
+      const card = page.getByTestId("result-card");
+      await expect(card.getByTestId("line-title")).toHaveText(["가나다정", "라마바캡슐", "가나다정 · 라마바캡슐"]);
+      await expect(card.getByTestId("status-badge")).toHaveText(["삐! 병용금기", "삐! 병용금기", "삐! 임부금기 2등급", "삐! 병용금기"]);
+      // 복합제 줄(첫 줄): 원인·중복 칸이 없는 칩은 모름이고 상태 글자가 없다
+      const comboChips = card.getByTestId("product-line").first().getByTestId("ingredient-chip");
+      await expect(comboChips).toHaveText(["가나성분", "사아성분"]);
+      for (const chip of await comboChips.all()) await expect(chip).toHaveAttribute("data-state", "unknown");
+      await expectContained(card, '[data-testid="status-badge"], [data-testid="line-title"], [data-testid="ingredient-chip"]');
+      await page.getByTestId("evidence-entry").click();
+      await expect(sheet(page).getByTestId("judgment-box")).toHaveCount(3);
+      await expect(sheet(page).getByTestId("reason-box")).toHaveCount(2);
+      await expectContained(sheet(page), '[data-testid="status-badge"], [data-testid="source-tag"], [data-testid="ingredient-chip"]');
+      await expectNoHorizontalScroll(page);
+      expect(errors.filter((text) => /key|Each child/i.test(text))).toEqual([]);
+    });
+
     test("검증 폴백 두 가지: 요약 문구와 고정 영역 줄이 응답 값 그대로다(Result-FallbackNone·FallbackSome)", async ({ page }) => {
       await mockChat(page, "fallbackNone", "fallbackSome");
       await openApp(page);

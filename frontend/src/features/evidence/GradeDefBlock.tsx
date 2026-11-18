@@ -12,7 +12,7 @@ export interface GradeDefBlockProps {
   definitions?: readonly GradeDef[];
   /** 등급 정의 미확보 문구(`grade_def_missing[]`). 구조 칸(`definitions`)이 오지 않았을 때만 쓴다(같은 문장이 두 번 보이지 않게) */
   missing: readonly string[];
-  /** 약사 확인 권고 줄(`pharmacist_advice[]`). 미확보가 있으면 접힘 밖에 함께 보인다 */
+  /** 약사 확인 권고 줄(`pharmacist_advice[]` 중 등급 정의 권고, 고르는 일은 `sections.adviceOf`). 미확보가 있으면 접힘 밖에 함께 보인다 */
   advice: readonly string[];
 }
 

@@ -207,6 +207,92 @@ describe("IngredientChips", () => {
   });
 });
 
+describe("성분 칩의 모름(contra_kinds·dup이 null, BE-06-40 A)", () => {
+  const known = fixtures.notListedResponse.findings[0].ingredients[0]; // 지금 서버 모양: `[]`·`false`
+  const unknown = { ...known, contra_kinds: null, dup: null };
+  const NOT_CAUSE_WORDS = /원인|중복|아님|해당 없음|안전|괜찮/;
+
+  it("지금 서버 모양(`[]`·`false`)은 원인 아님(none), null은 모름(unknown)으로 구분된다", () => {
+    expect(known).toMatchObject({ contra_kinds: [], dup: false });
+    const { rerender } = render(<IngredientChip ingredient={known} />);
+    expect(screen.getByTestId("ingredient-chip")).toHaveAttribute("data-state", "none");
+    rerender(<IngredientChip ingredient={unknown} />);
+    expect(screen.getByTestId("ingredient-chip")).toHaveAttribute("data-state", "unknown");
+    expect(screen.getByTestId("ingredient-chip")).not.toHaveAttribute("data-kinds");
+  });
+
+  it("모름인 칩에는 화면이 상태 글자를 짓지 않는다: 이름만 그리고 원인·중복 색을 쓰지 않는다", () => {
+    render(<IngredientChip ingredient={unknown} />);
+    const chip = screen.getByTestId("ingredient-chip");
+    expect(chip.textContent).toBe(unknown.name);
+    expect(chip.querySelector("[data-slot='state-label']")).toBeNull();
+    expect(chip.textContent).not.toMatch(NOT_CAUSE_WORDS);
+    expect(chip.className).not.toMatch(/bg-(preg|combo|warn)-bg/);
+  });
+
+  it("모름인 칩도 서버가 상태 글자를 주면 그 글자를 그대로 그린다(state_labels만 따른다)", () => {
+    render(<IngredientChip ingredient={{ ...unknown, state_labels: ["받은 상태 글자"] }} />);
+    expect(screen.getByTestId("ingredient-chip")).toHaveTextContent(`${unknown.name} · 받은 상태 글자`);
+  });
+
+  it.each([
+    ["원인 칸만 모름, 중복은 참", { contra_kinds: null, dup: true }, "dup"],
+    ["원인 칸만 모름, 중복은 거짓", { contra_kinds: null, dup: false }, "unknown"],
+    ["원인은 빈 목록, 중복만 모름", { contra_kinds: [], dup: null }, "unknown"],
+    ["원인이 있고 중복은 모름", { contra_kinds: ["pregnancy"], dup: null }, "cause"],
+  ])("한 칸만 모름: %s", (_name, patch, state) => {
+    render(<IngredientChip ingredient={{ ...known, ...patch }} />);
+    expect(screen.getByTestId("ingredient-chip")).toHaveAttribute("data-state", state);
+  });
+
+  it("복합제 제품 줄(칸 없음)의 칩은 모두 모름이고, 성분 하나인 줄의 칩은 원인으로 그린다", () => {
+    const [combo, single] = fixtures.productRowsResponse.findings;
+    const { unmount } = line(combo);
+    expect(screen.getAllByTestId("ingredient-chip").map((el) => el.getAttribute("data-state"))).toEqual(combo.ingredients.map(() => "unknown"));
+    expect(chipNames()).toEqual(combo.ingredients.map((i) => i.name));
+    unmount();
+    line(single);
+    expect(screen.getAllByTestId("ingredient-chip").map((el) => el.getAttribute("data-state"))).toEqual(["cause"]);
+  });
+
+  it("5개 이상에서 모름은 먼저 보일 성분(원인·중복)으로 치지 않는다: 원인이 있으면 원인만, 없으면 앞의 3개", async () => {
+    const names = ["하나성분", "두울성분", "세엣성분", "네엣성분", "다섯성분", "여섯성분"];
+    const allUnknown = names.map((name) => ({ ...unknown, name }));
+    const { unmount } = render(<IngredientChips ingredients={allUnknown} />);
+    expect(chipNames()).toEqual(names.slice(0, 3));
+    await userEvent.click(screen.getByRole("button", { name: copy.moreIngredientsLabel(3) }));
+    expect(chipNames()).toEqual(names);
+    unmount();
+    const withCause = allUnknown.map((ingredient, index) => (index === 4 ? { ...ingredient, contra_kinds: ["pregnancy"], dup: false } : ingredient));
+    render(<IngredientChips ingredients={withCause} />);
+    expect(chipNames()).toEqual(["다섯성분"]);
+  });
+});
+
+describe("evidence_id가 없는 제품 줄(BE-06-41 A)", () => {
+  const response = fixtures.productRowsResponse;
+
+  it("결과 카드: null 줄이 여럿이어도 줄이 받은 순서로 모두 나오고 React key 경고가 없다", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<ResultCard response={response} />);
+    const lines = screen.getAllByTestId("product-line");
+    expect(response.findings.filter((f) => f.evidence_id === null).length).toBeGreaterThan(1);
+    expect(texts(lines.map((el) => within(el).getByTestId("line-title")))).toEqual(response.findings.map((f) => f.drug));
+    expect(lines.map((el) => el.getAttribute("data-target"))).toEqual(response.findings.map((f) => f.target));
+    expect(error.mock.calls.filter((call) => /key/i.test(String(call[0])))).toEqual([]);
+    error.mockRestore();
+  });
+
+  it("제품 줄의 배지는 받은 순서 그대로이고(병용 → 임부) kind가 없어도 data-kind를 짓지 않는다", () => {
+    render(<ResultCard response={response} />);
+    const lines = screen.getAllByTestId("product-line");
+    response.findings.forEach((finding, index) => {
+      expect(texts(within(lines[index]).getAllByTestId("status-badge"))).toEqual(finding.badges.map((b) => b.text));
+      if (finding.kind === null) expect(lines[index]).not.toHaveAttribute("data-kind");
+    });
+  });
+});
+
 describe("ResultCard·ResultView", () => {
   it("판정 줄은 응답 배열 순서 그대로다", () => {
     const response = fixtures.pairAndPregnancyResponse;

@@ -160,7 +160,7 @@ describe("AG-08·BE-06-13~17 새 칸의 fixture(서버 규칙과 같은 모양)"
     expect(phrases.ingredientStateLabels([], false)).toEqual([]);
     for (const response of Object.values(responses)) {
       for (const ingredient of response.findings.flatMap((f) => f.ingredients)) {
-        expect(ingredient.state_labels).toEqual(phrases.ingredientStateLabels(ingredient.contra_kinds, ingredient.dup));
+        expect(ingredient.state_labels).toEqual(phrases.ingredientStateLabels(ingredient.contra_kinds ?? [], ingredient.dup ?? false));
         if (ingredient.code_missing_text !== null) expect(ingredient.code).toBeNull();
       }
     }

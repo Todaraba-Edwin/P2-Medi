@@ -12,7 +12,7 @@ import { EvidenceEntryButton, EvidencePanel } from "./EvidencePanel";
 import { GradeDefBlock } from "./GradeDefBlock";
 import { MissingBox, MissingGroup } from "./MissingBox";
 import { PermitText } from "./PermitText";
-import { groupByPublisher, rowTexts } from "./sections";
+import { adviceOf, groupByPublisher, rowTexts } from "./sections";
 import { SourceTable } from "./SourceTable";
 
 const texts = (elements: Element[]) => elements.map((el) => el.textContent);
@@ -254,6 +254,98 @@ describe("MissingBox·MissingGroup", () => {
     expect(box.querySelector("b")?.textContent).toBe(`${item.drug_name} · ${item.section}`);
     expect(within(label).getByTestId("pharmacist-advice").textContent).toBe(withAdvice.pharmacist_advice[0]);
     expect(within(label).queryByTestId("permit-text")).toBeNull();
+  });
+});
+
+describe("약사 확인 권고의 구역 필터(pharmacist_advice_kinds, AG-08-28 A)", () => {
+  // 등급 정의 미확보 + 허가사항 미확보가 함께 온 응답: 권고 두 줄(약 조합 권고 → 등급 뜻 권고)
+  const response = fixtures.gradeDefAndMissingResponse;
+  const [missingLine, gradeDefLine] = response.pharmacist_advice;
+  const section = (id: string) => screen.getAllByTestId("evidence-section").find((el) => el.getAttribute("data-section") === id)!;
+  const adviceLines = (root: HTMLElement) => texts(within(root).getAllByTestId("pharmacist-advice").flatMap((box) => [...box.querySelectorAll("p")]));
+
+  it("fixture: 두 종류의 권고 줄과 같은 길이·순서의 종류 칸이 있다", () => {
+    expect(response.pharmacist_advice).toHaveLength(2);
+    expect(response.pharmacist_advice_kinds).toEqual(["missing", "grade_def"]);
+    expect(gradeDefLine).toBe(PHRASES.GRADE_DEF_PHARMACIST_ADVICE);
+    expect(missingLine).not.toBe(gradeDefLine);
+  });
+
+  it("이전 곁가지 재현: 종류 칸이 없으면(옛 응답) 두 줄이 두 구역 모두에 그대로 나온다(지금 동작 유지)", () => {
+    render(<EvidenceDetail response={{ ...response, pharmacist_advice_kinds: [] }} />);
+    expect(adviceLines(within(section("judgment")).getByTestId("grade-def-missing"))).toEqual([missingLine, gradeDefLine]);
+    expect(adviceLines(within(section("label")).getByTestId("missing-group"))).toEqual([missingLine, gradeDefLine]);
+  });
+
+  it("종류 칸이 오면 등급 정의 블록에는 grade_def 줄만, 허가사항 미확보 묶음에는 missing 줄만 나온다", () => {
+    render(<EvidenceDetail response={response} />);
+    expect(adviceLines(within(section("judgment")).getByTestId("grade-def-missing"))).toEqual([gradeDefLine]);
+    const group = within(section("label")).getByTestId("missing-group");
+    expect(adviceLines(group)).toEqual([missingLine]);
+    // 묶음 규칙은 그대로다: 권고 박스 1개가 맨 위, 접히지 않는다(FE-02-05 A)
+    expect(within(group).getAllByTestId("pharmacist-advice")).toHaveLength(1);
+    expect(group.firstElementChild).toBe(within(group).getByTestId("pharmacist-advice"));
+    expect(within(group).getByTestId("pharmacist-advice").closest(CLOSED)).toBeNull();
+  });
+
+  it("사유 원문 구역의 미확보 묶음에도 missing 줄만 나온다", () => {
+    const reasonMissing = { ...fixtures.foundResponse.detail[0], evidence_id: "ev-pair-missing", rows: [], missing_reason: "FETCH_FAIL", missing_text: PHRASES.MISSING_FETCH_FAIL };
+    render(<EvidenceDetail response={{ ...response, detail: [...response.detail, reasonMissing] }} />);
+    expect(adviceLines(within(section("reason")).getByTestId("missing-group"))).toEqual([missingLine]);
+    expect(adviceLines(within(section("label")).getByTestId("missing-group"))).toEqual([missingLine]);
+    expect(adviceLines(within(section("judgment")).getByTestId("grade-def-missing"))).toEqual([gradeDefLine]);
+  });
+
+  it("같은 종류의 줄이 여럿이면 받은 순서 그대로 모두 나오고 글자를 바꾸지 않는다", () => {
+    const lines = ["받은 미확보 권고 하나.", "받은 등급 권고.", "받은 미확보 권고 둘."];
+    expect(adviceOf({ pharmacist_advice: lines, pharmacist_advice_kinds: ["missing", "grade_def", "missing"] })).toEqual({
+      missing: [lines[0], lines[2]],
+      gradeDef: [lines[1]],
+    });
+  });
+
+  it("종류 칸의 길이가 권고 줄과 어긋나면 고르지 않고 전부 보인다(권고를 숨기지 않는다)", () => {
+    const lines = ["받은 권고 하나.", "받은 권고 둘."];
+    expect(adviceOf({ pharmacist_advice: lines, pharmacist_advice_kinds: ["missing"] })).toEqual({ missing: lines, gradeDef: lines });
+    expect(adviceOf({ pharmacist_advice: lines, pharmacist_advice_kinds: [] })).toEqual({ missing: lines, gradeDef: lines });
+  });
+
+  it("구역을 가르는 데 권고 문구를 비교하지 않는다: 글자가 바뀌어도 종류 칸대로 나뉜다", () => {
+    render(<EvidenceDetail response={{ ...response, pharmacist_advice: ["서버가 바꾼 미확보 권고.", "서버가 바꾼 등급 권고."] }} />);
+    expect(adviceLines(within(section("judgment")).getByTestId("grade-def-missing"))).toEqual(["서버가 바꾼 등급 권고."]);
+    expect(adviceLines(within(section("label")).getByTestId("missing-group"))).toEqual(["서버가 바꾼 미확보 권고."]);
+  });
+});
+
+describe("evidence_id가 없는 제품 줄(BE-06-41 A)", () => {
+  const response = fixtures.productRowsResponse;
+
+  it("판정 박스가 줄마다 하나씩 받은 순서로 나오고, React key 경고(같은 key·key 없음)가 없다", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<EvidenceDetail response={response} />);
+    const boxes = screen.getAllByTestId("judgment-box");
+    expect(boxes).toHaveLength(response.findings.length);
+    expect(texts(boxes.map((box) => within(box).getByTestId("line-title")))).toEqual(response.findings.map((f) => f.drug));
+    expect(error.mock.calls.filter((call) => /key/i.test(String(call[0])))).toEqual([]);
+    error.mockRestore();
+  });
+
+  it("evidence_id가 없는 줄은 다른 줄의 근거 표지를 빌리지 않고, 배지는 받은 순서 그대로다", () => {
+    render(<EvidenceDetail response={response} />);
+    const boxes = screen.getAllByTestId("judgment-box");
+    response.findings.forEach((finding, index) => {
+      expect(texts(within(boxes[index]).getAllByTestId("status-badge"))).toEqual(finding.badges.map((b) => b.text));
+      // 박스 표지는 줄의 `evidence_id`가 가리키는 근거 하나의 것이다. 배지가 여러 근거를 가리키는 제품 줄에는 표지를 짓지 않는다
+      expect(within(boxes[index]).queryAllByTestId("source-tag")).toHaveLength(finding.evidence_id === null ? 0 : 1);
+    });
+  });
+
+  it("배지가 가리키는 근거는 사유 원문·출처 구역에 그대로 있다(근거 상세는 응답 단위로 열린다)", () => {
+    render(<EvidenceDetail response={response} />);
+    expect(sections()).toEqual(["judgment", "reason", "sources"]);
+    const ids = new Set(response.findings.flatMap((f) => f.badges.map((b) => b.evidence_id)));
+    for (const id of ids) expect(response.detail.some((item) => item.evidence_id === id)).toBe(true);
+    expect(screen.getAllByTestId("reason-box")).toHaveLength(response.detail.length);
   });
 });
 

@@ -31,7 +31,7 @@ export function MissingBox({ item }: { item: DetailItem }) {
 export interface MissingGroupProps {
   /** 이 구역의 미확보 항목(받은 순서) */
   items: readonly DetailItem[];
-  /** 응답의 약사 확인 권고 줄(`pharmacist_advice[]`). 받은 순서·글자 그대로 */
+  /** 응답의 약사 확인 권고 줄(`pharmacist_advice[]` 중 미확보 권고, 고르는 일은 `sections.adviceOf`). 받은 순서·글자 그대로 */
   advice: readonly string[];
 }
 

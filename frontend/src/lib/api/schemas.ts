@@ -109,8 +109,10 @@ export const DetailItemSchema = z
 export const IngredientSchema = z.strictObject({
   code: optionalNullableString,
   name: z.string(),
-  contra_kinds: stringList, // 이 성분이 걸린 금기 종류 키
-  dup: z.boolean().default(false),
+  // 이 성분이 걸린 금기 종류 키·같은 성분 중복 여부. `null`(또는 칸 없음) = **모름**(복합제처럼 어느 성분이 원인인지 가리지 못한 줄, BE-06-40 A),
+  // `[]`·`false` = 원인·중복 아님. 화면은 모름을 "원인 아님"으로 바꾸지 않는다(기본값을 `[]`·`false`로 채우지 않는다)
+  contra_kinds: z.array(z.string()).nullable().default(null),
+  dup: z.boolean().nullable().default(null),
   state_labels: stringList, // 상태 글자(서버 상수, BE-06-13). 받은 순서 그대로 그린다
   code_missing_text: optionalNullableString, // 성분코드 미확보 안내(서버 상수). 코드가 없을 때만
 });
@@ -186,6 +188,9 @@ export const EmergencySchema = z.strictObject({
   wide_text: z.string().min(1), // 넓은 폭에서만 보이는 보조 문장(FE-07-15). 항상 온다
 });
 
+/** 약사 확인 권고 줄의 종류(AG-08-28 A): 미확보 항목 권고 / 등급 정의 권고 */
+export const AdviceKindSchema = z.enum(["missing", "grade_def"]);
+
 export const GradeMissingReasonSchema = z.enum(["FETCH_FAIL", "OUT_OF_SCOPE"]);
 
 /** 등급 정의 블록 하나(BE-06-16). 원문(`text`)과 미확보 사유는 둘 중 하나만 있다. 원문이 없으면 출처 줄도 없다 */
@@ -233,6 +238,9 @@ export const ChatResponseSchema = z
     grade_def_missing: stringList,
     grade_defs: z.array(GradeDefSchema).default([]), // 등급 정의 블록(구조). 위 줄 목록도 그대로 온다
     pharmacist_advice: stringList, // 미확보 항목이 있으면 비지 않는다(BE-06-17, 서버가 강제)
+    // 권고 줄마다의 종류(AG-08-28 A). `pharmacist_advice`와 같은 길이·순서이고(서버가 강제), 비어 있으면 서버가 키를 싣지 않으므로 기본 빈 목록.
+    // 근거 상세가 이 값으로 구역별 권고를 고른다(sections.ts `adviceOf`). 길이가 어긋나면 고르지 않고 전부 보인다(권고를 숨기지 않는 쪽)
+    pharmacist_advice_kinds: z.array(AdviceKindSchema).default([]),
     // 줄 목록: 1줄 이상, 빈 줄 불가. 줄 순서는 서버가 준 그대로 그린다
     fixed_notice: z.array(z.string().refine((s) => s.trim().length > 0, "fixed_notice 줄은 비어 있을 수 없다")).min(1),
     disclaimer: z.string().min(1),

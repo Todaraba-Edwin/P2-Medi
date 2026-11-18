@@ -36,9 +36,10 @@ const DRUG_B = "라마바캡슐";
 const DRUG_C = "사아자시럽";
 const DRUG_AMBIGUOUS = "가나다";
 const DRUG_UNKNOWN = "차카타파정";
-const INGR_A = { code: "100001ATB", name: "가나성분" };
-const INGR_B = { code: "200002ACH", name: "라마성분" };
-const INGR_C = { code: "300003ASY", name: "사아성분" };
+// 원인·중복 칸은 지금 서버처럼 `[]`·`false`(원인·중복 아님)를 분명히 싣는다. 칸이 없으면 "모름"이다(BE-06-40 A)
+const INGR_A = { code: "100001ATB", name: "가나성분", contra_kinds: [] as string[], dup: false };
+const INGR_B = { code: "200002ACH", name: "라마성분", contra_kinds: [] as string[], dup: false };
+const INGR_C = { code: "300003ASY", name: "사아성분", contra_kinds: [] as string[], dup: false };
 
 type Body = Omit<ChatResponseInput, "schema_version" | "fixed_notice" | "disclaimer">;
 type DetailInput = NonNullable<Body["detail"]>[number];
@@ -402,7 +403,11 @@ export const unidentifiedMixedResponse = make(
         drug: DRUG_A,
         drugs: [DRUG_A],
         text: PHRASES.IDENTIFIED_LINE,
-        ingredients: [{ name: INGR_A.name }, { name: INGR_C.name }],
+        // 지금 서버는 원인·중복 칸을 `[]`·`false`로 싣는다(이름만 든 성분, 코드 없음)
+        ingredients: [
+          { name: INGR_A.name, contra_kinds: [], dup: false },
+          { name: INGR_C.name, contra_kinds: [], dup: false },
+        ],
         sub_line: [INGR_A.name, INGR_C.name].join(PHRASES.IDENTIFIED_SUB_SEP),
       },
     ],
@@ -571,7 +576,11 @@ export const pairNoEvidenceResponse = make(
         drug: DRUG_A,
         drugs: [DRUG_A],
         text: PHRASES.IDENTIFIED_LINE,
-        ingredients: [{ name: INGR_A.name }, { name: INGR_C.name }],
+        // 지금 서버는 원인·중복 칸을 `[]`·`false`로 싣는다(이름만 든 성분, 코드 없음)
+        ingredients: [
+          { name: INGR_A.name, contra_kinds: [], dup: false },
+          { name: INGR_C.name, contra_kinds: [], dup: false },
+        ],
         source_label: `${SOURCE_PREFIX_FILE} · ${DATASET_PRMSN}`,
         sub_line: [INGR_A.name, INGR_C.name].join(PHRASES.IDENTIFIED_SUB_SEP),
       },
@@ -709,6 +718,73 @@ export const gradeDefsOutOfScopeResponse = make({
   })),
   grade_def_missing: (["2", "1"] as const).map((grade) => GRADE_DEF_MISSING_OUT_OF_SCOPE.replace("{grade}", grade)),
   pharmacist_advice: [PHRASES.GRADE_DEF_PHARMACIST_ADVICE],
+});
+
+/**
+ * 등급 정의 미확보 + 허가사항 원문 미확보가 한 응답에 함께(AG-08-28 A). 권고 줄이 두 종류(약 조합 권고 → 등급 뜻 권고, finalize 순서)이고
+ * 서버가 줄 종류(`pharmacist_advice_kinds`, 같은 길이·순서)를 함께 준다: 화면은 이 값으로 미확보 묶음에는 `missing` 줄만,
+ * 등급 정의 블록에는 `grade_def` 줄만 그린다. 종류 칸을 뺀 모양(옛 응답)은 시험이 이 응답에서 칸만 지워 만든다
+ */
+export const gradeDefAndMissingResponse = make(
+  {
+    route: "AGENT",
+    end_reason: "NORMAL",
+    summary: `${DRUG_B}은 임부금기 목록에 올라 있어요.`,
+    findings: [...pregnancyResponse.findings, labelFinding("ev-label-1", DRUG_B, PHRASES.MISSING_SEARCH_MISS)],
+    detail: [pregDetail("FOUND", DRUG_B), labelMissing("ev-label-1", DRUG_B, "임부에 대한 투여", "SEARCH_MISS", PHRASES.MISSING_SEARCH_MISS)],
+    citations: [pregCitation("FOUND")],
+    grade_defs: gradeDefsResponse.grade_defs,
+    grade_def_missing: gradeDefsResponse.grade_def_missing,
+    pharmacist_advice: [adviceFor(DRUG_B), PHRASES.GRADE_DEF_PHARMACIST_ADVICE],
+    pharmacist_advice_kinds: ["missing", "grade_def"],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
+/**
+ * 제품 줄 묶음(BE-06-39~41, AG-08 `product_rows` 연결 뒤의 모양, 합성): 약마다 제품 줄 하나에 배지가 모이고 쌍 줄은 그대로 남는다(AG-08-29 A).
+ * - 제품 줄의 `evidence_id`·`kind`는 `null`이다(근거 연결은 배지마다 `evidence_id`, BE-06-41 A). 한 응답에 `null` 줄이 여럿이다
+ * - 복합제(성분 둘 이상) 칩은 `contra_kinds`·`dup` 칸이 없다 = 모름(BE-06-40 A). 성분 하나인 줄은 칸이 있다
+ * **서버는 아직 이 모양을 내지 않는다**(밤사이 BE 구현 대상). 화면이 먼저 받을 수 있는지 보는 표본이다
+ */
+export const productRowsResponse = make({
+  route: "AGENT",
+  end_reason: "NORMAL",
+  summary: `${DRUG_A}과 ${DRUG_B}은 병용금기 목록에 함께 올라 있고, ${DRUG_B}은 임부금기 목록에도 올라 있어요.`,
+  findings: [
+    {
+      target: "product",
+      bucket: "found",
+      evidence_id: null,
+      kind: null,
+      drug: DRUG_A,
+      drugs: [DRUG_A],
+      text: PHRASES.BADGE_PAIR,
+      badges: [{ kind: "contra_pair", text: PHRASES.BADGE_PAIR, evidence_id: "ev-pair-1" }],
+      // 복합제: 어느 성분이 원인인지 가리지 못해 원인·중복 칸이 없다(모름)
+      ingredients: [
+        { code: INGR_A.code, name: INGR_A.name },
+        { code: INGR_C.code, name: INGR_C.name },
+      ],
+    },
+    {
+      target: "product",
+      bucket: "found",
+      evidence_id: null,
+      kind: null,
+      drug: DRUG_B,
+      drugs: [DRUG_B],
+      text: PHRASES.BADGE_PAIR,
+      badges: [
+        { kind: "contra_pair", text: PHRASES.BADGE_PAIR, evidence_id: "ev-pair-1" },
+        { kind: "pregnancy", grade: "2", text: pregnancyBadge("2"), evidence_id: "ev-preg-1" },
+      ],
+      ingredients: [{ ...INGR_B, contra_kinds: ["contra_pair", "pregnancy"] }],
+    },
+    pairFinding,
+  ],
+  detail: [pairDetail, pregDetail("FOUND", DRUG_B)],
+  citations: [pairCitation, pregCitation("FOUND")],
 });
 
 /**

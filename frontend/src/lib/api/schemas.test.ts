@@ -38,6 +38,30 @@ describe("ChatResponse v1 zod", () => {
     expect(parsed.findings[0]).toMatchObject({ target: "product", drugs: [], badges: [], ingredients: [], retried: null, age_criteria: [], age_info_line: null, reasons: [] });
   });
 
+  it("성분의 원인·중복 칸이 없거나 null이면 모름(null)으로 남기고 `[]`·`false`(원인 아님)로 채우지 않는다(BE-06-40 A)", () => {
+    const parse = (ingredient: Record<string, unknown>) => ChatResponseSchema.parse(finding({ ingredients: [ingredient] })).findings[0].ingredients[0];
+    expect(parse({ name: "가나성분" })).toMatchObject({ contra_kinds: null, dup: null, state_labels: [] });
+    expect(parse({ name: "가나성분", contra_kinds: null, dup: null })).toMatchObject({ contra_kinds: null, dup: null });
+    expect(parse({ name: "가나성분", contra_kinds: [], dup: false })).toMatchObject({ contra_kinds: [], dup: false });
+    expect(parse({ name: "가나성분", contra_kinds: ["pregnancy"], dup: true })).toMatchObject({ contra_kinds: ["pregnancy"], dup: true });
+  });
+
+  it("권고 줄 종류(pharmacist_advice_kinds): 칸이 없으면 빈 목록, 값은 missing·grade_def만 받는다(AG-08-28 A)", () => {
+    expect(ChatResponseSchema.parse(valid()).pharmacist_advice_kinds).toEqual([]);
+    const withKinds = { ...valid(), pharmacist_advice: ["받은 권고 하나", "받은 권고 둘"], pharmacist_advice_kinds: ["missing", "grade_def"] };
+    expect(ChatResponseSchema.parse(withKinds).pharmacist_advice_kinds).toEqual(["missing", "grade_def"]);
+    expect(ChatResponseSchema.safeParse({ ...withKinds, pharmacist_advice_kinds: ["missing", "other"] }).success).toBe(false);
+    expect(ChatResponseSchema.safeParse({ ...withKinds, pharmacist_advice_kinds: "missing" }).success).toBe(false);
+  });
+
+  it("제품 줄의 evidence_id·kind가 null이어도 받는다: 한 응답에 null 줄이 여럿이어도 된다(BE-06-41 A)", () => {
+    const parsed = ChatResponseSchema.parse(structuredClone(responses.productRowsResponse));
+    const productRows = parsed.findings.filter((f) => f.target === "product");
+    expect(productRows.length).toBeGreaterThan(1);
+    for (const row of productRows) expect(row).toMatchObject({ evidence_id: null, kind: null });
+    expect(productRows.flatMap((row) => row.badges).every((badge) => badge.evidence_id !== null)).toBe(true);
+  });
+
   it.each([
     ["v0 문서(schema_version)", { schema_version: "chat_response@v0" }],
     ["v0의 최상위 badges", { badges: [] }],
@@ -89,6 +113,12 @@ describe("ChatResponse v1 zod", () => {
     ["retried 값", { retried: false }, true],
     ["사유 원문 줄(reasons)", { reasons: ["합성 사유 문장"] }, true],
     ["사유 칸이 문자열이 아님", { reasons: [1] }, false],
+    // BE-06-40 A: 성분의 원인·중복 칸은 지금 서버 모양(`[]`·`false`)과 모름(`null`·칸 없음)을 모두 받는다
+    ["성분 원인·중복 칸: 지금 서버 모양", { ingredients: [{ name: "가나성분", contra_kinds: [], dup: false }] }, true],
+    ["성분 원인·중복 칸: null(모름)", { ingredients: [{ name: "가나성분", contra_kinds: null, dup: null }] }, true],
+    ["성분 원인·중복 칸: 칸 없음(모름)", { ingredients: [{ name: "가나성분" }] }, true],
+    ["성분 원인 칸이 목록이 아님", { ingredients: [{ name: "가나성분", contra_kinds: "pregnancy" }] }, false],
+    ["성분 중복 칸이 참·거짓이 아님", { ingredients: [{ name: "가나성분", dup: "yes" }] }, false],
   ])("판정 줄: %s", (_name, patch, ok) => {
     expect(ChatResponseSchema.safeParse(finding(patch)).success).toBe(ok);
   });
