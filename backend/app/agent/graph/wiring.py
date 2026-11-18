@@ -85,6 +85,7 @@ def build_deps(
     summary_instruction: str | None = None,
     service: bool = False,
     typo_correct: bool | None = None,
+    layer_check: bool = False,
 ) -> GraphDeps:
     """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음).
 
@@ -99,9 +100,14 @@ def build_deps(
     없으면(v1·v2) 코드 상수 `nodes.SUMMARY_INSTRUCTION`을 쓴다. draft 프롬프트가 든 묶음은 `allow_draft=True`를 명시해야 한다
     (검토 카드 승인 전에는 기준선에 넣지 않는다, PRD-16-03. 채택된 묶음은 명시 없이 읽힌다).
     `summary_instruction`을 직접 주면 그 값이 우선한다(시험용). 시스템 프롬프트는 이 인자와 무관하게 `prompt_name`·`system_prompt`로 정한다.
+
+    `layer_check`(AG-07 계층·주장 유형 누락 검사, AG-13 C3 장치): 기본 끔. 비교 조건 C3에서만 켜며, 평가 실행기는 조건으로 그래프를 고를 때
+    `pipeline.build.build_for_condition`이 정한다(C3만 켬). 서비스 경로(`service=True`)는 채택 결정 전까지 켤 수 없다(`ValueError`).
     """
     if service and ledger is not None:
         raise ValueError("서비스 경로는 개발 원장을 쓰지 않는다(ledger=None이어야 한다, BE-06-23 A)")
+    if service and layer_check:
+        raise ValueError("서비스 경로는 계층 검사(C3 장치)를 켜지 않는다(AG-13 측정 뒤 채택 결정 전)")
     tools = build_tools(tool_ctx, registry)
     if tool_model is None or summary_model is None:
         from app.agent import llm
@@ -129,7 +135,7 @@ def build_deps(
         kwargs["registry"] = registry
     return GraphDeps(drug_dict=drug_dict, tool_model=tool_model, summary_model=summary_model, tools=tools, tool_ctx=tool_ctx,
                      system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, grade_def_fn=grade_def_fn,
-                     summary_instruction=summary_instruction, typo_correct=_resolve_typo_correct(service, typo_correct), **kwargs)
+                     summary_instruction=summary_instruction, typo_correct=_resolve_typo_correct(service, typo_correct), layer_check=bool(layer_check), **kwargs)
 
 
 def _resolve_typo_correct(service: bool, typo_correct: bool | None) -> bool:

@@ -73,7 +73,9 @@ def test_trace_validator_span_lists_rule_codes_in_violations_and_counts_in_outpu
     (span,) = _validator_spans(sink)
     assert span["verdict"] == "fix"
     assert span["violations"] == sorted([GRADE_EXCEPTION_MISUSE, GRADE_VALUE_INVALID])  # 코드 이름만, 정렬
-    assert span["output_summary"] == {"rule_checks": {GRADE_VALUE_INVALID: 1, GRADE_EXCEPTION_MISUSE: 1}, "rules": {"H22": 1, "H24": 1}}
+    # AG-13-12 A(2026-11-18 밤): Validator 사유 코드별 건수(`validator_reasons`)가 더해졌다. 기존 두 키는 그대로다
+    assert span["output_summary"] == {"rule_checks": {GRADE_VALUE_INVALID: 1, GRADE_EXCEPTION_MISUSE: 1}, "rules": {"H22": 1, "H24": 1},
+                                      "validator_reasons": {GRADE_VALUE_INVALID: 1, GRADE_EXCEPTION_MISUSE: 1}}
     dumped = json.dumps(sink.records, ensure_ascii=False, default=str)
     assert not any(m in dumped for m in SENTENCE_MARKERS)  # 문장 원문은 어느 span에도 없다
 
