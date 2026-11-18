@@ -27,7 +27,8 @@
       "Bash(herdr agent read:*)",
       "Bash(/Users/edwin/develop/P2-Medi/backend/.venv/bin/python -m pytest *)",
       "Bash(PYTHONPATH=* /Users/edwin/develop/P2-Medi/backend/.venv/bin/python -m pytest *)",
-      "Bash(PYTHONPATH=. .venv/bin/python -m pytest *)"
+      "Bash(PYTHONPATH=. .venv/bin/python -m pytest *)",
+      "Bash(/Users/edwin/develop/P2-Medi/backend/.venv/bin/ruff check *)"
     ],
     "deny": [
       "Read(./.env)",
