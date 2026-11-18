@@ -1,6 +1,7 @@
 """AG-01-10 A(2026-11-17): 실시간 확인을 하지 못한 **사유**(`api.reason`: NO_API_CODE·PARTIAL·TRUNCATED) 기록과 사유별 노트.
 
-꼬리표 이름·도구 출력 계약은 그대로다. 사유별 새 문구(`fixed_phrases.API_REASON_NOTES`)는 사용자 승인 전 초안이라, 승인 전에는
+꼬리표 이름·도구 출력 계약은 그대로다. 사유별 문구(`provenance.API_REASON_NOTES`)는 AG-01-11 A(2026-11-17)로 **원문 승인**돼
+`API_REASON_NOTES_APPROVED = True`이고, 사유가 있는 항목의 노트는 사유별 문구로 나간다. 승인 전 분기(`False`)는 기록용으로 남아
 이미 승인된 문구만 쓴다(코드 없음 = `API_FAIL` 문구(중립), 한쪽 실패·잘림 = 지금까지의 꼬리표 문구). 합성 사전·가짜 DurClient(네트워크 0).
 """
 
@@ -97,23 +98,67 @@ def test_single_ingredient_without_api_code_records_no_api_code():
         assert "API_FAIL" in it["flags"] and it["api"] == {"outcome": "API_UNAVAILABLE", "reason": P.API_REASON_NO_CODE}
 
 
-# --------------------------------------------------------------------------- 노트 문구
+# --------------------------------------------------------------------------- 노트 문구(AG-01-11 A 승인 뒤)
 
-def test_no_code_note_does_not_say_a_lookup_was_dropped():
-    """코드가 없어 묻지 않은 것을 "조회가 빠졌어요"라고 하지 않는다(사용자·요약 모델이 실패로 읽는다, lane-D §2). 승인된 중립 문구를 쓴다."""
+# 승인 원문(AG-01-11 A, 2026-11-17. `tickets/agent/AG-01.md` §6 결정 현황·§3 메모, 로컬 보고 `goal-ag11-prep.md` §5). 글자 하나도 바꾸지 않는다
+APPROVED_REASON_NOTES = {
+    "NO_API_CODE": "실시간 확인을 하지 못함(이 성분은 실시간 조회에 쓸 코드가 없어요. 파일 기준 결과는 그대로예요)",
+    "PARTIAL": "실시간 확인을 하지 못함(쌍의 한쪽 조회에 실패했어요. 파일 기준 결과는 그대로예요)",
+    "TRUNCATED": "실시간 확인을 일부만 함(성분이 많아 일부 성분만 조회했어요. 파일 기준 결과는 그대로예요)",
+}
+
+
+def test_reason_notes_match_the_approved_wording_exactly():
+    assert P.API_REASON_NOTES_APPROVED is True
+    assert P.API_REASON_NOTES == APPROVED_REASON_NOTES == fp.API_REASON_NOTES
+    assert "API_REASON_NOTES" not in fp.DRAFT_KEYS
+
+
+def test_no_code_note_says_the_ingredient_has_no_lookup_code():
+    """코드가 없어 묻지 않은 것을 "조회가 빠졌어요"라고 하지 않는다(사용자·요약 모델이 실패로 읽는다, lane-D §2). 승인된 사유별 문구를 쓴다."""
     items = _run(FakeDur(), _dict([]), "아세트아미노펜", "이부프로펜")
     it = _pair(items)
-    assert it["notes"] == [P.FLAG_NOTES["API_FAIL"]]
+    assert it["notes"] == [APPROVED_REASON_NOTES["NO_API_CODE"]]
     resp = finalize(items)
     notes = [n for e in resp["entries"] for n in e["notes"]]
-    assert P.FLAG_NOTES["API_FAIL"] in notes and not any("빠졌" in n for n in notes)
+    assert APPROVED_REASON_NOTES["NO_API_CODE"] in notes and not any("빠졌" in n for n in notes)
+    assert P.FLAG_NOTES["API_PAIR_INCOMPLETE"] not in notes and P.FLAG_NOTES["API_FAIL"] not in notes
     assert resp["notice"] == fp.NOTICE_API_FAIL  # 배너는 그대로(실시간 확인이 안 된 것은 사실이다)
 
 
-def test_partial_and_truncated_keep_the_existing_pair_note():
+def test_partial_failure_note_says_one_side_failed():
+    fd = _OneSideDown()
+    d = DrugDict({"meta": {"version": "s", "built_at": "2026-11-18T00:00:00+00:00", "form_map": FORM_MAP}, "products": [],
+                  "ingredients": [_ing(0, "Acetaminophen", "아세트아미노펜", [APAP], [D_APAP]),
+                                  _ing(1, "Ibuprofen", "이부프로펜", [IBU], ["D000363", "D000364"])]})
+    it = _pair(_run(fd, d, "아세트아미노펜", "이부프로펜"))
+    assert it["notes"][-1] == APPROVED_REASON_NOTES["PARTIAL"]
+    assert APPROVED_REASON_NOTES["PARTIAL"] in [n for e in finalize([it])["entries"] for n in e["notes"]]
+
+
+def test_truncated_note_says_only_some_ingredients_were_queried():
     it = _pair(_run(FakeDur(), golden_dict(), AZI, COLD))
-    assert it["notes"][-1] == P.FLAG_NOTES["API_PAIR_INCOMPLETE"]
-    assert P.FLAG_NOTES["API_PAIR_INCOMPLETE"] in [n for e in finalize([it])["entries"] for n in e["notes"]]
+    assert it["notes"][-1] == APPROVED_REASON_NOTES["TRUNCATED"]
+    assert APPROVED_REASON_NOTES["TRUNCATED"] in [n for e in finalize([it])["entries"] for n in e["notes"]]
+    assert finalize([it])["notice"] == fp.NOTICE_API_FAIL
+
+
+@pytest.mark.parametrize("flag,reason,want", [
+    ("API_PAIR_INCOMPLETE", "NO_API_CODE", "NO_API_CODE"), ("API_FAIL", "NO_API_CODE", "NO_API_CODE"),
+    ("API_PAIR_INCOMPLETE", "PARTIAL", "PARTIAL"), ("API_PAIR_INCOMPLETE", "TRUNCATED", "TRUNCATED"),
+    ("API_FAIL", "TRUNCATED", "TRUNCATED"), ("API_FAIL", "PARTIAL", "PARTIAL"),
+])
+def test_note_table_after_approval_uses_reason_notes(flag, reason, want):
+    assert P.API_REASON_NOTES_APPROVED is True
+    assert P.api_flag_note(flag, reason) == APPROVED_REASON_NOTES[want]
+
+
+@pytest.mark.parametrize("flag,reason", [
+    ("API_PAIR_INCOMPLETE", None), ("API_FAIL", None), ("API_FAIL", "모르는값"), ("API_SAME", "NO_API_CODE"), ("FILE_ONLY", "TRUNCATED"),
+])
+def test_note_table_without_reason_is_unchanged(flag, reason):
+    """사유가 없거나 모르는 값, 실시간 확인 꼬리표가 아닌 경우는 승인 전후 모두 지금까지의 꼬리표 문구 그대로다."""
+    assert P.api_flag_note(flag, reason) == P.FLAG_NOTES[flag]
 
 
 @pytest.mark.parametrize("flag,reason,want", [
@@ -122,16 +167,10 @@ def test_partial_and_truncated_keep_the_existing_pair_note():
     ("API_FAIL", "TRUNCATED", "API_FAIL"), ("API_PAIR_INCOMPLETE", None, "API_PAIR_INCOMPLETE"), ("API_FAIL", "모르는값", "API_FAIL"),
     ("API_SAME", "NO_API_CODE", "API_SAME"),
 ])
-def test_note_table_before_approval(flag, reason, want):
-    assert P.API_REASON_NOTES_APPROVED is False
+def test_pre_approval_branch_kept_for_record(flag, reason, want, monkeypatch):
+    """스위치를 False로 되돌리면 승인 전 중립 문구 표로 돌아간다(기록용. 서비스는 True다)."""
+    monkeypatch.setattr(P, "API_REASON_NOTES_APPROVED", False)
     assert P.api_flag_note(flag, reason) == P.FLAG_NOTES[want]
-
-
-def test_after_approval_reason_specific_notes_are_used(monkeypatch):
-    monkeypatch.setattr(P, "API_REASON_NOTES_APPROVED", True)
-    for r in P.API_REASONS:
-        assert P.api_flag_note("API_PAIR_INCOMPLETE", r) == P.API_REASON_NOTES[r]
-    assert P.api_flag_note("API_PAIR_INCOMPLETE", None) == P.FLAG_NOTES["API_PAIR_INCOMPLETE"]
 
 
 def test_finalize_without_reason_is_unchanged():
@@ -142,14 +181,14 @@ def test_finalize_without_reason_is_unchanged():
     assert P.FLAG_NOTES["API_PAIR_INCOMPLETE"] in finalize([{**it, "api": None}])["entries"][0]["notes"]
 
 
-# --------------------------------------------------------------------------- 초안 문구
+# --------------------------------------------------------------------------- 문구 안전 불변식
 
-def test_reason_notes_are_drafts_until_approved():
-    assert "API_REASON_NOTES" in fp.DRAFT_KEYS and set(fp.API_REASON_NOTES) == set(P.API_REASONS)
+def test_reason_notes_cover_every_reason_and_are_not_drafts():
+    assert "API_REASON_NOTES" not in fp.DRAFT_KEYS and set(fp.API_REASON_NOTES) == set(P.API_REASONS)
     assert fp.API_REASON_NOTES == P.API_REASON_NOTES
 
 
-def test_draft_notes_make_no_safety_claim_and_use_no_code_names():
+def test_reason_notes_make_no_safety_claim_and_use_no_code_names():
     for text in fp.API_REASON_NOTES.values():
         assert "파일 기준 결과는 그대로예요" in text
         assert not any(w in text for w in ("안전", "괜찮", "문제없", "NO_API_CODE", "PARTIAL", "TRUNCATED", "API", "DUR"))

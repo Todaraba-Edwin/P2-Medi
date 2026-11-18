@@ -23,7 +23,7 @@ from app.agent.tools import check_contraindications as cc  # noqa: E402
 from app.agent.tools.contract import check_items  # noqa: E402
 from app.agent.tools.schemas import CheckContraArgs  # noqa: E402
 from app.tools.dur import DurRow  # noqa: E402
-from app.tools.provenance import FLAG_NOTES  # noqa: E402
+from app.tools.provenance import API_REASON_NOTES, FLAG_NOTES  # noqa: E402
 
 T500, COLD, AZI = "타이레놀정500밀리그람", "타이레놀콜드-에스정", "이지렉트정1.0밀리그램"  # COLD만 API 성분 코드 3개(한도 2 초과)
 API_FLAGS = {"API_SAME", "FILE_ONLY", "API_ONLY", "API_FAIL", "API_PAIR_INCOMPLETE"}
@@ -49,7 +49,7 @@ def test_found_pair_with_truncated_codes_is_incomplete_not_file_only():
     it = _file_pair(_check(fd, AZI, COLD))
     assert it["status"] == "FOUND"  # 파일 판정은 그대로
     assert API_FLAGS & set(it["flags"]) == {"API_PAIR_INCOMPLETE"}
-    assert FLAG_NOTES["API_PAIR_INCOMPLETE"] in it["notes"] and FLAG_NOTES["FILE_ONLY"] not in it["notes"]
+    assert API_REASON_NOTES["TRUNCATED"] in it["notes"] and FLAG_NOTES["FILE_ONLY"] not in it["notes"]  # 사유별 승인 문구(AG-01-11 A)
     assert it["api"]["codes_truncated"] is True
     assert _pair_calls(fd) == [frozenset({D_RASA, D_APAP}), frozenset({D_RASA, D_PSE})]  # 호출 수 그대로(세 번째 성분은 묻지 않는다)
     assert finalize([it])["notice"] == fp.NOTICE_API_FAIL  # 배너는 기존 규칙이 건다

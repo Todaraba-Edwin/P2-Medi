@@ -225,32 +225,46 @@ def _graph(condition: str) -> Any:
 Q_EMERGENCY_NO_DRUG = "아이가 약을 삼켰어요 숨쉬기 힘들어해요"  # 합성 질문(약 이름 없음)
 
 
+# 승인 원문(AG-01-11 A, 2026-11-17. `tickets/agent/AG-01.md` §6·§3, 로컬 보고 `goal-ag11-prep.md` §5). 글자 하나도 바꾸지 않는다
+APPROVED_ASK_DRUG_NAME = "어떤 약을 먹었는지 약 이름을 알려 주시면 금기 여부를 확인해 드려요."
+
+
+def test_ask_phrase_matches_the_approved_wording_and_is_not_a_draft():
+    assert fp.EMERGENCY_ASK_DRUG_NAME == APPROVED_ASK_DRUG_NAME
+    assert "EMERGENCY_ASK_DRUG_NAME" not in fp.DRAFT_KEYS
+
+
 @pytest.mark.parametrize("condition", ["C2", "C1"])
-def test_emergency_without_drug_name_keeps_119_and_is_unchanged_while_the_phrase_is_a_draft(condition):
-    assert "EMERGENCY_ASK_DRUG_NAME" in fp.DRAFT_KEYS
+def test_emergency_without_drug_name_keeps_119_on_top_and_asks_for_the_drug_name(condition):
+    """TC-11: 응급인데 약 이름이 없으면 119 안내는 그대로 맨 위, 약 이름을 묻는 문장이 요약(119 아래)에 붙는다(AG-01-11 A 코드 반영 2026-11-18)."""
     st = run_question(_graph(condition), Q_EMERGENCY_NO_DRUG)
     a = st["answer"]
     assert st["emergency"] is True and not any(e["status"] == "RESOLVED" for e in st["entities"])  # 확정된 약이 없다
-    assert a["text"].splitlines()[0] == fp.EMERGENCY_119 and fp.FIXED_NOTICE in a["text"]
-    assert fp.EMERGENCY_ASK_DRUG_NAME not in a["text"]  # 승인 전에는 쓰지 않는다
+    lines = a["text"].splitlines()
+    assert lines[0] == fp.EMERGENCY_119 and fp.FIXED_NOTICE in a["text"]
+    assert APPROVED_ASK_DRUG_NAME in (a["summary"] or "")
+    assert lines.index(next(x for x in lines if APPROVED_ASK_DRUG_NAME in x)) > 0  # 119보다 위에 오지 않는다
 
 
 @pytest.mark.parametrize("condition", ["C2", "C1"])
-def test_after_approval_the_answer_asks_for_the_drug_name_under_119(condition, monkeypatch):
-    monkeypatch.setattr(fp, "DRAFT_KEYS", tuple(k for k in fp.DRAFT_KEYS if k != "EMERGENCY_ASK_DRUG_NAME"))
+def test_putting_the_phrase_back_on_the_draft_list_restores_the_previous_answer(condition, monkeypatch):
+    """`DRAFT_KEYS`에 다시 올리면 지금까지와 같은 답(119 + 고정 문구, 묻는 문장 없음)으로 돌아간다(초안 장치는 그대로 산다)."""
+    monkeypatch.setattr(fp, "DRAFT_KEYS", (*fp.DRAFT_KEYS, "EMERGENCY_ASK_DRUG_NAME"))
     a = run_question(_graph(condition), Q_EMERGENCY_NO_DRUG)["answer"]
-    lines = a["text"].splitlines()
-    assert lines[0] == fp.EMERGENCY_119 and fp.EMERGENCY_ASK_DRUG_NAME in (a["summary"] or "")
-    assert lines.index(next(x for x in lines if fp.EMERGENCY_ASK_DRUG_NAME in x)) > 0
+    assert a["text"].splitlines()[0] == fp.EMERGENCY_119 and fp.EMERGENCY_ASK_DRUG_NAME not in a["text"]
 
 
-def test_ask_line_is_not_added_when_a_drug_was_named_or_not_an_emergency(monkeypatch):
-    monkeypatch.setattr(fp, "DRAFT_KEYS", ())
+def test_ask_line_is_not_added_when_a_drug_was_named_or_not_an_emergency():
     assert fp.EMERGENCY_ASK_DRUG_NAME in finalize([], emergency=True, emergency_no_drug=True)["summary"]
     assert finalize([], emergency=False, emergency_no_drug=True)["summary"] is None
     assert finalize([], emergency=True)["summary"] is None
     assert fp.EMERGENCY_ASK_DRUG_NAME not in (finalize([], emergency=True, emergency_no_drug=True, refuse_reason="DOSAGE")["summary"] or "")
     assert fp.EMERGENCY_ASK_DRUG_NAME not in str(finalize([], emergency=True, emergency_no_drug=True, limit_reached=True)["summary"])
+
+
+def test_ask_line_is_appended_after_the_model_summary():
+    s = finalize([], "모델 요약 문장이에요.", emergency=True, emergency_no_drug=True)["summary"]
+    assert s == f"모델 요약 문장이에요. {fp.EMERGENCY_ASK_DRUG_NAME}"
 
 
 def test_ask_phrase_has_no_contact_or_safety_wording():

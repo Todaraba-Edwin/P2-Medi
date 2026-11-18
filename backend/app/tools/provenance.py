@@ -121,24 +121,26 @@ API_REASON_NO_CODE = "NO_API_CODE"  # 성분에 실시간 조회용(DUR 성분) 
 API_REASON_PARTIAL = "PARTIAL"      # 조회한 것 중 일부가 실패했다(쌍의 한쪽 등)
 API_REASON_TRUNCATED = "TRUNCATED"  # 성분 코드가 한도보다 많아 일부 성분만 물었다(대조가 끝나지 않았다)
 API_REASONS = (API_REASON_NO_CODE, API_REASON_PARTIAL, API_REASON_TRUNCATED)
-# 사유별 노트 문구 **초안**(사용자 승인 전, `fixed_phrases.DRAFT_KEYS`의 `API_REASON_NOTES`). 승인되면 아래 `API_REASON_NOTES_APPROVED`를 True로 바꾼다.
+# 사유별 노트 문구 **원문 승인(AG-01-11 A, 2026-11-17 사용자 "권장대로", 근거 `tickets/agent/AG-01.md` §3·§6)**. 글자 하나도 바꾸지 않는다
+# (시험 `contract/test_ag01_10_api_reason.py`가 승인 원문과 같음을 고정). 승인 전에는 `API_REASON_NOTES_APPROVED = False`로 중립 문구만 썼다.
 API_REASON_NOTES = {
     API_REASON_NO_CODE: "실시간 확인을 하지 못함(이 성분은 실시간 조회에 쓸 코드가 없어요. 파일 기준 결과는 그대로예요)",
     API_REASON_PARTIAL: "실시간 확인을 하지 못함(쌍의 한쪽 조회에 실패했어요. 파일 기준 결과는 그대로예요)",
     API_REASON_TRUNCATED: "실시간 확인을 일부만 함(성분이 많아 일부 성분만 조회했어요. 파일 기준 결과는 그대로예요)",
 }
-API_REASON_NOTES_APPROVED = False
+API_REASON_NOTES_APPROVED = True  # 2026-11-18 코드 반영(AG-01-11 A). False로 두면 아래 승인 전 분기(중립 문구)로 돌아간다
 
 
 def api_flag_note(flag: str, reason: str | None = None) -> str:
     """실시간 확인 꼬리표의 노트 문구. 사유(`api.reason`)가 있으면 사유에 맞는 문구를 고른다.
 
-    사유별 문구가 승인되기 전(`API_REASON_NOTES_APPROVED = False`)에는 **이미 승인된 문구**만 쓴다:
+    승인 뒤(`API_REASON_NOTES_APPROVED = True`, 지금): 사유가 `NO_API_CODE`·`PARTIAL`·`TRUNCATED`면 `API_REASON_NOTES`의 사유별 문구다.
+    승인 전 분기(`False`, 기록용)에는 **이미 승인된 문구**만 쓴다:
       - `NO_API_CODE`: `API_FAIL` 문구 "실시간 확인을 하지 못함(파일 기준 결과는 그대로예요)". 코드가 없어 묻지 않은 것을 쌍 꼬리표 문구
         "쌍의 한쪽 조회가 빠졌어요"로 말하면 사용자가 조회 실패로 읽고 요약 모델도 그대로 옮긴다(lane-D 보고 §2). `API_FAIL` 문구는
         실패라고 단정하지 않고 어느 사유에도 사실이다(중립).
       - `PARTIAL`·`TRUNCATED`: 지금까지의 꼬리표 문구 그대로(쌍은 "쌍의 한쪽 조회가 빠졌어요": 실제로 일부 조회가 빠졌다. AG-01-04 A).
-    사유가 없거나 모르는 값이면 지금까지의 꼬리표 문구 그대로다."""
+    사유가 없거나 모르는 값이면(실시간 조회를 끈 실행, 전부 실패, 사유 없는 항목) 어느 쪽이든 지금까지의 꼬리표 문구 그대로다."""
     if flag not in ("API_FAIL", "API_PAIR_INCOMPLETE") or reason not in API_REASONS:
         return FLAG_NOTES[flag]
     if API_REASON_NOTES_APPROVED:

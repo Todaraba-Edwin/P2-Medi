@@ -230,7 +230,7 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         if (state.get("profile") or {}).get("age_years") is None:
             extra["age_unknown"] = True
         # 응급인데 Router가 확정한 약이 하나도 없다(AG-09 §2, TC-11. 약 이름이 없거나, 뽑힌 낱말이 사전에 없는 경우): 약 이름을 묻는 문장을
-        # 붙일 자리. 문구 승인 전에는 `finalize`가 무시한다. 되묻기(후보 제시)는 이 함수를 지나지 않는다
+        # 붙일 자리(문구는 AG-01-11 A로 승인, `finalize`가 붙인다). 되묻기(후보 제시)는 이 함수를 지나지 않는다
         if state.get("emergency") and not any(isinstance(e, dict) and e.get("status") == "RESOLVED" for e in state.get("entities") or []):
             extra["emergency_no_drug"] = True
         if deps.grade_def_fn is not None:  # 함수가 주입되지 않았으면 아무것도 넘기지 않는다(기존 출력 불변)

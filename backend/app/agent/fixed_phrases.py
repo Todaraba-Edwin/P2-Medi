@@ -195,18 +195,18 @@ REFUSE_DRAFT_KEYS = tuple(k for k in REFUSE_MESSAGES if k not in REFUSE_APPROVED
 # 2026-11-16 문구 승인 표 17줄(3번만 조사 자동, 나머지 원문 승인)로 뺀 것: START_EMERGENCY_119·START_EXTERNAL_AI_NOTICE·
 # REFERENCE_ONLY_LINE·REFUSE_MESSAGES·CAUTION_LABELS·PHARMACIST_ADVICE_NO_NAMES·BLOCKED_NO_SOURCE_KIND·INVALID_CODE·PAIR_NOT_CHECKED.
 # 2026-11-17 AG-10-02 A 승인으로 뺀 것: TYPO_CORRECTED_LINE(오탈자 보정 고지, 원문 승인).
-# 2026-11-18 초안 추가: API_REASON_NOTES(AG-01-10 A 실시간 확인 못 한 사유별 노트 3종, 사용자 승인 전).
-# 2026-11-18 초안 추가: EMERGENCY_ASK_DRUG_NAME(AG-09 §2 TC-11 응급인데 약 이름이 없을 때 약 이름을 묻는 문장, 사용자 승인 전).
-DRAFT_KEYS: tuple[str, ...] = (*(() if API_REASON_NOTES_APPROVED else ("API_REASON_NOTES",)), "EMERGENCY_ASK_DRUG_NAME")
+# 2026-11-18 AG-01-11 A(2026-11-17 사용자 "권장대로", 문구 초안 4개 원문 승인) 코드 반영으로 뺀 것: API_REASON_NOTES(AG-01-10 A 실시간
+# 확인 못 한 사유별 노트 3종, `provenance.API_REASON_NOTES_APPROVED = True`)·EMERGENCY_ASK_DRUG_NAME(AG-09 §2 TC-11 응급 약 이름 묻기).
+# 지금은 초안이 없다. 새 문구를 더하면 승인 전까지 이 튜플에 이름을 적는다(`API_REASON_NOTES`는 provenance 쪽 스위치가 False면 자동으로 돌아온다).
+DRAFT_KEYS: tuple[str, ...] = (*(() if API_REASON_NOTES_APPROVED else ("API_REASON_NOTES",)),)
 
-# 응급 질문에 약 이름이 없을 때 119 안내 아래에 붙여 약 이름을 묻는 문장(AG-09 §2, `P2-doc/PJ2-가설검증.md` TC-11). **초안(사용자 승인 전)**:
-# `DRAFT_KEYS`에 있는 동안에는 답에 쓰지 않는다(`finalize(emergency_no_drug=True)`가 아무것도 더하지 않는다 = 지금까지와 같은 답).
-# 승인되면 `DRAFT_KEYS`에서 이름을 빼면 된다. 119 외 연락처·처치·가부 표현 없음(RFP-19-01 A).
+# 응급 질문에 약 이름이 없을 때 119 안내 아래에 붙여 약 이름을 묻는 문장(AG-09 §2, `P2-doc/PJ2-가설검증.md` TC-11).
+# **원문 승인(AG-01-11 A, 2026-11-17)**: `finalize(emergency=True, emergency_no_drug=True)`가 요약 끝에 붙인다(거절·상한·검증 폴백 경로 제외).
+# 119 안내는 그대로 맨 위다. 119 외 연락처·처치·가부 표현 없음(RFP-19-01 A). 글자 하나도 바꾸지 않는다(`test_ag09_no_evidence.py`가 원문 고정).
 EMERGENCY_ASK_DRUG_NAME = "어떤 약을 먹었는지 약 이름을 알려 주시면 금기 여부를 확인해 드려요."
 
-# 실시간 확인을 하지 못한 사유별 노트(AG-01-10 A). **초안(사용자 승인 전)**: 승인 전에는 화면·모델 입력에 쓰지 않고, 이미 승인된 문구 중
-# 사실과 맞는 것으로 대신한다(`provenance.api_flag_note`: 코드 없음은 `API_FAIL` 문구, 한쪽 실패·잘림은 지금까지의 꼬리표 문구 그대로).
-# 승인되면 `provenance.API_REASON_NOTES_APPROVED`를 True로 바꾼다(그때 이 이름이 `DRAFT_KEYS`에서 빠지고 사유별 문구가 쓰인다).
+# 실시간 확인을 하지 못한 사유별 노트(AG-01-10 A). **원문 승인(AG-01-11 A, 2026-11-17)**: `provenance.api_flag_note`가 항목 `api.reason`에
+# 맞는 문구를 고른다(원본은 `provenance.API_REASON_NOTES`, 여기는 같은 값의 복사본). 사유가 없는 항목은 지금까지의 꼬리표 문구 그대로다.
 # 키(사유 코드)는 화면에 나가지 않는다: NO_API_CODE = 조회용 코드가 없어 묻지 않음, PARTIAL = 쌍의 한쪽 실패, TRUNCATED = 성분이 많아 일부만 물음.
 API_REASON_NOTES = dict(_API_REASON_NOTES)
 
