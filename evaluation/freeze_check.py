@@ -17,6 +17,9 @@
 측정 기간 동결(`freeze_diff`): `eval_runner --baseline 이전결과.json`이 실행 전에 이번 실행 설정과 이전 측정 결과의 동결 값(`FROZEN_KEYS`)을 비교하고,
 다르면 `--freeze-diff-reason "이유"` 없이는 시작하지 않는다(RFP-29 H16, RFP-34-04 A). 에이전트 쪽 수정(프롬프트·ReAct 그래프·하네스 소스)은
 동결 대상이 아니다(수정마다 버전이 결과에 기록된다).
+
+다음 측정 기간 동결 후보(BE-08-06 A, 2026-11-18): Router·도구 소스 해시(`router_src`·`tools_src`, `NEXT_PERIOD_KEYS`)는 새 키다. 점검표(`FREEZE_ITEMS`)·
+실행 전 가드(`FROZEN_KEYS`)는 그대로 두고, `--same`만 양쪽에 값이 있을 때 비교하며 한쪽에 없으면 "새 키라 비교 제외"로 알린다.
 """
 
 from __future__ import annotations
@@ -53,6 +56,10 @@ JUDGE_ITEMS = ("judge_model", "judge_rubrics", "judge_prompt_sha256", "judge_set
 OPTIONAL_IN_OLD = ("metrics_src",)  # 이 항목을 넣기 전의 결과와 비교할 때는 양쪽에 값이 있을 때만 본다
 # `--same` 비교에서 조건마다 달라도 되는 항목(조건 자체와 조건이 정하는 값)
 VARY_BY_CONDITION = ("condition", "graph", "harness_table", "typo_correction")
+# 다음 측정 기간 동결 후보(BE-08-06 A, 2026-11-18 추가): Router·도구 소스 해시. 지금 기간에는 **새 키**라 기존 항목(`FREEZE_ITEMS`·`FROZEN_KEYS`)과
+# 점검표는 그대로 두고, 비교(`--same`·`freeze_diff`)는 **양쪽 결과에 값이 있을 때만** 한다. 한쪽에 없으면 "새 키라 비교 제외"로 따로 알린다.
+# C0는 Router·도구를 쓰지 않아 해당 없음이다.
+NEXT_PERIOD_KEYS = ("router_src", "tools_src")
 
 
 def _row(item: str, ok: bool, value: Any, why: str = "") -> dict[str, Any]:
@@ -83,7 +90,21 @@ def freeze_values(result: dict[str, Any]) -> dict[str, Any]:
         "judge_model": j.get("model"), "judge_rubrics": j.get("rubrics"), "judge_prompt_sha256": j.get("prompt_sha256"),
         "judge_settings": {"thinking": j.get("thinking"), "max_tokens": j.get("max_tokens")} if (j.get("thinking") or j.get("max_tokens")) else None,
         "ragas_version": j.get("ragas"),
+        "router_src": v.get("router"), "tools_src": v.get("tools"),  # NEXT_PERIOD_KEYS(새 키, 점검표 밖)
     }
+
+
+def next_period_split(fa: dict[str, Any], fb: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """새 키(`NEXT_PERIOD_KEYS`)를 (비교할 키, 새 키라 비교 제외할 키)로 나눈다. 양쪽에 값이 있어야 비교한다. C0가 끼면 모두 뺀다."""
+    if C0 in (fa.get("condition"), fb.get("condition")):
+        return [], list(NEXT_PERIOD_KEYS)
+    both = [k for k in NEXT_PERIOD_KEYS if fa.get(k) and fb.get(k)]
+    return both, [k for k in NEXT_PERIOD_KEYS if k not in both]
+
+
+def same_freeze_skipped(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
+    """`same_freeze`가 새 키라 비교하지 않은 항목(한쪽 결과에 값이 없다)."""
+    return next_period_split(freeze_values(a), freeze_values(b))[1]
 
 
 def check_result(result: dict[str, Any], *, dict_version: str | None = EXPECTED_DICT_VERSION, require_judge: bool = False,
@@ -149,7 +170,8 @@ def same_freeze(a: dict[str, Any], b: dict[str, Any]) -> list[dict[str, Any]]:
     """두 결과가 같은 동결 값으로 잰 것인가(조건·그래프·조건표·보정 스위치는 조건마다 달라도 된다). 다른 항목만 돌려준다."""
     fa, fb = freeze_values(a), freeze_values(b)
     skip = NOT_FOR_C0 if C0 in (fa["condition"], fb["condition"]) else ()
-    return [{"item": k, "a": fa[k], "b": fb[k]} for k in FREEZE_ITEMS if k not in VARY_BY_CONDITION and k not in skip and fa[k] != fb[k]]
+    keys = [*FREEZE_ITEMS, *next_period_split(fa, fb)[0]]  # 새 키는 양쪽에 값이 있을 때만(BE-08-06 A)
+    return [{"item": k, "a": fa[k], "b": fb[k]} for k in keys if k not in VARY_BY_CONDITION and k not in skip and fa[k] != fb[k]]
 
 
 def freeze_diff(planned: dict[str, Any], baseline: dict[str, Any]) -> list[dict[str, Any]]:
@@ -163,6 +185,7 @@ def freeze_diff(planned: dict[str, Any], baseline: dict[str, Any]) -> list[dict[
     keys = [k for k in FROZEN_KEYS if (k not in JUDGE_ITEMS or both_judge) and (k not in OPTIONAL_IN_OLD or (fp_[k] and fb[k])) and k not in skip]
     if fp_["condition"] == fb["condition"] and fp_["condition"] in PIPELINE_CONDITIONS:
         keys.append("graph")
+    # 새 키(`NEXT_PERIOD_KEYS`)는 실행 전 동결 가드에 넣지 않는다(지금 기간 계산 그대로). 다음 측정 기간에 가드에 넣을지는 결정 후보(BE-08-06 A)
     return [{"item": k, "planned": fp_[k], "baseline": fb[k]} for k in keys if fp_[k] != fb[k]]
 
 
@@ -193,7 +216,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         base_p, base = loaded[0]
         for p, res in loaded[1:]:
             diff = same_freeze(base, res)
-            print(f"[{base_p.name} 대 {p.name}] 동결 값 {'같음' if not diff else '다름: ' + ', '.join(d['item'] for d in diff)}")
+            skipped = same_freeze_skipped(base, res)
+            print(f"[{base_p.name} 대 {p.name}] 동결 값 {'같음' if not diff else '다름: ' + ', '.join(d['item'] for d in diff)}"
+                  + (f"  (새 키라 비교 제외: {', '.join(skipped)})" if skipped else ""))
             failed |= bool(diff)
     return 1 if failed else 0
 
