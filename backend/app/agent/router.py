@@ -26,7 +26,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.agent.fixed_phrases import CLARIFY_ONE_CANDIDATE
+from app.agent.fixed_phrases import CLARIFY_MANY_CANDIDATES, CLARIFY_ONE_CANDIDATE
 from app.tools.drug_dict import (
     MATCH_BM25,
     MATCH_CONTAINS,
@@ -673,11 +673,8 @@ def _entity(raw: str, r: LookupResult, strength: str | None = None) -> Entity:
 
 # 되묻기 후보가 1개일 때의 질문 `CLARIFY_ONE_CANDIDATE`: 원문 승인(AG-05-05 A, 2026-11-18)으로 원본을 `fixed_phrases`로 옮기고(위 import)
 # 승인 스위치를 지웠다.
-# 후보가 여럿일 때의 질문 **초안**(2026-11-18 2차). 지금 문장("…여러 개예요. 어떤 약인지 하나를 골라 주세요.")에는 물음표가 없어, 평가의 코드 채점
-# `ONE_QUESTION`(`evaluation/eval_metrics.py` `element_checks`: 요약의 "?"가 정확히 1개)이 모호 문항에서 늘 실패한다(개발셋 재집계는 보고).
-# 평가 정의는 측정 중 동결이라 문장 쪽을 고치는 안이며, 고정 문구라 승인 전에는 쓰지 않는다. 가부·안전·용량 표현 없음, 질문 1개.
-CLARIFY_MANY_CANDIDATES = "'{drug}'에 해당하는 약이 여러 개예요. 어떤 약을 말씀하시는 건가요?"
-CLARIFY_MANY_CANDIDATES_APPROVED = False
+# 후보가 여럿일 때의 질문 `CLARIFY_MANY_CANDIDATES`: 물음표 1개 문장(평가 `ONE_QUESTION` = 요약의 "?"가 정확히 1개, `eval_metrics.py:255`).
+# 원문 승인(AG-05-10 A, 2026-11-18)·켜기(AG-13-07 A, 2026-11-18 밤, AG-11 기준선 뒤)로 원본을 `fixed_phrases`로 옮기고 승인 스위치를 지웠다.
 
 
 def _clarify(ents: list[Entity]) -> Clarify | None:
@@ -692,10 +689,8 @@ def _clarify(ents: list[Entity]) -> Clarify | None:
         q = f"'{t.raw}'와(과) 비슷한 약이 있어요. 찾으시는 약이 아래 중에 있나요? 하나를 골라 주세요."
     elif t.n_candidates <= 1 and len(t.options) == 1:  # 후보 1개(접두·중간 일치, AG-05-01 A로 되묻기 유지)에는 "여러 개"라고 하지 않는다
         q = CLARIFY_ONE_CANDIDATE.format(drug=t.raw)
-    elif CLARIFY_MANY_CANDIDATES_APPROVED:
-        q = CLARIFY_MANY_CANDIDATES.format(drug=t.raw)
     else:
-        q = f"'{t.raw}'에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요."
+        q = CLARIFY_MANY_CANDIDATES.format(drug=t.raw)
     return Clarify(question=q, target_raw=t.raw, options=t.options[:MAX_CLARIFY_OPTIONS], pending_raws=[e.raw for e in pending[1:]])
 
 

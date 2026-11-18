@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from build_drug_dict import build_dictionary  # noqa: E402
 
+from app.agent import fixed_phrases as fp  # noqa: E402
 from app.agent import router as R  # noqa: E402
 from app.agent import router_classify as C  # noqa: E402
 from app.agent.router import route_input  # noqa: E402
@@ -209,32 +210,33 @@ class TestIntentConflicts:
         assert o.result.required_claims == [c for c in R.CLAIM_TYPES if c in o.result.required_claims]  # 설계 문서 순서
 
 
-# =========================================================================== 5. 모호 되묻기 물음표 초안(평가 ONE_QUESTION 정의와의 어긋남)
+# =========================================================================== 5. 모호 되묻기 물음표 문구(AG-05-10 A 승인, AG-13-07 A로 켬)
 
 def _q_count(s: str) -> int:
     return s.count("?")  # `evaluation/eval_metrics.py` element_checks의 ONE_QUESTION과 같은 정의
 
 
-class TestManyCandidatesDraft:
-    def test_default_sentence_unchanged_and_has_no_question_mark(self, dd):
-        assert R.CLARIFY_MANY_CANDIDATES_APPROVED is False
-        c = route_input("보라를 먹어도 되나요", dd).clarify
-        assert c.question == "'보라'에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요." and _q_count(c.question) == 0
+class TestManyCandidatesPhrase:
+    def test_approved_phrase_lives_in_fixed_phrases_without_switch(self):
+        """AG-05-10 A(원문 승인)·AG-13-07 A(켜기): 원본은 `fixed_phrases`이고 router는 참조만 한다. 승인 스위치는 지웠다."""
+        assert fp.CLARIFY_MANY_CANDIDATES == "'{drug}'에 해당하는 약이 여러 개예요. 어떤 약을 말씀하시는 건가요?"
+        assert R.CLARIFY_MANY_CANDIDATES is fp.CLARIFY_MANY_CANDIDATES
+        assert not hasattr(R, "CLARIFY_MANY_CANDIDATES_APPROVED") and "CLARIFY_MANY_CANDIDATES" not in fp.DRAFT_KEYS
 
-    def test_draft_used_only_after_approval(self, dd, monkeypatch):
-        monkeypatch.setattr(R, "CLARIFY_MANY_CANDIDATES_APPROVED", True)
+    def test_many_candidates_use_phrase_with_one_question_mark(self, dd):
         c = route_input("보라를 먹어도 되나요", dd).clarify
-        assert c.question == R.CLARIFY_MANY_CANDIDATES.format(drug="보라") and _q_count(c.question) == 1
+        assert c.question == fp.CLARIFY_MANY_CANDIDATES.format(drug="보라") and _q_count(c.question) == 1
         assert len(c.options) == 2 and c.pending_raws == []
+        assert "어떤 약인지 하나를 골라 주세요" not in c.question   # 이전 문장(물음표 없음)은 더 나오지 않는다
 
-    def test_draft_has_no_verdict_dose_or_safety(self):
-        s = R.CLARIFY_MANY_CANDIDATES
+    def test_phrase_has_no_verdict_dose_or_safety(self):
+        s = fp.CLARIFY_MANY_CANDIDATES
         for bad in ("먹어도", "괜찮", "안전", "금기", "mg", "밀리그램", "알", "복용하세요"):
             assert bad not in s
-        assert _q_count(s) == 1
+        assert _q_count(s) == 1 and "{drug}" in s
+        assert not any(term in s for term in fp.FORBIDDEN_SCREEN_TERMS)
 
-    def test_all_templates_have_one_question_mark_when_both_drafts_on(self, dd, monkeypatch):
-        monkeypatch.setattr(R, "CLARIFY_MANY_CANDIDATES_APPROVED", True)  # 후보 1개 문구는 AG-05-05 A로 스위치 없이 늘 켜져 있다
+    def test_all_templates_have_one_question_mark(self, dd):
         for q in ("보라를 먹어도 되나요", "누리정 먹어도 되나요", "배가 먹어도 되나요"):
             c = route_input(q, dd).clarify
             assert c is not None and _q_count(c.question) == 1, q
