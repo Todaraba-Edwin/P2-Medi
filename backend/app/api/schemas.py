@@ -81,6 +81,7 @@ Bucket = Literal["found", "not_listed", "identified", "unconfirmed"]
 Target = Literal["product", "pair"]
 Grade = Literal["1", "2", "M"]
 GradeMissingReason = Literal["FETCH_FAIL", "OUT_OF_SCOPE"]  # 등급 정의는 청크 ID 조회라 SEARCH_MISS가 없다(PRD-15-03)
+AdviceKind = Literal["missing", "grade_def"]  # 약사 확인 권고 줄의 종류(AG-08-28 A, AG-08 §5 계약 ④)
 
 
 class _Strict(BaseModel):
@@ -399,6 +400,11 @@ class ChatResponse(_Strict):
     grade_def_missing: list[str] = Field(default_factory=list)
     grade_defs: list[GradeDef] = Field(default_factory=list)  # 등급 정의 블록 구조(BE-06-16 A). 위 줄 목록은 그대로 둔다
     pharmacist_advice: list[str] = Field(default_factory=list)  # 미확보 항목이 있으면 비지 않는다(BE-06-17 A)
+    # 권고 줄마다의 종류(AG-08-28 A, 2026-11-18): `pharmacist_advice`와 같은 길이·순서, `missing`(약 조합 미확보) | `grade_def`(등급 정의 미확보).
+    # 화면이 권고를 구역(미확보 상자·등급 정의 블록)별로 나눌 때 쓴다. `finalize`가 주지 않으면 빈 목록(칸 추가라 `chat_response@v1` 유지).
+    # 비어 있으면 직렬화에서 빠진다(`exclude_if`): 모르는 키를 거부하는 프런트 검증(`strictObject`)이 이 칸을 받기 전에도 기존 응답의
+    # 글자가 칸을 더하기 전과 같다(`name_corrections`의 `events.encode_event` 생략과 같은 효과). 스키마(OpenAPI)에는 칸이 그대로 있다
+    pharmacist_advice_kinds: list[AdviceKind] = Field(default_factory=list, exclude_if=lambda v: not v)
     fixed_notice: list[str] = Field(min_length=1)  # 줄 목록: (미확보가 있으면) 약사 확인 권고 → 고정 문구
     disclaimer: str = Field(min_length=1)
 
@@ -434,6 +440,8 @@ class ChatResponse(_Strict):
                    or bool(self.grade_def_missing) or any(g.missing_reason for g in self.grade_defs))
         if missing and not any(isinstance(x, str) and x.strip() for x in self.pharmacist_advice):
             raise ValueError("미확보 항목이 있으면 pharmacist_advice(약사 확인 권고)가 비어 있을 수 없다")  # BE-06-17 A
+        if self.pharmacist_advice_kinds and len(self.pharmacist_advice_kinds) != len(self.pharmacist_advice):
+            raise ValueError("pharmacist_advice_kinds는 pharmacist_advice와 같은 길이·순서여야 한다(AG-08-28 A)")
         return self
 
 
@@ -642,6 +650,8 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
         sentence_refs=refs,
         grade_def_missing=list(resp.get("grade_def_missing") or []),
         pharmacist_advice=list(resp.get("pharmacist_advice") or []),
+        # 걸러 내지 않고 옮긴다: 길이·값이 어긋나면 검증 오류로 드러난다(권고가 엉뚱한 구역에 조용히 들어가지 않게)
+        pharmacist_advice_kinds=list(resp.get("pharmacist_advice_kinds") or []),
         fixed_notice=fixed,
         disclaimer=resp.get("disclaimer") or "",
     )
