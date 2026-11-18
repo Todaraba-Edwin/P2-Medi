@@ -43,6 +43,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 ### herdr 환경(`HERDR_ENV=1`)에서의 실행 규칙
 
 - 서브에이전트는 **별도 pane**에서 작업한다. 현재 tab에 pane을 나누어 열고, 메인 pane의 포커스와 작업 디렉터리는 그대로 둔다.
+- **한 tab(창)에는 pane을 최대 5개까지만 둔다**(메인 pane 포함, 2026-11-18 사용자 지시: pane이 많으면 화면이 좁아 승인 창·명령을 읽을 수 없다). 6번째 pane이 필요하면 새 tab을 만들어 분리한다: `herdr tab create --workspace w3 --cwd <경로> --label lanes`(이어서 `lanes-2`…)로 만들고 `herdr pane move <pane ID> --tab <tab ID> --split right|down --target-pane <ID>`로 옮긴 뒤, tab이 만들 때 연 빈 pane은 닫는다. 작업 pane이 둘 이상이고 승인 창 내용이 잘려 보이면 5개 미만이어도 작업 pane을 `lanes` tab으로 옮기고 메인 tab에는 `P2-Medi-Main`만 남긴다. 사용자에게 승인을 요청할 때는 pane 이름·ID와 함께 **어느 tab인지**(`lanes`, 번호) 적는다.
 - **pane 이름을 붙인다.** 새 pane을 열면 시작 전에 `herdr pane rename <pane> <에이전트 이름>`으로 서브에이전트와 같은 이름을 붙인다(예: `schedule-writer`). 메인 pane의 이름은 `P2-Medi-Main`이다. 이미 열려 있는데 이름이 없는 pane도 같은 방식으로 이름을 붙인다.
 - **대상 pane은 ID로 명시한다.** `$HERDR_PANE_ID`는 다른 workspace의 pane으로 풀릴 수 있으므로 이름 변경·종료 같은 명령에 그대로 쓰지 않는다. `herdr pane list`로 workspace(`w3`)와 `cwd`가 P2-Medi인지 확인한 뒤 ID를 지정한다.
 - 작업이 **완료되면 그 pane을 종료**한다. **같은 역할 pane은 한 번에 하나만 둔다**(`-2` 중복 이름 금지). 같은 티켓 계열의 후속 지시는 `idle`이고 입력창이 비어 있으며 컨텍스트 50% 미만인 기존 pane을 재사용하고, 아니면 닫고 같은 이름으로 새로 연다. 입력창에 사용자 글이 있는 pane은 재사용·중복 개설 없이 사용자에게 처리를 요청한다(절차는 `delegation-brief` 스킬 §2.1). **보고를 검수한 뒤에는 사용자에게 묻지 않고 바로 닫는다.** 닫기 전 `working`·`blocked`가 아닌지와 입력창이 비어 있는지만 확인하고, 아래 예외로 남기면 이유와 pane ID를 보고에 적는다(2026-11-09 사용자 지적).
