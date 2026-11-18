@@ -472,12 +472,9 @@ export interface components {
             /** Code Missing Text */
             code_missing_text?: string | null;
             /** Contra Kinds */
-            contra_kinds?: string[];
-            /**
-             * Dup
-             * @default false
-             */
-            dup: boolean;
+            contra_kinds?: string[] | null;
+            /** Dup */
+            dup?: boolean | null;
             /** Name */
             name: string;
             /** State Labels */
