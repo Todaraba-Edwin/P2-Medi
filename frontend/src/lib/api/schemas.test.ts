@@ -10,6 +10,7 @@ import {
   ErrorBodySchema,
   FindingSchema,
   GradeDefSchema,
+  NameCorrectionSchema,
 } from "./schemas";
 
 const valid = () => structuredClone(foundResponse) as Record<string, unknown>;
@@ -50,6 +51,10 @@ describe("ChatResponse v1 zod", () => {
     ["응급을 end_reason으로(값 없음)", { end_reason: "EMERGENCY" }],
     ["tel 없는 emergency", { emergency: { text: "문구" } }],
     ["되묻기가 아닌데 candidates", { candidates: [{ input_name: "가나다", name: "가나다정" }] }],
+    ["보정 고지에 text 없음", { name_corrections: [{ input: "가나다졍", name: "가나다정" }] }],
+    ["보정 고지에 input 빈 글자", { name_corrections: [{ input: "", name: "가나다정", text: "고지" }] }],
+    ["보정 고지 안의 모르는 칸", { name_corrections: [{ input: "가나다졍", name: "가나다정", text: "고지", grade: "1" }] }],
+    ["되묻기인데 name_corrections", { end_reason: "CLARIFY", name_corrections: [{ input: "가나다졍", name: "가나다정", text: "고지" }] }],
   ])("%s는 거절한다", (_name, patch) => {
     expect(ChatResponseSchema.safeParse({ ...valid(), ...patch }).success).toBe(false);
   });
@@ -186,7 +191,7 @@ describe("AG-08·BE-06-13~17 새 칸", () => {
 
   it("새 칸이 빠져도 기본값으로 채운다", () => {
     const parsed = ChatResponseSchema.parse(base);
-    expect(parsed).toMatchObject({ candidates_line: null, not_checked_lines: [], grade_defs: [] });
+    expect(parsed).toMatchObject({ candidates_line: null, not_checked_lines: [], grade_defs: [], name_corrections: [] });
     const finding = FindingSchema.parse({ bucket: "found", evidence_id: null, kind: null, drug: "d", text: "t", ingredients: [{ name: "성분" }] });
     expect(finding).toMatchObject({ sub_line: null, age_info_line: null });
     expect(finding.ingredients[0]).toMatchObject({ state_labels: [], code_missing_text: null });
@@ -203,6 +208,19 @@ describe("AG-08·BE-06-13~17 새 칸", () => {
   it("되묻기 안내는 후보가 있을 때만, 119 보조 문장은 항상 온다", () => {
     expect(ok({ candidates_line: "안내" })).toBe(false);
     expect(ok({ emergency: { text: "t", tel: "tel:119" } })).toBe(false);
+  });
+
+  it("보정 고지(FE-02): 받은 순서·글자 그대로 받고, 되묻기 응답에는 올 수 없다", () => {
+    const corrections = [
+      { input: "가나다졍", name: "가나다정", text: "받은 고지 하나" },
+      { input: "라마바캅슐", name: "라마바캡슐", text: "받은 고지 둘" },
+    ];
+    expect(ChatResponseSchema.parse({ ...base, name_corrections: corrections }).name_corrections).toEqual(corrections);
+    expect(ok({ end_reason: "NORMAL", name_corrections: corrections })).toBe(true);
+    expect(ok({ end_reason: "CLARIFY", candidates: [{ input_name: "가", name: "가나" }], name_corrections: corrections })).toBe(false);
+    expect(ok({ end_reason: "CLARIFY", candidates: [{ input_name: "가", name: "가나" }], name_corrections: [] })).toBe(true);
+    expect(NameCorrectionSchema.safeParse({ input: "가나다졍", name: "가나다정", text: "" }).success).toBe(false);
+    expect(NameCorrectionSchema.safeParse({ input: "가나다졍", text: "고지" }).success).toBe(false);
   });
 
   it.each([

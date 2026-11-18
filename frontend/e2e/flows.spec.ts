@@ -49,7 +49,8 @@ for (const width of [360, 320]) {
       await expectInFirstScreen(page, entry);
       await expect(entry).toHaveAttribute("href", "tel:119");
       await expectTouchTarget(entry);
-      await expect(tel(page)).toHaveCount(1);
+      // 시작 화면의 119: 머리줄 진입점 + 119 안내 줄(FE-01-19 A·FE-01-24 A), 둘뿐이다
+      await expect(tel(page)).toHaveCount(2);
       await expectTouchTarget(page.getByRole("button", { name: "메뉴 열기" }));
       await expectTouchTarget(page.getByRole("button", { name: "보내기" }));
       // 고지는 접히지 않는 영역에 있다
@@ -523,7 +524,13 @@ for (const width of [360, 320]) {
       await expect(block.getByRole("button", { name: "임부금기 1등급이란?" })).toHaveCount(0);
       await trigger.click();
       await expect(block.locator("blockquote")).toHaveText("(합성 고시 원문) 사람에서 태아에 대한 위해성이 나타날 수 있어 원칙적으로 사용금지.");
-      await expect(block.locator('[data-slot="grade-def-source"]')).toHaveCount(1);
+      // 조항 글자(FE-02 §2 FR-04): 고시 이름과 조·호·목이 받은 글자 그대로, 원문 인용 바로 아래에 보인다
+      const clause = block.locator('[data-slot="grade-def-source"]');
+      await expect(clause).toHaveCount(1);
+      await expect(clause).toHaveText("(합성 출처 줄) 「의약품 병용금기 성분 등의 지정에 관한 규정」 제3조 제3호 나목");
+      await expect(clause).toBeVisible();
+      expect(await clause.evaluate((el) => el.previousElementSibling?.tagName)).toBe("BLOCKQUOTE");
+      await expectContained(sheet(page), '[data-slot="grade-def-source"]');
       await expect(sheet(page).getByTestId("mascot")).toHaveCount(0);
       await expectNoHorizontalScroll(page);
     });
@@ -1248,3 +1255,320 @@ test.describe("단언 보강 360px", () => {
     await expect119Reachable(page, page.getByTestId("emergency-entry"));
   });
 });
+
+// ============================================================ FE-02·FE-01 남은 항목 보강(2026-11-18 goal)
+const START_EMERGENCY = "응급 상황이면 지금 바로 119에 전화하세요.";
+const EXTERNAL_AI =
+  "질문과 입력한 프로필은 답을 만들기 위해 외부 AI(OpenAI)로 보내요. 이 서비스는 질문 내용을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요.";
+/** 칩의 크기·폰트를 정하는 계산된 값 */
+const chipStyle = (target: ReturnType<Page["getByTestId"]>) =>
+  target.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      fontSize: style.fontSize,
+      fontFamily: style.fontFamily,
+      fontWeight: style.fontWeight,
+      lineHeight: style.lineHeight,
+      paddingTop: style.paddingTop,
+      paddingBottom: style.paddingBottom,
+      paddingLeft: style.paddingLeft,
+      paddingRight: style.paddingRight,
+      minHeight: style.minHeight,
+      borderTopWidth: style.borderTopWidth,
+      borderTopLeftRadius: style.borderTopLeftRadius,
+      color: style.color,
+      backgroundColor: style.backgroundColor,
+    };
+  });
+
+for (const viewport of [
+  { width: 360, height: HEIGHT },
+  { width: 320, height: HEIGHT },
+  { width: 360, height: 640 },
+  { width: 320, height: 568 },
+  { width: 1280, height: HEIGHT },
+]) {
+  test.describe(`시작 화면 안내 ${viewport.width}×${viewport.height}`, () => {
+    test.use({ viewport });
+
+    test("119 안내 줄과 외부 AI 전송 고지가 질문을 보내기 전 첫 화면에, 입력창 가까이 접히지 않고 보인다(RFP-24-01, FE-01-24 A)", async ({ page }) => {
+      await mockChat(page, "found");
+      await openApp(page);
+      const start119 = dock(page).getByTestId("start-emergency");
+      const notice = dock(page).getByTestId("external-ai-notice");
+      // 글자는 백엔드 상수에서 생성한 값 그대로다
+      await expect(start119).toHaveText(START_EMERGENCY);
+      await expect(notice).toHaveText(EXTERNAL_AI);
+      await expect119Reachable(page, start119);
+      await expectTouchTarget(start119);
+      await expectInFirstScreen(page, notice);
+      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, input(page));
+      await expect119Reachable(page, page.getByTestId("emergency-entry")); // 머리줄 119도 그대로 누를 수 있다
+      // 입력창 가까이: 고지 아래 끝에서 입력창 위 끝까지가 화면 높이의 1/4 안이고, 입력창보다 위에 있다
+      const noticeBox = (await notice.boundingBox())!;
+      const inputBox = (await input(page).boundingBox())!;
+      expect(noticeBox.y + noticeBox.height).toBeLessThanOrEqual(inputBox.y);
+      expect(inputBox.y - (noticeBox.y + noticeBox.height)).toBeLessThanOrEqual(viewport.height / 4);
+      // 접히는 틀 밖이고 동의 관문이 아니다(체크·버튼 없음): 고지를 건드리지 않고 바로 질문을 보낼 수 있다
+      expect(await notice.evaluate((el) => el.closest("details, [role=dialog], [data-state=closed]") === null)).toBe(true);
+      await expect(dock(page).locator("input[type=checkbox]")).toHaveCount(0);
+      await expect(notice.locator("button, a")).toHaveCount(0);
+      // 119 영역·고지에 마스코트가 없다
+      await expect(dock(page).getByTestId("mascot")).toHaveCount(0);
+      // 글자 크기가 읽을 수 있는 크기다(12px 이상)
+      expect(await notice.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
+      expect(await start119.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
+      await expectNoHorizontalScroll(page);
+      await ask(page);
+      await expect(page.getByTestId("result-card")).toBeVisible();
+      expect(await requests(page)).toHaveLength(1);
+      // 질문을 보낸 뒤에는 시작 화면 안내가 내려가고 응답의 고정 안내·고지가 그 자리에 온다(119는 머리줄 진입점)
+      await expect(page.getByTestId("start-emergency")).toHaveCount(0);
+      await expect(page.getByTestId("external-ai-notice")).toHaveCount(0);
+      await expect(dock(page).getByTestId("fixed-notice")).toBeVisible();
+      await expect(tel(page)).toHaveCount(1);
+    });
+  });
+}
+
+test.describe("시작 화면 안내 360px: 새 질문", () => {
+  test.use({ viewport: { width: 360, height: HEIGHT } });
+
+  test("'새 질문'으로 시작 화면에 돌아오면 안내 2종이 다시 보인다", async ({ page }) => {
+    await mockChat(page, "found");
+    await openApp(page);
+    await ask(page);
+    await expect(page.getByTestId("result-card")).toBeVisible();
+    await page.getByRole("button", { name: "메뉴 열기" }).click();
+    await page.getByTestId("new-chat").click();
+    await expect(page.getByTestId("home")).toBeVisible();
+    await expect(page.getByTestId("start-emergency")).toHaveText(START_EMERGENCY);
+    await expect(page.getByTestId("external-ai-notice")).toHaveText(EXTERNAL_AI);
+  });
+
+  test("응급 답을 받은 뒤에는 119가 배너 하나뿐이다(시작 화면 119 줄이 남지 않는다)", async ({ page }) => {
+    await mockChat(page, "emergency");
+    await openApp(page);
+    await ask(page);
+    await expect(banner(page)).toBeVisible();
+    await expect(tel(page)).toHaveCount(1);
+    await expect(page.getByTestId("start-emergency")).toHaveCount(0);
+  });
+});
+
+for (const width of [360, 320, 1280]) {
+  test.describe(`미식별 결과 아래 동작 칩 ${width}px(PRD-14-03)`, () => {
+    test.use({ viewport: { width, height: HEIGHT } });
+
+    test("`이름 다시 입력`이 결과 카드 아래에 예시 질문 칩과 같은 크기·폰트로 있고, 누르면 입력창으로 간다. `약 사진 올리기`는 없다", async ({ page }) => {
+      await mockChat(page, "unidentified");
+      await openApp(page);
+      const example = await chipStyle(page.getByTestId("example-chip").first());
+      await ask(page);
+      await expect(page.getByTestId("result-card")).toBeVisible();
+      const actions = page.getByTestId("retry-actions");
+      const retry = actions.getByRole("button", { name: "이름 다시 입력" });
+      await expect(retry).toBeVisible();
+      // 미식별 결과의 진입 글자에는 `· 찾아본 곳`이 붙는다(PRD-14, 성분코드가 아니라 찾아본 곳을 연다)
+      await expect(page.getByTestId("evidence-entry")).toHaveText(width >= 1024 ? "근거 상세 열기 · 찾아본 곳" : "근거 상세 보기 · 찾아본 곳");
+      await expectTouchTarget(page.getByTestId("evidence-entry"), { widthToo: false });
+      // ⑤ 크기·폰트가 시나리오(예시 질문) 칩과 같다
+      expect(await chipStyle(page.getByTestId("retry-name"))).toEqual(example);
+      // 결과 카드 아래(카드 밖), 줄 전체를 채우지 않는 칩 폭
+      const card = (await page.getByTestId("result-card").boundingBox())!;
+      const chip = (await retry.boundingBox())!;
+      expect(chip.y).toBeGreaterThanOrEqual(card.y + card.height);
+      expect(chip.x).toBeGreaterThanOrEqual(card.x - 0.5);
+      expect(chip.width).toBeLessThan(card.width * 0.6);
+      await expectTouchTarget(retry); // 터치 영역 44px 이상
+      // 버튼이 늘어도 넘치지 않게 줄바꿈하는 줄이다(360px 줄바꿈 규칙)
+      expect(await actions.evaluate((el) => getComputedStyle(el).flexWrap)).toBe("wrap");
+      await expectContained(actions, "button");
+      // ⑥ 사진 입력이 없는 구성: `약 사진 올리기`가 DOM에 없다
+      await expect(page.getByText("약 사진 올리기")).toHaveCount(0);
+      await expect(actions.locator("button")).toHaveCount(1);
+      await expect(page.locator("input[type=file]")).toHaveCount(0);
+      // 고정 안내·119를 밀어내지 않는다
+      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
+      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expect119Reachable(page, page.getByTestId("emergency-entry"));
+      // 동작 줄에 판정·안전 글자·마스코트가 없다
+      await expect(actions).not.toContainText(/삐!|금기|안전/);
+      await expect(actions.getByTestId("mascot")).toHaveCount(0);
+      await retry.click();
+      await expect(page.getByRole("textbox")).toBeFocused();
+      expect(await requests(page)).toHaveLength(1); // 누르는 것만으로 다시 보내지 않는다
+      await expectNoHorizontalScroll(page);
+    });
+
+    test("근거 상세(미식별 박스)에는 동작 칩을 두지 않는다", async ({ page }) => {
+      await mockChat(page, "unidentified");
+      await openApp(page);
+      await ask(page);
+      await expect(page.getByTestId("result-card")).toBeVisible();
+      if (width < 1024) await page.getByTestId("evidence-entry").click();
+      const detail = page.getByTestId("evidence-detail");
+      await expect(detail.getByTestId("lookup-pairs")).toBeVisible();
+      // 이유·다음 행동·재검색 줄은 박스 안에서 한 번씩만 보인다(줄과 표에 두 번 나오지 않는다)
+      const box = detail.getByTestId("judgment-box").first();
+      for (const once of ["식약처·한국의약품안전관리원 자료에서 찾지 못했어요", "봉투나 상자에 적힌 제품명을 그대로 다시 알려 주세요", "표기를 바꿔 한 번 더 찾아봤어요"]) {
+        await expect(box.getByText(once, { exact: true })).toHaveCount(1);
+      }
+      await expect(detail.getByTestId("retry-actions")).toHaveCount(0);
+      await expect(detail.getByRole("button", { name: "이름 다시 입력" })).toHaveCount(0);
+    });
+
+    test("약을 찾은 결과와 지난 차례에는 동작 칩이 없다", async ({ page }) => {
+      await mockChat(page, "unidentified", "found");
+      await openApp(page);
+      await ask(page);
+      await expect(page.getByTestId("retry-actions")).toHaveCount(1);
+      await ask(page);
+      await expect(page.locator('[data-turn="turn-2"]').getByTestId("result-card")).toBeVisible();
+      await expect(page.getByTestId("retry-actions")).toHaveCount(0); // 지난 차례의 칩은 내려가고, 약을 찾은 답에는 없다
+    });
+  });
+}
+
+for (const width of [360, 320]) {
+  test.describe(`되묻기 ${width}px: 가부 미표시(PRD-01-01, FR-10)`, () => {
+    test.use({ viewport: { width, height: HEIGHT } });
+
+    test("질문 1개와 후보만 보이고, 후보를 고르기 전·고른 뒤 모두 판정 표지·결과 카드가 없다. 다시 묻기 뒤에야 결과가 온다", async ({ page }) => {
+      await mockChat(page, "clarify", "found");
+      await openApp(page);
+      await ask(page);
+      const turn1 = page.locator('[data-turn="turn-1"]');
+      await expect(turn1.getByTestId("candidate")).toHaveCount(3);
+      // 질문은 한 문장 자리 하나뿐이다
+      await expect(turn1.getByTestId("result-summary")).toHaveCount(1);
+      await expect(turn1.getByTestId("result-summary")).toHaveText("'가나다'에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요.");
+      const noVerdict = async ({ cardShown = true } = {}) => {
+        await expect(turn1.getByTestId("result-card")).toHaveCount(0);
+        await expect(turn1.getByTestId("product-line")).toHaveCount(0);
+        await expect(turn1.getByTestId("status-badge")).toHaveCount(0);
+        await expect(turn1.getByTestId("evidence-entry")).toHaveCount(0);
+        if (cardShown) await expect(turn1.getByTestId("candidate-card")).not.toContainText(/삐!|금기|안전|먹어도|드셔도/);
+        else await expect(turn1.getByTestId("candidate-card")).toHaveCount(0); // 지난 되묻기의 후보는 더 고를 수 없다
+        await expect(turn1.getByTestId("result-view")).not.toContainText(/삐!|먹어도 돼|먹어도 됩|안전해요|안전합니다/);
+      };
+      await noVerdict();
+      // 되묻기 화면에도 고정 안내는 접히지 않는 영역에 있다
+      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([FIXED_NOTICE]);
+      await page.getByTestId("candidate").nth(2).click();
+      await expect(page.getByTestId("picked-name")).toHaveText("가나다시럽");
+      await noVerdict(); // 고른 것만으로는 판정이 생기지 않는다
+      expect(await requests(page)).toHaveLength(1);
+      await page.getByRole("button", { name: "이 약으로 다시 묻기" }).click();
+      const turn2 = page.locator('[data-turn="turn-2"]');
+      await expect(turn2.getByTestId("result-card")).toBeVisible();
+      const sent = await requests(page);
+      expect(sent).toHaveLength(2);
+      expect(sent[1]).toEqual({ question: QUESTION, context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003" }] } });
+      // 판정은 다시 물은 답(둘째 차례)에만 있다
+      await expect(turn2.getByTestId("status-badge").first()).toBeVisible();
+      await noVerdict({ cardShown: false });
+      await expectNoHorizontalScroll(page);
+    });
+
+    test("키보드로도 후보를 고르고 다시 물을 수 있다(Enter)", async ({ page }) => {
+      await mockChat(page, "clarify", "found");
+      await openApp(page);
+      await ask(page);
+      await page.getByTestId("candidate").first().focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByTestId("candidate").first()).toHaveAttribute("aria-pressed", "true");
+      expect(await requests(page)).toHaveLength(1);
+      await page.getByRole("button", { name: "이 약으로 다시 묻기" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page.locator('[data-turn="turn-2"]').getByTestId("result-card")).toBeVisible();
+      expect((await requests(page))[1]).toMatchObject({ context: { confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001" }] } });
+    });
+  });
+}
+
+for (const width of [360, 320]) {
+  test.describe(`판정 표지 규칙 ${width}px(PRD-09-01~04)`, () => {
+    test.use({ viewport: { width, height: HEIGHT } });
+
+    for (const name of ["pregnancy", "gradeMismatch", "pregnancyM", "pairAndPregnancy", "gradeDefs"] as const) {
+      test(`${name}: 등급은 표지(배지)에만 있고 화면에 '단계' 글자가 없다(결과 카드·근거 상세)`, async ({ page }) => {
+        await mockChat(page, name);
+        await openApp(page);
+        await ask(page);
+        await expect(page.getByTestId("result-card")).toBeVisible();
+        /** 배지를 뺀 판정 줄의 글자 */
+        const outsideBadges = (scope: ReturnType<Page["getByTestId"]>) =>
+          scope.getByTestId("product-line").evaluateAll((rows) =>
+            rows.map((row) => {
+              const copyRow = row.cloneNode(true) as Element;
+              for (const badge of copyRow.querySelectorAll('[data-testid="status-badge"]')) badge.remove();
+              return copyRow.textContent ?? "";
+            }),
+          );
+        const pregnancyBadges = page.getByTestId("result-card").locator('[data-testid="status-badge"][data-kind="pregnancy"]');
+        expect(await pregnancyBadges.count()).toBeGreaterThan(0);
+        for (const text of await pregnancyBadges.allTextContents()) expect(text).toMatch(/^삐! 임부금기 (1|2|M)등급/);
+        for (const text of await outsideBadges(page.getByTestId("result-card"))) expect(text).not.toMatch(/(1|2|M)등급/);
+        await expect(page.getByTestId("app-shell")).not.toContainText("단계");
+        await page.getByTestId("evidence-entry").click();
+        await expect(sheet(page)).toBeVisible();
+        for (const text of await outsideBadges(sheet(page).getByTestId("evidence-detail"))) expect(text).not.toMatch(/(1|2|M)등급/);
+        await expect(sheet(page)).not.toContainText("단계");
+        await expectNoHorizontalScroll(page);
+      });
+    }
+
+    test("M등급: 표지는 'M등급', 덧붙임 글은 보조줄에 한 번", async ({ page }) => {
+      await mockChat(page, "pregnancyM");
+      await openApp(page);
+      await ask(page);
+      const card = page.getByTestId("result-card");
+      await expect(card.getByTestId("status-badge")).toHaveText(["삐! 임부금기 M등급"]);
+      await expect(card.getByText("적응증에 따라 등급이 달라요")).toHaveCount(1);
+    });
+  });
+}
+
+for (const width of [360, 320]) {
+  test.describe(`등급 정의 블록 보강 ${width}px(PRD-15-03, PRD-09 §7.3)`, () => {
+    test.use({ viewport: { width, height: HEIGHT } });
+
+    test("미확보(사유 OUT_OF_SCOPE): 두 등급의 상수 문구와 약사 권고만 접힘 밖에 보이고 접힘 블록·조항 줄이 없다", async ({ page }) => {
+      await mockChat(page, "gradeDefsOutOfScope");
+      await openApp(page);
+      await ask(page);
+      await page.getByTestId("evidence-entry").click();
+      const block = sheet(page).getByTestId("grade-def");
+      await expect(block.getByTestId("grade-def-missing").locator(":scope > p")).toHaveText([
+        "임부금기 2등급의 뜻(고시 원문)을 아직 준비하지 못했어요.",
+        "임부금기 1등급의 뜻(고시 원문)을 아직 준비하지 못했어요.",
+      ]);
+      await expect(block.getByTestId("pharmacist-advice")).toHaveText("등급의 뜻이 궁금하면 약국·약사에게 물어보세요.");
+      await expect(block.getByRole("button")).toHaveCount(0);
+      await expect(block.locator('[data-slot="grade-def-source"]')).toHaveCount(0);
+      await expect(sheet(page)).not.toContainText("근거 문장을 찾지 못했어요");
+      // 등급 불일치 배지 둘은 그대로 잘리지 않고 보인다(ISSUE-011)
+      await expect(sheet(page).getByTestId("status-badge")).toHaveText(["삐! 임부금기 2등급 (파일)", "삐! 임부금기 1등급 (성분 API)"]);
+      await expectContained(sheet(page), '[data-testid="status-badge"], [data-testid="line-title"]');
+      await expectNoHorizontalScroll(page);
+    });
+
+    test("M등급 정의 블록: 제목 '임부금기 M등급이란?'을 펴면 원문과 출처 줄(판·표·쪽)이 받은 글자 그대로 보인다", async ({ page }) => {
+      await mockChat(page, "pregnancyMDef");
+      await openApp(page);
+      await ask(page);
+      await expect(page.getByTestId("result-card").getByTestId("status-badge")).toHaveText(["삐! 임부금기 M등급"]);
+      await page.getByTestId("evidence-entry").click();
+      const block = sheet(page).getByTestId("grade-def");
+      const trigger = block.getByRole("button", { name: "임부금기 M등급이란?" });
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+      await trigger.click();
+      await expect(block.locator("blockquote")).toHaveText("(합성 심평원 설명) 상병에 따른 1등급 또는 2등급 여부에 따라 처방·조제 사유 기재");
+      await expect(block.locator('[data-slot="grade-def-source"]')).toHaveText("(합성 출처 줄) 건강보험심사평가원 「기능과 역할」 2026년판 표4.3-5, 인쇄 638쪽");
+      await expectContained(sheet(page), '[data-slot="grade-def-source"]');
+      await expectNoHorizontalScroll(page);
+    });
+  });
+}

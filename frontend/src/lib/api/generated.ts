@@ -152,6 +152,8 @@ export interface components {
             grade_def_missing?: string[];
             /** Grade Defs */
             grade_defs?: components["schemas"]["GradeDef"][];
+            /** Name Corrections */
+            name_corrections?: components["schemas"]["NameCorrection"][];
             /** Not Checked Lines */
             not_checked_lines?: string[];
             /** Notice */
@@ -476,6 +478,20 @@ export interface components {
             name: string;
             /** State Labels */
             state_labels?: string[];
+        };
+        /**
+         * NameCorrection
+         * @description 오탈자 보정 고지 한 줄(AG-10-02 A). 질문에 적힌 이름 조각(`input`)을 비슷한 사전 이름(`name`) 하나로 보고 확인했다는 표시다.
+         *
+         *     `text`는 상수 `TYPO_CORRECTED_LINE`에 두 이름을 넣은 문장 그대로다(화면은 문장을 조립하지 않는다). 판정이 아니다.
+         */
+        NameCorrection: {
+            /** Input */
+            input: string;
+            /** Name */
+            name: string;
+            /** Text */
+            text: string;
         };
         /** ProgressEvent */
         ProgressEvent: {

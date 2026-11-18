@@ -4,6 +4,7 @@ export { IngredientChip, IngredientChips } from "./IngredientChips";
 export { ProductLine } from "./ProductLine";
 export { ResultCard } from "./ResultCard";
 export type { ResultCardProps } from "./ResultCard";
+export { RetryActions } from "./RetryActions";
 export { ResultView } from "./ResultView";
 export type { ResultViewProps } from "./ResultView";
 export { StatusBadge } from "./StatusBadge";

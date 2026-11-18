@@ -59,6 +59,8 @@ export const PHRASES = {
   // 쌍 확인 불가(Result-NoEvidence6c): 줄 글자로 한 번만 온다(AG-08 뒤 `notes[]`에 같은 문장이 오지 않는다)
   PAIR_NOT_CHECKED: "이 약과 함께 먹어도 되는지는 식약처·한국의약품안전관리원 자료에서 확인하지 못했어요. 안전하다는 뜻이 아니에요.",
   LIMIT_REACHED: "답을 정리하다 시간이 다 되어 여기까지 확인한 결과만 보여 드려요. 확인하지 못한 항목은 약국·약사에게 물어보세요.",
+  // 오탈자 보정 고지(`name_corrections[].text`, AG-10-02 A). 서버가 `{input}`·`{name}`을 채워 완성한 문장으로 온다(fixture는 `fillCorrection`)
+  TYPO_CORRECTED_LINE: "'{input}' → '{name}': 이름이 비슷한 이 약으로 보고 확인했어요. 찾으시는 약이 아니면 약 이름을 다시 알려 주세요.",
   // 진행 문구(`progress.label`): PROGRESS_LABELS[stage]
   PROGRESS_DRUG_LOOKUP: "약 찾는 중",
   PROGRESS_CONTRA_CHECK: "금기 확인 중",
@@ -114,6 +116,8 @@ export const NAME_JOIN = " · ";
 export const SOURCE_KIND_PREFIX = { API_DIRECT: "공식 자료", FILE: "공식 파일", CORPUS_QUOTE: "공식 문서" } as const;
 /** fixed_phrases.GRADE_DEF_MISSING_TEXT["FETCH_FAIL"](`{grade}`는 fixture가 채운다) */
 export const GRADE_DEF_MISSING_FETCH_FAIL = "지금은 임부금기 {grade}등급의 뜻(고시 원문)을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요.";
+/** fixed_phrases.GRADE_DEF_MISSING_TEXT["OUT_OF_SCOPE"](원문 자료가 아직 준비되지 않은 경우, PRD-15-03) */
+export const GRADE_DEF_MISSING_OUT_OF_SCOPE = "임부금기 {grade}등급의 뜻(고시 원문)을 아직 준비하지 못했어요.";
 /** fixed_phrases.CAUTION_LABELS["dup_ingredient"](성분 중복 줄의 글자, AG-08-10 B) */
 export const CAUTION_DUP_INGREDIENT = "성분 중복";
 /** provenance.FLAG_NOTES["CODE_NOT_LINKED"](= fixed_phrases.CODE_NOT_LINKED): 코드가 이어지지 않아 확인하지 못한 줄의 안내(AG-08에서 문구 변경) */
@@ -126,6 +130,11 @@ export function fillJosa(template: string, key: string, value: string): string {
   const last = value.charCodeAt(value.length - 1);
   const batchim = last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 !== 0;
   return template.replace(`{${key}}을(를)`, `${value}${batchim ? "을" : "를"}`).replace(`{${key}}`, value);
+}
+
+/** `finalize`가 보정 고지를 만드는 규칙과 같다: `TYPO_CORRECTED_LINE.format(input=…, name=…)` → `{input, name, text}` */
+export function fillCorrection(input: string, name: string): { input: string; name: string; text: string } {
+  return { input, name, text: PHRASES.TYPO_CORRECTED_LINE.replace("{input}", input).replace("{name}", name) };
 }
 
 /** `fixed_phrases.ingredient_state_labels`와 같은 규칙: 병용금기 원인 → 금기 원인(임부·연령) → 중복 */

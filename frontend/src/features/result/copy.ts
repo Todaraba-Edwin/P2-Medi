@@ -15,3 +15,6 @@ export const CANDIDATES_LABEL = "후보";
 
 /** 후보에 찾는 약이 없을 때의 동작 버튼(디자인 반영본 되묻기 보드) */
 export const CANDIDATE_OTHER_LABEL = "목록에 없어요 · 직접 입력";
+
+/** 약을 찾지 못한 결과 카드 아래의 동작 칩(tickets/doc/PRD-14.md §5.4 PRD-14-03 A "이름 다시 입력", 1차). 누르면 입력창으로 간다 */
+export const RETRY_NAME_LABEL = "이름 다시 입력";

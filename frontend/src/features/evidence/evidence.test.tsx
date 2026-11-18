@@ -404,3 +404,117 @@ describe("EvidencePanel·진입 버튼", () => {
     expect([...fixed.querySelectorAll("p")].map((p) => p.textContent)).toEqual(fixtures.missingEvidenceResponse.fixed_notice);
   });
 });
+
+describe("FE-02 FR-04: 답변의 출처·조회 시각/기준일·조항 글자", () => {
+  const sourceRows = () =>
+    screen.getAllByTestId("source-row").map((row) => ({
+      dataset: row.querySelector("[data-testid='source-dataset']")?.textContent,
+      dates: [...row.querySelectorAll("[data-testid='date-lines'] li")].map((li) => texts([...li.querySelectorAll("span")])),
+      extras: [...row.querySelectorAll("[data-slot='source-extra']")].map((extra) => texts([...extra.querySelectorAll("span")])),
+    }));
+
+  it("파일 근거: 출처(기관·자료)와 기준일·고시일, 고시 번호가 받은 글자 그대로 보인다", () => {
+    const response = fixtures.foundResponse;
+    render(<EvidenceDetail response={response} />);
+    const [citation] = response.citations;
+    expect(texts(screen.getAllByTestId("source-publisher"))).toEqual([citation.publisher]);
+    expect(sourceRows()).toEqual([
+      {
+        dataset: citation.dataset,
+        dates: citation.dates.map((line) => [line.label, line.value]),
+        extras: [[copy.SOURCE_EXTRA_LABELS.noticeNos, ...citation.notice_nos]],
+      },
+    ]);
+    // 표본 값 자체도 확인한다(빈 값끼리 같은 것이 아니다)
+    expect(citation.dates.map((line) => line.label)).toEqual(["고시일", "기준일"]);
+    expect(citation.notice_nos).toEqual(["20260001"]);
+  });
+
+  it("실시간 조회 근거: 조회 시각 줄(`조회`)이 파일의 기준일 줄과 따로, 받은 순서대로 보인다", () => {
+    const response = fixtures.gradeMismatchResponse;
+    render(<EvidenceDetail response={response} />);
+    const rows = sourceRows();
+    expect(rows.map((row) => row.dataset)).toEqual(response.citations.map((citation) => citation.dataset));
+    expect(rows.map((row) => row.dates)).toEqual(response.citations.map((citation) => citation.dates.map((line) => [line.label, line.value])));
+    expect(rows[0].dates).toEqual([["조회", "2026-11-12"]]);
+    expect(rows.flatMap((row) => row.dates.map(([label]) => label))).toContain("기준일");
+  });
+
+  it("조항 글자: 등급 정의 블록의 조항 출처 줄이 받은 글자 그대로 보인다(제○조 제○호까지)", async () => {
+    const response = fixtures.gradeDefsResponse;
+    const [quoted] = response.grade_defs;
+    // 표본의 조항 글자 자체를 확인한다: 고시 이름과 조·호·목
+    expect(quoted.source).toMatch(/「의약품 병용금기 성분 등의 지정에 관한 규정」 제3조 제3호 나목/);
+    render(<EvidenceDetail response={response} />);
+    await userEvent.click(screen.getByRole("button", { name: quoted.title }));
+    const sourceLine = screen.getByTestId("grade-def").querySelector("[data-slot='grade-def-source']");
+    expect(sourceLine?.textContent).toBe(quoted.source);
+    expect(sourceLine?.textContent).toContain("제3조 제3호 나목");
+    // 조항 줄은 그 원문 인용과 같은 블록 안에 있다(원문 바로 뒤)
+    expect(sourceLine?.previousElementSibling?.tagName).toBe("BLOCKQUOTE");
+    expect(sourceLine?.previousElementSibling?.textContent).toBe(quoted.text);
+  });
+
+  it("조항 글자는 화면이 짓지 않는다: 다른 조항이 오면 그 글자를, 오지 않으면 조항 줄을 그리지 않는다", async () => {
+    const base = { grade: "1" as const, title: "받은 제목", text: "받은 원문", missing_reason: null, missing_text: null };
+    const { unmount } = render(<GradeDefBlock definitions={[{ ...base, source: "받은 고시 제9조 제2항" }]} missing={[]} advice={[]} />);
+    await userEvent.click(screen.getByRole("button", { name: "받은 제목" }));
+    expect(screen.getByTestId("grade-def").querySelector("[data-slot='grade-def-source']")?.textContent).toBe("받은 고시 제9조 제2항");
+    unmount();
+    render(<GradeDefBlock definitions={[{ ...base, source: null }]} missing={[]} advice={[]} />);
+    await userEvent.click(screen.getByRole("button", { name: "받은 제목" }));
+    expect(screen.getByTestId("grade-def").querySelector("[data-slot='grade-def-source']")).toBeNull();
+    expect(screen.getByTestId("grade-def").textContent).not.toMatch(/제\d+조/);
+  });
+
+  it("프런트 고유 글자(copy.ts)에 조항·날짜 값이 없다(칸 이름뿐)", () => {
+    expect(JSON.stringify(copy)).not.toMatch(/제\d+조|\d{4}-\d{2}/);
+  });
+
+  it("판정 근거가 있는 모든 fixture: 출처 표의 행 수·자료·날짜 줄이 citations[]와 같다", () => {
+    const all = Object.entries(fixtures).filter(([name, value]) => name.endsWith("Response") && (value as ChatResponse).citations.length > 0) as [string, ChatResponse][];
+    expect(all.length).toBeGreaterThanOrEqual(8);
+    for (const [name, response] of all) {
+      const { unmount } = render(<EvidenceDetail response={response} />);
+      const rows = sourceRows();
+      // 기관별로 묶으므로 같은 기관이 떨어져 오면 순서가 달라질 수 있다: 묶은 순서로 견준다
+      const expected = groupByPublisher(response.citations).flatMap((group) => group.rows);
+      expect(rows.map((row) => row.dataset), name).toEqual(expected.map((citation) => citation.dataset));
+      expect(rows.map((row) => row.dates), name).toEqual(expected.map((citation) => citation.dates.map((line) => (line.value === null ? [line.label] : [line.label, line.value]))));
+      for (const row of rows) expect(row.dates.length, name).toBeGreaterThan(0); // 출처마다 날짜 줄이 하나 이상
+      unmount();
+    }
+  });
+});
+
+describe("PRD-09-01~04 근거 상세 판정 박스의 등급 표기", () => {
+  const all = Object.entries(fixtures).filter(([name]) => name.endsWith("Response")) as [string, ChatResponse][];
+
+  it.each(all)("%s: 판정 박스에서 등급은 배지에만 있고 '단계' 글자가 화면에 없다", (_name, response) => {
+    const { container, unmount } = render(<EvidenceDetail response={response} />);
+    for (const box of container.querySelectorAll('[data-testid="judgment-box"]')) {
+      const copyBox = box.cloneNode(true) as Element;
+      for (const badge of copyBox.querySelectorAll('[data-testid="status-badge"]')) badge.remove();
+      expect(copyBox.textContent ?? "").not.toMatch(/(1|2|M)등급/);
+    }
+    expect(container.textContent ?? "").not.toContain("단계");
+    unmount();
+  });
+
+  it("등급 불일치: 배지 둘이 출처 꼬리를 달고 둘 다 보인다(합친 배지 없음)", () => {
+    render(<EvidenceDetail response={fixtures.gradeMismatchResponse} />);
+    const box = screen.getAllByTestId("judgment-box")[0];
+    expect(texts(within(box).getAllByTestId("status-badge"))).toEqual(["삐! 임부금기 2등급 (파일)", "삐! 임부금기 1등급 (성분 API)"]);
+  });
+
+  it("등급 정의 블록 제목은 '임부금기 N등급이란?'이고 기본으로 접혀 있다", () => {
+    render(<EvidenceDetail response={fixtures.gradeDefsResponse} />);
+    const trigger = screen.getByRole("button", { name: "임부금기 2등급이란?" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("grade-def").querySelector("blockquote")).toBeNull(); // 접힌 동안 원문을 그리지 않는다
+  });
+
+  it("프런트 고유 글자(copy.ts)에 '단계'가 없다", () => {
+    expect(JSON.stringify(copy)).not.toContain("단계");
+  });
+});

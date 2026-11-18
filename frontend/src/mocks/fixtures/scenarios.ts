@@ -12,6 +12,7 @@ import {
   fallbackNoneResponse,
   fallbackSomeResponse,
   foundResponse,
+  gradeDefsOutOfScopeResponse,
   gradeDefsResponse,
   gradeMismatchResponse,
   limitResponse,
@@ -21,10 +22,13 @@ import {
   notListedResponse,
   pairNoEvidenceResponse,
   pairAndPregnancyResponse,
+  pregnancyMDefResponse,
   pregnancyMResponse,
   pregnancyResponse,
   refuseResponse,
   rxPermitResponse,
+  typoCorrectedResponse,
+  unidentifiedMixedResponse,
   unidentifiedResponse,
 } from "./responses";
 
@@ -128,6 +132,8 @@ export const scenarios = {
   ageFound: normal(ageFoundResponse),
   /** 미식별(약을 찾지 못함) */
   unidentified: normal(unidentifiedResponse),
+  // 하나는 찾고 하나는 못 찾음(PRD-14-04)
+  unidentifiedMixed: normal(unidentifiedMixedResponse),
   /** 근거 원문 미확보 + 약사 확인 권고 줄 */
   missingEvidence: normal(missingEvidenceResponse),
   /** 상한 도달(상단 배너) */
@@ -148,12 +154,22 @@ export const scenarios = {
   ageInfo: normal(ageInfoResponse),
   /** 등급 정의 블록(원문 블록 + 미확보 블록) */
   gradeDefs: normal(gradeDefsResponse),
+  // 등급 정의 미확보(사유 OUT_OF_SCOPE)·M등급 정의 블록(PRD-15-03, PRD-09 §7.3)
+  gradeDefsOutOfScope: normal(gradeDefsOutOfScopeResponse),
+  pregnancyMDef: normal(pregnancyMDefResponse),
   /** 정보가 없어 확인하지 못한 종류의 줄 */
   notChecked: normal(notCheckedResponse),
   /** 코드가 이어지지 않아 확인하지 못한 줄(바뀐 안내 문구) */
   codeNotLinked: normal(codeNotLinkedResponse),
   /** 공공 API 실패 배너 */
   apiFail: normal(apiFailResponse),
+  // ---- FE-02 추가(AG-10-02 A `name_corrections`)
+  /** 오탈자 보정 고지 + 병용금기(가짜 서버 `typo`와 같은 흐름: progress×2 → answer → done) */
+  typoCorrected: {
+    kind: "stream",
+    ending: "close",
+    events: events(progress("drug_lookup"), progress("contraindication_check"), answer(typoCorrectedResponse), done(typoCorrectedResponse)),
+  },
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;

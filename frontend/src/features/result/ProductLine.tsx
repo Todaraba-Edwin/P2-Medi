@@ -27,7 +27,7 @@ function SubLine({ children, slot }: { children: React.ReactNode; slot: string }
  *
  * "목록에 없음" 줄의 "안전하다는 뜻이 아님"은 응답의 `text` 안에 있고, 이 줄은 펼침 요소 안에 두지 않는다(항상 보인다, S5).
  */
-export function ProductLine({ finding }: { finding: Finding }) {
+export function ProductLine({ finding, omitLookupLines = false }: { finding: Finding; /** 찾아본 내용 표(근거 상세 `LookupPairs`)가 같은 글자를 바로 아래에 보일 때 true: 이유·재검색·다음 행동 줄을 한 번 더 그리지 않는다(PRD-12-04 같은 글자는 박스 안에서 한 번) */ omitLookupLines?: boolean }) {
   const hasBadges = finding.badges.length > 0;
   // 배지 덧붙임 글(예: M등급) 중 줄의 `note`와 겹치지 않는 것
   const badgeNotes = [...new Set(finding.badges.map((badge) => badge.note).filter((note): note is string => !!note && note !== finding.note))];
@@ -85,9 +85,9 @@ export function ProductLine({ finding }: { finding: Finding }) {
           {note}
         </SubLine>
       ))}
-      {finding.why && <SubLine slot="why">{finding.why}</SubLine>}
-      {finding.retried_line && <SubLine slot="retried">{finding.retried_line}</SubLine>}
-      {finding.next && <SubLine slot="next">{finding.next}</SubLine>}
+      {!omitLookupLines && finding.why && <SubLine slot="why">{finding.why}</SubLine>}
+      {!omitLookupLines && finding.retried_line && <SubLine slot="retried">{finding.retried_line}</SubLine>}
+      {!omitLookupLines && finding.next && <SubLine slot="next">{finding.next}</SubLine>}
       {finding.reference_line && <SubLine slot="reference">{finding.reference_line}</SubLine>}
       {finding.source_label && <SubLine slot="source">{finding.source_label}</SubLine>}
     </li>

@@ -9,6 +9,8 @@ import { EmergencyBanner } from "./EmergencyBanner";
 import { FixedNoticeBox } from "./FixedNoticeBox";
 import { LegalFooter } from "./LegalFooter";
 import { PharmacistAdviceBox } from "./PharmacistAdviceBox";
+import { ExternalAiNotice, StartEmergencyLink } from "./StartNotice";
+import { START_EMERGENCY_119, START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
 
 const COLLAPSIBLE = "details, [hidden], [aria-hidden='true'], [data-state='closed'], [role='dialog']";
 
@@ -136,5 +138,47 @@ describe("EmergencyBanner 넓은 폭 보조 문장(FE-07-15)", () => {
     expect(wide.className).toContain("lg:block");
     expect(screen.getAllByRole("link")).toHaveLength(1); // 보조 문장은 연락처가 아니다: 전화 링크는 하나뿐
     expect(JSON.stringify(copy)).not.toContain("휴대폰");
+  });
+});
+
+describe("시작 화면 안내(FE-01-19 A·FE-01-24 A, RFP-24-01)", () => {
+  it("119 안내 줄: 받은 글자 그대로이고 줄 전체가 tel:119 링크다", () => {
+    render(<StartEmergencyLink text={START_EMERGENCY_119} />);
+    const link = screen.getByTestId("start-emergency");
+    expect(link.tagName).toBe("A");
+    expect(link).toHaveAttribute("href", "tel:119");
+    expect(link.textContent).toBe(START_EMERGENCY_119);
+    expect(link.className).toContain("min-h-11"); // 누르는 영역 44px
+  });
+
+  it("외부 AI 전송 고지: 받은 글자 그대로이고 동의 관문이 아니다(체크·버튼·링크 없음), 접히는 요소가 아니다", () => {
+    const { container } = render(<ExternalAiNotice text={START_EXTERNAL_AI_NOTICE} />);
+    const notice = screen.getByTestId("external-ai-notice");
+    expect(notice.textContent).toBe(START_EXTERNAL_AI_NOTICE);
+    expect(notice).toHaveAttribute("role", "note");
+    expect(container.querySelector("input, button, a, form")).toBeNull();
+    expect(notice.closest(COLLAPSIBLE)).toBeNull();
+  });
+
+  it("두 부품은 문장을 갖지 않는다: 다른 글자를 주면 그 글자를 그린다", () => {
+    render(
+      <>
+        <StartEmergencyLink text="받은 119 글자" />
+        <ExternalAiNotice text="받은 고지 글자" />
+      </>,
+    );
+    expect(screen.getByTestId("start-emergency").textContent).toBe("받은 119 글자");
+    expect(screen.getByTestId("external-ai-notice").textContent).toBe("받은 고지 글자");
+  });
+
+  it("119·고지 자리에는 마스코트가 그려지지 않는다(NoMascotZone)", () => {
+    const { container } = render(
+      <>
+        <StartEmergencyLink text={START_EMERGENCY_119} />
+        <ExternalAiNotice text={START_EXTERNAL_AI_NOTICE} />
+      </>,
+    );
+    expect(screen.queryByTestId("mascot")).toBeNull();
+    expect(container.querySelector("img, audio, video")).toBeNull();
   });
 });

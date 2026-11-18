@@ -4,9 +4,9 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
 import { ChatInput, ExampleChips, HomeHero } from "@/features/chat";
-import { EmergencyBanner, FixedNoticeBox, LegalFooter } from "@/features/emergency";
+import { EmergencyBanner, ExternalAiNotice, FixedNoticeBox, LegalFooter, StartEmergencyLink } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
-import { DISCLAIMER } from "@/lib/fixed/phrases.generated";
+import { DISCLAIMER, START_EMERGENCY_119, START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
 import { cn } from "@/lib/utils";
 import { chatStore, useChatStore } from "@/stores/chat";
 import type { ChatStore } from "@/stores/chat";
@@ -165,6 +165,13 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
             {/* 접히지 않는 고정 영역: 고정 안내(응답 값 그대로) → 고지 → 입력창. 근거 상세 틀 밖이다 */}
             <div data-testid="dock" className="flex flex-none flex-col gap-1.5 pb-[max(14px,env(safe-area-inset-bottom,0px))]">
               {dockResponse && <FixedNoticeBox lines={dockResponse.fixed_notice} />}
+              {/* 시작 화면 안내 2종(질문을 보내기 전, 입력창 가까이): 119 안내 줄과 외부 AI 전송 고지. 백엔드 상수에서 생성한 값 그대로다(FE-01-19 A·FE-01-24 A, RFP-24-01) */}
+              {turns.length === 0 && (
+                <>
+                  <StartEmergencyLink text={START_EMERGENCY_119} />
+                  <ExternalAiNotice text={START_EXTERNAL_AI_NOTICE} />
+                </>
+              )}
               {/* 응답을 받기 전(시작 화면·첫 답을 기다리는 중)의 상시 고지는 백엔드 상수에서 생성한 값이다(FE-01-19 A) */}
               {!lastFailed && <LegalFooter disclaimer={dockResponse ? dockResponse.disclaimer : DISCLAIMER} />}
               <ChatInput onSend={send} />

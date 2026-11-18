@@ -75,6 +75,7 @@ export const RESULT_SAMPLES: ResultSample[] = [
   { id: "unidentified", title: "약을 찾지 못함", board: "Result-NoEvidence", response: fixtures.unidentifiedResponse },
   { id: "missing", title: "근거 원문 미확보(카드는 발견 줄)", board: null, response: fixtures.missingEvidenceResponse },
   { id: "limit", title: "상한 도달(상단 배너)", board: "Result-Limit", response: fixtures.limitResponse },
+  { id: "typo-corrected", title: "오탈자 보정 고지(요약 위)", board: null, response: fixtures.typoCorrectedResponse },
   { id: "emergency", title: "응급 뒤 결과(119 자리는 FE-IMPL-05)", board: "Result-EmergencyResult", response: fixtures.emergencyResponse },
   { id: "clarify", title: "되묻기(후보 카드)", board: "Result-Ask", response: fixtures.clarifyResponse },
   { id: "refuse", title: "거절(요약만)", board: "Result-Refuse", response: fixtures.refuseResponse },

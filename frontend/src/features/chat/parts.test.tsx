@@ -117,6 +117,24 @@ describe("ResultSlot", () => {
     expect(screen.queryByText(DISCLAIMER)).toBeNull();
   });
 
+  it("보정 고지(name_corrections)는 요약보다 먼저, 받은 글자·순서 그대로 보이고 없으면 그리지 않는다(FE-02)", () => {
+    const corrected: ChatResponse = {
+      ...custom,
+      name_corrections: [
+        { input: "가", name: "가나", text: "받은 고지 하나" },
+        { input: "나", name: "나다", text: "받은 고지 둘" },
+      ],
+    };
+    const { rerender } = render(<ResultSlot response={corrected} />);
+    const list = screen.getByTestId("name-corrections");
+    expect([...list.querySelectorAll("li")].map((el) => el.textContent)).toEqual(["받은 고지 하나", "받은 고지 둘"]);
+    const summary = screen.getByText(/받은 요약 1줄/);
+    expect(list.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(list.textContent).not.toContain("삐!");
+    rerender(<ResultSlot response={custom} />);
+    expect(screen.queryByTestId("name-corrections")).toBeNull();
+  });
+
   it("되묻기는 summary만 보이는 자리다", () => {
     render(<ResultSlot response={clarifyResponse} />);
     expect(screen.getByTestId("result-slot")).toHaveAttribute("data-end-reason", "CLARIFY");

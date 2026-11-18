@@ -26,6 +26,7 @@ export type ContractChecks = [
   Expect<Conforms<typeof S.SearchedSchema, Gen["Searched"]>>,
   Expect<Conforms<typeof S.FindingSchema, Gen["Finding"]>>,
   Expect<Conforms<typeof S.CandidateSchema, Gen["Candidate"]>>,
+  Expect<Conforms<typeof S.NameCorrectionSchema, Gen["NameCorrection"]>>,
   Expect<Conforms<typeof S.EmergencySchema, Gen["Emergency"]>>,
   Expect<Conforms<typeof S.GradeDefSchema, Gen["GradeDef"]>>,
   Expect<Conforms<typeof S.ChatResponseSchema, Gen["ChatResponse"]>>,

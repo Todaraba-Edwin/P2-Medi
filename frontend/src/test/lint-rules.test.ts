@@ -38,6 +38,7 @@ describe("안전 lint 규칙", () => {
     const code = 'export function X() {\n  return <div className="bg-[#ff0000]">x</div>;\n}\n';
     expect(await ruleIds(code, "src/components/X.tsx")).toContain("no-restricted-syntax");
     expect(await ruleIds(code, "src/features/result/X.tsx")).toContain("no-restricted-syntax");
+    expect(await ruleIds(code, "src/app/(shell)/X.tsx")).toContain("no-restricted-syntax");
   });
 
   it("jsx-a11y 규칙이 켜져 있다", async () => {
