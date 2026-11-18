@@ -44,9 +44,18 @@ _KID = r"(?:애|아이|아기|애기|아들|딸|손주|손녀|동생|꼬마|조�
 # ① 증상 말 사이에 끼는 정도 부사(고정 어휘만, 임의 글자 틈 없음) ② 약을 가리키는 말(약간·약속·약국·약사 제외)
 _ADV = r"(?:잘|제대로|거의|전혀|아예|좀|조금|갑자기|계속|자꾸|너무|도저히|많이|점점)"
 _DRUG = r"(?:약(?!간|속|국|사)|시럽|알약|캡슐|정제|해열제|진통제|소화제|영양제|비타민|수면제|타이레놀)"
+# 사고 섭취: "실수로·잘못해서 … 먹었/삼켰"(약 이름이 사이에 낌). `detect_emergency`가 아래 임신 본인 예외와 함께 따로 본다.
+_ACCIDENTAL_INTAKE = re.compile(r"(?:실수로|잘못해서|잘못하여)\S{0,20}?" + _ATE)
+# 2026-11-18 밤(AG-08 dev-125 기존 오탐, 개발셋만 보고 일반화, 시험셋 미열람): 임신 중 본인이 "실수로 먹었다"는 사고 섭취 패턴 **하나만** 걸리면
+# 임부금기 확인 질문으로 보고 응급으로 올리지 않는다. 아이 주어·수량·과량 단서가 있거나 다른 응급 키워드·패턴이 걸리면 그대로 응급이다
+# (미탐 금지 우선, 개발셋 응급 10문항 중 이 패턴에 기대는 3건은 모두 아이 주어라 영향 없음).
+_PREGNANCY_SELF = re.compile(r"임신|임부|임산부")
+_KID_RE = re.compile(_KID)
+_INTAKE_AMOUNT = re.compile(
+    r"(?:[2-9]|\d{2,})(?:알|정|개|캡슐|포|봉)|\d+(?:병|통|ml|mg|밀리)|(?:두|세|네|다섯|여러|몇)(?:알|정|개|캡슐|포|봉|병|통(?![약증이]))|"
+    r"한(?:병|통|팩|봉지|박스|상자|판)|전부|몽땅|모두|다먹|다삼|다마|많이|잔뜩|한꺼번에|통째|두번|여러번")
 EMERGENCY_PATTERNS: tuple[re.Pattern[str], ...] = tuple(re.compile(p) for p in (
-    # 사고 섭취: "실수로·잘못해서 … 먹었/삼켰"(약 이름이 사이에 낌), 아이가 "모르고 … 먹었"
-    r"(?:실수로|잘못해서|잘못하여)\S{0,20}?" + _ATE,
+    # 아이가 "모르고 … 먹었"
     _KID + r"(?:가|이)?모르고\S{0,20}?" + _ATE,
     # 구어체 완료형·줍기·집기·통째
     r"(?:먹어|삼켜|마셔)버(?:렸|림|린|려)|(?:주워|집어)(?:먹|삼)|통째(?:로)?(?:다|전부|몽땅)?(?:먹었|삼켰|마셨|마셔)",
@@ -91,7 +100,13 @@ def normalize(text: str) -> str:
 def detect_emergency(text: str) -> bool:
     """응급 키워드가 있으면 True. 부정문("호흡곤란은 없어요")도 안전 쪽으로 True다(오탐 허용, 미탐 금지)."""
     n = normalize(text)
-    return any(k in n for k in EMERGENCY_KEYWORDS) or any(p.search(n) for p in EMERGENCY_PATTERNS)
+    if any(k in n for k in EMERGENCY_KEYWORDS) or any(p.search(n) for p in EMERGENCY_PATTERNS):
+        return True
+    if not _ACCIDENTAL_INTAKE.search(n):
+        return False
+    # 사고 섭취만 걸린 경우: 임신 본인 문맥(아이 주어·수량 단서 없음)이면 임부금기 확인 질문으로 본다.
+    pregnancy_self_only = bool(_PREGNANCY_SELF.search(n)) and not _KID_RE.search(n) and not _INTAKE_AMOUNT.search(n)
+    return not pregnancy_self_only
 
 
 # --------------------------------------------------------------------------- 범위 외 분류

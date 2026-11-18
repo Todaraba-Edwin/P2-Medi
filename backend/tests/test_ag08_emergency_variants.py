@@ -132,7 +132,7 @@ def test_dev_set_emergency_items_have_zero_miss():
 
 
 def test_dev_set_non_emergency_false_positive_not_increased():
-    """보강 전 기준선 오탐은 dev-125(근거 없음) 1건이다. 보강이 새 오탐을 만들지 않는다(ID만 비교)."""
+    """보강 전 기준선 오탐은 dev-125(근거 없음) 1건이었고, 2026-11-18 밤 임신 본인 사고 섭취 예외로 0건이 됐다(ID만 비교)."""
     rows = [r for r in _dev_rows() if not _is_emergency_item(r)]
     fp_ids = {r["id"] for r in rows if detect_emergency(r.get("question") or "")}
-    assert fp_ids <= {"dev-125"}, f"새 응급 오탐 {sorted(fp_ids - {'dev-125'})}/{len(rows)}"
+    assert not fp_ids, f"응급 오탐 {sorted(fp_ids)}/{len(rows)}"
