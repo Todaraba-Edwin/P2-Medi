@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.agent import fixed_phrases as fp
 from app.agent.finalize import _missing_text as _detail_missing_text  # finalize 항목 문구와 같은 규칙(사유 → 상수 문구)
+from app.agent.sentence_filter import DOSE_NUMBER, unsafe_reason  # import만(하네스 동결 파일, FE-02-06 A 카드 사유의 용량 숫자 검사)
 from app.tools.provenance import (
     CITATION_DATE_LABELS,
     DATASET_LABELS,
@@ -80,6 +81,7 @@ Bucket = Literal["found", "not_listed", "identified", "unconfirmed"]
 Target = Literal["product", "pair"]
 Grade = Literal["1", "2", "M"]
 GradeMissingReason = Literal["FETCH_FAIL", "OUT_OF_SCOPE"]  # 등급 정의는 청크 ID 조회라 SEARCH_MISS가 없다(PRD-15-03)
+AdviceKind = Literal["missing", "grade_def"]  # 약사 확인 권고 줄의 종류(AG-08-28 A, AG-08 §5 계약 ④)
 
 
 class _Strict(BaseModel):
@@ -241,6 +243,12 @@ class Searched(_Strict):
     count: int | None = Field(default=None, ge=0)
 
 
+def _has_dose_number(text: str) -> bool:
+    """용량 숫자 패턴만 본다(`unsafe_reason`의 첫 검사가 DOSE_NUMBER). 진단·결정 패턴은 요약 문장용이라 공공 원문 사유에는 쓰지 않는다
+    (예: 원문 "병용투여하지 마십시오"가 결정 패턴에 걸려 빠지지 않게)."""
+    return unsafe_reason(text) == DOSE_NUMBER
+
+
 def _badge_rank(b: Badge) -> tuple[int, int]:
     k = fp.BADGE_ORDER.index(b.kind) if b.kind in fp.BADGE_ORDER else len(fp.BADGE_ORDER)
     s = fp.BADGE_TAIL_ORDER.index(b.source) if b.source in fp.BADGE_TAIL_ORDER else len(fp.BADGE_TAIL_ORDER)
@@ -277,6 +285,9 @@ class Finding(_Strict):
     age_criteria: list[str] = Field(default_factory=list)
     age_info_line: str | None = None  # 위 정보 줄의 안내 문구(상수 `AGE_INFO_LINE`, 0-E 3번 승인). 나이 기준 값이 있을 때만
     sub_line: str | None = None  # 표지 아래 보조줄(코드가 만든 값: 식별된 약의 성분 이름, 근거 없음 카드의 `UNIDENTIFIED_SUB_LINE`)
+    # 병용금기 사유 원문(FE-02-06 A): 금기 발견 쌍 금기 줄에만, 근거 행 `reason` 그대로(자르지 않음, 순서 유지·중복 제거).
+    # 용량 숫자가 든 사유는 카드에서 빼고 근거 상세(`detail[].rows`)에만 남긴다(RFP-21-03). 칸 추가라 `chat_response@v1` 유지
+    reasons: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check(self) -> Finding:
@@ -284,6 +295,10 @@ class Finding(_Strict):
             raise ValueError("쌍 줄은 drugs에 두 약을 담는다")
         if self.badges and self.bucket != "found":
             raise ValueError("배지는 금기 발견 줄에만 붙는다")
+        if self.reasons and not (self.bucket == "found" and self.kind in PAIR_KINDS):
+            raise ValueError("reasons는 금기 발견 쌍 금기 줄에만 둔다")
+        if any(not r.strip() or _has_dose_number(r) for r in self.reasons):
+            raise ValueError("reasons에는 빈 값이나 용량 숫자가 든 사유를 두지 않는다(근거 상세에만)")
         ranks = [_badge_rank(b) for b in self.badges]
         if ranks != sorted(ranks):
             raise ValueError("배지 순서는 병용 → 임부 → 연령, 등급 불일치는 파일 → 성분 API여야 한다")
@@ -385,6 +400,11 @@ class ChatResponse(_Strict):
     grade_def_missing: list[str] = Field(default_factory=list)
     grade_defs: list[GradeDef] = Field(default_factory=list)  # 등급 정의 블록 구조(BE-06-16 A). 위 줄 목록은 그대로 둔다
     pharmacist_advice: list[str] = Field(default_factory=list)  # 미확보 항목이 있으면 비지 않는다(BE-06-17 A)
+    # 권고 줄마다의 종류(AG-08-28 A, 2026-11-18): `pharmacist_advice`와 같은 길이·순서, `missing`(약 조합 미확보) | `grade_def`(등급 정의 미확보).
+    # 화면이 권고를 구역(미확보 상자·등급 정의 블록)별로 나눌 때 쓴다. `finalize`가 주지 않으면 빈 목록(칸 추가라 `chat_response@v1` 유지).
+    # 비어 있으면 직렬화에서 빠진다(`exclude_if`): 모르는 키를 거부하는 프런트 검증(`strictObject`)이 이 칸을 받기 전에도 기존 응답의
+    # 글자가 칸을 더하기 전과 같다(`name_corrections`의 `events.encode_event` 생략과 같은 효과). 스키마(OpenAPI)에는 칸이 그대로 있다
+    pharmacist_advice_kinds: list[AdviceKind] = Field(default_factory=list, exclude_if=lambda v: not v)
     fixed_notice: list[str] = Field(min_length=1)  # 줄 목록: (미확보가 있으면) 약사 확인 권고 → 고정 문구
     disclaimer: str = Field(min_length=1)
 
@@ -420,6 +440,8 @@ class ChatResponse(_Strict):
                    or bool(self.grade_def_missing) or any(g.missing_reason for g in self.grade_defs))
         if missing and not any(isinstance(x, str) and x.strip() for x in self.pharmacist_advice):
             raise ValueError("미확보 항목이 있으면 pharmacist_advice(약사 확인 권고)가 비어 있을 수 없다")  # BE-06-17 A
+        if self.pharmacist_advice_kinds and len(self.pharmacist_advice_kinds) != len(self.pharmacist_advice):
+            raise ValueError("pharmacist_advice_kinds는 pharmacist_advice와 같은 길이·순서여야 한다(AG-08-28 A)")
         return self
 
 
@@ -550,6 +572,23 @@ _FINDING_PASS = ("bucket", "evidence_id", "kind", "drug", "text", "notes", "sour
                  "input_name", "why", "next", "retried_line", "reference_line", "sub_line", "age_criteria", "age_info_line")
 
 
+def _pair_reasons(e: dict[str, Any], badges: list[Badge], detail_by_id: dict[str, DetailItem]) -> list[str]:
+    """금기 발견 쌍 금기 줄의 사유 원문(FE-02-06 A). 줄 근거와 배지 근거의 `rows[].reason`을 근거·행 순서대로 모은다.
+
+    원문은 자르거나 다듬지 않고, 같은 글자는 한 번만 넣는다. 용량 숫자가 든 사유는 빼고 근거 상세에만 남긴다(RFP-21-03).
+    """
+    if e.get("bucket") != "found" or e.get("kind") not in PAIR_KINDS:
+        return []
+    out: list[str] = []
+    for eid in dict.fromkeys(x for x in (e.get("evidence_id"), *(b.evidence_id for b in badges)) if x):
+        d = detail_by_id.get(eid)
+        for row in d.rows if d else []:
+            r = row.get("reason")
+            if isinstance(r, str) and r.strip() and r not in out and not _has_dose_number(r):
+                out.append(r)
+    return out
+
+
 def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]]) -> Finding:
     d = detail_by_id.get(e.get("evidence_id") or "")
     names = list(d.drugs) if d and d.drugs else []
@@ -557,10 +596,12 @@ def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_i
     if not names and e.get("drug") and e["drug"] != "이 약" and not is_pair:
         names = [e["drug"]]  # 식별 항목 등 `drugs`가 없는 근거: finalize가 만든 이름 그대로
     unidentified = e.get("why") is not None or e.get("input_name") is not None
+    badges = badges_by_id.get(e.get("evidence_id") or "", []) if e.get("bucket") == "found" else []
     return Finding(
         target="pair" if is_pair else "product",
         drugs=names if is_pair else names[:1],
-        badges=badges_by_id.get(e.get("evidence_id") or "", []) if e.get("bucket") == "found" else [],
+        badges=badges,
+        reasons=_pair_reasons(e, badges, detail_by_id),
         searched=[Searched(dataset=s.get("dataset"), count=s.get("count")) for s in e.get("searched") or [] if isinstance(s, dict)],
         retried=bool(e.get("retried_line")) if unidentified else None,
         ingredients=[Ingredient(**i) for i in e.get("ingredients") or [] if isinstance(i, dict) and i.get("name")],
@@ -609,6 +650,8 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
         sentence_refs=refs,
         grade_def_missing=list(resp.get("grade_def_missing") or []),
         pharmacist_advice=list(resp.get("pharmacist_advice") or []),
+        # 걸러 내지 않고 옮긴다: 길이·값이 어긋나면 검증 오류로 드러난다(권고가 엉뚱한 구역에 조용히 들어가지 않게)
+        pharmacist_advice_kinds=list(resp.get("pharmacist_advice_kinds") or []),
         fixed_notice=fixed,
         disclaimer=resp.get("disclaimer") or "",
     )
