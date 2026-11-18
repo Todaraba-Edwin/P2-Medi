@@ -14,8 +14,8 @@ L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden [--p
 실제 그래프를 만들어 돌린다(평가 모드: API 병기 끔, LLM 캐시 끔). **실제 모델을 부르고 원격 DB를 읽으므로 비용 상한이 필수다.** judge는 붙이지 않는다.
 `--prompt-set`을 주지 않으면 서비스와 같은 기본 묶음(`wiring.DEFAULT_PROMPT_SET`, 2026-11-17부터 `prompt_set@v3`, 모두 adopted)을 쓰고 결과 meta에 그 이름이 남는다.
 `--allow-draft`는 draft 프롬프트가 든 묶음을 점검할 때만 붙인다(기본 L2 사용법에는 필요 없다).
-비교 조건(9.5절): `--condition`은 `C2`(ReAct 그래프, 기본)와 `C1`·`C1+`(AG-16 고정 파이프라인, `--agent graph`에서만)를 받는다. 그 밖의 값
-(C0·C3는 미연결)은 실행 없이 거부한다(종료 코드 2). graph 에이전트 결과 meta에는 조건별 하네스 적용표 `harness`(`harness@v1`, RFP-33-03)를 적는다.
+비교 조건(9.5절): `--condition`은 `C2`(ReAct 그래프, 기본)와 `C1`·`C1+`(AG-16 고정 파이프라인), `C0`(LLM 단독: 같은 모델에 질문만,
+원격 DB 없음)를 받는다(C1·C1+·C0는 `--agent graph`에서만). 그 밖의 값(C3는 AG-13 뒤라 미연결)은 실행 없이 거부한다(종료 코드 2). graph 에이전트 결과 meta에는 조건별 하네스 적용표 `harness`(`harness@v1`, RFP-33-03)를 적는다.
 Validator 규칙 집계(AG-07-02 B): 문항별 `validator`(H22·H24 검사 코드·규칙별 건수)와 `metrics.validator_rule_counts`는 보조 기록이다(9장 지표 아님).
 `--compare A.json B.json`은 두 결과를 나란히 보여 준다(회귀 경보 전용).
 
@@ -35,6 +35,9 @@ BE-06-35 A로 FE-02 반영 전까지 끔)이고 `--no-typo-correct`로만 끌 �
 L3(개발셋 전체): `--subset` 없이 150문항 1회, `--subset dev_reliability_core --repeats 3`으로 개발 안전 핵심 40문항 3회(`pass^3`·`pass@3`·판정 일치율).
 graph 에이전트 실행은 문항 오류가 3건 연속이면 멈추고 결과 `stopped`에 사유·위치를 남긴다(AG-06-09 A, 하네스 차단은 오류가 아님).
 개발셋 반복 실행은 2·N회차 문항별 행을 `items_repeats`에 남긴다(AG-06-11 A, 시험셋은 점수만).
+신뢰성 1회차 재사용(RFP-35-09 A, 9.4·9.7절): 본 측정을 `--save-reliability-carry`로 돌리면 결과 옆에 안전 핵심 문항 행(신뢰성 계산 칸만,
+시험셋은 순번·해시만)을 남기고, 신뢰성 실행 `--subset reliability_core --repeats 3 --first-run 본측정.json`은 추가 2회만 돈다.
+본 측정과 동결 값·조건·에이전트 버전·judge 유무가 다르거나 문항이 빠졌으면 시작하지 않는다(종료 코드 2).
 
 재채점: `--rescore RESULT.json [--out PATH]`은 저장된 개발셋 결과의 실행 기록을 지금 채점기(경로 규칙 `traj@v2`, RFP-26-08 A)로 다시
 채점해 새 파일로 쓴다(모델·도구 호출 0, 원본 보존). Router 기록이 없는 예전 결과는 재채점하지 않는다(종료 코드 3, 재측정 필요).
@@ -72,9 +75,13 @@ OUT_DIR = ROOT / "logs" / "eval"  # 로컬 전용(`logs/`는 .gitignore)
 RUNNER_VERSION = "ag11-runner@v0-skeleton"
 # 러너가 실제로 연결한 비교 조건(9.5절). C1(AG-16 고정 파이프라인)은 2026-11-18에 연결했다(`app.agent.pipeline.build.build_for_condition`).
 # C1+(오탈자 보정 후 재검색 1회, Router의 AG-10 보정 재사용)는 2026-11-18에 연결했다(AG-16-06 A).
-SUPPORTED_CONDITIONS: tuple[str, ...] = ("C2", "C1", "C1+")
+# C0(LLM 단독)는 2026-11-18에 연결했다(`LlmOnlyAgent`, 에이전트 코드 변경 없이 같은 모델 생성 함수만 쓴다). C3는 AG-13 개선 뒤라 연결하지 않았다.
+SUPPORTED_CONDITIONS: tuple[str, ...] = ("C2", "C1", "C1+", "C0")
 DEFAULT_CONDITION = "C2"
 GRAPH_ONLY_CONDITIONS: tuple[str, ...] = ("C1", "C1+")  # 그래프를 실제로 만들어야 뜻이 있는 조건(offline-fixed는 조건과 무관한 연결 확인용이라 C2 표기만 허용)
+C0 = "C0"
+C0_VERSION = "c0-llm-only@v1"  # C0 규칙 버전(질문만, 시스템 프롬프트·도구·Router·Validator·finalize 없음). 규칙을 바꾸면 올린다
+REAL_MODEL_CONDITIONS: tuple[str, ...] = (*GRAPH_ONLY_CONDITIONS, C0)  # --agent graph(실제 모델 실행)에서만 받는 조건
 
 JUDGE_MODEL = "claude-sonnet-5-5"  # RFP-26-01 고정. 이 골격은 호출하지 않는다
 RUBRIC_VERSIONS = {"J1": "J1@v1", "J2": "J2@v1", "J3": "J3@v1", "J4": "J4@v1", "J5": "J5@v1"}
@@ -305,11 +312,18 @@ def run_eval(
     budget: CostBudget | None = None,
     skip_judge: bool = False,
     max_consecutive_errors: int | None = None,
+    carry_keys_map: dict[str, str] | None = None,
+    carry_out: list[dict[str, Any]] | None = None,
+    first_run: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """`budget`을 주면 문항을 시작하기 전마다 누적 비용을 보고, 상한에 닿았으면 남은 문항을 건너뛴다(`skipped_cost_cap`).
     `skip_judge`면 judge 자리를 비운다(결과 `judge: null`).
     `max_consecutive_errors`를 주면 문항 오류(`is_item_error`)가 그 수만큼 연속일 때 남은 문항·회차를 건너뛰고 `stopped`에 사유·위치를 남긴다
-    (AG-06-09 A). 연속 수는 회차 경계를 넘어 이어 센다. 셋 다 주지 않으면 예전 동작·결과 형식 그대로다."""
+    (AG-06-09 A). 연속 수는 회차 경계를 넘어 이어 센다. 셋 다 주지 않으면 예전 동작·결과 형식 그대로다.
+    신뢰성 1회차 재사용(RFP-35-09 A): `carry_out`(목록)과 `carry_keys_map`(문항 ID → 키)을 주면 첫 회차 행 중 그 문항을 `carry_row`로 줄여 담는다.
+    `first_run`(줄인 1회차 행)을 주면 실행은 2회차부터 `repeats - 1`번만 하고, 신뢰성은 1회차를 더한 `repeats`회로 계산한다
+    (지표·문항별 행은 실행한 회차만, `run_index`는 2부터)."""
+    first = 1 if first_run is not None else 0  # 실행하는 첫 회차의 번호(0부터)
     ph = phrases or M.Phrases.from_backend()
     judge = judge or NotCalledJudge()
     real_judge = is_real_judge(judge) and not skip_judge
@@ -323,16 +337,16 @@ def run_eval(
     err_first = err_total = 0
     stopped: dict[str, Any] | None = None
     skipped_stop: list[str] = []    # 연속 오류 중단으로 1회차에서 돌지 못한 문항
-    for n_run in range(max(1, repeats)):
+    for n_run in range(first, max(1, repeats)):
         rows = []
         for idx, it in enumerate(items):
             if stopped is not None:
                 stopped["skipped"] += 1
-                if n_run == 0:
+                if n_run == first:
                     skipped_stop.append(str(it.get("id")))
                 continue
             if budget is not None and budget.exhausted():
-                if n_run == 0:
+                if n_run == first:
                     skipped.append(str(it.get("id")))
                 continue
             rec = agent(it)
@@ -340,14 +354,14 @@ def run_eval(
                 if is_item_error(rec):
                     streak.append(rec.error or NO_ANSWER)
                     err_total += 1
-                    err_first += n_run == 0
+                    err_first += n_run == first
                 else:
                     streak = []
                 if len(streak) >= max_consecutive_errors:
                     stopped = {"reason": STOP_CONSECUTIVE_ERRORS, "threshold": max_consecutive_errors, "run": n_run + 1, "index": idx,
                                **({} if sealed else {"item_id": it.get("id")}), "errors": list(streak), "skipped": 0}
             row = M.score_item(it, rec, ph)
-            if budget is not None or repeats > 1:  # 실제 그래프 실행·반복 실행에만 적는다(기본 연결 확인 실행의 결과 형식은 그대로)
+            if budget is not None or repeats > 1 or first:  # 실제 그래프 실행·반복 실행에만 적는다(기본 연결 확인 실행의 결과 형식은 그대로)
                 row["run_index"] = n_run + 1  # 회차(1부터, 로깅 전략의 `repeat_idx`와 같은 값, RFP-35-09)
             if rec.harness_warns is not None:
                 row["harness_warns"] = int(rec.harness_warns)
@@ -361,7 +375,7 @@ def run_eval(
             elif judge_stopped or is_item_error(rec):
                 row["judge"] = {"rubric": None, "rubrics": {}, "overall_pass": None, "status": "not_called",
                                 "reason": JUDGE_BUDGET_STOP if judge_stopped else "RUN_ERROR"}
-                if judge_stopped and n_run == 0:
+                if judge_stopped and n_run == first:
                     judge_skipped.append(str(it.get("id")))
             else:
                 ctx = judge_contexts(rec)
@@ -377,7 +391,7 @@ def run_eval(
                     judge_stopped = True
                     row.setdefault("judge", {"rubric": None, "rubrics": {}, "overall_pass": None, "status": "not_called",
                                              "reason": JUDGE_BUDGET_STOP})
-                    if n_run == 0:
+                    if n_run == first:
                         judge_skipped.append(str(it.get("id")))
             if not sealed:
                 row["run"] = rec.to_json()
@@ -420,10 +434,19 @@ def run_eval(
         if stopped is not None:
             result["stopped"] = stopped
             result["skipped_error_stop"] = len(skipped_stop) if sealed else skipped_stop
-    if len(runs) > 1:
-        rel = M.reliability(runs)
+    keys = carry_keys_map or {}
+    if carry_out is not None and keys:
+        carry_out.extend(carry_row(r, sealed=sealed, key=keys[str(r.get("id"))]) for r in runs[0] if str(r.get("id")) in keys)
+    rel_runs: list[Sequence[dict[str, Any]]] = list(runs)
+    if first_run is not None:  # 1회차 = 본 측정. 추가 회차도 같은 함수로 줄여 같은 모양끼리 비교한다
+        rel_runs = [list(first_run), *[[carry_row(r, sealed=sealed, key=keys.get(str(r.get("id")))) for r in rs] for rs in runs]]
+    if len(rel_runs) > 1:
+        rel = M.reliability(rel_runs)
         if sealed:
-            rel.pop("unstable_items", None)  # 시험셋은 실패 문항을 남기지 않는다
+            for k in ("unstable_items", "unstable_items_code_part"):
+                rel.pop(k, None)  # 시험셋은 실패 문항을 남기지 않는다
+        if first_run is not None:
+            rel["first_run_reused"] = True
         result["reliability"] = rel
     if sealed:
         result["metrics"]["trajectory"].pop("top_fail_kinds", None)
@@ -431,7 +454,7 @@ def run_eval(
     else:
         result["items"] = runs[0]
         if len(runs) > 1:  # AG-06-11 A: 개발셋 반복 실행은 2·N회차 문항별 행도 남긴다(시험셋은 위처럼 점수만)
-            result["items_repeats"] = [{"run": i + 1, "items": rows} for i, rows in enumerate(runs) if i > 0]
+            result["items_repeats"] = [{"run": i + 1 + first, "items": rows} for i, rows in enumerate(runs) if i > 0]
     return result
 
 
@@ -448,8 +471,12 @@ def save(result: dict[str, Any], out: Path | None = None) -> Path:
 
 GRAPH_AGENT = "graph"
 GRAPH_REQUIRED_ENV = ("OPENAI_API_KEY", "SUPABASE_DB_URL")  # 평가 모드는 API 병기를 끄므로 DUR 변수는 요구하지 않는다
-# 고를 수 있는 표시 칸(개발셋 표시만. 시험셋 표시 `golden`·`reliability_core`는 고르지 않는다). dev_reliability_core = 개발 안전 핵심 40
-SUBSETS = {"dev_golden": "dev_golden", "dev_reliability_core": "dev_reliability_core"}
+# 고를 수 있는 표시 칸. dev_reliability_core = 개발 안전 핵심 40, reliability_core = 시험셋 안전 핵심 40(9.4절 신뢰성 대상, AG-04 표시).
+# 시험셋 표시는 세트를 읽는 가드(`--allow-sealed` + 환경변수)를 거친 뒤에만 고를 수 있다(문장은 결과에 남지 않는다). 시험셋 `golden`은 고르지 않는다
+SUBSETS = {"dev_golden": "dev_golden", "dev_reliability_core": "dev_reliability_core", "reliability_core": "reliability_core"}
+RELIABILITY_SUBSETS = ("dev_reliability_core", "reliability_core")  # `--first-run`(본 측정 1회차 재사용)을 받는 부분집합
+CARRY_VERSION = "reliability-carry@v1"
+CARRY_SUFFIX = ".reliability-carry.json"
 REASON_NO_EVIDENCE = "NO_EVIDENCE"        # `app.agent.sentence_filter.NO_EVIDENCE`(시험이 같은 값인지 확인한다)
 REASON_QUOTE_MISMATCH = "QUOTE_MISMATCH"  # `app.agent.validator.QUOTE_MISMATCH`
 COMPARE_CLAIM = "회귀 경보 전용(개선 주장에 쓰지 않는다)"
@@ -487,9 +514,25 @@ class GraphResources:
 def corpus_fingerprint(index: Any, source: str) -> dict[str, Any]:
     """근거 코퍼스의 출처·청크 수·내용 지문. 지문은 청크마다 `ID|기준일|본문 sha256 앞 12자`를 ID 순으로 이어 붙인 것의 sha256이다
     (본문은 결과 파일에 남기지 않는다). 측정 사이에 코퍼스가 바뀌었는지 결과 파일끼리 비교할 수 있다(9.6절)."""
+    chunks = getattr(index, "chunks", []) or []
     rows = sorted(f"{c.get('chunk_id')}|{c.get('base_date')}|{hashlib.sha256(str(c.get('text') or '').encode('utf-8')).hexdigest()[:12]}"
-                  for c in getattr(index, "chunks", []) or [])
-    return {"source": source, "n_chunks": len(rows), "sha256": hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()}
+                  for c in chunks)
+    return {"source": source, "n_chunks": len(rows), "sha256": hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest(),
+            "snapshot_dates": snapshot_dates(chunks)}
+
+
+# 스냅샷 수집 청크의 종류 머리: e약은요 절(`build_corpus_l3.py`: "기준일 = 수집일")·허가 상세. 이 청크의 기준일이 곧 스냅샷 수집일이다
+SNAPSHOT_KINDS = {"eyak": "l3_eyak", "prmsn": "l3_prmsn"}
+
+
+def snapshot_dates(chunks: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """BE-08 재현성: e약은요·허가 상세 스냅샷 수집일(= 그 청크의 `base_date`)의 범위와 청크 수. 청크가 없으면 None."""
+    out: dict[str, Any] = {}
+    for name, prefix in SNAPSHOT_KINDS.items():
+        dates = sorted({str(c.get("base_date")) for c in chunks if str(c.get("chunk_kind") or "").startswith(prefix) and c.get("base_date")})
+        n = sum(1 for c in chunks if str(c.get("chunk_kind") or "").startswith(prefix))
+        out[name] = {"n_chunks": n, "collected_min": dates[0], "collected_max": dates[-1], "n_dates": len(dates)} if dates else None
+    return out
 
 
 class CostBudget:
@@ -528,6 +571,100 @@ def select_subset(items: Sequence[dict[str, Any]], subset: str | None) -> list[d
     if subset not in SUBSETS:
         raise RunnerConfigError(f"--subset은 {sorted(SUBSETS)} 중 하나")
     return [it for it in items if it.get(SUBSETS[subset]) is True]
+
+
+# --------------------------------------------------------------------------- 신뢰성 1회차 재사용(RFP-35-09 A, 9.4·9.7절)
+# 본 측정(1회차)의 안전 핵심 문항 행을 신뢰성 계산에 드는 칸만 남겨(`carry_row`) 옆 파일(`결과.reliability-carry.json`)에 두고,
+# 신뢰성 실행(`--subset reliability_core --repeats 3 --first-run 결과.json`)은 추가 2회만 돌려 세 회차로 `pass^3`을 계산한다.
+# 시험셋 옆 파일에는 문항 ID·근거 ID·실행 기록이 없다(부분집합 안 순번 `#n`, 판정 근거 ID는 해시). 결과 파일 형식은 그대로다.
+
+_CARRY_TRAJ_KEYS = ("verdict", "end_reason", "model_calls", "fails", "extra_tools", "duplicates")
+
+
+def _h12(v: Any) -> str | None:
+    return None if v is None else hashlib.sha256(str(v).encode("utf-8")).hexdigest()[:12]
+
+
+def carry_row(row: dict[str, Any], *, sealed: bool, key: str | None = None) -> dict[str, Any]:
+    """`eval_metrics.reliability`에 드는 칸(안전 응답·판정·경로·필수 요소)만 남긴 행. 1회차와 추가 회차를 **같은 함수로** 줄여야
+    회차 사이 비교(판정 일치·경로 일관성)가 같은 모양끼리 된다. 시험셋은 ID를 `key`(순번)로, 판정 근거 ID를 해시로 바꾸고 실행 기록을 뺀다."""
+    out: dict[str, Any] = {"id": key or row.get("id"), "safety": row.get("safety"), "elements": row.get("elements") or {}}
+    j = row.get("judgment")
+    if sealed and isinstance(j, dict):
+        j = {"applicable": j.get("applicable"), "correct": j.get("correct"),
+             "items": [{"evidence_id": _h12(x.get("evidence_id")), "got": x.get("got"), "got_grades": list(x.get("got_grades") or [])}
+                       for x in j.get("items") or []]}
+    out["judgment"] = j
+    t = row.get("trajectory") or {}
+    out["trajectory"] = {k: t.get(k) for k in _CARRY_TRAJ_KEYS}
+    run = row.get("run")
+    if not sealed and isinstance(run, dict):  # 개발셋: 경로 일관성을 도구 이름 순서로 본다(`eval_metrics._path_sig`)
+        out["run"] = {"tool_calls": [{"name": c.get("name")} for c in run.get("tool_calls") or [] if isinstance(c, dict)]}
+    return out
+
+
+def carry_keys(items: Sequence[dict[str, Any]], *, sealed: bool) -> dict[str, str]:
+    """문항 ID → 옆 파일의 키. 개발셋은 ID 그대로, 시험셋은 부분집합 안 순번(`#0`…, 세트 순서)."""
+    return {str(it.get("id")): (f"#{i}" if sealed else str(it.get("id"))) for i, it in enumerate(items)}
+
+
+def write_carry(result: dict[str, Any], rows: Sequence[dict[str, Any]], result_path: Path, *, subset: str) -> Path:
+    """본 측정 결과 옆에 1회차 재사용 파일을 쓴다(`rows`는 이미 `carry_row`로 줄인 행)."""
+    path = result_path.with_name(result_path.stem + CARRY_SUFFIX)
+    meta = result["meta"]
+    doc = {"kind": CARRY_VERSION, "source_result": result_path.name, "source_sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
+           "subset": subset, "sealed": bool(meta.get("sealed")), "set_file": meta.get("set_file"), "set_sha256": meta.get("set_sha256"),
+           "n": len(rows), "meta": meta, "rows": list(rows),
+           "note": "신뢰성 1회차 재사용용(RFP-35-09 A). 시험셋은 문항 ID·근거 ID·실행 기록 없이 순번·해시만 둔다. 지표 계산에 직접 쓰지 않는다"}
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=1, default=str) + "\n", encoding="utf-8")
+    return path
+
+
+class FirstRunMismatch(RunnerConfigError):
+    """1회차로 재사용할 본 측정이 이번 신뢰성 실행과 같은 설정·같은 문항이 아니다."""
+
+
+# 1회차와 추가 회차가 같아야 하는 값(동결 값 `freeze_check.FROZEN_KEYS`에 더해 조건이 정하는 값과 에이전트 쪽 버전까지: 같은 설정의 반복이어야 한다)
+REUSE_SAME_KEYS = ("condition", "graph", "prompt", "harness_src", "harness_table", "typo_correction")
+
+
+def load_first_run(path: Path, items: Sequence[dict[str, Any]], *, subset: str, sealed: bool, set_sha256: str,
+                   planned_meta: dict[str, Any], judge: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """본 측정 결과(또는 그 옆 파일)에서 1회차 행을 읽는다. 반환 (줄인 1회차 행, 결과 meta에 남길 기록).
+    세트 해시·부분집합·동결 값·조건·에이전트 버전·judge 유무가 다르거나 이번 부분집합 문항이 하나라도 빠졌으면 `FirstRunMismatch`."""
+    res = json.loads(path.read_text(encoding="utf-8"))
+    keys = carry_keys(items, sealed=sealed)
+    if isinstance(res.get("items"), list) and not sealed:  # 개발셋 본 측정은 문항별 행이 결과에 있다
+        base_meta, src = res.get("meta") or {}, path
+        rows = [carry_row(r, sealed=False) for r in res["items"] if str(r.get("id")) in keys]
+    else:
+        side = path if path.name.endswith(CARRY_SUFFIX) else path.with_name(path.stem + CARRY_SUFFIX)
+        if not side.is_file():
+            raise FirstRunMismatch(f"1회차 재사용 파일이 없다: {side.name}(본 측정을 --save-reliability-carry로 돌려야 생긴다)")
+        doc = json.loads(side.read_text(encoding="utf-8"))
+        if doc.get("kind") != CARRY_VERSION or doc.get("subset") != subset or bool(doc.get("sealed")) != sealed:
+            raise FirstRunMismatch(f"재사용 파일의 종류·부분집합·시험셋 여부가 이번 실행과 다르다({doc.get('kind')}, {doc.get('subset')})")
+        base_meta, src, rows = doc.get("meta") or {}, side, list(doc.get("rows") or [])
+    if base_meta.get("set_sha256") != set_sha256:
+        raise FirstRunMismatch("본 측정과 세트 파일 sha256이 다르다")
+    base = {"meta": base_meta}
+    planned = planned_result(planned_meta, judge)
+    diffs = [d["item"] for d in FZ.freeze_diff(planned, base)]
+    fp_, fb = FZ.freeze_values(planned), FZ.freeze_values(base)
+    diffs += [k for k in REUSE_SAME_KEYS if fp_[k] != fb[k] and k not in diffs]
+    if bool(fp_["judge_model"]) != bool(fb["judge_model"]):
+        diffs.append("judge 유무")
+    if diffs:
+        raise FirstRunMismatch("본 측정과 설정이 달라 1회차로 쓸 수 없다: " + ", ".join(diffs))
+    have = {str(r.get("id")) for r in rows}
+    missing = [k for k in keys.values() if k not in have]
+    if missing:
+        raise FirstRunMismatch(f"본 측정에 이번 부분집합 문항 {len(missing)}개가 없다(건너뜀·중단 등)")
+    want = set(keys.values())
+    rows = [r for r in rows if str(r.get("id")) in want]
+    record = {"file": src.name, "sha256": hashlib.sha256(src.read_bytes()).hexdigest(), "created_utc": base_meta.get("created_utc"),
+              "n_items": len(rows), "note": "1회차 = 본 측정 결과(RFP-35-09 A). 이 파일의 문항별 행·지표는 추가 회차(2회차부터)만이다"}
+    return rows, record
 
 
 def _sha256_of(paths: Sequence[Path]) -> str:
@@ -578,7 +715,13 @@ def code_versions(condition: str = DEFAULT_CONDITION) -> dict[str, str]:
 
         out = {"graph": pipeline_version(condition), "graph_src": out["graph"],
                "pipeline_src": f"pipeline-src@{_sha256_of(sorted((agent / 'pipeline').glob('*.py')))}", "harness": out["harness"]}
+    out["metrics"] = metrics_version()
     return out
+
+
+def metrics_version() -> str:
+    """채점 코드(`eval_metrics.py`) 내용 해시. 측정 기간에 지표 계산이 바뀌면 동결 점검(`freeze_check.FROZEN_KEYS`의 `metrics_src`)에 걸린다(9.6절)."""
+    return f"metrics-src@{_sha256_of([HERE / 'eval_metrics.py'])}"
 
 
 def select_ids(items: list[dict[str, Any]], ids: Sequence[str]) -> list[dict[str, Any]]:
@@ -606,7 +749,7 @@ def resolve_typo_correct(condition: str, flag: bool | None) -> bool:
 
     C1 = 끔(보정 없는 고정 파이프라인), C1+ = 켬(C1 + 오탈자 보정 후 재검색 1회, 9.5절), C2 = 기본 켬(서비스와 같은 그래프, AG-10-04 A).
     조건의 뜻과 어긋나는 플래그는 `RunnerConfigError`(결과 파일의 조건 표기와 실제 동작이 달라지지 않게)."""
-    fixed = {"C1": False, "C1+": True}.get(condition)
+    fixed = {"C1": False, "C1+": True, C0: False}.get(condition)  # C0는 Router가 없어 보정도 없다
     if fixed is None:
         return True if flag is None else bool(flag)
     if flag is not None and bool(flag) != fixed:
@@ -643,7 +786,7 @@ def planned_result(meta: dict[str, Any], judge: Any) -> dict[str, Any]:
     """실행 전에 "이번 실행이 남길 결과"의 동결 값만 담은 모양을 만든다(`freeze_check.freeze_diff`의 입력). 문항·답은 없다."""
     jm = judge.meta() if is_real_judge(judge) and hasattr(judge, "meta") else None
     j = None if jm is None else {"model": jm.get("judge_model"), "rubrics": jm.get("rubric_versions"), "prompt_sha256": jm.get("prompt_sha256"),
-                                 "ragas": RG.RAGAS_VERSION}
+                                 "thinking": jm.get("thinking"), "max_tokens": jm.get("max_tokens"), "ragas": RG.RAGAS_VERSION}
     return {"meta": {**meta, "patterns": M.PATTERN_VERSION, "trajectory_rule": M.TRAJ_RULE, "eval_mode_env": "1", "judge": j}}
 
 
@@ -794,6 +937,49 @@ class GraphAgent(GraphAdapter):
         if tracer is not None:
             tracer.item_id = str(item.get("id")) if item.get("id") is not None else None
         return super().__call__(item)
+
+
+class LlmOnlyAgent:
+    """C0 LLM 단독(9.5절): **같은 모델에 질문만** 보낸다. 시스템 프롬프트·도구·Router·Validator·finalize가 없고, 코드가 고정 문구를 붙이지 않는다.
+    답 원문을 `summary`·`text`에 그대로 둔다(구조화 판정 칸 `entries`가 없으므로 금기 판정·경로 채점은 정의대로 통과하지 못한다).
+    `model`은 `.invoke(messages)`가 메시지(`content`)를 돌려주는 객체다(실제는 `app.agent.llm.make_chat_model`, 시험은 가짜)."""
+
+    def __init__(self, model: Any, *, info: dict[str, Any] | None = None) -> None:
+        self.model = model
+        self.info = {"agent": "graph", "condition": C0, "rule": C0_VERSION, **(info or {})}
+
+    def __call__(self, item: dict[str, Any]) -> M.RunRecord:
+        from langchain_core.messages import HumanMessage
+
+        t0 = time.perf_counter()
+        try:
+            msg = self.model.invoke([HumanMessage(content=str(item.get("question") or ""))])
+            content = getattr(msg, "content", msg)
+            text = content if isinstance(content, str) else "".join(str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in content or [])
+            um = getattr(msg, "usage_metadata", None) or {}
+            rec = M.RunRecord(answer={"summary": text, "text": text} if text.strip() else {}, model_calls=1, end_reason="NORMAL",
+                              tokens=int(um.get("total_tokens") or 0) or None if um else None)
+        except Exception as e:  # noqa: BLE001 - 문항 하나의 실패가 전체 실행을 멈추지 않게(연속 오류 중단은 run_eval이 센다)
+            rec = M.RunRecord(answer={}, error=type(e).__name__)
+        rec.latency_s = round(time.perf_counter() - t0, 4)
+        return rec
+
+
+def c0_harness() -> dict[str, Any]:
+    """C0 조건표 행: 하네스 장치가 없다(도구·Validator·finalize 없음). `harness@v1` 표에 C0 행으로 적는다."""
+    from app.agent.pipeline.build import HARNESS_VERSION
+
+    return {"version": HARNESS_VERSION, "condition": C0, "baseline": [], "selection_limits": [],
+            "note": "C0(LLM 단독)는 도구·Validator·finalize를 쓰지 않아 기준선 장치가 없다(9.5절)"}
+
+
+def default_c0_model(settings: Any) -> Any:
+    """C0 실제 모델: 에이전트와 같은 생성 함수·같은 모델·같은 설정(추론 끔·출력 상한), 비용은 원장의 평가 몫. 시험에서는 부르지 않는다."""
+    from app.agent.llm import LedgerCallback, make_chat_model
+    from app.llm.ledger import CostLedger
+
+    ledger = CostLedger()
+    return make_chat_model(settings, purpose="tools", callbacks=[LedgerCallback(ledger, bucket="eval")]), ledger
 
 
 def _default_settings() -> Any:
@@ -969,8 +1155,9 @@ def default_judge(settings: Any, max_usd: float) -> Any:
 
 def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settings_fn: Callable[[], Any] | None,
                    resources_factory: Callable[..., GraphResources] | None,
-                   judge_factory: Callable[[Any, float], Any] | None = None) -> tuple[Any, CostBudget, dict[str, Any], Any] | None:
-    """그래프 에이전트 준비. 필수 설정이 없으면 이름만 출력하고 None(0건). 자원을 만들기 전에 묶음·draft 규칙을 확인한다.
+                   judge_factory: Callable[[Any, float], Any] | None = None,
+                   c0_model_factory: Callable[[Any], tuple[Any, Any]] | None = None) -> tuple[Any, CostBudget, dict[str, Any], Any] | None:
+    """그래프 에이전트 준비(C0는 `_prepare_c0`: 모델만, 원격 DB 없음). 필수 설정이 없으면 이름만 출력하고 None(0건). 자원을 만들기 전에 묶음·draft 규칙을 확인한다.
     `--judge sonnet`이면 judge도 여기서 만든다(자원보다 먼저: 키가 없으면 원격 DB를 읽기 전에 멈춘다)."""
     from app.agent import llm
     from app.agent.graph.prompt import load_summary_instruction
@@ -979,13 +1166,16 @@ def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settin
 
     os.environ["MEDIAGENT_EVAL"] = "1"  # 평가 모드 강제: LLM 캐시 off, 비용은 원장의 평가 몫으로
     settings = (settings_fn or _default_settings)()
-    missing = [n for n in missing_settings(settings) if n in GRAPH_REQUIRED_ENV]
+    need = ("OPENAI_API_KEY",) if a.condition == C0 else GRAPH_REQUIRED_ENV  # C0는 원격 DB를 읽지 않는다
+    missing = [n for n in missing_settings(settings) if n in need]
     if missing:
         print(f"필수 환경변수가 없어 실행하지 않았다(0건): {', '.join(missing)}")
         return None
     check_system_prompt(a.prompt_set, DEFAULT_PROMPT)
     load_summary_instruction(a.prompt_set, allow_draft=a.allow_draft)  # draft 묶음은 --allow-draft 없이는 여기서 멈춘다
     judge = (judge_factory or default_judge)(settings, a.judge_max_usd) if a.judge == JUDGE_SONNET else None
+    if a.condition == C0:
+        return _prepare_c0(a, settings, judge, c0_model_factory)
     prefix = "l2" if a.condition == DEFAULT_CONDITION else a.condition.lower().replace("+", "plus")  # C2 실행 ID는 지금까지와 같다
     run_id = f"{prefix}-{a.prompt_set.replace('@', '-')}-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}"
     resources = (resources_factory or default_graph_resources)(settings, prompt_set=a.prompt_set, allow_draft=a.allow_draft, run_id=run_id)
@@ -1003,14 +1193,32 @@ def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settin
     return agent, CostBudget(a.max_usd, total), versions, judge
 
 
+def _prepare_c0(a: argparse.Namespace, settings: Any, judge: Any,
+                c0_model_factory: Callable[[Any], tuple[Any, Any]] | None) -> tuple[Any, CostBudget, dict[str, Any], Any]:
+    """C0 준비: 원격 DB·사전·코퍼스를 읽지 않는다(질문만). 버전 기록은 모델·C0 규칙·채점 코드뿐이고 프롬프트·하네스·사전·코퍼스는 해당 없음(None)."""
+    from app.agent import llm
+
+    model, ledger = (c0_model_factory or default_c0_model)(settings)
+    agent = LlmOnlyAgent(model, info={"api_enabled": False, "run_id": f"c0-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}"})
+    versions = {"model": {"agent": llm.MODEL, "summary": None}, "prompt": None, "graph": C0_VERSION, "harness": None, "dict": None, "corpus": None,
+                "metrics": metrics_version()}
+
+    def total() -> float:
+        spent = float(ledger.spent("eval"))
+        return spent - float(judge.usage.cost_usd) if judge is not None and getattr(judge, "ledger", None) is not None else spent
+
+    return agent, CostBudget(a.max_usd, total), versions, judge
+
+
 def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | None = None,
          resources_factory: Callable[..., GraphResources] | None = None,
-         judge_factory: Callable[[Any, float], Any] | None = None) -> int:
+         judge_factory: Callable[[Any, float], Any] | None = None,
+         c0_model_factory: Callable[[Any], tuple[Any, Any]] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--set", default="dev", help="dev | test | 파일 경로")
     ap.add_argument("--agent", choices=sorted([*AGENTS, GRAPH_AGENT]), default="offline-fixed")
     ap.add_argument("--condition", default=DEFAULT_CONDITION,
-                    help=f"비교 조건(9.5절). 연결된 값: {', '.join(SUPPORTED_CONDITIONS)} (C1은 --agent graph에서만)")
+                    help=f"비교 조건(9.5절). 연결된 값: {', '.join(SUPPORTED_CONDITIONS)} (C1·C1+·C0는 --agent graph에서만)")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--repeats", type=int, default=1)
     ap.add_argument("--allow-sealed", action="store_true", help=f"시험셋 열람 허용(환경변수 {G.SEALED_ENV}도 필요)")
@@ -1028,6 +1236,10 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap.add_argument("--ids", help="쉼표로 나눈 문항 ID만 돌린다(개발셋 전용, --subset 뒤에 적용). 예: dev-056,dev-057")
     ap.add_argument("--typo-correct", action=argparse.BooleanOptionalAction, default=None,
                     help="오탈자 보정 후 진행(AG-10). 기본은 조건이 정한다(C2·C1+ 켬, C1 끔). C2에서만 --no-typo-correct로 끌 수 있다(graph 전용)")
+    ap.add_argument("--save-reliability-carry", action="store_true",
+                    help="본 측정 결과 옆에 안전 핵심 문항의 1회차 재사용 파일(결과.reliability-carry.json)을 쓴다(graph 전용, RFP-35-09 A)")
+    ap.add_argument("--first-run", type=Path, metavar="RESULT.json",
+                    help="신뢰성 실행에서 본 측정 결과를 1회차로 쓰고 추가 회차만 돈다(--subset reliability_core|dev_reliability_core, --repeats 2 이상)")
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A.json", "B.json"), help="두 결과 파일을 나란히 본다(실행 없음)")
     ap.add_argument("--rescore", type=Path, metavar="RESULT.json",
                     help="저장된 개발셋 결과를 지금 채점기로 다시 채점해 새 파일로 쓴다(실행 없음, 원본 보존. --out으로 경로 지정)")
@@ -1045,7 +1257,7 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         return 0
     if a.condition not in SUPPORTED_CONDITIONS:
         print(f"--condition {a.condition!r}은(는) 아직 러너에 연결되지 않았다. 지금 받는 값: {', '.join(SUPPORTED_CONDITIONS)} "
-              "(C0·C3는 연결 전이다). 실행하지 않았다")
+              "(C3는 AG-13 개선 뒤라 연결 전이다). 실행하지 않았다")
         return 2
     is_graph = a.agent == GRAPH_AGENT
     if a.typo_correct is not None and not is_graph:
@@ -1057,7 +1269,7 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         except RunnerConfigError as e:
             print(f"{e}. 실행하지 않았다")
             return 2
-    if a.condition in GRAPH_ONLY_CONDITIONS and not is_graph:
+    if a.condition in REAL_MODEL_CONDITIONS and not is_graph:
         print(f"--condition {a.condition}은(는) --agent {GRAPH_AGENT}에서만 받는다({a.agent}는 조건과 무관한 연결 확인용이라 C2 표기만 쓴다). 실행하지 않았다")
         return 2
     if a.judge != JUDGE_NONE and not is_graph:
@@ -1088,12 +1300,25 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
             return 2
     if a.limit:
         items = items[: a.limit]
+    if a.subset and not items:  # 다른 세트의 표시(개발셋에 reliability_core 등)를 고르면 빈 표본으로 돌지 않는다
+        print(f"--subset {a.subset}로 고른 문항이 0개다(이 세트에 그 표시가 없다). 실행하지 않았다")
+        return 2
+    if (a.first_run or a.save_reliability_carry) and not is_graph:
+        print(f"--first-run·--save-reliability-carry는 --agent {GRAPH_AGENT}에서만 받는다. 실행하지 않았다")
+        return 2
+    if a.first_run and (a.subset not in RELIABILITY_SUBSETS or a.repeats < 2 or a.limit or a.ids):
+        print(f"--first-run은 --subset {'|'.join(RELIABILITY_SUBSETS)}와 --repeats 2 이상에서만, --limit·--ids 없이 받는다. 실행하지 않았다")
+        return 2
+    carry_mark = (a.subset if a.subset in RELIABILITY_SUBSETS else ("reliability_core" if sealed else "dev_reliability_core")) \
+        if (a.first_run or a.save_reliability_carry) else None
+    carry_map = carry_keys([it for it in items if it.get(carry_mark) is True], sealed=sealed) if carry_mark else None
     versions: dict[str, Any] = {"model": None, "prompt": None, "graph": None, "harness": None, "dict": None}  # 실제 그래프 측정 때 채운다
     budget: CostBudget | None = None
     judge: Any = None
     if is_graph:
         try:
-            prepared = _run_graph_cli(a, items, settings_fn=settings_fn, resources_factory=resources_factory, judge_factory=judge_factory)
+            prepared = _run_graph_cli(a, items, settings_fn=settings_fn, resources_factory=resources_factory, judge_factory=judge_factory,
+                                      c0_model_factory=c0_model_factory)
         except (JudgeSetupError, SJ.JudgeError) as e:  # judge 키·SDK·프롬프트 파일 문제: 원격 자원을 만들기 전에 멈춘다
             print(f"{e}. 실행하지 않았다")
             return 2
@@ -1109,7 +1334,8 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         from app.agent.pipeline.build import harness_profile
 
         # 조건별 하네스 적용표(`harness@v1`, RFP-33-03 A·BE-08): 기준선 장치는 C1·C2 공통, 개선 단계 선택 제한 장치는 C3 ablation 행 몫이라 비어 있다
-        meta.update({"subset": a.subset, "n_items_selected": len(items), "prompt_set": a.prompt_set, "harness": harness_profile(a.condition),
+        meta.update({"subset": a.subset, "n_items_selected": len(items), "prompt_set": None if a.condition == C0 else a.prompt_set,
+                     "harness": c0_harness() if a.condition == C0 else harness_profile(a.condition),
                      "typo_correction": typo_correction_meta(a.typo_correct), "run_settings": run_settings()})
         if a.baseline:
             ok, record = baseline_guard(meta, judge, a.baseline, a.freeze_diff_reason)
@@ -1121,10 +1347,22 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     elif a.baseline:
         print(f"--baseline은 --agent {GRAPH_AGENT}에서만 받는다. 실행하지 않았다")
         return 2
+    first_rows: list[dict[str, Any]] | None = None
+    if a.first_run:
+        try:
+            first_rows, meta["first_run"] = load_first_run(a.first_run, items, subset=carry_mark, sealed=sealed, set_sha256=digest,
+                                                           planned_meta=meta, judge=judge)
+        except (FirstRunMismatch, OSError, ValueError) as e:
+            print(f"{e}. 실행하지 않았다(1회차 재사용 불가)")
+            return 2
+    carry: list[dict[str, Any]] | None = [] if a.save_reliability_carry else None
     res = run_eval(items, agent, sealed=sealed, meta=meta, repeats=a.repeats, budget=budget, judge=judge,
                    skip_judge=is_graph and judge is None,  # graph 실행은 --judge sonnet일 때만 judge를 붙인다(기본은 코드 채점만)
-                   max_consecutive_errors=MAX_CONSECUTIVE_ERRORS if is_graph else None)
+                   max_consecutive_errors=MAX_CONSECUTIVE_ERRORS if is_graph else None,
+                   carry_keys_map=carry_map, carry_out=carry, first_run=first_rows)
     out = save(res, a.out)
+    if carry is not None:
+        print(f"  1회차 재사용 파일 → {write_carry(res, carry, out, subset=carry_mark)}(안전 핵심 {len(carry)}문항)")
     mt = res["metrics"]
     print(f"[{a.set}·{a.condition}·{a.agent}] 문항 {res['meta']['n_items_run']} → {out}")
     for name in ("contra_judgment_accuracy", "routing_accuracy"):

@@ -6,7 +6,8 @@
 점검 항목(`FREEZE_ITEMS`):
   세트 sha256·manifest 일치, 세트 판, 비교 조건, 에이전트 모델, 프롬프트 묶음·파일 해시, 그래프 버전(조건과 맞는지), 하네스 소스 해시,
   `harness@v1` 조건표(조건 일치), 사전 판(`--dict-version`과 일치), 코퍼스 출처·지문, 오탈자 보정 스위치(조건과 맞는지),
-  호출 상한·LLM 설정(온도·추론 설정·출력 토큰 상한)·검색 방식·파일별 기준일(`run_settings`), 경로 채점 규칙·패턴 버전, 평가 모드, judge 모델·루브릭 버전·judge 프롬프트 sha256(`--require-judge`일 때), Ragas 계산 규칙 버전.
+  호출 상한·LLM 설정(온도·추론 설정·출력 토큰 상한)·검색 방식·파일별 기준일(`run_settings`), 경로 채점 규칙·패턴 버전·채점 코드 해시, 평가 모드,
+  judge 모델·루브릭 버전·judge 프롬프트 sha256·judge 설정(사고·출력 토큰 상한)(`--require-judge`일 때), Ragas 계산 규칙 버전.
 
 사용(저장소 루트):
     backend/.venv/bin/python evaluation/freeze_check.py logs/eval/RESULT.json [...] [--dict-version be10-dict-s1-1055d3576876] [--require-judge]
@@ -32,18 +33,24 @@ JUDGE_MODEL = "claude-sonnet-5-5"  # RFP-26-01 고정
 HARNESS_VERSION = "harness@v1"
 _SHA64 = re.compile(r"^[0-9a-f]{64}$")
 # 조건 → 기대하는 오탈자 보정 스위치(None = 조건이 정하지 않음: C2는 기본 켬이지만 비교용으로 끌 수 있다)
-TYPO_BY_CONDITION: dict[str, bool | None] = {"C1": False, "C1+": True, "C2": None}
+TYPO_BY_CONDITION: dict[str, bool | None] = {"C1": False, "C1+": True, "C2": None, "C0": False}
 # 조건 → 그래프 버전 글자의 머리(C2는 ReAct 그래프 소스 해시, C1·C1+는 파이프라인 규칙 버전)
-GRAPH_PREFIX: dict[str, str] = {"C1": "c1-pipeline@", "C1+": "c1plus-pipeline@", "C2": "graph-src@"}
+GRAPH_PREFIX: dict[str, str] = {"C1": "c1-pipeline@", "C1+": "c1plus-pipeline@", "C2": "graph-src@", "C0": "c0-llm-only@"}
+# C0(LLM 단독, 9.5절)는 질문만 보내 프롬프트 묶음·하네스 소스·사전·코퍼스를 쓰지 않는다. 이 항목은 C0에서 "해당 없음"(None)이어야 하고 비교에서 뺀다
+C0 = "C0"
+NOT_FOR_C0 = ("prompt", "harness_src", "dict_version", "corpus")
 FREEZE_ITEMS = ("set_sha256", "set_manifest_match", "set_version", "condition", "model", "prompt", "graph", "harness_src", "harness_table",
-                "dict_version", "corpus", "typo_correction", "call_limit", "run_settings", "trajectory_rule", "patterns", "eval_mode", "judge_model",
-                "judge_rubrics", "judge_prompt_sha256", "ragas_version")
+                "dict_version", "corpus", "typo_correction", "call_limit", "run_settings", "trajectory_rule", "patterns", "metrics_src", "eval_mode",
+                "judge_model", "judge_rubrics", "judge_prompt_sha256", "judge_settings", "ragas_version")
 # 측정 기간(기준선 AG-11 ~ 최종 재측정 AG-14) 동안 바뀌면 안 되는 값(9.6절: 평가 세트 해시·judge 모델·루브릭·지표·모델 ID·호출 상한, + 사전·코퍼스·
 # LLM 설정). C1·C1+ 규칙(파이프라인 버전)은 같은 조건끼리 비교할 때만 본다(`freeze_diff`).
+# 지표: 채점 코드(`eval_metrics.py`) 내용 해시 `metrics_src`(2026-11-18 추가. 버전 상수만 보던 것을 넘어 채점 코드가 바뀌면 걸린다).
+# judge 설정: 사고 설정·출력 토큰 상한 `judge_settings`(2026-11-18 추가, judge는 temperature를 받지 않는다).
 FROZEN_KEYS = ("set_sha256", "set_version", "model", "call_limit", "run_settings", "dict_version", "corpus", "trajectory_rule", "patterns",
-               "judge_model", "judge_rubrics", "judge_prompt_sha256", "ragas_version")
+               "metrics_src", "judge_model", "judge_rubrics", "judge_prompt_sha256", "judge_settings", "ragas_version")
 PIPELINE_CONDITIONS = ("C1", "C1+")
-JUDGE_ITEMS = ("judge_model", "judge_rubrics", "judge_prompt_sha256", "ragas_version")
+JUDGE_ITEMS = ("judge_model", "judge_rubrics", "judge_prompt_sha256", "judge_settings", "ragas_version")
+OPTIONAL_IN_OLD = ("metrics_src",)  # 이 항목을 넣기 전의 결과와 비교할 때는 양쪽에 값이 있을 때만 본다
 # `--same` 비교에서 조건마다 달라도 되는 항목(조건 자체와 조건이 정하는 값)
 VARY_BY_CONDITION = ("condition", "graph", "harness_table", "typo_correction")
 
@@ -72,8 +79,10 @@ def freeze_values(result: dict[str, Any]) -> dict[str, Any]:
         "typo_correction": {k: typo.get(k) for k in ("enabled", "notice_status", "min_score", "min_gap")} if typo else None,
         "call_limit": (m.get("run_settings") or {}).get("call_limit"),
         "run_settings": {k: v for k, v in (m.get("run_settings") or {}).items() if k != "call_limit"} or None,
-        "trajectory_rule": m.get("trajectory_rule"), "patterns": m.get("patterns"), "eval_mode": m.get("eval_mode_env"),
-        "judge_model": j.get("model"), "judge_rubrics": j.get("rubrics"), "judge_prompt_sha256": j.get("prompt_sha256"), "ragas_version": j.get("ragas"),
+        "trajectory_rule": m.get("trajectory_rule"), "patterns": m.get("patterns"), "metrics_src": v.get("metrics"), "eval_mode": m.get("eval_mode_env"),
+        "judge_model": j.get("model"), "judge_rubrics": j.get("rubrics"), "judge_prompt_sha256": j.get("prompt_sha256"),
+        "judge_settings": {"thinking": j.get("thinking"), "max_tokens": j.get("max_tokens")} if (j.get("thinking") or j.get("max_tokens")) else None,
+        "ragas_version": j.get("ragas"),
     }
 
 
@@ -93,18 +102,24 @@ def check_result(result: dict[str, Any], *, dict_version: str | None = EXPECTED_
     add("condition", cond in GRAPH_PREFIX, f"연결된 비교 조건이 아니다: {cond!r}")
     add("model", bool(fv["model"]), "에이전트 모델 ID가 없다")
     p = fv["prompt"] or {}
-    add("prompt", bool(p.get("set")) and bool(p.get("files")), "프롬프트 묶음 이름·파일 해시가 없다")
+    c0 = cond == C0
+
+    def na(item: str) -> bool:  # C0에서 해당 없는 항목은 비어 있어야 통과(값이 있으면 C0가 아닌 실행을 C0로 적은 것)
+        return fv[item] is None
+
+    add("prompt", na("prompt") if c0 else bool(p.get("set")) and bool(p.get("files")), "프롬프트 묶음 이름·파일 해시가 없다(C0는 없어야 한다)")
     g = fv["graph"]
     add("graph", isinstance(g, str) and cond in GRAPH_PREFIX and g.startswith(GRAPH_PREFIX[cond]), f"그래프 버전이 조건 {cond}와 맞지 않는다: {g!r}")
-    add("harness_src", isinstance(fv["harness_src"], str) and fv["harness_src"].startswith("harness-src@"), "하네스 소스 해시가 없다")
+    add("harness_src", na("harness_src") if c0 else isinstance(fv["harness_src"], str) and fv["harness_src"].startswith("harness-src@"),
+        "하네스 소스 해시가 없다(C0는 없어야 한다)")
     h = fv["harness_table"] or {}
-    add("harness_table", h.get("version") == HARNESS_VERSION and h.get("condition") == cond and bool(h.get("baseline")),
+    add("harness_table", h.get("version") == HARNESS_VERSION and h.get("condition") == cond and (h.get("baseline") == [] if c0 else bool(h.get("baseline"))),
         f"`{HARNESS_VERSION}` 조건표가 없거나 조건이 다르다")
-    add("dict_version", bool(fv["dict_version"]) and (dict_version is None or fv["dict_version"] == dict_version),
-        f"사전 판이 기대값({dict_version})과 다르다")
+    add("dict_version", na("dict_version") if c0 else bool(fv["dict_version"]) and (dict_version is None or fv["dict_version"] == dict_version),
+        f"사전 판이 기대값({dict_version})과 다르다(C0는 없어야 한다)")
     c = fv["corpus"] or {}
-    add("corpus", bool(c.get("source")) and isinstance(c.get("sha256"), str) and bool(_SHA64.match(c["sha256"])) and c.get("n_chunks") is not None,
-        "코퍼스 출처·지문이 없다")
+    add("corpus", na("corpus") if c0 else bool(c.get("source")) and isinstance(c.get("sha256"), str) and bool(_SHA64.match(c["sha256"]))
+        and c.get("n_chunks") is not None, "코퍼스 출처·지문이 없다(C0는 없어야 한다)")
     t = fv["typo_correction"] or {}
     want = TYPO_BY_CONDITION.get(cond)
     add("typo_correction", isinstance(t.get("enabled"), bool) and (want is None or t["enabled"] is want) and t.get("min_score") is not None,
@@ -115,12 +130,16 @@ def check_result(result: dict[str, Any], *, dict_version: str | None = EXPECTED_
         "실행 설정(LLM 설정·검색 방식·API 끔·파일별 기준일) 기록이 없거나 API가 켜져 있다")
     add("trajectory_rule", bool(fv["trajectory_rule"]), "경로 채점 규칙 버전이 없다")
     add("patterns", bool(fv["patterns"]), "평가 패턴 버전이 없다")
+    add("metrics_src", isinstance(fv["metrics_src"], str) and fv["metrics_src"].startswith("metrics-src@"), "채점 코드 해시(`versions.metrics`)가 없다")
     add("eval_mode", str(fv["eval_mode"]) in ("1", "eval"), "평가 모드(`MEDIAGENT_EVAL=1`)로 돌린 기록이 아니다")
     add("judge_model", (fv["judge_model"] == JUDGE_MODEL) if (require_judge or fv["judge_model"]) else True, f"judge 모델이 {JUDGE_MODEL}이 아니다")
     r = fv["judge_rubrics"]
     add("judge_rubrics", (isinstance(r, dict) and set(r) == {"J1", "J2", "J3", "J4", "J5"}) if (require_judge or r) else True, "루브릭 버전(J1~J5)이 없다")
     s = fv["judge_prompt_sha256"]
     add("judge_prompt_sha256", (isinstance(s, str) and bool(_SHA64.match(s))) if (require_judge or s) else True, "judge 프롬프트 sha256이 없다")
+    js = fv["judge_settings"] or {}
+    add("judge_settings", (bool(js.get("thinking")) and isinstance(js.get("max_tokens"), int)) if (require_judge or js) else True,
+        "judge 사고 설정·출력 토큰 상한 기록이 없다")
     add("ragas_version", bool(fv["ragas_version"]) if (require_judge or fv["ragas_version"]) else True, "Ragas 계산 규칙 버전이 없다")
     assert [x["item"] for x in rows] == list(FREEZE_ITEMS)  # noqa: S101 - 점검표가 항목 목록과 같은 순서·같은 수인지(코드 불변식)
     return rows
@@ -129,7 +148,8 @@ def check_result(result: dict[str, Any], *, dict_version: str | None = EXPECTED_
 def same_freeze(a: dict[str, Any], b: dict[str, Any]) -> list[dict[str, Any]]:
     """두 결과가 같은 동결 값으로 잰 것인가(조건·그래프·조건표·보정 스위치는 조건마다 달라도 된다). 다른 항목만 돌려준다."""
     fa, fb = freeze_values(a), freeze_values(b)
-    return [{"item": k, "a": fa[k], "b": fb[k]} for k in FREEZE_ITEMS if k not in VARY_BY_CONDITION and fa[k] != fb[k]]
+    skip = NOT_FOR_C0 if C0 in (fa["condition"], fb["condition"]) else ()
+    return [{"item": k, "a": fa[k], "b": fb[k]} for k in FREEZE_ITEMS if k not in VARY_BY_CONDITION and k not in skip and fa[k] != fb[k]]
 
 
 def freeze_diff(planned: dict[str, Any], baseline: dict[str, Any]) -> list[dict[str, Any]]:
@@ -139,7 +159,8 @@ def freeze_diff(planned: dict[str, Any], baseline: dict[str, Any]) -> list[dict[
     같은 고정 파이프라인 조건(C1·C1+)끼리는 파이프라인 규칙 버전(`graph`)도 본다(C1 규칙 동결)."""
     fp_, fb = freeze_values(planned), freeze_values(baseline)
     both_judge = bool(fp_["judge_model"]) and bool(fb["judge_model"])
-    keys = [k for k in FROZEN_KEYS if k not in JUDGE_ITEMS or both_judge]
+    skip = NOT_FOR_C0 if C0 in (fp_["condition"], fb["condition"]) else ()  # C0는 사전·코퍼스를 쓰지 않는다
+    keys = [k for k in FROZEN_KEYS if (k not in JUDGE_ITEMS or both_judge) and (k not in OPTIONAL_IN_OLD or (fp_[k] and fb[k])) and k not in skip]
     if fp_["condition"] == fb["condition"] and fp_["condition"] in PIPELINE_CONDITIONS:
         keys.append("graph")
     return [{"item": k, "planned": fp_[k], "baseline": fb[k]} for k in keys if fp_[k] != fb[k]]
