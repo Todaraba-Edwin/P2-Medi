@@ -14,6 +14,9 @@ import { IngredientChip, IngredientChips } from "./IngredientChips";
 import { ProductLine } from "./ProductLine";
 import { ResultCard } from "./ResultCard";
 import { ResultView } from "./ResultView";
+import { RetryActions } from "./RetryActions";
+import { CHIP_CLASS } from "@/components/chip";
+import { ExampleChips } from "../chat/ExampleChips";
 import { StatusBadge } from "./StatusBadge";
 
 const texts = (elements: Element[]) => elements.map((el) => el.textContent);
@@ -456,5 +459,133 @@ describe("FE-02 보정 고지(name_corrections)", () => {
 
   it("copy.ts에 보정 고지 문구가 없다(문장은 서버 몫)", () => {
     expect(JSON.stringify(copy)).not.toMatch(/보정|비슷한|다시 알려/);
+  });
+});
+
+describe("PRD-14-03 미식별 결과 카드 아래 동작 칩", () => {
+  it("약을 찾지 못한 줄이 있고 콜백이 있을 때만 `이름 다시 입력`이 결과 카드 바로 아래에 보인다", async () => {
+    const onRetryName = vi.fn();
+    const { rerender } = render(<ResultView response={fixtures.unidentifiedResponse} onRetryName={onRetryName} />);
+    const view = screen.getByTestId("result-view");
+    const actions = screen.getByTestId("retry-actions");
+    // 카드 다음 형제다(카드 안이 아니다)
+    expect(screen.getByTestId("result-card").nextElementSibling).toBe(actions);
+    expect(screen.getByTestId("result-card").contains(actions)).toBe(false);
+    expect(view.contains(actions)).toBe(true);
+    const button = within(actions).getByRole("button", { name: copy.RETRY_NAME_LABEL });
+    expect(button.textContent).toBe("이름 다시 입력");
+    await userEvent.click(button);
+    expect(onRetryName).toHaveBeenCalledTimes(1);
+    rerender(<ResultView response={fixtures.unidentifiedResponse} />);
+    expect(screen.queryByTestId("retry-actions")).toBeNull();
+  });
+
+  it("약을 찾은 결과(금기 발견·목록에 없음·쌍 확인 불가·되묻기·거절)에는 그리지 않는다", () => {
+    for (const response of [fixtures.foundResponse, fixtures.notListedResponse, fixtures.pairNoEvidenceResponse, fixtures.codeNotLinkedResponse, fixtures.clarifyResponse, fixtures.refuseResponse]) {
+      const { unmount } = render(<ResultView response={response} onRetryName={() => {}} onPickCandidate={() => {}} />);
+      expect(screen.queryByTestId("retry-actions")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("`약 사진 올리기`는 사진 입력이 없는 구성이라 DOM에 없다(PRD-14 §6 ⑥)", () => {
+    const { container } = render(<ResultView response={fixtures.unidentifiedResponse} onRetryName={() => {}} />);
+    expect(container.textContent).not.toContain("약 사진 올리기");
+    expect(within(screen.getByTestId("retry-actions")).getAllByRole("button")).toHaveLength(1);
+    expect(container.querySelector("input[type=file]")).toBeNull();
+  });
+
+  it("칩은 시작 화면 예시 질문 칩과 같은 모양 값을 쓰고(같은 class), 판정·안전 글자·마스코트가 없다", () => {
+    render(
+      <>
+        <ExampleChips onPick={() => {}} questions={["합성 예시 질문"]} />
+        <RetryActions onRetryName={() => {}} />
+      </>,
+    );
+    const example = screen.getByTestId("example-chip");
+    const retry = screen.getByTestId("retry-name");
+    expect(retry.className).toBe(CHIP_CLASS);
+    expect(example.className).toBe(CHIP_CLASS);
+    expect(CHIP_CLASS).toContain("min-h-11"); // 누르는 영역 44px
+    expect(screen.getByTestId("retry-actions").className).toContain("flex-wrap"); // 좁으면 줄바꿈
+    expect(screen.getByTestId("retry-actions").textContent).not.toMatch(/삐!|금기|안전|먹어도/);
+    expect(screen.queryByTestId("mascot")).toBeNull();
+  });
+});
+
+describe("PRD-01-01·FR-10 되묻기: 후보와 질문 1개, 가부 미표시", () => {
+  const response = fixtures.clarifyResponse;
+
+  it("되묻기 화면에는 질문 한 문장(summary)과 후보 카드·안내 줄만 있고 결과 카드·배지·판정 줄이 없다", () => {
+    render(<ResultView response={response} onPickCandidate={() => {}} onOtherCandidate={() => {}} selectedCandidate={null} />);
+    expect(screen.getAllByTestId("result-summary")).toHaveLength(1);
+    expect(screen.getByTestId("result-summary").textContent).toBe(response.summary);
+    expect(screen.getByTestId("candidate-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("result-card")).toBeNull();
+    expect(screen.queryByTestId("product-line")).toBeNull();
+    expect(screen.queryByTestId("status-badge")).toBeNull();
+    expect(screen.queryByTestId("retry-actions")).toBeNull();
+  });
+
+  it("후보를 고른 뒤에도(선택 상태) 가부·판정 글자가 생기지 않는다", () => {
+    const { container } = render(
+      <ResultView response={response} onPickCandidate={() => {}} onOtherCandidate={() => {}} selectedCandidate={response.candidates[1]} />,
+    );
+    expect(screen.getAllByTestId("candidate")[1]).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByTestId("status-badge")).toBeNull();
+    // 후보 카드 안에는 가부로 읽힐 글자가 없다(질문 문장·안내 줄은 서버 값이라 카드 밖에서 따로 본다)
+    expect(screen.getByTestId("candidate-card").textContent).not.toMatch(/삐!|금기|안전|먹어도|드셔도|됩니다|안 돼/);
+    expect(container.querySelector("[data-bucket]")).toBeNull();
+  });
+
+  it("되묻기 fixture의 질문·안내 줄에도 가부 문장이 없다(먹어도 된다/안 된다를 말하지 않는다)", () => {
+    for (const text of [response.summary, response.candidates_line]) {
+      expect(text ?? "").not.toMatch(/먹어도 (돼|됩|괜찮)|드셔도|안전해|안전합|금기예요|금기입/);
+    }
+    expect(response.findings).toEqual([]);
+  });
+});
+
+describe("PRD-09-01~04 판정 줄의 등급 표기(등급은 표지에만, '단계' 글자 없음)", () => {
+  const all = Object.entries(fixtures).filter(([name]) => name.endsWith("Response")) as [string, ChatResponse][];
+  const GRADE = /(1|2|M)등급/;
+
+  it("fixture 응답이 충분히 있고 임부금기 1·2·M등급 줄이 모두 들어 있다(시험 대상 확인)", () => {
+    expect(all.length).toBeGreaterThanOrEqual(20);
+    const grades = new Set(all.flatMap(([, r]) => r.findings.flatMap((f) => f.badges.map((b) => b.grade))));
+    expect(grades.has("1") && grades.has("2") && grades.has("M")).toBe(true);
+  });
+
+  it.each(all)("%s: 등급 글자는 배지(표지) 안에만 있고 보조줄에 반복되지 않는다", (_name, response) => {
+    const { container, unmount } = render(<ResultView response={response} onPickCandidate={() => {}} />);
+    for (const row of container.querySelectorAll('[data-testid="product-line"]')) {
+      const copyRow = row.cloneNode(true) as Element;
+      for (const badge of copyRow.querySelectorAll('[data-testid="status-badge"]')) badge.remove();
+      expect(copyRow.textContent ?? "").not.toMatch(GRADE); // 배지를 뺀 나머지(제목·성분·보조줄)에 등급이 없다
+    }
+    // 임부금기 배지 글자는 "삐! 임부금기 N등급"(M이면 M등급)으로 시작한다
+    for (const badge of container.querySelectorAll('[data-testid="status-badge"][data-kind="pregnancy"]')) {
+      expect(badge.textContent ?? "").toMatch(/^삐! 임부금기 (1|2|M)등급/);
+    }
+    unmount();
+  });
+
+  it.each(all)("%s: 화면에 '단계' 글자가 없다", (_name, response) => {
+    const { container, unmount } = render(<ResultView response={response} onPickCandidate={() => {}} onRetryName={() => {}} />);
+    expect(container.textContent ?? "").not.toContain("단계");
+    unmount();
+  });
+
+  it("M등급: 표지는 'M등급'이고 '적응증에 따라 등급이 달라요'는 보조줄에 한 번만 있다", () => {
+    render(<ResultView response={fixtures.pregnancyMResponse} />);
+    const badge = screen.getByTestId("status-badge");
+    expect(badge.textContent).toBe(PHRASES.BADGE_PREGNANCY_M);
+    expect(screen.getAllByText(PHRASES.BADGE_PREGNANCY_M_NOTE)).toHaveLength(1);
+    expect(badge.textContent).not.toContain(PHRASES.BADGE_PREGNANCY_M_NOTE);
+  });
+
+  it("프런트 고유 글자(copy.ts)에 '단계'·등급 글자가 없다", () => {
+    expect(JSON.stringify(copy)).not.toMatch(/단계|등급/);
+    expect(copy.moreIngredientsLabel(2)).not.toMatch(/단계|등급/);
   });
 });

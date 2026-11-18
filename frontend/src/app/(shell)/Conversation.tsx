@@ -26,7 +26,7 @@ export interface ConversationProps {
   onOpenEvidence: (turnId: string) => void;
   onRetry: (turnId: string) => void;
   onPick: (turnId: string, candidate: Candidate) => void;
-  /** "목록에 없어요 · 직접 입력" */
+  /** "목록에 없어요 · 직접 입력", "이름 다시 입력": 입력창으로 간다 */
   onOther: () => void;
   /** 고른 후보를 붙여 같은 질문을 다시 보낸다 */
   onResend: (turnId: string) => void;
@@ -57,6 +57,8 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
           onPickCandidate={isLast ? (candidate) => onPick(turn.id, candidate) : undefined}
           onOtherCandidate={isLast ? onOther : undefined}
           selectedCandidate={isLast ? (pick ?? null) : undefined}
+          // `이름 다시 입력`도 마지막 차례에서만 둔다(입력창으로 간다)
+          onRetryName={isLast ? onOther : undefined}
         />
         {pick && (
           <NoMascotZone>
