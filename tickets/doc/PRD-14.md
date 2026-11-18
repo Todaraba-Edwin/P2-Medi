@@ -209,7 +209,7 @@ FE-02(필요하면 FE-01·FE-05)에서 mock으로 그려 확인한다.
 | `tickets/frontend/FE-05.md` 완료 조건 | 반영함(2026-11-09). `약 사진 올리기`는 FE-05가 있을 때만 그림(미식별 결과 아래 두 번째 입구) |
 | `tickets/agent/AG-08.md` | 반영함(2026-11-09). `finalize` 미식별 문구 상수에 약 이름 박스(입력 이름·못 찾은 이유·다음 행동)와 쉬운 말 재검색 한 줄, 식별된 약 한 줄 상수와 항목 순서(`FOUND` → 식별 → 미식별) |
 | `tickets/agent/AG-09.md` | 반영함(2026-11-09). 미식별 문구가 약 이름을 포함하고 "금기 없음" 암시가 없음(§6 ⑧) |
-| `tickets/backend/BE-06.md` | 반영함(2026-11-09). `findings[]` 미식별 항목: `input_name`, `searched[{dataset, count}]`, `retried`, 식별된 약의 `status`·성분(제안). `citations[].publisher`가 공식 기관 목록 안인지 검사 |
+| `tickets/backend/BE-06.md` | 반영함(2026-11-09). `findings[]` 미식별 항목: `input_name`, `searched[{dataset, count}]`, `retried`, 식별된 약의 `bucket`·성분(제안; BE-06-37 B, 2026-11-18). `citations[].publisher`가 공식 기관 목록 안인지 검사 |
 | `tickets/backend/BE-10.md` | 반영함(2026-11-09). 사전 용어는 화면 용어가 아님을 메모. 사전 재료 자료와 기관(출처 행 약칭) 목록 |
 | `P2-doc/PJ2-PRD.md` 15.4절 "근거 없음" 행 | 반영함(2026-11-09). 약 이름 박스, 식별된 약 줄, 내부 용어 금지 |
 | `P2-doc/PJ2-Agent-Harness.md` 3.4절 | 반영함(2026-11-09). `UNIDENTIFIED` 항목의 `input_name`·`searched` 필드와 `finalize` 문구 |
