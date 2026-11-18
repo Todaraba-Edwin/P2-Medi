@@ -27,6 +27,8 @@ export const SCENARIO_KEYWORDS: ReadonlyArray<readonly [string, ScenarioName]> =
   // 더 긴 표시 글자를 먼저 둔다(`mock:미확보원인`이 `mock:미확보`보다, `mock:연령정보`가 `mock:연령`보다 앞)
   ["mock:미확보원인", "missingCauses"],
   ["mock:연령정보", "ageInfo"],
+  ["mock:등급정의미확보", "gradeDefAndMissing"],
+  ["mock:제품줄", "productRows"],
   ["mock:등급정의준비", "gradeDefsOutOfScope"],
   ["mock:등급정의", "gradeDefs"],
   ["mock:폴백없음", "fallbackNone"],

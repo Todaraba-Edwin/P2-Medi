@@ -160,6 +160,8 @@ export interface components {
             notice?: string | null;
             /** Pharmacist Advice */
             pharmacist_advice?: string[];
+            /** Pharmacist Advice Kinds */
+            pharmacist_advice_kinds?: ("missing" | "grade_def")[];
             /**
              * Route
              * @enum {string}
@@ -407,6 +409,8 @@ export interface components {
             notes?: string[];
             /** Notice Nos */
             notice_nos?: string[];
+            /** Reasons */
+            reasons?: string[];
             /** Reference Line */
             reference_line?: string | null;
             /** Retried */

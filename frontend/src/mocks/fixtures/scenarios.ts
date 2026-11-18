@@ -12,6 +12,7 @@ import {
   fallbackNoneResponse,
   fallbackSomeResponse,
   foundResponse,
+  gradeDefAndMissingResponse,
   gradeDefsOutOfScopeResponse,
   gradeDefsResponse,
   gradeMismatchResponse,
@@ -25,6 +26,7 @@ import {
   pregnancyMDefResponse,
   pregnancyMResponse,
   pregnancyResponse,
+  productRowsResponse,
   refuseResponse,
   rxPermitResponse,
   typoCorrectedResponse,
@@ -170,6 +172,11 @@ export const scenarios = {
     ending: "close",
     events: events(progress("drug_lookup"), progress("contraindication_check"), answer(typoCorrectedResponse), done(typoCorrectedResponse)),
   },
+  // ---- FE-02 계약 맞춤(AG-08-28 A, BE-06-40·41 A)
+  /** 등급 정의 미확보 + 허가사항 미확보가 함께: 권고 줄 두 종류와 줄 종류 칸(`pharmacist_advice_kinds`) */
+  gradeDefAndMissing: normal(gradeDefAndMissingResponse),
+  /** 제품 줄 묶음: `evidence_id`가 없는 제품 줄들 + 쌍 줄, 복합제 칩의 원인·중복 모름 */
+  productRows: normal(productRowsResponse),
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;

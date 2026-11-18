@@ -17,8 +17,15 @@ const CAUSE_CLASS: Record<string, string> = {
 const CAUSE_DEFAULT_CLASS = "border-warn-ink/25 bg-warn-bg text-warn-ink";
 const DUP_CLASS = "border-warn-ink/25 bg-warn-bg text-warn-ink";
 
-type ChipState = "cause" | "dup" | "none";
-const stateOf = (ingredient: Ingredient): ChipState => (ingredient.contra_kinds.length > 0 ? "cause" : ingredient.dup ? "dup" : "none");
+// `unknown` = 서버가 원인·중복 여부를 가리지 못한 성분(`contra_kinds`·`dup`이 `null`, BE-06-40 A). "원인 아님"(`none`)과 다른 상태다
+type ChipState = "cause" | "dup" | "unknown" | "none";
+function stateOf(ingredient: Ingredient): ChipState {
+  if (ingredient.contra_kinds !== null && ingredient.contra_kinds.length > 0) return "cause";
+  if (ingredient.dup === true) return "dup";
+  return ingredient.contra_kinds === null || ingredient.dup === null ? "unknown" : "none";
+}
+/** 먼저 보일 성분인가(원인·중복). 모름은 원인으로도 원인 아님으로도 치지 않는다 */
+const isFlagged = (ingredient: Ingredient) => stateOf(ingredient) === "cause" || stateOf(ingredient) === "dup";
 
 export interface IngredientChipProps {
   ingredient: Ingredient;
@@ -27,6 +34,7 @@ export interface IngredientChipProps {
 /**
  * 성분 칩 하나. 표시명과 상태 글자(`state_labels[]`: `병용금기 원인`·`금기 원인`·`중복`)는 **응답 값 그대로**, 받은 순서대로 그린다
  * (BE-06-13 A: 프런트가 `contra_kinds`·`dup`에서 글자를 짓지 않는다). 색은 보조이고 상태는 글자로도 구분된다.
+ * 모름(`unknown`)인 성분에는 화면이 상태 글자를 짓지 않는다("원인 아님"·"모름" 모두): 서버가 `state_labels`를 주면 그것만 그린다.
  */
 export function IngredientChip({ ingredient }: IngredientChipProps) {
   const state = stateOf(ingredient);
@@ -34,12 +42,12 @@ export function IngredientChip({ ingredient }: IngredientChipProps) {
     <span
       data-testid="ingredient-chip"
       data-state={state}
-      data-kinds={ingredient.contra_kinds.join(" ") || undefined}
+      data-kinds={ingredient.contra_kinds?.join(" ") || undefined}
       className={cn(
         "inline-flex items-center rounded-lg border px-2 py-0.5 text-xs leading-[17px] font-medium whitespace-nowrap",
-        state === "cause" && (CAUSE_CLASS[ingredient.contra_kinds[0]] ?? CAUSE_DEFAULT_CLASS),
+        state === "cause" && (CAUSE_CLASS[ingredient.contra_kinds?.[0] ?? ""] ?? CAUSE_DEFAULT_CLASS),
         state === "dup" && DUP_CLASS,
-        state === "none" && "border-line bg-bg text-ink-2",
+        (state === "none" || state === "unknown") && "border-line bg-bg text-ink-2",
       )}
     >
       {ingredient.name}
@@ -60,7 +68,7 @@ export function IngredientChips({ ingredients }: { ingredients: readonly Ingredi
   const [expanded, setExpanded] = useState(false);
   if (ingredients.length === 0) return null;
   const collapsed = ingredients.length >= COLLAPSE_FROM && !expanded;
-  const flagged = ingredients.filter((ingredient) => stateOf(ingredient) !== "none");
+  const flagged = ingredients.filter(isFlagged);
   const shown = collapsed ? (flagged.length > 0 ? flagged : ingredients.slice(0, PLAIN_SHOWN)) : ingredients;
   const hidden = ingredients.length - shown.length;
   // 성분코드 미확보 안내(서버 상수). 같은 문장은 한 번만, 받은 순서대로 칩 줄 아래에 둔다

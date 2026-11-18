@@ -8,7 +8,7 @@ import { GradeDefBlock } from "./GradeDefBlock";
 import { LookupPairs } from "./LookupPairs";
 import { MissingGroup } from "./MissingBox";
 import { PermitText } from "./PermitText";
-import { buildSections, isLookupFinding, rowTexts } from "./sections";
+import { adviceOf, buildSections, isLookupFinding, rowTexts } from "./sections";
 import { SourceTable } from "./SourceTable";
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
@@ -29,7 +29,8 @@ function Section({ id, title, children }: { id: string; title: string; children:
  */
 export function EvidenceDetail({ response }: { response: ChatResponse }) {
   const sections = buildSections(response);
-  const advice = response.pharmacist_advice;
+  // 권고 줄은 서버가 준 종류로 구역에 나눈다: 등급 정의 블록에는 등급 정의 권고만, 미확보 묶음에는 미확보 권고만(AG-08-28 A)
+  const advice = adviceOf(response);
   const hasGradeDef = response.grade_def_missing.length > 0 || response.grade_defs.length > 0;
   // 허가사항 한 줄 설명(서버 상수, BE-06-15 A): 구역 맨 위에 한 번만. 같은 문장은 한 번만 보인다
   const labelHelp = [...new Set(sections.labels.map((item) => item.label_help).filter((text): text is string => !!text))];
@@ -51,7 +52,7 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
                 {isLookupFinding(finding) && <LookupPairs finding={finding} />}
               </EvidenceBox>
             ))}
-            <GradeDefBlock definitions={response.grade_defs} missing={response.grade_def_missing} advice={advice} />
+            <GradeDefBlock definitions={response.grade_defs} missing={response.grade_def_missing} advice={advice.gradeDef} />
           </Section>
         )}
         {(sections.reasons.length > 0 || sections.reasonsMissing.length > 0) && (
@@ -75,7 +76,7 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
                 ))}
               </EvidenceBox>
             ))}
-            <MissingGroup items={sections.reasonsMissing} advice={advice} />
+            <MissingGroup items={sections.reasonsMissing} advice={advice.missing} />
           </Section>
         )}
         {sections.labels.length > 0 && (
@@ -87,7 +88,7 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
             ))}
             {sections.labels.map((item, index) => (item.missing_text === null ? <PermitText key={index} item={item} /> : null))}
             {/* 미확보는 인용 뒤에 구역 묶음 하나로: 권고 1개 + 항목 목록(FE-02-05 A) */}
-            <MissingGroup items={sections.labels.filter((item) => item.missing_text !== null)} advice={advice} />
+            <MissingGroup items={sections.labels.filter((item) => item.missing_text !== null)} advice={advice.missing} />
           </Section>
         )}
         {sections.citations.length > 0 && (
