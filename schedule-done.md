@@ -23,6 +23,7 @@
 
 ## 종결 기록 (결정과 종결, 최신이 위)
 
+- **PRD-02 done·AG-12-08 A·FE-02-01 A·FE-02-02 A(2026-11-18, 사용자 요청 "PRD-02 체크박스 갱신하고 check_schedule 돌려줘"와 사용자 답)**: ① **PRD-02 done**: 산출물 `P2-doc/PJ2-아키텍처.md`(신규 250줄, 근거 로컬 보고 `data/mock/briefs/reports/prd02-arch.md`), 완료 조건 4개·하위 작업 3개를 문서 절 번호와 코드 대조(`graph/nodes.py:271` 노드 키 6개, `graph/build.py:35`~`:41`)로 체크, 대기 결정 없음. 작성자는 코드·테스트를 실행하지 않았다(소스 읽기 근거). 후속(done 유지): `PJ2-Agent-Harness.md:118` validator 실패 서술이 코드와 다름(Recap 33), judge 루브릭 상수 `J*@v1` 정리는 AG-12 판단. ② **AG-12-08 A** "J5(근거 없음) v2 재보정 결과(일치 19/21, κ 0.0, 사람 라벨 전부 pass라 κ 정의 불가)를 어떻게 쓸까": A 사전 규칙대로 보조 지표로만 ★ / B 문항을 더 모아 재보정 / C J5도 정식 채택 → A(사용자 답). 재보정 결과 J3 23/24·κ 0.65 통과, judge 0.1453 USD(`data/mock/judge_calib/calib15-v2-agreement.json`, 로컬). **AG-11-09 이행**: `judge_rubric@v2.md` adopted·동결 sha256 `96bca4cf…`(커밋 `ef546a4`, 병합 `d98711d`), J1·J3·J4 정식·J5 보조, J1·J4는 v1 보정으로 갈음한 한계. 원본은 [AG-12 §6](tickets/agent/AG-12.md#6-결정-현황). ③ **FE-02-01 A**(외부 AI 전송 고지 기준 문구는 승인 상수 `START_EXTERNAL_AI_NOTICE`, `PJ2-PRD.md` 15.3절 (9) 정정은 후속) · **FE-02-02 A**(고지는 시작 화면에만)(사용자 VS Code 세션 "권장대로", 근거 로컬 `data/mock/briefs/reports/goal-fe.md` §6·§8). 원본은 [FE-02 §6](tickets/frontend/FE-02.md#6-결정-현황). FE goal 1차 이행(커밋 `29bd1cd`·`340a9a1`·`e839e8a`, 브랜치 `feature/FE-02-name-corrections` 병합 대기)으로 FE-02·FE-01 충족 항목을 체크했다. AG-11 본 측정은 2026-11-18 11:5x 시작(pane `ag11-measure`, C2 진행 중).
 - **RFP-30-05 A: Top 5를 트랙 4표로(2026-11-18, 사용자 지시)**: 사용자 "Top-5 를 4개의 열로 나누고 Agent, BackEnd, FrontEnd, Docs 리스트업 확장 / 각 항목의 선행결정에 대해서 직렬/병렬 판단하여 먼저 진행 할 수 있는 부분이 파악되도록 확장하여 / 직렬로 인한 작업지연보다는 동시에 병렬 처리할 수 있도록". 질문 "Top 5를 어떤 구조로 둘까": A 트랙 4표·진행(병렬·부분 병렬·직렬) 표시 ★ / B 단일 5행 유지 → A. 절 제목·앵커 `## 지금 해야 할 일 (Top 5)`는 유지, 트랙당 최대 5행, `check_schedule.py`가 트랙 표를 검사한다. 원본은 [RFP-30 §9](tickets/doc/RFP-30.md#9-결정-현황).
 - **AG-12-06 A·AG-12-07 A: judge 보정 J3·J5 재보정(2026-11-18, 사용자 결정)**: 보정 40 judge 채점(0.4436 USD, 상한 1 USD 승인) 결과 J1 19/22·κ 0.680, J4 28/28·κ 1.0 충족, J3 17/30·κ 0.076, J5 18/30·κ 0.0 미달(전체 82/110, 불일치 28건 모두 사람 pass·judge fail, 사람(LLM 보조) 라벨 대비). AG-12-06 "보정 미달 루브릭(J3·J5)을 어떻게 할까": A J1·J4 채택 + J3·J5는 `judge_rubric@v2`(청크 = 근거 상세 명시·`[코드 부착]` 표시·J5 R1 되묻기 규칙)로 새 문항 재보정 ★ / B 보조 지표로만 / C v1 전체 채택 → A. AG-12-07 "재보정 규모": A 라벨에 쓰지 않은 가용 15문항(오정보 8·근거 없음 7, judge ≤ 0.3 USD) ★ / B 40문항 새로(가용 풀 부족, 불가) → A. 다음: 사용자 라벨 15문항 → 재보정 → AG-11-09 채택 확인 → AG-11 본 측정(Recap 31). 근거 `data/mock/briefs/reports/calib-judge.md` §5~§7(로컬), 원본은 [AG-12 §6](tickets/agent/AG-12.md#6-결정-현황).
 - **AG-01-11 코드 반영 완료·Recap 32 종결(2026-11-18, 커밋 `b404ea4`·병합 `72671a5`, develop pytest 3075 passed·5 skipped·1 xfailed·ruff 0, 실사전 시험 포함)**: 승인 문구 4개(사유별 노트 3종 + 응급 약 이름 묻기 1종)의 `API_REASON_NOTES_APPROVED`·`DRAFT_KEYS` 해제를 반영했다. [AG-01 §2](tickets/agent/AG-01.md#2-완료-조건) `:61` 체크, [AG-09 §2](tickets/agent/AG-09.md#2-완료-조건) 응급 약 이름 묻기 항목 체크.
@@ -201,6 +202,7 @@
 
 ## 결정 번호 전체 목록 (답한 결정)
 
+AG-12-08 A, FE-02-01 A·02 A(2026-11-18, 사용자 답·"권장대로"),
 BE-06-35 A, AG-11-07 A·08 A·09 A, AG-16-07 A, AG-09-01 A·02 A, AG-01-11 A(2026-11-17, 사용자 "권장대로"),
 AG-10-02 A·03 A·04 A·05 A, AG-16-06 A, AG-11-01 A·02 A·03 A·04 A·05 A·06 A(2026-11-17, 사용자 "권장대로, 고지 문구 승인"),
 RFP-26-12 B, BE-13-02 A(2026-11-17, 사용자 "RFP-26-12-B, BE-13-02-A", BE-13-02 이행 완료),
@@ -286,6 +288,7 @@ BE-06-14 A·15 A·16 A·17 A(2026-11-12, "권장대로"), BE-06-09 A·10 A·11 A
 | `[x]` | `BE-16` | [자료별 고시일·기준일·시행일·출처 URL 확정(doc_meta)](tickets/backend/BE-16.md) | 결정 BE-16-01~11 완료, doc_meta 확정·병용 기준일 07-31·HNSW 색인·`EF_SEARCH` 경로별 분리, 2026-11-17 원격 점검(`iterative_scan` 효과 없음·지연 증가는 캐시 냉각)·연도 칸 보충 30,744행(원격 UPDATE·남은 NULL 0)·스모크 재측정(하이브리드 평균 125ms) 완료. 후속 D4·D6·공개 역할 권한 정리는 BE-16 §3에 기록 | 2026-11-17 |
 | `[x]` | `BE-07` | [약품명 사전 구축(오탈자 보정용)](tickets/backend/BE-07.md) | BE-10 사전 재사용 자모 편집 거리 유사 후보 조회(`name_similarity.py`), 색인 0.55초·조회 중앙값 8.8ms·시험 25건, 소비처 AG-10 | 2026-11-17 |
 | `[x]` | `AG-06` | [답변 생성 + Citation(출처·조회 시각·조항)](tickets/agent/AG-06.md) | 비(개선) 조건 전부 충족(코드 렌더러·필터·Validator 인용 대조, 요약 프롬프트 `answer_summary@v1` 채택, L2·L3 실행, 허가사항 인용 서버 부분). (개선) 4개(증거 묶음만·쌍별 map-reduce)는 AG-13 | 2026-11-18 |
+| `[x]` | `PRD-02` | [아키텍처 문서 작성](tickets/doc/PRD-02.md) | `P2-doc/PJ2-아키텍처.md` 신규(1 프로젝트 성격·2 구조도 C2/C1·3 데이터 흐름·4 스택·5 환각 방지 3종·6 평가 하네스·7 코드 대조), 노드 6개를 `graph/nodes.py:271`·`graph/build.py:35`~`:41`과 대조. 후속: `PJ2-Agent-Harness.md:118` 서술 정정 여부(Recap 33) | 2026-11-18 |
 
 ## W1·Pre-Week 기록 (schedule.md에서 이관, 2026-11-16)
 
