@@ -28,7 +28,8 @@
       "Bash(/Users/edwin/develop/P2-Medi/backend/.venv/bin/python -m pytest *)",
       "Bash(PYTHONPATH=* /Users/edwin/develop/P2-Medi/backend/.venv/bin/python -m pytest *)",
       "Bash(PYTHONPATH=. .venv/bin/python -m pytest *)",
-      "Bash(/Users/edwin/develop/P2-Medi/backend/.venv/bin/ruff check *)"
+      "Bash(/Users/edwin/develop/P2-Medi/backend/.venv/bin/ruff check *)",
+      "Bash(PYTHONPATH=* /Users/edwin/develop/P2-Medi-wt-*/backend/.venv/bin/python -m pytest *)"
     ],
     "deny": [
       "Read(./.env)",
