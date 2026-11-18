@@ -248,9 +248,11 @@ class TestClassifierMerge:
         assert set(rule.intent) <= set(o.result.intent) and R.INTENT_DOCUMENT in o.result.intent
         assert R.CLAIM_GRADE_DEFINITION in o.result.required_claims and set(rule.required_claims) <= set(o.result.required_claims)
 
-    def test_out_of_scope_is_a_label_only(self, dd):
+    def test_out_of_scope_is_a_hint_only(self, dd):
+        # 2026-11-18 2차: 범위 외는 Guardrail 몫이라 intent에 넣지 않고 힌트로만 돌려준다(1차의 "라벨로만 남김"에서 바꿈, 보고 결정 후보)
         o = C.route_with_classifier("가온정 몇 알 먹어야 해요", dd, call=FakeModel(_out(drug_mentions=["가온정"], intent=["out_of_scope"])), enabled=True)
-        assert C.INTENT_OUT_OF_SCOPE in o.result.intent and o.result.guardrail_route is None and not o.result.ambiguous
+        assert C.INTENT_OUT_OF_SCOPE not in o.result.intent and o.scope_hint and C.CONFLICT_SCOPE_HINT in o.conflicts
+        assert o.result.guardrail_route is None and not o.result.ambiguous
 
     def test_open_is_dropped_when_a_drug_is_present(self, dd):
         o = C.route_with_classifier("가온정 먹어도 되나요", dd, call=FakeModel(_out(drug_mentions=["가온정"], intent=["open", "contraindication"])),
