@@ -50,7 +50,7 @@ const eslintConfig = defineConfig([
   },
   {
     // 컴포넌트에서 hex 색 직접 사용 금지(src/styles/는 대상 아님)
-    files: ["src/features/**/*.{ts,tsx}", "src/components/**/*.{ts,tsx}"],
+    files: ["src/features/**/*.{ts,tsx}", "src/components/**/*.{ts,tsx}", "src/app/(shell)/**/*.{ts,tsx}"],
     ignores: ["**/*.test.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [
