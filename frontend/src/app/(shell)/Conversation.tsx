@@ -50,7 +50,13 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
           footer={
             // 판정 줄이 있는 결과만 근거 상세로 들어간다(카드가 없으면 버튼 자리도 없다)
             response.findings.length > 0 ? (
-              <EvidenceEntryButton mode={entryLabelMode} expanded={evidenceTurnId === turn.id} onClick={() => onOpenEvidence(turn.id)} />
+              <EvidenceEntryButton
+                mode={entryLabelMode}
+                expanded={evidenceTurnId === turn.id}
+                onClick={() => onOpenEvidence(turn.id)}
+                // 약을 찾지 못한 줄(서버가 입력한 이름을 실어 보낸 줄)이 있으면 `· 찾아본 곳`
+                lookup={response.findings.some((finding) => finding.input_name !== null)}
+              />
             ) : undefined
           }
           // 후보는 마지막 차례에서만 고를 수 있다(지난 되묻기로는 다시 보내지 않는다)

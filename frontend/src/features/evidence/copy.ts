@@ -11,6 +11,11 @@ export const CLOSE_LABEL = "닫기";
  * 어느 배치인지는 조립하는 쪽(FE-IMPL-06)이 폭으로 정해 `mode`로 준다.
  */
 export const ENTRY_LABELS = { sheet: "근거 상세 보기", panel: "근거 상세 열기" } as const;
+/**
+ * 진입 버튼의 덧붙임 글자: 약을 찾지 못한 결과에서만 붙는다(tickets/frontend/FE-02.md §2 PRD-14 조건 "`근거 상세 열기` 줄은 미식별에서 `· 찾아본 곳`",
+ * tickets/doc/PRD-14.md §4.2 5번·§5.1). 그 밖의 결과에는 덧붙임이 없다(지시서 G-1: 진입 글자는 둘뿐)
+ */
+export const ENTRY_HINT_LOOKUP = "찾아본 곳";
 
 /** 구역 소제목(tickets/doc/PRD-11.md §4.1 판정 → 사유 원문 → 허가사항 → 출처. PRD-10-03: 13자 이내 짧은 명사형) */
 export const SECTION_TITLES = { judgment: "판정", reason: "사유 원문", label: "허가사항", sources: "출처" } as const;

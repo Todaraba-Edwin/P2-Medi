@@ -3,7 +3,7 @@
 import { XIcon } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { CLOSE_LABEL, ENTRY_LABELS, EVIDENCE_TITLE } from "./copy";
+import { CLOSE_LABEL, ENTRY_HINT_LOOKUP, ENTRY_LABELS, EVIDENCE_TITLE } from "./copy";
 
 export type EvidenceMode = "sheet" | "panel";
 
@@ -69,8 +69,20 @@ export function EvidencePanel({ mode, open, onOpenChange, children, container, h
 /**
  * 근거 상세 진입 버튼. 글자는 배치에 따라 둘 중 하나다(시트 "근거 상세 보기", 패널 "근거 상세 열기").
  * 결과 카드의 아래 자리(`ResultCard`·`ResultView`의 `footer`)에 넣는다. 누르는 영역 44px.
+ * 약을 찾지 못한 결과에서는 `lookup`으로 `· 찾아본 곳`이 붙는다(그 밖에는 덧붙임 없음).
  */
-export function EvidenceEntryButton({ mode, onClick, expanded }: { mode: EvidenceMode; onClick: () => void; expanded?: boolean }) {
+export function EvidenceEntryButton({
+  mode,
+  onClick,
+  expanded,
+  lookup = false,
+}: {
+  mode: EvidenceMode;
+  onClick: () => void;
+  expanded?: boolean;
+  /** 약을 찾지 못한 결과면 true: 글자 뒤에 `· 찾아본 곳`을 붙인다(PRD-14, 근거 상세에 성분코드가 아니라 찾아본 곳이 있다) */
+  lookup?: boolean;
+}) {
   return (
     <button
       type="button"
@@ -79,7 +91,10 @@ export function EvidenceEntryButton({ mode, onClick, expanded }: { mode: Evidenc
       onClick={onClick}
       className="flex min-h-11 w-full items-center justify-between px-3.5 py-2.5 text-left text-sm font-semibold text-link"
     >
-      {ENTRY_LABELS[mode]}
+      <span>
+        {ENTRY_LABELS[mode]}
+        {lookup ? <span data-slot="entry-hint">{` · ${ENTRY_HINT_LOOKUP}`}</span> : null}
+      </span>
     </button>
   );
 }

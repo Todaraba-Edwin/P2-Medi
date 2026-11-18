@@ -45,7 +45,8 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
                   박스 표지가 `{출처 종류} · {자료 이름}`을 이미 보이므로(같은 글자) 줄의 출처 표지는 박스 표지가 있을 때 한 번 더 그리지 않는다(PRD-12-04)
                 */}
                 <ul className={cn("m-0 list-none p-0 [&_[data-testid=line-status]]:ml-0 [&>li]:p-0", item?.dataset && "[&_[data-slot=source]]:hidden")}>
-                  <ProductLine finding={finding} />
+                  {/* 약을 찾지 못한 줄은 이유·재검색·다음 행동을 아래 표가 보이므로 줄에서는 한 번 더 그리지 않는다 */}
+                  <ProductLine finding={finding} omitLookupLines={isLookupFinding(finding)} />
                 </ul>
                 {isLookupFinding(finding) && <LookupPairs finding={finding} />}
               </EvidenceBox>
