@@ -15,6 +15,9 @@
 - **전송 계층은 주입한다**(`JudgeTransport`). `AnthropicTransport`는 `anthropic` SDK를 지연 import하며(이 저장소 backend venv에는 없다,
   2026-11-17 확인) 시험은 가짜 전송으로 한다. 이 모듈은 import·시험만으로는 어떤 외부 호출도 하지 않는다.
 - 결과 메타(`SonnetJudge.meta()`): `judge_model`·`rubric_versions`·`prompt_file`·`prompt_sha256`·`thinking`·`usage`.
+- **전송 방식(AG-11-12 A, 2026-11-18)**: 프롬프트 캐싱(`cache`: off·system·rubric, 기본 off)과 Message Batches(`BatchJudgeTransport`)는 전송만 바꾼다.
+  모델·루브릭 글자·출력 해석·재시도 규칙은 그대로이고, 요청에서 캐시 표시를 걷으면 예전 요청과 같다(`request_text`). 비용은 캐시 쓰기 1.25배·
+  읽기 0.1배·Batch 0.5배로 세고 `usage`에 캐시 토큰·Batch 호출 수를 따로 남긴다.
 
 보정 40문항 채점(RFP-26-03, `evaluation/judge_calib/`와 연결):
     backend/.venv/bin/python evaluation/judge/sonnet_judge.py --calib-items data/mock/judge_calib/calib40-items.jsonl \
@@ -169,9 +172,12 @@ def parse_output(text: str, schema: dict[str, Any]) -> dict[str, Any]:
 class TransportResult:
     text: str | None
     stop_reason: str | None
-    input_tokens: int = 0
+    input_tokens: int = 0  # 캐시를 쓰면 API 값 그대로 "캐시 밖 나머지"만이다(전체 입력 = input + cache_write + cache_read)
     output_tokens: int = 0
     refusal_category: str | None = None
+    cache_creation_input_tokens: int = 0  # 캐시 쓰기 토큰(AG-11-12 A, 단가 1.25배)
+    cache_read_input_tokens: int = 0      # 캐시 읽기 토큰(단가 0.1배)
+    batch: bool = False                   # Message Batches로 받은 결과(전 토큰 단가 0.5배)
 
 
 class JudgeTransport(Protocol):
@@ -180,40 +186,303 @@ class JudgeTransport(Protocol):
         ...
 
 
-def build_request(*, system: str, messages: list[dict[str, Any]], max_tokens: int) -> dict[str, Any]:
-    """Messages API 요청 인자(RFP-26-01·RFP-28 §7): 모델 고정, temperature 없음, 사고 끔. 시험은 이 dict만 본다."""
-    return {"model": JUDGE_MODEL, "max_tokens": int(max_tokens), "system": system, "messages": list(messages), "thinking": dict(THINKING)}
+# --------------------------------------------------------------------------- 프롬프트 캐싱(AG-11-12 A, 2026-11-18): 전송 방식만 바꾼다
+# 모델이 보는 글자는 그대로다. `system`: 시스템 문자열을 같은 글자의 text 블록 1개로 바꾸고 cache_control을 단다(문자열 system과 같은 표현).
+# `rubric`: 위에 더해 첫 사용자 메시지를 "루브릭 절"과 "나머지" 두 text 블록으로 나눠 앞 블록에 cache_control을 단다(두 블록을 이으면 원래
+# 문자열과 바이트가 같다. 블록 경계가 모델 입력 표현에 영향이 없는지는 실호출 동일성 확인으로 본다 → 보고의 결정 후보). 기본은 `off`(지금 방식).
+CACHE_OFF, CACHE_SYSTEM, CACHE_RUBRIC = "off", "system", "rubric"
+CACHE_MODES = (CACHE_OFF, CACHE_SYSTEM, CACHE_RUBRIC)
+CACHE_CONTROL: dict[str, str] = {"type": "ephemeral"}  # 5분 TTL(호출이 이어서 들어와 읽을 때마다 갱신된다)
+RUBRIC_SPLIT = "\n\n[질문]\n"  # `render_user`의 둘째 부분 머리. 이 앞까지가 루브릭 절(문항과 무관한 고정 글자)
+PRICE_CACHE_WRITE_X, PRICE_CACHE_READ_X, PRICE_BATCH_X = 1.25, 0.1, 0.5  # 기본 입력 단가 대비 배수, Batch는 전 토큰 0.5배(claude-api 문서, 2026-11-18 확인)
+
+
+def _cached_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """첫 메시지(사용자, 문자열)를 루브릭 절·나머지 두 블록으로 나눈다. 나눌 곳이 없거나 이미 블록이면 그대로 둔다."""
+    if not messages or not isinstance(messages[0].get("content"), str):
+        return list(messages)
+    content = messages[0]["content"]
+    cut = content.find(RUBRIC_SPLIT)
+    if cut <= 0:
+        return list(messages)
+    first = {**messages[0], "content": [{"type": "text", "text": content[:cut], "cache_control": dict(CACHE_CONTROL)},
+                                        {"type": "text", "text": content[cut:]}]}
+    return [first, *messages[1:]]
+
+
+def build_request(*, system: str, messages: list[dict[str, Any]], max_tokens: int, cache: str = CACHE_OFF) -> dict[str, Any]:
+    """Messages API 요청 인자(RFP-26-01·RFP-28 §7): 모델 고정, temperature 없음, 사고 끔. 시험은 이 dict만 본다.
+    `cache`(AG-11-12 A)는 캐시 표시만 더한다(`off`면 예전과 같은 dict)."""
+    if cache not in CACHE_MODES:
+        raise JudgeError(f"cache는 {CACHE_MODES} 중 하나: {cache!r}")
+    req: dict[str, Any] = {"model": JUDGE_MODEL, "max_tokens": int(max_tokens), "system": system, "messages": list(messages),
+                           "thinking": dict(THINKING)}
+    if cache != CACHE_OFF:
+        req["system"] = [{"type": "text", "text": system, "cache_control": dict(CACHE_CONTROL)}]
+    if cache == CACHE_RUBRIC:
+        req["messages"] = _cached_messages(list(messages))
+    return req
+
+
+def request_text(req: Mapping[str, Any]) -> dict[str, Any]:
+    """요청에서 캐시 표시·블록 나눔을 걷어 낸 "모델이 보는 글자" 모양(시험·동일성 확인용): system 문자열과 메시지별 문자열."""
+    def flat(c: Any) -> str:
+        return c if isinstance(c, str) else "".join(str(b.get("text", "")) for b in c or [])
+    return {"model": req["model"], "max_tokens": req["max_tokens"], "thinking": req["thinking"], "system": flat(req["system"]),
+            "messages": [{"role": m["role"], "content": flat(m["content"])} for m in req["messages"]]}
+
+
+def result_from_message(resp: Any, *, batch: bool = False) -> TransportResult:
+    """SDK `Message`(동기 응답·Batch 성공 결과 공용) → `TransportResult`. 캐시 토큰은 없으면 0."""
+    text = "".join(getattr(b, "text", "") for b in getattr(resp, "content", None) or [] if getattr(b, "type", None) == "text") or None
+    usage = getattr(resp, "usage", None)
+    details = getattr(resp, "stop_details", None)
+
+    def tok(name: str) -> int:
+        return int(getattr(usage, name, 0) or 0)
+
+    return TransportResult(text=text, stop_reason=getattr(resp, "stop_reason", None), input_tokens=tok("input_tokens"),
+                           output_tokens=tok("output_tokens"), refusal_category=getattr(details, "category", None) if details is not None else None,
+                           cache_creation_input_tokens=tok("cache_creation_input_tokens"), cache_read_input_tokens=tok("cache_read_input_tokens"),
+                           batch=batch)
+
+
+def _anthropic_client(api_key: str | None, timeout_s: float, max_retries: int) -> Any:
+    try:
+        import anthropic
+    except ImportError as e:  # backend venv에 SDK가 없을 때(2026-11-17 현재). 설치 결정은 보고의 결정 후보
+        raise JudgeError("`anthropic` SDK가 없다. 설치 전에는 judge를 부를 수 없다(인터페이스만 사용 가능)") from e
+    kw: dict[str, Any] = {"timeout": timeout_s, "max_retries": max_retries}
+    if api_key:
+        kw["api_key"] = api_key
+    return anthropic.Anthropic(**kw)
 
 
 class AnthropicTransport:
-    """`anthropic` SDK 전송. 키는 `api_key` 인자 또는 환경변수 `ANTHROPIC_API_KEY`에서 SDK가 읽고, 이 객체는 키를 속성·repr·로그에 남기지 않는다."""
+    """`anthropic` SDK 전송. 키는 `api_key` 인자 또는 환경변수 `ANTHROPIC_API_KEY`에서 SDK가 읽고, 이 객체는 키를 속성·repr·로그에 남기지 않는다.
+    `cache`(AG-11-12 A)는 `off`(기본, 예전과 같은 요청)·`system`·`rubric`."""
 
-    def __init__(self, *, api_key: str | None = None, timeout_s: float = 120.0, max_retries: int = 2) -> None:
-        try:
-            import anthropic
-        except ImportError as e:  # backend venv에 SDK가 없을 때(2026-11-17 현재). 설치 결정은 보고의 결정 후보
-            raise JudgeError("`anthropic` SDK가 없다. 설치 전에는 judge를 부를 수 없다(인터페이스만 사용 가능)") from e
-        kw: dict[str, Any] = {"timeout": timeout_s, "max_retries": max_retries}
-        if api_key:
-            kw["api_key"] = api_key
-        self._client = anthropic.Anthropic(**kw)
-        del api_key, kw
+    def __init__(self, *, api_key: str | None = None, timeout_s: float = 120.0, max_retries: int = 2, cache: str = CACHE_OFF) -> None:
+        if cache not in CACHE_MODES:
+            raise JudgeError(f"cache는 {CACHE_MODES} 중 하나: {cache!r}")
+        self._client = _anthropic_client(api_key, timeout_s, max_retries)
+        self.cache = cache
+        del api_key
 
     def __repr__(self) -> str:
-        return f"AnthropicTransport(model={JUDGE_MODEL})"
+        return f"AnthropicTransport(model={JUDGE_MODEL}, cache={self.cache})"
 
     def complete(self, *, system: str, messages: list[dict[str, Any]], max_tokens: int) -> TransportResult:
-        resp = self._client.messages.create(**build_request(system=system, messages=messages, max_tokens=max_tokens))
-        text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", None) == "text") or None
-        usage = getattr(resp, "usage", None)
-        details = getattr(resp, "stop_details", None)
-        return TransportResult(text=text, stop_reason=getattr(resp, "stop_reason", None),
-                               input_tokens=int(getattr(usage, "input_tokens", 0) or 0), output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
-                               refusal_category=getattr(details, "category", None) if details is not None else None)
+        resp = self._client.messages.create(**build_request(system=system, messages=messages, max_tokens=max_tokens, cache=self.cache))
+        return result_from_message(resp)
 
 
-def estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
-    return input_tokens * PRICE_IN_USD_PER_M / 1e6 + output_tokens * PRICE_OUT_USD_PER_M / 1e6
+def estimate_cost_usd(input_tokens: int, output_tokens: int, *, cache_write: int = 0, cache_read: int = 0, batch: bool = False) -> float:
+    """비용(USD). 캐시 쓰기 1.25배·읽기 0.1배(기본 입력 단가 대비), Batch는 전체 0.5배. 캐시·Batch 인자가 없으면 예전 계산 그대로."""
+    cost = (input_tokens * PRICE_IN_USD_PER_M + cache_write * PRICE_IN_USD_PER_M * PRICE_CACHE_WRITE_X
+            + cache_read * PRICE_IN_USD_PER_M * PRICE_CACHE_READ_X + output_tokens * PRICE_OUT_USD_PER_M) / 1e6
+    return cost * PRICE_BATCH_X if batch else cost
+
+
+def result_cost_usd(res: TransportResult) -> float:
+    return estimate_cost_usd(res.input_tokens, res.output_tokens, cache_write=res.cache_creation_input_tokens,
+                             cache_read=res.cache_read_input_tokens, batch=res.batch)
+
+
+# --------------------------------------------------------------------------- Message Batches(AG-11-12 A, 2026-11-18): 전송 방식만 바꾼다
+# judge 코드(`score_rubric`·재시도·사후 계산)는 그대로 두고 전송만 바꾸는 "모으기 → 제출 → 다시 돌리기" 방식이다.
+#  1) 모으기: 버리는 judge(같은 프롬프트)로 채점 과정을 그대로 돌리며 `BatchJudgeTransport`가 아직 결과가 없는 요청을 기록하고 거부(refusal)
+#     자리 표시를 돌려준다(재시도 요청을 만들지 않게). 2) 제출: 기록한 요청을 한 Batch로 보내고 결과를 받아 둔다. 형식 오류 재시도는 첫 결과가
+#     있어야 만들어지므로 1)~2)를 새 요청이 없을 때까지 되풀이한다(보통 2~3회). 3) 다시 돌리기: 진짜 judge가 같은 순서로 채점하며 받아 둔 결과를
+#     꺼내 쓴다(비용·사용량·원장은 이때 한 번만 센다). 같은 요청이 여러 번 나오면 나온 순서(몇 번째)로 따로 보내고 따로 받는다(동기와 같은 호출 수).
+BATCH_EST_OUTPUT_TOKENS = 600  # 제출 전 비용 예상의 요청당 출력 토큰(RFP-28 §8.4 실측 약 340의 약 1.8배, 잠정)
+BATCH_MAX_ROUNDS = 5
+BATCH_RESUBMIT = 1  # 만료·취소·서버 오류 요청을 다음 회차에 다시 보내는 횟수
+
+
+class BatchRequestFailed(RuntimeError):
+    """Batch 결과가 성공이 아니다(errored·expired·canceled). judge 오류(API)로 집계된다."""
+
+
+@dataclass
+class BatchFailure:
+    kind: str                 # errored | expired | canceled
+    detail: str = ""
+    retryable: bool = False
+
+
+class BatchBackend(Protocol):
+    def submit(self, requests: list[tuple[str, dict[str, Any]]]) -> dict[str, TransportResult | BatchFailure]:
+        """(custom_id, 요청 인자) 목록을 한 Batch로 보내고 끝날 때까지 기다려 {custom_id: 결과}를 돌려준다."""
+        ...
+
+
+class AnthropicBatchBackend:
+    """`client.messages.batches` 백엔드(create → retrieve 폴링 → results). 결과는 custom_id로 짝짓는다(순서 보장 없음).
+    `max_wait_s`를 넘기면 Batch를 취소하고 끝날 때까지 기다린다(취소된 요청은 judge 오류). 키는 다른 전송과 같은 규칙으로 남기지 않는다."""
+
+    def __init__(self, client: Any, *, poll_s: float = 30.0, max_wait_s: float = 6 * 3600.0, sleep: Any = None, clock: Any = None,
+                 log: Any = None) -> None:
+        import time
+
+        self._client = client
+        self.poll_s, self.max_wait_s = poll_s, max_wait_s
+        self._sleep = sleep or time.sleep
+        self._clock = clock or time.monotonic
+        self._log = log or (lambda msg: print(msg, file=sys.stderr))
+        self.batch_ids: list[str] = []
+
+    @classmethod
+    def from_transport(cls, transport: Any, **kw: Any) -> AnthropicBatchBackend:
+        client = getattr(transport, "_client", None)
+        if client is None:
+            raise JudgeError("Batch 백엔드를 만들 SDK 클라이언트가 없다(AnthropicTransport가 아니다)")
+        return cls(client, **kw)
+
+    def __repr__(self) -> str:
+        return f"AnthropicBatchBackend(model={JUDGE_MODEL}, batches={len(self.batch_ids)})"
+
+    def submit(self, requests: list[tuple[str, dict[str, Any]]]) -> dict[str, TransportResult | BatchFailure]:
+        batches = self._client.messages.batches
+        b = batches.create(requests=[{"custom_id": cid, "params": params} for cid, params in requests])
+        self.batch_ids.append(str(b.id))
+        t0, canceled = self._clock(), False
+        while getattr(b, "processing_status", None) != "ended":
+            if not canceled and self._clock() - t0 > self.max_wait_s:
+                self._log(f"  judge Batch 대기 {self.max_wait_s:.0f}s 초과 → 취소 요청(남은 요청은 judge 오류)")
+                batches.cancel(b.id)
+                canceled = True
+            self._sleep(self.poll_s)
+            b = batches.retrieve(b.id)
+            rc = getattr(b, "request_counts", None)
+            self._log(f"  judge Batch {getattr(b, 'processing_status', '?')}: 처리 중 {getattr(rc, 'processing', '?')}, "
+                      f"성공 {getattr(rc, 'succeeded', '?')}, 오류 {getattr(rc, 'errored', '?')}")
+        out: dict[str, TransportResult | BatchFailure] = {}
+        for r in batches.results(b.id):
+            res = r.result
+            kind = getattr(res, "type", None)
+            if kind == "succeeded":
+                out[str(r.custom_id)] = result_from_message(res.message, batch=True)
+            elif kind == "errored":
+                err = getattr(res, "error", None)
+                etype = getattr(getattr(err, "error", None), "type", None) or getattr(err, "type", None) or "unknown"
+                out[str(r.custom_id)] = BatchFailure("errored", str(etype), retryable=etype not in ("invalid_request", "invalid_request_error"))
+            else:  # expired | canceled
+                out[str(r.custom_id)] = BatchFailure(str(kind), "", retryable=kind == "expired" or (kind == "canceled" and not canceled))
+        return out
+
+
+def _request_key(params: Mapping[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(params, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _est_request_cost(params: Mapping[str, Any]) -> float:
+    """제출 전 예상 비용(보수적): 입력 토큰 ≈ 글자 수(한글 1글자 ≈ 1토큰 이하), 출력 `BATCH_EST_OUTPUT_TOKENS`, Batch 0.5배, 캐시 없음."""
+    chars = len(json.dumps(request_text(params)["system"], ensure_ascii=False)) + sum(
+        len(m["content"]) for m in request_text(params)["messages"])
+    return estimate_cost_usd(chars, min(BATCH_EST_OUTPUT_TOKENS, int(params["max_tokens"])), batch=True)
+
+
+class BatchJudgeTransport:
+    """judge 전송 계층의 Batch 판. `collect`(모으기)에서는 결과가 없는 요청을 기록하고 거부 자리 표시를 돌려주며, `replay`(다시 돌리기)에서는
+    받아 둔 결과를 같은 순서(같은 요청의 몇 번째)로 돌려준다. 받지 못한 요청(상한으로 제출하지 않음)은 `JudgeBudgetExceeded`,
+    실패 결과는 `BatchRequestFailed`(judge 오류 API)다."""
+
+    def __init__(self, backend: BatchBackend, *, cache: str = CACHE_OFF) -> None:
+        if cache not in CACHE_MODES:
+            raise JudgeError(f"cache는 {CACHE_MODES} 중 하나: {cache!r}")
+        self.backend = backend
+        self.cache = cache
+        self.mode = "collect"
+        self._results: dict[tuple[str, int], TransportResult | BatchFailure] = {}
+        self._resubmits: dict[tuple[str, int], int] = {}
+        self._seen: dict[str, int] = {}
+        self._pending: list[tuple[tuple[str, int], dict[str, Any]]] = []
+        self.stats = {"batches": 0, "rounds": 0, "submitted": 0, "succeeded": 0, "failed": 0, "resubmitted": 0, "not_submitted": 0,
+                      "billed_usd": 0.0}
+
+    def __repr__(self) -> str:
+        return f"BatchJudgeTransport(model={JUDGE_MODEL}, cache={self.cache}, mode={self.mode})"
+
+    def begin(self, mode: str) -> None:
+        if mode not in ("collect", "replay"):
+            raise JudgeError(f"mode는 collect|replay: {mode!r}")
+        self.mode, self._seen, self._pending = mode, {}, []
+
+    def complete(self, *, system: str, messages: list[dict[str, Any]], max_tokens: int) -> TransportResult:
+        params = build_request(system=system, messages=messages, max_tokens=max_tokens, cache=self.cache)
+        key = _request_key(params)
+        slot = (key, self._seen.get(key, 0))
+        self._seen[key] = slot[1] + 1
+        got = self._results.get(slot)
+        if self.mode == "collect":
+            if got is None or (isinstance(got, BatchFailure) and got.retryable and self._resubmits.get(slot, 0) < BATCH_RESUBMIT):
+                if got is not None:
+                    self._resubmits[slot] = self._resubmits.get(slot, 0) + 1
+                    self._results.pop(slot)
+                self._pending.append((slot, params))
+                return TransportResult(text=None, stop_reason="refusal", refusal_category="batch_pending")  # 버리는 judge용 자리 표시
+        if got is None:
+            raise JudgeBudgetExceeded("judge Batch 비용 상한으로 이 요청을 제출하지 않았다")
+        if isinstance(got, BatchFailure):
+            raise BatchRequestFailed(f"Batch {got.kind}: {got.detail}".strip())
+        return got
+
+    def pending(self) -> int:
+        return len(self._pending)
+
+    def submit_pending(self, budget_left: float | None) -> int:
+        """모은 요청을 한 Batch로 보낸다. `budget_left`(USD)가 있으면 예상 비용이 넘지 않는 만큼만 앞에서부터 보낸다. 보낸 수를 돌려준다."""
+        todo = self._pending
+        if budget_left is not None:
+            keep, acc = [], 0.0
+            for s, p in todo:
+                c = _est_request_cost(p)
+                if acc + c > budget_left + 1e-12:
+                    break
+                keep.append((s, p))
+                acc += c
+            self.stats["not_submitted"] += len(todo) - len(keep)
+            todo = keep
+        self._pending = []
+        if not todo:
+            return 0
+        rnd = self.stats["rounds"]
+        ids = {f"r{rnd}-{i:06d}": slot for i, (slot, _) in enumerate(todo)}
+        got = self.backend.submit([(cid, p) for cid, (_, p) in zip(ids, todo, strict=True)])
+        self.stats["batches"] += 1
+        self.stats["submitted"] += len(todo)
+        self.stats["resubmitted"] += sum(1 for s, _ in todo if self._resubmits.get(s))
+        for cid, slot in ids.items():
+            r = got.get(cid) or BatchFailure("errored", "결과에 custom_id가 없다", retryable=True)
+            self._results[slot] = r
+            if isinstance(r, TransportResult):
+                self.stats["succeeded"] += 1
+                self.stats["billed_usd"] += result_cost_usd(r)
+            else:
+                self.stats["failed"] += 1
+        return len(todo)
+
+    def run_rounds(self, collect_pass: Any, *, budget_left: Any = None, max_rounds: int = BATCH_MAX_ROUNDS) -> dict[str, Any]:
+        """모으기 → 제출을 새 요청이 없을 때까지 되풀이하고 다시 돌리기 모드로 바꾼다. `collect_pass()`는 버리는 judge로 채점 과정 전체를 한 번 돈다.
+        `budget_left()`는 남은 judge 예산(USD, 없으면 None)."""
+        for _ in range(max_rounds):
+            self.begin("collect")
+            collect_pass()
+            if not self.pending():
+                break
+            left = budget_left() if budget_left is not None else None
+            left = None if left is None else left - self.stats["billed_usd"]
+            sent = self.submit_pending(left)
+            self.stats["rounds"] += 1
+            if not sent:
+                break
+        self.begin("replay")
+        return self.summary()
+
+    def summary(self) -> dict[str, Any]:
+        return {"mode": "batch", "cache": self.cache, **{k: (round(v, 6) if isinstance(v, float) else v) for k, v in self.stats.items()},
+                "batch_ids": list(getattr(self.backend, "batch_ids", []) or [])}
 
 
 # --------------------------------------------------------------------------- 프롬프트 파일
@@ -431,9 +700,15 @@ class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
+    cache_creation_input_tokens: int = 0  # AG-11-12 A: 캐시 쓰기·읽기 토큰을 따로 센다(`input_tokens`는 캐시 밖 나머지)
+    cache_read_input_tokens: int = 0
+    batch_calls: int = 0                  # Batch로 받은 호출 수(단가 0.5배)
 
     def to_json(self) -> dict[str, Any]:
         d = {k: getattr(self, k) for k in ("calls", "retries", "errors", "scored", "input_tokens", "output_tokens")}
+        if self.cache_creation_input_tokens or self.cache_read_input_tokens or self.batch_calls:  # 캐시·Batch를 안 쓰면 예전 칸 그대로
+            d.update({"cache_creation_input_tokens": self.cache_creation_input_tokens, "cache_read_input_tokens": self.cache_read_input_tokens,
+                      "batch_calls": self.batch_calls})
         d["cost_usd"] = round(self.cost_usd, 6)
         d["error_rate"] = round(self.errors / (self.scored + self.errors), 4) if (self.scored + self.errors) else None
         return d
@@ -453,6 +728,7 @@ class SonnetJudge:
         self.ledger = ledger
         self.max_usd = max_usd
         self.max_tokens = max_tokens
+        self.prompt_path = Path(prompt_path)
         self.prompt = load_prompt(prompt_path)
         self.rubric_versions = dict(self.prompt["rubric_versions"])  # 프롬프트 파일 버전을 따른다(v1 파일이면 J*@v1)
         self.usage = Usage()
@@ -463,7 +739,21 @@ class SonnetJudge:
         return {"judge_model": self.model_id, "rubric_versions": dict(self.rubric_versions), "prompt_file": self.prompt["file"],
                 "prompt_sha256": self.prompt["sha256"], "prompt_status": fm.get("status"), "prompt_version": self.prompt["version"],
                 "render_version": self.prompt["render"], "prompt_changed_from_v1": list(fm.get("changed_from_v1") or []),
-                "thinking": dict(THINKING), "temperature": None, "max_tokens": self.max_tokens, "usage": self.usage.to_json()}
+                "thinking": dict(THINKING), "temperature": None, "max_tokens": self.max_tokens, "usage": self.usage.to_json(),
+                **({"transport": self.transport_info()} if self.transport_info()["cache"] != CACHE_OFF or self.is_batch() else {})}
+
+    # ---- 전송 방식(AG-11-12 A): 채점 결과와 무관한 기록. 캐시·Batch를 안 쓰면 meta에 칸을 더하지 않는다 ----
+    def is_batch(self) -> bool:
+        return isinstance(self.transport, BatchJudgeTransport)
+
+    def transport_info(self) -> dict[str, Any]:
+        if self.is_batch():
+            return self.transport.summary()
+        return {"mode": "sync", "cache": getattr(self.transport, "cache", CACHE_OFF)}
+
+    def collector(self) -> SonnetJudge:
+        """Batch 모으기용 버리는 judge: 같은 프롬프트·같은 전송, 원장·상한 없음(사용량은 버린다)."""
+        return SonnetJudge(self.transport, prompt_path=self.prompt_path, max_tokens=self.max_tokens)
 
     # ---- 호출 한 번(비용·상한) ----
     def _call(self, messages: list[dict[str, Any]]) -> TransportResult:
@@ -477,10 +767,13 @@ class SonnetJudge:
         if self.ledger is not None:
             self.ledger.guard(est, "eval")
         res = self.transport.complete(system=self.prompt["sections"]["SYSTEM"], messages=messages, max_tokens=self.max_tokens)
-        cost = estimate_cost_usd(res.input_tokens, res.output_tokens)
+        cost = result_cost_usd(res)  # 캐시·Batch가 없으면 예전 `estimate_cost_usd(input, output)`와 같은 값
         self.usage.calls += 1
         self.usage.input_tokens += res.input_tokens
         self.usage.output_tokens += res.output_tokens
+        self.usage.cache_creation_input_tokens += res.cache_creation_input_tokens
+        self.usage.cache_read_input_tokens += res.cache_read_input_tokens
+        self.usage.batch_calls += bool(res.batch)
         self.usage.cost_usd += cost
         self._max_call_cost = max(self._max_call_cost, cost)
         if self.ledger is not None:
@@ -561,7 +854,7 @@ def calib_result(judge: SonnetJudge, items: Sequence[Mapping[str, Any]]) -> dict
     return {"meta": judge.meta(), "items": scored}
 
 
-def transport_from_settings(settings: Any = None) -> AnthropicTransport:
+def transport_from_settings(settings: Any = None, *, cache: str = CACHE_OFF) -> AnthropicTransport:
     """키는 설정(`ANTHROPIC_API_KEY`, 현재 폴더·저장소 루트 `.env`)에서 읽어 SDK에 넘기고 어디에도 남기지 않는다(`eval_runner.default_judge`와 같은 규칙).
     `.env`를 환경변수로 내보내지 않아도 된다. 키가 없으면 변수 이름만 적은 JudgeError."""
     from app.config import get_settings, reveal
@@ -569,7 +862,7 @@ def transport_from_settings(settings: Any = None) -> AnthropicTransport:
     key = reveal(getattr(settings if settings is not None else get_settings(), "anthropic_api_key", None))
     if not key:
         raise JudgeError("judge에 필요한 환경변수가 없다: ANTHROPIC_API_KEY(.env 또는 환경변수)")
-    return AnthropicTransport(api_key=key)
+    return AnthropicTransport(api_key=key, cache=cache)
 
 
 def _default_judge_factory(max_usd: float, prompt_path: Path) -> SonnetJudge:
@@ -583,7 +876,7 @@ def _calib_meta(judge: SonnetJudge, items_path: Path, n_items: int, *, partial: 
             "n_items": n_items, "partial": partial, "stopped": stopped}
 
 
-def main(argv: Sequence[str] | None = None, *, judge_factory: Any = None) -> int:
+def main(argv: Sequence[str] | None = None, *, judge_factory: Any = None, batch_backend_factory: Any = None) -> int:
     """보정 40문항 채점 CLI. 문항을 하나씩 채점하며 진행을 stderr에 적고, 비용 상한에 닿으면 멈추고 그때까지의 결과를
     `<out>.partial.json`에 남긴다(종료 코드 3). `judge_factory(max_usd)`는 시험에서 가짜 전송 judge를 넣는 자리다."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -592,11 +885,16 @@ def main(argv: Sequence[str] | None = None, *, judge_factory: Any = None) -> int
     ap.add_argument("--max-usd", type=float, required=True, help="이번 실행 judge 비용 상한(필수)")
     ap.add_argument("--dry-run", action="store_true", help="호출하지 않고 호출 수·예상 비용만 출력")
     ap.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT, help="judge 프롬프트 파일(기본 judge_rubric@v1.md. 본 측정 채택본은 judge_rubric@v2.md, eval_runner가 넘긴다)")
+    ap.add_argument("--cache", choices=list(CACHE_MODES), default=CACHE_OFF, help="프롬프트 캐싱(AG-11-12 A, 전송 방식만). 기본 off")
+    ap.add_argument("--batch", action="store_true", help="Message Batches로 보낸다(AG-11-12 A). 모으기·제출 뒤 같은 순서로 채점한다")
+    ap.add_argument("--limit", type=int, default=0, help="앞에서 N문항만(전송 방식 동일성 확인용 소표본)")
     a = ap.parse_args(argv)
     import sealed_guard as G
 
     G.check_access(a.calib_items)  # 시험셋 이름이면 열기 전에 막는다(RFP-26-04)
     items = G.load_jsonl(a.calib_items)
+    if a.limit:
+        items = items[: a.limit]
     n_calls = sum(len([r for r in it.get("rubrics") or [] if r in RUBRIC_VERSIONS]) for it in items)
     prompt = load_prompt(a.prompt)
     print(f"문항 {len(items)}, 호출 {n_calls}회(재시도 제외), 예상 약 ${n_calls * 0.0085:.2f}(2026-11-18 보정 40 실측 호출당 $0.0085 기준)"
@@ -607,6 +905,20 @@ def main(argv: Sequence[str] | None = None, *, judge_factory: Any = None) -> int
         print(f"이미 있음(덮어쓰지 않음): {a.out}")
         return 2
     judge: SonnetJudge = (judge_factory or _default_judge_factory)(a.max_usd, a.prompt)
+    if a.cache != CACHE_OFF:
+        if not hasattr(judge.transport, "cache"):
+            raise JudgeError("이 judge 전송은 캐시 표시를 받지 않는다")
+        judge.transport.cache = a.cache
+    if a.batch:
+        backend = (batch_backend_factory or AnthropicBatchBackend.from_transport)(judge.transport)
+        judge.transport = BatchJudgeTransport(backend, cache=a.cache)
+
+        def collect() -> None:
+            cj = judge.collector()
+            for it in items:
+                cj.score_items([it])
+
+        judge.transport.run_rounds(collect, budget_left=lambda: a.max_usd)
     scored: dict[str, dict[str, Any]] = {}
     stopped: str | None = None
     for i, it in enumerate(items, 1):

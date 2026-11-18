@@ -50,11 +50,18 @@ graph 에이전트 실행은 문항 오류가 3건 연속이면 멈추고 결과
 집계 전 행 보존(AG-11-14 A): 반복 실행은 신뢰성 집계 전에 결과 옆 `결과.rows-partial.json`을 쓰고 저장이 끝나면 지운다. 집계·저장이 멈춰
 이 파일이 남으면 `--reaggregate 결과.rows-partial.json [--out PATH]`이 실행 없이 집계만 다시 해 결과 파일을 쓴다(채점 코드 해시가 다르거나
 결과 파일이 이미 있으면 종료 코드 3).
+
+judge 전송 방식(AG-11-12 A, 2026-11-18): `--judge-cache off|system|rubric`(프롬프트 캐싱, 기본 off)과 `--judge-batch`(Message Batches, 실행을 모두
+마친 뒤 모으기·제출·다시 돌리기)는 전송만 바꾼다(judge 모델·루브릭 글자·채점 코드 그대로). 결과 `judge_usage.transport`에 방식이, `judge_usage`에
+캐시 쓰기·읽기 토큰과 Batch 호출 수가 남는다.
+실행 색인(BE-08-05 A): 끝나면 `logs/eval/registry.jsonl`(`--out` 옆)에 한 줄(`evaluation/run_registry.py`). 결과 meta에 `git_commit`·`git_dirty`(BE-08-06 A),
+`versions.router`·`versions.tools`(다음 측정 기간 동결 후보, 지금은 기록만)를 남긴다.
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import hashlib
 import json
@@ -74,6 +81,7 @@ for p in (str(HERE), str(HERE / "judge"), str(ROOT / "backend")):
 import eval_metrics as M  # noqa: E402
 import freeze_check as FZ  # noqa: E402
 import ragas_metrics as RG  # noqa: E402
+import run_registry as RR  # noqa: E402
 import sealed_guard as G  # noqa: E402
 import sonnet_judge as SJ  # noqa: E402
 
@@ -158,6 +166,54 @@ def merge_judge(row: dict[str, Any], judged: dict[str, Any]) -> None:
         code_pass = bool(row["safety"]["code_pass"])
         failed = not code_pass or any(v is False for v in els.values())
         row["safety"] = {"code_pass": code_pass, "pending_judge": pend, "pass": False if failed else (None if pend else True)}
+
+
+def judge_row(judge: Any, it: dict[str, Any], rec: M.RunRecord, row: dict[str, Any], ragas_mode: str) -> None:
+    """문항 하나 judge 채점(안전 응답 루브릭 + Ragas). 동기 실행과 Batch 다시 돌리기·모으기가 **같은 함수**를 쓴다(판정 코드 하나).
+    `JudgeBudgetExceeded`는 호출자가 처리한다."""
+    ctx = judge_contexts(rec)
+    row["judge"] = judge.score(it, rec.answer, ctx, end_reason=rec.end_reason)
+    merge_judge(row, row["judge"])
+    if RG.ragas_applicable(it):
+        # C0(정답 근거를 컨텍스트로)는 청크가 달라 J1을 다시 받는다. 그 밖은 위에서 받은 J1을 재사용한다(같은 답·같은 청크)
+        j1 = (row["judge"].get("rubrics") or {}).get("J1") if ragas_mode == RG.MODE_RETRIEVED else None
+        row["ragas"] = RG.ragas_item(judge, it, rec.answer, contexts=ctx, tool_evidence_ids=rec.tool_evidence_ids,
+                                     end_reason=rec.end_reason, mode=ragas_mode, j1=j1)
+
+
+def batch_judge_rows(judge: Any, deferred: Sequence[tuple[dict[str, Any], dict[str, Any], M.RunRecord, int]], ragas_mode: str, *,
+                     first: int, judge_skipped: list[str]) -> bool:
+    """`--judge-batch`(AG-11-12 A): 1) 버리는 judge로 채점 과정을 돌려 요청을 모으고 Batch로 보내기를 새 요청이 없을 때까지 되풀이,
+    2) 진짜 judge로 같은 순서·같은 규칙(동기 실행의 분기 그대로)으로 다시 돌며 받아 둔 결과를 쓴다. 비용 상한은 제출 전 예상으로 지키고,
+    제출하지 못한 요청이 나오면 동기 실행처럼 그 문항부터 judge 상한 도달(`JUDGE_BUDGET`)로 둔다. 반환: judge 상한 도달 여부."""
+    transport = judge.transport
+
+    def collect() -> None:
+        cj = judge.collector()
+        for row, it, rec, _ in deferred:
+            try:
+                judge_row(cj, it, rec, copy.deepcopy(row), ragas_mode)  # 버리는 사본(행·판정은 다시 돌리기에서만 채운다)
+            except SJ.JudgeBudgetExceeded:  # 버리는 judge에는 상한이 없어 생기지 않는다
+                continue
+
+    cap = getattr(judge, "max_usd", None)
+    transport.run_rounds(collect, budget_left=(lambda: cap) if cap else None)
+    stopped = False
+    for row, it, rec, n_run in deferred:
+        hit = stopped
+        if not stopped:
+            try:
+                judge_row(judge, it, rec, row, ragas_mode)
+            except SJ.JudgeBudgetExceeded:
+                stopped = hit = True
+        if hit:  # 동기 실행과 같다: 이미 받은 judge 판정은 두고(없으면 상한 표시), 1회차 문항은 건너뜀 목록에 넣는다
+            if row.get("judge") is None:
+                row["judge"] = {"rubric": None, "rubrics": {}, "overall_pass": None, "status": "not_called", "reason": JUDGE_BUDGET_STOP}
+            if n_run == first:
+                judge_skipped.append(str(it.get("id")))
+        if "run" in row:  # 동기 실행과 같은 칸 순서(judge·ragas 다음에 run)
+            row["run"] = row.pop("run")
+    return stopped
 
 
 # --------------------------------------------------------------------------- judge 집계(AG-11-10 A, 2026-11-18)
@@ -520,6 +576,8 @@ def run_eval(
     real_judge = is_real_judge(judge) and not skip_judge
     judge_stopped = False            # judge 비용 상한에 닿았다(그 뒤 문항은 judge 없이 코드 채점만)
     judge_skipped: list[str] = []
+    batch_judge = real_judge and callable(getattr(judge, "is_batch", None)) and judge.is_batch()  # AG-11-12 A `--judge-batch`
+    deferred: list[tuple[dict[str, Any], dict[str, Any], M.RunRecord, int]] = []
     ragas_mode = RG.MODE_REFERENCE if (meta or {}).get("condition") == "C0" else RG.MODE_RETRIEVED
     runs: list[list[dict[str, Any]]] = []
     skipped: list[str] = []
@@ -568,16 +626,12 @@ def run_eval(
                                 "reason": JUDGE_BUDGET_STOP if judge_stopped else "RUN_ERROR"}
                 if judge_stopped and n_run == first:
                     judge_skipped.append(str(it.get("id")))
+            elif batch_judge:
+                row["judge"] = None  # 자리만(칸 순서 유지). 실행이 모두 끝난 뒤 Batch로 채점한다(AG-11-12 A)
+                deferred.append((row, it, rec, n_run))
             else:
-                ctx = judge_contexts(rec)
                 try:
-                    row["judge"] = judge.score(it, rec.answer, ctx, end_reason=rec.end_reason)
-                    merge_judge(row, row["judge"])
-                    if RG.ragas_applicable(it):
-                        # C0(정답 근거를 컨텍스트로)는 청크가 달라 J1을 다시 받는다. 그 밖은 위에서 받은 J1을 재사용한다(같은 답·같은 청크)
-                        j1 = (row["judge"].get("rubrics") or {}).get("J1") if ragas_mode == RG.MODE_RETRIEVED else None
-                        row["ragas"] = RG.ragas_item(judge, it, rec.answer, contexts=ctx, tool_evidence_ids=rec.tool_evidence_ids,
-                                                     end_reason=rec.end_reason, mode=ragas_mode, j1=j1)
+                    judge_row(judge, it, rec, row, ragas_mode)
                 except SJ.JudgeBudgetExceeded:
                     judge_stopped = True
                     row.setdefault("judge", {"rubric": None, "rubrics": {}, "overall_pass": None, "status": "not_called",
@@ -588,6 +642,8 @@ def run_eval(
                 row["run"] = rec.to_json()
             rows.append(row)
         runs.append(rows)
+    if deferred:  # Batch judge: 모으기·제출 회차를 돈 뒤 진짜 judge로 같은 순서·같은 규칙으로 다시 돈다(동기 실행과 같은 판정 코드)
+        judge_stopped = batch_judge_rows(judge, deferred, ragas_mode, first=first, judge_skipped=judge_skipped)
     result: dict[str, Any] = {
         "meta": {
             "runner": RUNNER_VERSION, "created_utc": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -612,6 +668,8 @@ def run_eval(
         usage = judge.usage.to_json() if hasattr(judge, "usage") else {}
         result["judge_usage"] = {**usage, "max_usd": getattr(judge, "max_usd", None), "cap_reached": judge_stopped,
                                  "skipped": len(judge_skipped) if sealed else judge_skipped}
+        if callable(getattr(judge, "transport_info", None)):  # 전송 방식(동기·Batch, 캐시). 판정과 무관한 기록(AG-11-12 A)
+            result["judge_usage"]["transport"] = judge.transport_info()
         result["metrics"]["ragas"] = RG.aggregate_ragas([r["ragas"] for r in runs[0] if r.get("ragas")])
         left = ["J3·J4·J5 요소"] if any((r.get("safety") or {}).get("pending_judge") for r in runs[0]) else []
         result["metrics"]["judge_metrics_not_computed"] = left  # 보류가 남았으면(judge 오류·상한) 그대로 알린다
@@ -989,7 +1047,16 @@ def code_versions(condition: str = DEFAULT_CONDITION) -> dict[str, str]:
         out = {"graph": pipeline_version(condition), "graph_src": out["graph"],
                "pipeline_src": f"pipeline-src@{_sha256_of(sorted((agent / 'pipeline').glob('*.py')))}", "harness": out["harness"]}
     out["metrics"] = metrics_version()
+    out.update(router_tools_versions())  # BE-08-06 A: 다음 측정 기간 동결 후보(새 키, `freeze_check.NEXT_PERIOD_KEYS`)
     return out
+
+
+def router_tools_versions() -> dict[str, str]:
+    """Router(`app/agent/router.py`)와 도구 소스(`app/agent/tools/*.py` + 공공 API·사전 도구 `app/tools/*.py`) 내용 해시(BE-08-06 A, 2026-11-18).
+    지금 측정 기간에는 기록만 하고(이전 결과에 없는 새 키), 비교는 양쪽에 값이 있을 때만 한다(`freeze_check`)."""
+    app = ROOT / "backend" / "app"
+    tools = sorted((app / "agent" / "tools").glob("*.py")) + sorted((app / "tools").glob("*.py"))
+    return {"router": f"router-src@{_sha256_of([app / 'agent' / 'router.py'])}", "tools": f"tools-src@{_sha256_of(tools)}"}
 
 
 def metrics_version() -> str:
@@ -1432,10 +1499,27 @@ def default_judge(settings: Any, max_usd: float) -> Any:
                           prompt_path=SJ.HERE / "judge_rubric@v2.md")
 
 
+def configure_judge_transport(judge: Any, *, cache: str = SJ.CACHE_OFF, batch: bool = False,
+                              batch_backend_factory: Callable[[Any], Any] | None = None) -> None:
+    """judge 전송 방식만 바꾼다(AG-11-12 A): `cache`는 캐시 표시(`off`·`system`·`rubric`), `batch`는 Message Batches.
+    모델·루브릭·프롬프트·채점 코드는 그대로다(결과 동일성 원칙). 기본(`off`, 동기)이면 아무것도 바꾸지 않는다."""
+    if cache not in SJ.CACHE_MODES:
+        raise JudgeSetupError(f"--judge-cache는 {', '.join(SJ.CACHE_MODES)} 중 하나")
+    t = judge.transport
+    if cache != SJ.CACHE_OFF:
+        if not hasattr(t, "cache"):
+            raise JudgeSetupError("이 judge 전송은 캐시 표시를 받지 않는다")
+        t.cache = cache
+    if batch:
+        backend = (batch_backend_factory or SJ.AnthropicBatchBackend.from_transport)(t)
+        judge.transport = SJ.BatchJudgeTransport(backend, cache=cache)
+
+
 def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settings_fn: Callable[[], Any] | None,
                    resources_factory: Callable[..., GraphResources] | None,
                    judge_factory: Callable[[Any, float], Any] | None = None,
-                   c0_model_factory: Callable[[Any], tuple[Any, Any]] | None = None) -> tuple[Any, CostBudget, dict[str, Any], Any] | None:
+                   c0_model_factory: Callable[[Any], tuple[Any, Any]] | None = None,
+                   batch_backend_factory: Callable[[Any], Any] | None = None) -> tuple[Any, CostBudget, dict[str, Any], Any] | None:
     """그래프 에이전트 준비(C0는 `_prepare_c0`: 모델만, 원격 DB 없음). 필수 설정이 없으면 이름만 출력하고 None(0건). 자원을 만들기 전에 묶음·draft 규칙을 확인한다.
     `--judge sonnet`이면 judge도 여기서 만든다(자원보다 먼저: 키가 없으면 원격 DB를 읽기 전에 멈춘다)."""
     from app.agent import llm
@@ -1453,6 +1537,8 @@ def _run_graph_cli(a: argparse.Namespace, items: list[dict[str, Any]], *, settin
     check_system_prompt(a.prompt_set, DEFAULT_PROMPT)
     load_summary_instruction(a.prompt_set, allow_draft=a.allow_draft)  # draft 묶음은 --allow-draft 없이는 여기서 멈춘다
     judge = (judge_factory or default_judge)(settings, a.judge_max_usd) if a.judge == JUDGE_SONNET else None
+    if judge is not None:
+        configure_judge_transport(judge, cache=a.judge_cache, batch=a.judge_batch, batch_backend_factory=batch_backend_factory)
     if a.condition == C0:
         return _prepare_c0(a, settings, judge, c0_model_factory)
     prefix = "l2" if a.condition == DEFAULT_CONDITION else a.condition.lower().replace("+", "plus")  # C2 실행 ID는 지금까지와 같다
@@ -1489,10 +1575,35 @@ def _prepare_c0(a: argparse.Namespace, settings: Any, judge: Any,
     return agent, CostBudget(a.max_usd, total), versions, judge
 
 
+def _registry_target(a: argparse.Namespace, registry_path: Path | None, result_path: Path | None = None) -> Path:
+    """실행 색인 위치: 인자 > 결과 파일 옆(기본 저장 위치 `logs/eval/`이면 `logs/eval/registry.jsonl`) > `--out` 옆 > 기본 `logs/eval/registry.jsonl`."""
+    if registry_path is not None:
+        return registry_path
+    if result_path is not None:
+        return Path(result_path).parent / RR.REGISTRY_PATH.name
+    return a.out.parent / RR.REGISTRY_PATH.name if getattr(a, "out", None) else RR.REGISTRY_PATH
+
+
+def _register(result: dict[str, Any], path: Path | None, a: argparse.Namespace, registry_path: Path | None, *,
+              status: str | None = None, error: BaseException | None = None) -> None:
+    """실행 색인에 한 줄(BE-08-05 A). 색인 쓰기 실패는 측정 결과를 막지 않는다(경고만). 오류 문구는 키·DSN을 가린다."""
+    msg = None
+    if error is not None:
+        from app.security.redact import safe_exc
+
+        msg = safe_exc(error)
+    try:
+        RR.append(RR.build_entry(result, result_path=path, status=status, error=msg), _registry_target(a, registry_path, path))
+    except Exception as e:  # noqa: BLE001 - 색인은 보조 기록
+        print(f"  실행 색인을 쓰지 못했다: {type(e).__name__}")
+
+
 def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | None = None,
          resources_factory: Callable[..., GraphResources] | None = None,
          judge_factory: Callable[[Any, float], Any] | None = None,
-         c0_model_factory: Callable[[Any], tuple[Any, Any]] | None = None) -> int:
+         c0_model_factory: Callable[[Any], tuple[Any, Any]] | None = None,
+         batch_backend_factory: Callable[[Any], Any] | None = None,
+         registry_path: Path | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--set", default="dev", help="dev | test | 파일 경로")
     ap.add_argument("--agent", choices=sorted([*AGENTS, GRAPH_AGENT]), default="offline-fixed")
@@ -1509,6 +1620,10 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap.add_argument("--judge", choices=[JUDGE_NONE, JUDGE_SONNET], default=JUDGE_NONE,
                     help="judge(J1~J5·Ragas 3지표). none = 코드 채점만(기본), sonnet = Claude Sonnet 5.5 실제 호출(graph 전용, --judge-max-usd 필수)")
     ap.add_argument("--judge-max-usd", type=float, help="judge 비용 상한(--judge sonnet이면 필수). 닿으면 그 뒤 문항은 judge 없이 코드 채점만 한다")
+    ap.add_argument("--judge-cache", choices=list(SJ.CACHE_MODES), default=SJ.CACHE_OFF,
+                    help="judge 프롬프트 캐싱(AG-11-12 A, 전송 방식만): off = 지금 방식(기본), system = 시스템 프롬프트, rubric = 시스템 + 루브릭 절")
+    ap.add_argument("--judge-batch", action="store_true",
+                    help="judge를 Message Batches로 보낸다(AG-11-12 A, 단가 0.5배, 결과가 늦게 온다). 실행을 모두 마친 뒤 채점한다")
     ap.add_argument("--baseline", type=Path, metavar="RESULT.json",
                     help="이전 측정 결과. 세트 해시·모델·호출 상한·사전·코퍼스·채점 규칙·judge 모델·루브릭이 다르면 시작하지 않는다(9.6절 동결, graph 전용)")
     ap.add_argument("--freeze-diff-reason", help="--baseline과 동결 값이 다른데도 실행할 이유(결과 meta `freeze_baseline`에 기록된다)")
@@ -1532,6 +1647,7 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
             print(f"집계 다시 하기 불가: {e}")
             return 3
         print(f"집계 다시 하기 → {out}")
+        _register(json.loads(out.read_text(encoding="utf-8")), out, a, registry_path)
         return 0
     if a.rescore:
         try:
@@ -1563,6 +1679,9 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         return 2
     if a.judge != JUDGE_NONE and not is_graph:
         print(f"--judge {a.judge}는 --agent {GRAPH_AGENT}에서만 받는다. 실행하지 않았다")
+        return 2
+    if (a.judge_batch or a.judge_cache != SJ.CACHE_OFF) and a.judge != JUDGE_SONNET:
+        print("--judge-batch·--judge-cache는 --judge sonnet에서만 받는다. 실행하지 않았다")
         return 2
     if a.judge != JUDGE_NONE and not (a.judge_max_usd and a.judge_max_usd > 0):
         print("--judge sonnet은 --judge-max-usd(0보다 큰 judge 비용 상한)가 있어야 시작한다. 실행하지 않았다")
@@ -1607,7 +1726,7 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     if is_graph:
         try:
             prepared = _run_graph_cli(a, items, settings_fn=settings_fn, resources_factory=resources_factory, judge_factory=judge_factory,
-                                      c0_model_factory=c0_model_factory)
+                                      c0_model_factory=c0_model_factory, batch_backend_factory=batch_backend_factory)
         except (JudgeSetupError, SJ.JudgeError) as e:  # judge 키·SDK·프롬프트 파일 문제: 원격 자원을 만들기 전에 멈춘다
             print(f"{e}. 실행하지 않았다")
             return 2
@@ -1618,7 +1737,9 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         agent = AGENTS[a.agent]()
     meta = {"set": a.set if a.set in SET_FILES else path.name, "set_file": path.name, "set_sha256": digest, **manifest_check(path, digest),
             "set_version": items[0].get("set_version") if items else None, "n_items_run": len(items), "condition": a.condition,
-            "agent": a.agent, "agent_info": getattr(agent, "info", {}), "versions": versions}
+            "agent": a.agent, "agent_info": getattr(agent, "info", {}), "versions": versions,
+            # BE-08-06 A: 결과를 만든 커밋·추적 파일 변경 여부. 측정 실행(graph)만 적는다(연결 확인용 offline-fixed 결과 모양은 그대로)
+            **(RR.git_state() if is_graph else {})}
     if is_graph:
         from app.agent.pipeline.build import harness_profile
 
@@ -1652,12 +1773,15 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
                        max_consecutive_errors=MAX_CONSECUTIVE_ERRORS if is_graph else None,
                        carry_keys_map=carry_map, carry_out=carry, first_run=first_rows, partial_out=partial)
         out = save(res, a.out)
-    except Exception:
+    except Exception as e:
         if partial is not None and partial.is_file():
             print(f"  집계·저장 중 멈췄다. 집계 전 행 → {partial}(--reaggregate {partial}로 실행 없이 집계만 다시 한다)")
+        _register({"meta": meta}, partial if partial is not None and partial.is_file() else None, a, registry_path,
+                  status=RR.STATUS_ERROR, error=e)
         raise
     if partial is not None:
         partial.unlink(missing_ok=True)  # 결과 파일에 모두 들어갔다
+    _register(res, out, a, registry_path)
     if carry is not None:
         print(f"  1회차 재사용 파일 → {write_carry(res, carry, out, subset=carry_mark)}(안전 핵심 {len(carry)}문항)")
     mt = res["metrics"]
