@@ -1370,6 +1370,9 @@ for (const width of [360, 320, 1280]) {
       const actions = page.getByTestId("retry-actions");
       const retry = actions.getByRole("button", { name: "이름 다시 입력" });
       await expect(retry).toBeVisible();
+      // 미식별 결과의 진입 글자에는 `· 찾아본 곳`이 붙는다(PRD-14, 성분코드가 아니라 찾아본 곳을 연다)
+      await expect(page.getByTestId("evidence-entry")).toHaveText(width >= 1024 ? "근거 상세 열기 · 찾아본 곳" : "근거 상세 보기 · 찾아본 곳");
+      await expectTouchTarget(page.getByTestId("evidence-entry"), { widthToo: false });
       // ⑤ 크기·폰트가 시나리오(예시 질문) 칩과 같다
       expect(await chipStyle(page.getByTestId("retry-name"))).toEqual(example);
       // 결과 카드 아래(카드 밖), 줄 전체를 채우지 않는 칩 폭
@@ -1407,6 +1410,11 @@ for (const width of [360, 320, 1280]) {
       if (width < 1024) await page.getByTestId("evidence-entry").click();
       const detail = page.getByTestId("evidence-detail");
       await expect(detail.getByTestId("lookup-pairs")).toBeVisible();
+      // 이유·다음 행동·재검색 줄은 박스 안에서 한 번씩만 보인다(줄과 표에 두 번 나오지 않는다)
+      const box = detail.getByTestId("judgment-box").first();
+      for (const once of ["식약처·한국의약품안전관리원 자료에서 찾지 못했어요", "봉투나 상자에 적힌 제품명을 그대로 다시 알려 주세요", "표기를 바꿔 한 번 더 찾아봤어요"]) {
+        await expect(box.getByText(once, { exact: true })).toHaveCount(1);
+      }
       await expect(detail.getByTestId("retry-actions")).toHaveCount(0);
       await expect(detail.getByRole("button", { name: "이름 다시 입력" })).toHaveCount(0);
     });
@@ -1519,6 +1527,48 @@ for (const width of [360, 320]) {
       const card = page.getByTestId("result-card");
       await expect(card.getByTestId("status-badge")).toHaveText(["삐! 임부금기 M등급"]);
       await expect(card.getByText("적응증에 따라 등급이 달라요")).toHaveCount(1);
+    });
+  });
+}
+
+for (const width of [360, 320]) {
+  test.describe(`등급 정의 블록 보강 ${width}px(PRD-15-03, PRD-09 §7.3)`, () => {
+    test.use({ viewport: { width, height: HEIGHT } });
+
+    test("미확보(사유 OUT_OF_SCOPE): 두 등급의 상수 문구와 약사 권고만 접힘 밖에 보이고 접힘 블록·조항 줄이 없다", async ({ page }) => {
+      await mockChat(page, "gradeDefsOutOfScope");
+      await openApp(page);
+      await ask(page);
+      await page.getByTestId("evidence-entry").click();
+      const block = sheet(page).getByTestId("grade-def");
+      await expect(block.getByTestId("grade-def-missing").locator(":scope > p")).toHaveText([
+        "임부금기 2등급의 뜻(고시 원문)을 아직 준비하지 못했어요.",
+        "임부금기 1등급의 뜻(고시 원문)을 아직 준비하지 못했어요.",
+      ]);
+      await expect(block.getByTestId("pharmacist-advice")).toHaveText("등급의 뜻이 궁금하면 약국·약사에게 물어보세요.");
+      await expect(block.getByRole("button")).toHaveCount(0);
+      await expect(block.locator('[data-slot="grade-def-source"]')).toHaveCount(0);
+      await expect(sheet(page)).not.toContainText("근거 문장을 찾지 못했어요");
+      // 등급 불일치 배지 둘은 그대로 잘리지 않고 보인다(ISSUE-011)
+      await expect(sheet(page).getByTestId("status-badge")).toHaveText(["삐! 임부금기 2등급 (파일)", "삐! 임부금기 1등급 (성분 API)"]);
+      await expectContained(sheet(page), '[data-testid="status-badge"], [data-testid="line-title"]');
+      await expectNoHorizontalScroll(page);
+    });
+
+    test("M등급 정의 블록: 제목 '임부금기 M등급이란?'을 펴면 원문과 출처 줄(판·표·쪽)이 받은 글자 그대로 보인다", async ({ page }) => {
+      await mockChat(page, "pregnancyMDef");
+      await openApp(page);
+      await ask(page);
+      await expect(page.getByTestId("result-card").getByTestId("status-badge")).toHaveText(["삐! 임부금기 M등급"]);
+      await page.getByTestId("evidence-entry").click();
+      const block = sheet(page).getByTestId("grade-def");
+      const trigger = block.getByRole("button", { name: "임부금기 M등급이란?" });
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+      await trigger.click();
+      await expect(block.locator("blockquote")).toHaveText("(합성 심평원 설명) 상병에 따른 1등급 또는 2등급 여부에 따라 처방·조제 사유 기재");
+      await expect(block.locator('[data-slot="grade-def-source"]')).toHaveText("(합성 출처 줄) 건강보험심사평가원 「기능과 역할」 2026년판 표4.3-5, 인쇄 638쪽");
+      await expectContained(sheet(page), '[data-slot="grade-def-source"]');
+      await expectNoHorizontalScroll(page);
     });
   });
 }

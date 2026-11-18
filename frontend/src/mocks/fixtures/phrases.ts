@@ -116,6 +116,8 @@ export const NAME_JOIN = " · ";
 export const SOURCE_KIND_PREFIX = { API_DIRECT: "공식 자료", FILE: "공식 파일", CORPUS_QUOTE: "공식 문서" } as const;
 /** fixed_phrases.GRADE_DEF_MISSING_TEXT["FETCH_FAIL"](`{grade}`는 fixture가 채운다) */
 export const GRADE_DEF_MISSING_FETCH_FAIL = "지금은 임부금기 {grade}등급의 뜻(고시 원문)을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요.";
+/** fixed_phrases.GRADE_DEF_MISSING_TEXT["OUT_OF_SCOPE"](원문 자료가 아직 준비되지 않은 경우, PRD-15-03) */
+export const GRADE_DEF_MISSING_OUT_OF_SCOPE = "임부금기 {grade}등급의 뜻(고시 원문)을 아직 준비하지 못했어요.";
 /** fixed_phrases.CAUTION_LABELS["dup_ingredient"](성분 중복 줄의 글자, AG-08-10 B) */
 export const CAUTION_DUP_INGREDIENT = "성분 중복";
 /** provenance.FLAG_NOTES["CODE_NOT_LINKED"](= fixed_phrases.CODE_NOT_LINKED): 코드가 이어지지 않아 확인하지 못한 줄의 안내(AG-08에서 문구 변경) */

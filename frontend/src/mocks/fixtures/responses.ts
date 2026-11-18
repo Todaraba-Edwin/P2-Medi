@@ -16,6 +16,7 @@ import {
   DOSE_SECTION,
   FIXED_NOTICE,
   GRADE_DEF_MISSING_FETCH_FAIL,
+  GRADE_DEF_MISSING_OUT_OF_SCOPE,
   NAME_JOIN,
   PHRASES,
   PUBLISHER_KIDS,
@@ -380,6 +381,34 @@ export const unidentifiedResponse = make(
   [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
 );
 
+/**
+ * 약 하나는 찾고 하나는 못 찾은 질문(PRD-14-04 A, PRD-14 §6 ⑦): 못 찾은 약 줄 + 찾은 약의 요약 한 줄(`찾음` + 성분 이름).
+ * 찾은 약 줄에는 판정(목록에 없음 등)이 없다: 다른 약을 못 찾아 쌍을 확인하지 못했기 때문이다. 줄 모양은 서버 `finalize` 출력과 같다
+ */
+export const unidentifiedMixedResponse = make(
+  {
+    route: "AGENT",
+    end_reason: "NORMAL",
+    summary: null,
+    findings: [
+      unidentifiedResponse.findings[0],
+      {
+        target: "product",
+        bucket: "identified",
+        evidence_id: null,
+        kind: "identify",
+        drug: DRUG_A,
+        drugs: [DRUG_A],
+        text: PHRASES.IDENTIFIED_LINE,
+        ingredients: [{ name: INGR_A.name }, { name: INGR_C.name }],
+        sub_line: [INGR_A.name, INGR_C.name].join(PHRASES.IDENTIFIED_SUB_SEP),
+      },
+    ],
+    pharmacist_advice: [adviceFor(DRUG_UNKNOWN)],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
 /** 근거 원문 미확보: 미확보 문구(서버 상수)와 약사 확인 권고 줄(권고 → 고정) */
 export const missingEvidenceResponse = make(
   {
@@ -662,6 +691,39 @@ export const gradeDefsResponse = make({
   ],
   grade_def_missing: [GRADE_DEF_MISSING_FETCH_FAIL.replace("{grade}", "1")],
   pharmacist_advice: [PHRASES.GRADE_DEF_PHARMACIST_ADVICE],
+});
+
+/**
+ * 등급 정의 블록 미확보, 사유 `OUT_OF_SCOPE`(원문 자료가 아직 준비되지 않음, PRD-15-03): 등급 불일치 응답의 1·2등급 블록이 둘 다 미확보다.
+ * 블록마다 그 사유의 상수 문구만 있고 출처 줄이 없다. 한쪽만 빈 상태(ISSUE-011)를 만들지 않는다
+ */
+export const gradeDefsOutOfScopeResponse = make({
+  ...gradeMismatchResponse,
+  grade_defs: (["2", "1"] as const).map((grade) => ({
+    grade,
+    title: PHRASES.GRADE_DEF_TITLE.replace("{grade}", grade),
+    missing_reason: "OUT_OF_SCOPE" as const,
+    missing_text: GRADE_DEF_MISSING_OUT_OF_SCOPE.replace("{grade}", grade),
+  })),
+  grade_def_missing: (["2", "1"] as const).map((grade) => GRADE_DEF_MISSING_OUT_OF_SCOPE.replace("{grade}", grade)),
+  pharmacist_advice: [PHRASES.GRADE_DEF_PHARMACIST_ADVICE],
+});
+
+/**
+ * 임부금기 M등급 + 등급 정의 블록(PRD-09 §7.3): M은 고시에 없어 원문이 심평원 설명이고 출처 줄에 판·표·쪽이 온다.
+ * 화면 확인용 합성 값이다. **서버는 아직 M 블록을 만들지 않는다**(backend grade_defs.py "M: 블록을 만들지 않는다, 규칙 미정").
+ * 블록의 제목·원문·출처 줄은 다른 등급과 같은 칸(`grade_defs[]`)이라 화면은 받은 글자를 그대로 그린다
+ */
+export const pregnancyMDefResponse = make({
+  ...pregnancyMResponse,
+  grade_defs: [
+    {
+      grade: "M",
+      title: PHRASES.GRADE_DEF_TITLE.replace("{grade}", "M"),
+      text: "(합성 심평원 설명) 상병에 따른 1등급 또는 2등급 여부에 따라 처방·조제 사유 기재",
+      source: "(합성 출처 줄) 건강보험심사평가원 「기능과 역할」 2026년판 표4.3-5, 인쇄 638쪽",
+    },
+  ],
 });
 
 /** 정보가 없어 확인하지 못한 종류의 줄(`not_checked_lines[]`): 임신 여부를 몰라 임부금기를 확인하지 못함. 권고 줄이 고정 문구 앞에 온다 */

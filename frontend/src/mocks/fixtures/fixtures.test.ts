@@ -45,6 +45,9 @@ describe("fixture 문구는 백엔드 상수 원문과 같다", () => {
     expect(provenance).toContain(`"mfds": "${phrases.PUBLISHER_MFDS}"`);
     expect(fixedPhrases).toContain(`BADGE_SOURCE_TAIL = {"FILE": "${phrases.BADGE_SOURCE_TAIL.FILE}", "API_DIRECT": "${phrases.BADGE_SOURCE_TAIL.API_DIRECT}"}`);
     expect(pyConst(loaders, "SRC_KIDS")).toBe(phrases.PUBLISHER_KIDS);
+    // 등급 정의 미확보 문구 두 사유(PRD-15-03)
+    expect(fixedPhrases).toContain(`"FETCH_FAIL": "${phrases.GRADE_DEF_MISSING_FETCH_FAIL}"`);
+    expect(fixedPhrases).toContain(`"OUT_OF_SCOPE": "${phrases.GRADE_DEF_MISSING_OUT_OF_SCOPE}"`);
     expect(provenance).toContain('"kids": SRC_KIDS');
   });
 });
