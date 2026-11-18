@@ -141,9 +141,11 @@ def test_api_row_content_is_not_read_as_reason():
 # --------------------------------------------------------------------------- 연령·임부·목록에 없음 줄은 빈 목록
 def test_age_and_pregnancy_lines_have_no_reasons_even_with_row_reason():
     r = _resp([contra_file([R1]), preg_file(), age_file()])
-    by_kind = {f.kind: f for f in r.findings}
-    assert by_kind["contra_pair"].reasons == [R1]
-    assert by_kind["pregnancy"].reasons == [] and by_kind["age"].reasons == []
+    assert _pair(r).reasons == [R1]
+    # 임부·연령 판정은 제품 줄의 배지로 나온다(BE-06-12 A 연결, 2026-11-18). 제품 줄은 사유 칸이 비어 있다
+    (prod,) = [f for f in r.findings if f.target == "product" and f.drugs == [DRUGS[0]]]
+    assert [b.kind for b in prod.badges] == ["contra_pair", "pregnancy", "age"]
+    assert all(f.reasons == [] for f in r.findings if f.target == "product")
     assert _detail_reasons(r, "age:448001ATB") == ["12세 미만 소아에서 안전성 및 유효성 미확립"]  # 근거 상세는 그대로
 
 
@@ -212,7 +214,7 @@ def test_backward_compatible_default_and_schema_version():
     old = {**dumped, "findings": [{k: v for k, v in f.items() if k != "reasons"} for f in dumped["findings"]]}
     again = ChatResponse.model_validate(old)  # `reasons` 없는 예전 응답도 그대로 읽힌다
     assert all(f.reasons == [] for f in again.findings)
-    assert ChatResponse.model_validate_json(r.model_dump_json()).findings[0].reasons == [R1]  # 왕복
+    assert _pair(ChatResponse.model_validate_json(r.model_dump_json())).reasons == [R1]  # 왕복(쌍 줄, 제품 줄이 앞에 온다)
 
 
 def test_openapi_finding_has_optional_reasons_list():

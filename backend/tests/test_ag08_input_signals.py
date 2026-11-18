@@ -170,8 +170,10 @@ def test_graph_passes_age_unknown_only_when_no_single_age(dd, monkeypatch, profi
     assert st["end_reason"] == "NORMAL" and seen == [expected]
     # 지금 도구는 나이가 없으면 연령금기 항목을 만들지 않는다: 실제 경로에서 안내 줄은 None 유지, 성분 칸은 사전 코드만
     assert all(f.age_info_line is None for f in resp.findings)
-    ident = [f for f in resp.findings if f.kind == "identify"]
-    assert ident and all(x.code_missing_text is None for f in ident for x in f.ingredients)
+    # 성분 칩을 가진 줄: 식별된 약은 판정이 있으면 제품 줄 하나에 칩이 붙는다("찾음" 줄 흡수, BE-06-39 A, 2026-11-18)
+    ident = [f for f in resp.findings if f.ingredients]
+    assert {f.drugs[0] for f in ident} == {AZI, COLD} and all(f.target == "product" for f in ident)
+    assert all(x.code_missing_text is None for f in ident for x in f.ingredients)
     assert any(x.code == "625201ATB" for f in ident for x in f.ingredients)  # 성분 하나·코드 하나(이지렉트정)
     assert all(x.code is None for f in ident for x in f.ingredients if x.name != "라사길린")  # 콜드-에스: 성분 넷·코드 둘 → 비움
 

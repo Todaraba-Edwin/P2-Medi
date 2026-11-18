@@ -12,6 +12,8 @@
   같은 기관 안에서는 판정 자료 → 허가사항 근거 자료 → 그 밖.
 - `findings[]`는 판정 줄이다. 제품 줄(`target="product"`)과 **쌍 줄**(`target="pair"`, `drugs` = 두 약, BE-06-01 A)을 따로 두고,
   배지(`badges[{kind, grade, source}]`)는 그 줄에 붙는다(병용 → 임부 → 연령, 등급 불일치는 파일 → 성분 API, PRD-15). 화면은 줄·배지를 조합·재정렬하지 않는다.
+  제품 줄은 `finalize.product_rows`(약 키마다 한 줄)에서 만들고 `evidence_id`는 None이다(근거는 배지별, BE-06-39~41 A). 그 줄이 대신 보여 주는
+  근거 줄(금기 발견·찾음)은 따로 내지 않고, 목록에 없음·확인하지 못함 줄과 쌍 줄은 근거 ID마다 그대로 둔다.
 - 응급은 `end_reason` 값이 아니라 `emergency` 필드로만 표현한다(BE-06-02 A). 되묻기 후보는 `candidates[]`(BE-06-03 A).
   상단 배너(상한 도달·API 실패)는 기존 `notice` 한 칸이다(BE-06-06 A). 용법용량은 표 구조 없이 원문 인용 텍스트만(`detail[].rows`, BE-06-04 B).
 - `detail[]`은 도구 항목을 코드가 렌더한 것(AG-06 `renderer`)이고 LLM 문장(`LLM_SUMMARY`)은 없다. `summary`만 LLM 문장(검증 통과분) 또는 코드 문구다.
@@ -208,15 +210,18 @@ class Ingredient(_Strict):
 
     code: str | None = None  # 성분코드(원문)
     name: str  # 표시명
-    contra_kinds: list[str] = Field(default_factory=list)  # 이 성분이 걸린 금기 종류 키(`BADGE_ORDER`)
-    dup: bool = False  # 같은 성분 중복 여부
+    # 이 성분이 걸린 금기 종류 키(`BADGE_ORDER`)와 같은 성분 중복 여부(BE-06-40 A, 2026-11-18). `None` = 모름(복합제처럼 어느 성분이
+    # 원인인지 도구 결과에 없음, AG-08 §5 계약 ② "칸 없음"), `[]`·`False` = 원인 아님. `None`은 응답 글자에 싣지 않는다(`exclude_if`):
+    # `null`을 보내면 받는 쪽 검증이 깨지고, 기본값(`[]`·`false`)으로 채우면 "모름"이 "원인 아님"으로 바뀐다
+    contra_kinds: list[str] | None = Field(default=None, exclude_if=lambda v: v is None)
+    dup: bool | None = Field(default=None, exclude_if=lambda v: v is None)
     # 상태 글자(BE-06-13 A): `병용금기 원인`·`금기 원인`·`중복` 서버 상수. `contra_kinds`·`dup`에서 코드가 정하고 화면은 그대로 그린다
     state_labels: list[str] = Field(default_factory=list)
     code_missing_text: str | None = None  # 성분코드 미확보 안내(UI-021, `INGR_CODE_MISSING_TEXT`). 코드가 없을 때만
 
     @model_validator(mode="after")
     def _labels(self) -> Ingredient:
-        expected = fp.ingredient_state_labels(self.contra_kinds, self.dup)
+        expected = fp.ingredient_state_labels(self.contra_kinds, self.dup)  # 원인 모름(None)은 `INGR_STATE_UNKNOWN`(BE-06-42 A)
         if not self.state_labels:
             self.state_labels = expected
         elif self.state_labels != expected:
@@ -589,7 +594,12 @@ def _pair_reasons(e: dict[str, Any], badges: list[Badge], detail_by_id: dict[str
     return out
 
 
-def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]]) -> Finding:
+# 판정 대상이 아닌 약의 성분 칩(결정 후보 4 B, 2026-11-18): 원인 칸이 없어도 "모름"이 아니라 이 응답에서 원인이 아님이다(글자 없음)
+_NOT_JUDGED_CHIP = {"contra_kinds": [], "dup": False}
+
+
+def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]], *,
+             chip_default: dict[str, Any] | None = None) -> Finding:
     d = detail_by_id.get(e.get("evidence_id") or "")
     names = list(d.drugs) if d and d.drugs else []
     is_pair = e.get("kind") in PAIR_KINDS and len(names) == 2
@@ -604,9 +614,84 @@ def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_i
         reasons=_pair_reasons(e, badges, detail_by_id),
         searched=[Searched(dataset=s.get("dataset"), count=s.get("count")) for s in e.get("searched") or [] if isinstance(s, dict)],
         retried=bool(e.get("retried_line")) if unidentified else None,
-        ingredients=[Ingredient(**i) for i in e.get("ingredients") or [] if isinstance(i, dict) and i.get("name")],
+        ingredients=[Ingredient(**{**(chip_default or {}), **i}) for i in e.get("ingredients") or [] if isinstance(i, dict) and i.get("name")],
         **{k: e[k] for k in _FINDING_PASS if e.get(k) is not None},
     )
+
+
+# 제품 줄로 내보내는 묶음(BE-06-39~41 연결). `not_listed`·`unconfirmed` 줄의 글자(`NOT_LISTED`·`UNIDENTIFIED` 등)는 금기 종류를 말하지 않아
+# 종류 칸(`kind`)이 없는 제품 줄에 합치면 "무엇을 확인하지 못했는지"가 사라진다. 그래서 그 묶음의 근거 줄은 합치지 않고 따로 둔다
+_ROW_BUCKETS = ("found", "identified")
+_ABSORB_BUCKETS = ("found", "identified")
+
+
+def _absorbed(row: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """제품 줄이 대신 보여 주는 근거 줄: 그 줄 `evidence_ids`(그 약 키의 식별 근거 포함, BE-06-39 A)에 든 근거 중 쌍 줄이 아닌 것,
+    묶음이 금기 발견·찾음인 것만. 쌍 줄은 근거 ID마다 그대로 남는다(AG-08-29 A)."""
+    ids = set(row.get("evidence_ids") or [])
+    return [e for e in entries if e.get("evidence_id") in ids and e.get("kind") not in PAIR_KINDS and e.get("bucket") in _ABSORB_BUCKETS]
+
+
+def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]]) -> Finding:
+    """`finalize.product_rows` 한 줄 → 제품 줄 `Finding`(BE-06-12 A, PRD-14 식별된 약 한 줄, PRD-09-05 성분 칩).
+
+    - `evidence_id`는 None이다(BE-06-41 A): 근거 연결은 배지마다 `evidence_id`. 한 근거를 쌍 줄·두 약의 제품 줄이 함께 가리켜 ID로 줄을 찾으면 겹친다.
+    - 합친 근거 줄의 정보는 버리지 않는다: 주의·중복 줄의 글자(`CAUTION_LABELS`, 종류 이름이 든 상수)와 각 줄의 꼬리 안내(`notes`)는
+      `notes`로, 연령금기 나이 기준 값·안내 줄, 식별 줄 보조줄(성분 이름)은 같은 칸으로 옮긴다(같은 글자는 한 번, 줄 순서).
+    """
+    notes: list[str] = []
+    age_criteria: list[str] = []
+    age_info_line: str | None = None
+    sub_line: str | None = None
+    for e in absorbed:
+        kind = e.get("kind")
+        if kind not in fp.BADGE_ORDER and kind != "identify" and isinstance(e.get("text"), str):
+            notes.append(e["text"])  # 배지·칩이 없는 주의(용량·수유부·노인)·성분 중복 표시
+        notes.extend(str(n) for n in e.get("notes") or [])
+        age_criteria.extend(str(x) for x in e.get("age_criteria") or [])
+        age_info_line = age_info_line or e.get("age_info_line")
+        if kind == "identify":
+            sub_line = sub_line or e.get("sub_line")
+    age_criteria = list(dict.fromkeys(age_criteria))
+    # 줄 대표 종류: 첫 배지의 종류(줄 글자 `text` = 첫 배지 글자와 짝, 화면이 색을 고르는 키). 배지가 없으면 흡수한 "찾음" 줄의 `identify`,
+    # 그것도 없으면 흡수한 첫 줄의 종류(성분 중복·주의). 근거 ID와 달리 종류는 줄을 가리키는 열쇠가 아니다
+    kinds = [b.get("kind") for b in row.get("badges") or []] + sorted((e.get("kind") for e in absorbed), key=lambda k: k != "identify")
+    kind = next((k for k in kinds if k), None)
+    return Finding(
+        target="product", bucket=row["bucket"], evidence_id=None, kind=kind, drug=row["drug"], drugs=[row["drug"]], text=row["text"],
+        badges=[_badge(b) for b in row.get("badges") or []],
+        ingredients=[Ingredient(**i) for i in row.get("ingredients") or [] if isinstance(i, dict) and i.get("name")],
+        notes=list(dict.fromkeys(notes)), unresolved=bool(row.get("unresolved")), sub_line=sub_line,
+        age_criteria=age_criteria, age_info_line=age_info_line if age_criteria else None,
+    )
+
+
+def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]]) -> list[Finding]:
+    """판정 줄 = 제품 줄(`product_rows`, 묶음 found·identified) → 남은 근거 줄(쌍 줄 포함, `entries` 순서).
+
+    `product_rows`가 없는 출력(이전 `finalize`)은 지금까지처럼 근거 줄마다 한 줄이다.
+    """
+    entries = [e for e in resp.get("entries") or [] if isinstance(e, dict)]
+    all_rows = [r for r in resp.get("product_rows") or [] if isinstance(r, dict)]
+    rows = [r for r in all_rows if r.get("bucket") in _ROW_BUCKETS]
+    out: list[Finding] = []
+    taken: set[int] = set()
+    for r in rows:
+        absorbed = _absorbed(r, entries)
+        taken.update(id(e) for e in absorbed)
+        out.append(_product_finding(r, absorbed))
+    # 따로 남는 "찾음" 줄의 성분 칩(결정 후보 4 B): 그 약에 판정 항목이 없거나(제품 줄 없음) 목록에 없음뿐이면 판정 대상 아님 → 원인 아님(글자 없음).
+    # 판정을 시도했지만 확인하지 못한 약(`unconfirmed` 줄)은 칸 없음 = 모름 그대로("원인 확인 못 함", BE-06-42 A).
+    # `product_rows`가 없는 이전 출력은 판단할 근거가 없어 그대로 둔다
+    row_bucket_by_eid = {eid: r.get("bucket") for r in all_rows for eid in r.get("evidence_ids") or []}
+
+    def chip_default(e: dict[str, Any]) -> dict[str, Any] | None:
+        if "product_rows" not in resp or e.get("kind") != "identify" or e.get("bucket") != "identified":
+            return None
+        return _NOT_JUDGED_CHIP if row_bucket_by_eid.get(e.get("evidence_id")) in (None, "not_listed") else None
+
+    out.extend(_finding(e, detail_by_id, badges_by_id, chip_default=chip_default(e)) for e in entries if id(e) not in taken)
+    return out
 
 
 def _candidates(clarify: dict[str, Any] | None) -> list[Candidate]:
@@ -643,7 +728,7 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
         not_checked_lines=list(resp.get("not_checked_lines") or []),
         grade_defs=[GradeDef(**g) for g in resp.get("grade_defs") or [] if isinstance(g, dict)],
         summary=resp.get("summary"),
-        findings=[_finding(e, detail_by_id, badges_by_id) for e in resp.get("entries") or [] if isinstance(e, dict)],
+        findings=_findings(resp, detail_by_id, badges_by_id),  # 제품 줄 연결(BE-06-39~41 A)
         candidates=_candidates(clarify) if end_reason == "CLARIFY" else [],
         detail=detail,
         citations=build_citations(detail),

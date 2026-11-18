@@ -3,13 +3,11 @@
 AG-08 브랜치(`feature/AG-08-finalize-1118`, `83f055a`)가 고정한 계약 예시 JSON을 fixture로 두고, BE `to_chat_response`가 그 계약대로
 응답을 만드는지 본다. 대상 완료 조건: BE-06 §2 `:37`(PRD-09-05 성분 칩)·`:41`(PRD-14 식별된 약 한 줄)·`:55`(BE-06-12 제품 줄 배지 묶음).
 
-시험 묶음과 xfail이 풀리는 조건:
-- **지금 통과**: fixture 모양(계약 키 집합), 쌍 줄 유지(AG-08-29 A), `Finding.reasons` 원천(③), `pharmacist_advice_kinds` 스키마 칸(④),
-  계약 키가 더해진 `finalize` 출력을 지금 변환기가 깨지지 않고 받는지(앞으로 호환).
-- `xfail(strict=True)` **AG08_MERGE**: 이 worktree의 `finalize`에는 `product_rows`·`pharmacist_advice_kinds`가 아직 없다.
-  AG-08 2차(`83f055a`)가 병합되면 XPASS → strict 실패로 드러나므로 표시를 지운다.
-- `xfail(strict=True)` **BE_LINK**: `to_chat_response`가 `product_rows`를 아직 읽지 않는다(연결 초안 `ag08-finalize.md` §5.2는 AG-08 병합 뒤 구현).
-  연결을 구현하면 풀린다. 단 `:41`·복합제 칩 시험은 §5.2 초안 그대로는 풀리지 않는다(이유는 각 표시, 결정 후보는 보고 `be06-contract.md`).
+시험 묶음:
+- fixture 모양(계약 키 집합), 쌍 줄 유지(AG-08-29 A), `Finding.reasons` 원천(③), `pharmacist_advice_kinds` 스키마 칸(④).
+- `finalize`가 계약 칸을 낸다(AG-08 병합 뒤 xfail 표시 제거, 2026-11-18).
+- 제품 줄 연결(BE-06-39 A 식별 근거 흡수·BE-06-40 A 성분 칩 "모름" = None·BE-06-41 A 제품 줄 `evidence_id` None, 2026-11-18):
+  `:55`·`:37`·`:41`·복합제 칩 시험(xfail 표시 제거)과 정보 보존(주의·꼬리 안내·확인하지 못함 줄) 시험.
 
 외부 호출·LLM 호출 0. 근거 항목·약 이름·코드는 합성(AG-08 계약 시험과 같은 값, 평가 세트·시험셋 문항 아님).
 """
@@ -28,11 +26,6 @@ from app.api.events import answer, encode_event
 from app.api.schemas import SCHEMA_VERSION, ChatResponse, Finding, to_chat_response
 from app.main import app
 
-AG08_MERGE = ("AG-08 finalize 2차(83f055a, feature/AG-08-finalize-1118) 병합 전: 이 worktree의 finalize에 "
-              "product_rows·pharmacist_advice_kinds가 없다. 병합 뒤 XPASS면 표시를 지운다")
-BE_LINK = ("to_chat_response가 product_rows를 아직 읽지 않는다(ag08-finalize.md §5.2 연결은 AG-08 병합 뒤 BE 구현). "
-           "연결을 구현하면 풀린다")
-
 KIDS = "한국의약품안전관리원"
 PAIR_EID = "contra_pair:SEQ_A:SEQ_B"
 REASON = "출혈 위험 증가"
@@ -45,7 +38,8 @@ ROW_SEQ_A: dict[str, Any] = json.loads(
     '"grade":null,"text":"삐! 병용금기","evidence_id":"contra_pair:SEQ_A:SEQ_B","note":null},{"kind":"pregnancy","grade":"2",'
     '"text":"삐! 임부금기 2등급","evidence_id":"pregnancy:SEQ_A","note":null}],"contra_kinds":["contra_pair","pregnancy"],'
     '"found_kinds":["contra_pair","pregnancy"],"not_listed_kinds":[],"unconfirmed_kinds":[],"caution_kinds":[],"dup":true,'
-    '"evidence_ids":["contra_pair:SEQ_A:SEQ_B","pregnancy:SEQ_A","dup_ingredient:SEQ_A:SEQ_C"],"ingredients":[{"name":"와파린",'
+    '"evidence_ids":["contra_pair:SEQ_A:SEQ_B","pregnancy:SEQ_A","dup_ingredient:SEQ_A:SEQ_C","identify:SEQ_A"],'
+    '"ingredients":[{"name":"와파린",'
     '"code":"111111ATB","contra_kinds":["contra_pair","pregnancy"],"dup":true,"state_labels":["병용금기 원인","금기 원인","중복"]}],'
     '"unresolved":false}'
 )
@@ -244,7 +238,6 @@ def test_advice_kinds_roundtrip_keeps_v1():
 
 
 # =========================================================================== AG08_MERGE: finalize가 계약 칸을 내는지
-@pytest.mark.xfail(strict=True, reason=AG08_MERGE)
 def test_finalize_emits_contract_product_rows():
     resp = finalize(ITEMS)
     assert "product_rows" in resp
@@ -252,7 +245,6 @@ def test_finalize_emits_contract_product_rows():
     assert rows["SEQ_A"] == ROW_SEQ_A and rows["SEQ_B"] == ROW_SEQ_B
 
 
-@pytest.mark.xfail(strict=True, reason=AG08_MERGE)
 def test_finalize_emits_advice_kinds_and_response_carries_them():
     resp = finalize([_unconfirmed()], grade_def_missing=GRADE_DEF_MISSING)
     assert resp.get("pharmacist_advice_kinds") == ["missing", "grade_def"]
@@ -260,7 +252,6 @@ def test_finalize_emits_advice_kinds_and_response_carries_them():
 
 
 # =========================================================================== BE_LINK: to_chat_response가 product_rows를 읽는지
-@pytest.mark.xfail(strict=True, reason=BE_LINK + " (BE-06 :55, BE-06-12 A)")
 def test_product_row_is_one_finding_with_ordered_badges():
     """`:55`: 병용+임부가 함께 해당하는 제품이 findings 한 줄에 배지 둘(병용 → 임부)로 나온다. 상대 약도 제품 줄 하나."""
     r = to_chat_response(_contract_resp(), end_reason="NORMAL")
@@ -272,7 +263,6 @@ def test_product_row_is_one_finding_with_ordered_badges():
     assert [x.kind for x in b.badges] == ["contra_pair"]
 
 
-@pytest.mark.xfail(strict=True, reason=BE_LINK + " (BE-06 :37, PRD-09-05)")
 def test_product_finding_ingredients_carry_contra_kinds_and_dup():
     """`:37`: 제품 줄 성분 칩에 contra_kinds·dup이 계약 값 그대로 실린다(state_labels는 서버 상수)."""
     r = to_chat_response(_contract_resp(), end_reason="NORMAL")
@@ -280,8 +270,6 @@ def test_product_finding_ingredients_carry_contra_kinds_and_dup():
     assert [i.model_dump(exclude_none=True) for i in a.ingredients] == ROW_SEQ_A["ingredients"]
 
 
-@pytest.mark.xfail(strict=True, reason=BE_LINK + " (BE-06 :41, PRD-14). §5.2 초안 그대로면 identify 줄이 따로 남아 "
-                   "이 시험은 풀리지 않는다: 제품 줄 evidence_ids에 identify 근거가 없음(결정 후보 1)")
 def test_identified_drug_is_shown_once_with_ingredients():
     """`:41`: 식별된 약은 한 줄(제품 줄)로 상태와 성분 칩을 함께 가진다. 같은 약의 '찾음' 줄·임부 줄·중복 줄이 따로 나오지 않는다."""
     r = to_chat_response(_contract_resp(), end_reason="NORMAL")
@@ -290,8 +278,6 @@ def test_identified_drug_is_shown_once_with_ingredients():
     assert lines[0].bucket == "found" and lines[0].ingredients
 
 
-@pytest.mark.xfail(strict=True, reason=BE_LINK + ". 연결 뒤에도 Ingredient의 contra_kinds·dup 기본값([]·false)이 "
-                   "계약 '칸 없음 = 모름'을 '원인 아님'으로 바꿔 풀리지 않는다(결정 후보 2)")
 def test_multi_ingredient_chips_keep_unknown_as_absent():
     """계약 ②: 복합제 칩은 contra_kinds·dup 칸이 없다(모름). 응답이 이를 `[]`·`false`(원인 아님)로 바꾸면 안 된다."""
     r = to_chat_response({**finalize([_preg()]), "product_rows": [ROW_MULTI]}, end_reason="NORMAL")
@@ -299,3 +285,246 @@ def test_multi_ingredient_chips_keep_unknown_as_absent():
     dumped = [i.model_dump(exclude_none=True) for i in m.ingredients]
     assert [d["name"] for d in dumped] == ["아세트아미노펜", "슈도에페드린"]
     assert all("contra_kinds" not in d and "dup" not in d for d in dumped)
+
+
+# =========================================================================== BE-06-40 A: Ingredient "모름"(None)은 응답 글자에 싣지 않는다
+def test_unknown_chip_fields_are_none_and_absent_from_wire():
+    r = to_chat_response({**finalize([_preg()]), "product_rows": [ROW_MULTI]}, end_reason="NORMAL")
+    (m,) = _product_findings(r, "콜드정")
+    # BE-06-42 A: 원인 모름 칩에는 서버가 승인 문구 `원인 확인 못 함`을 싣는다(finalize의 [] → 응답 검증기가 채움)
+    assert all(i.contra_kinds is None and i.dup is None and i.state_labels == [fp.INGR_STATE_UNKNOWN] for i in m.ingredients)
+    raw = json.loads(encode_event(answer(1, r)))  # 스트림 바이트(exclude_none 없이 직렬화하는 경로)
+    chips = next(f for f in raw["response"]["findings"] if f["drugs"] == ["콜드정"])["ingredients"]
+    assert chips == [{"code": None, "name": "아세트아미노펜", "state_labels": ["원인 확인 못 함"], "code_missing_text": None},
+                     {"code": None, "name": "슈도에페드린", "state_labels": ["원인 확인 못 함"], "code_missing_text": None}]
+
+
+# =========================================================================== BE-06-42 A: 원인 모름 칩의 상태 글자
+@pytest.mark.parametrize("contra_kinds, dup, expected", [
+    (None, None, [fp.INGR_STATE_UNKNOWN]),                       # 모름
+    ([], False, []),                                            # 원인 아님·중복 아님: 글자 없음
+    (["pregnancy"], False, [fp.INGR_STATE_CAUSE]),              # 원인 앎
+    (None, True, [fp.INGR_STATE_UNKNOWN, fp.INGR_STATE_DUP]),    # 원인 모름 + 중복(순서: 원인 확인 못 함 → 중복)
+    ([], None, []),                                             # 원인 아님 + 중복 모름: '원인' 글자가 아니므로 없음
+    (["contra_pair"], None, [fp.INGR_STATE_PAIR_CAUSE]),
+])
+def test_be06_42_state_labels_for_none_empty_false(contra_kinds, dup, expected):
+    from app.api.schemas import Ingredient
+
+    assert fp.ingredient_state_labels(contra_kinds, dup) == expected
+    ing = Ingredient(name="성분", contra_kinds=contra_kinds, dup=dup)  # 검증기가 서버 상수로 채운다
+    assert ing.state_labels == expected
+    Ingredient(name="성분", contra_kinds=contra_kinds, dup=dup, state_labels=expected)  # 같은 글자는 통과
+    if expected != [fp.INGR_STATE_UNKNOWN]:
+        with pytest.raises(ValidationError, match="state_labels"):
+            Ingredient(name="성분", contra_kinds=contra_kinds, dup=dup, state_labels=[fp.INGR_STATE_UNKNOWN])
+
+
+def _ident_line_chips(r: ChatResponse) -> list[Any]:
+    (line,) = [f for f in r.findings if f.kind == "identify" and f.bucket == "identified"]
+    return line.ingredients
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_decision4_not_judged_drug_chips_have_no_unknown_label(multi: bool):
+    """결정 후보 4 B(2026-11-18): 금기 판정 항목이 없는 약의 "찾음" 줄 칩에는 `원인 확인 못 함`을 싣지 않는다(판정 대상 아님 = 원인 아님)."""
+    ident = _ident() if not multi else {**_ident(), "ingredients": [{"display": "아세트아미노펜"}, {"display": "슈도에페드린"}],
+                                         "kids_codes": ["C1", "C2"]}
+    r = to_chat_response(finalize([ident]), end_reason="NORMAL")
+    chips = _ident_line_chips(r)
+    assert chips and all(c.state_labels == [] and c.contra_kinds == [] and c.dup is False for c in chips)
+    wire = json.loads(encode_event(answer(1, r)))["response"]["findings"]
+    assert all(c["state_labels"] == [] for f in wire for c in f["ingredients"])
+
+
+def test_decision4_not_listed_only_drug_chips_have_no_unknown_label():
+    nl = {**_preg(), "status": "NOT_LISTED", "matches": []}
+    r = to_chat_response(finalize([_ident(), nl]), end_reason="NORMAL")
+    assert all(c.state_labels == [] for c in _ident_line_chips(r))
+
+
+def test_decision4_unconfirmed_drug_chips_keep_unknown_label():
+    """판정을 시도했지만 확인하지 못한 약은 모름 그대로(`원인 확인 못 함`, BE-06-42 A)."""
+    r = to_chat_response(finalize([_ident(), _age_unlinked()]), end_reason="NORMAL")
+    assert all(c.state_labels == [fp.INGR_STATE_UNKNOWN] and c.contra_kinds is None for c in _ident_line_chips(r))
+
+
+def test_decision4_product_row_multi_chips_keep_unknown_label():
+    """판정이 있는 복합제 제품 줄의 칩은 성분별 원인을 몰라 `원인 확인 못 함` 그대로다(결정 4는 판정 없는 약에만)."""
+    multi = {**_ident(), "ingredients": [{"display": "아세트아미노펜"}, {"display": "슈도에페드린"}], "kids_codes": ["C1", "C2"]}
+    r = to_chat_response(finalize([multi, _preg()]), end_reason="NORMAL")
+    (a,) = _product_findings(r, "와파린정")
+    assert [c.state_labels for c in a.ingredients] == [[fp.INGR_STATE_UNKNOWN], [fp.INGR_STATE_UNKNOWN]]
+
+
+def test_be06_42_unknown_label_cannot_be_dropped_or_replaced():
+    from app.api.schemas import Ingredient
+
+    for bad in ([fp.INGR_STATE_CAUSE], ["모름"], [fp.INGR_STATE_UNKNOWN, fp.INGR_STATE_UNKNOWN]):
+        with pytest.raises(ValidationError, match="state_labels"):
+            Ingredient(name="성분", state_labels=bad)
+
+
+def test_be06_42_unknown_phrase_passes_sentence_filter_and_screen_checks():
+    """승인 문구(BE-06-42 A) 글자 고정, 문장 필터(`unsafe_reason`)·화면 금지어·안전 암시어 검사 통과."""
+    from app.agent.sentence_filter import unsafe_reason
+
+    text = fp.INGR_STATE_UNKNOWN
+    assert text == "원인 확인 못 함" and "INGR_STATE_UNKNOWN" not in fp.DRAFT_KEYS
+    assert unsafe_reason(text) is None
+    assert not any(t in text for t in fp.FORBIDDEN_SCREEN_TERMS)
+    assert not any(w in text for w in ("안전", "괜찮", "문제없", "문제 없", "삐!", "의사"))
+    assert text not in (fp.INGR_STATE_CAUSE, fp.INGR_STATE_PAIR_CAUSE, fp.INGR_STATE_DUP)
+
+
+def test_known_not_cause_chip_keeps_empty_list_and_false_on_wire():
+    """`[]`·`false`(원인 아님)는 "모름"과 달리 그대로 싣는다(AG-08 계약 ② 단일 성분, 금기 없음)."""
+    row = {**ROW_MULTI, "badges": [], "contra_kinds": [], "found_kinds": [], "caution_kinds": ["dose"], "bucket": "identified",
+           "text": fp.IDENTIFIED_LINE, "ingredients": [{"name": "와파린", "code": "111111ATB", "contra_kinds": [], "dup": False,
+                                                       "state_labels": []}]}
+    r = to_chat_response({**finalize([_preg()]), "product_rows": [row]}, end_reason="NORMAL")
+    (m,) = _product_findings(r, "콜드정")
+    chip = json.loads(m.model_dump_json())["ingredients"][0]
+    assert chip["contra_kinds"] == [] and chip["dup"] is False
+
+
+def test_unknown_chip_rejects_state_labels_without_cause():
+    with pytest.raises(ValidationError, match="state_labels"):
+        to_chat_response({**finalize([_preg()]), "product_rows": [
+            {**ROW_MULTI, "ingredients": [{"name": "아세트아미노펜", "state_labels": [fp.INGR_STATE_CAUSE]}]}]}, end_reason="NORMAL")
+
+
+# =========================================================================== BE-06-41 A: 제품 줄 evidence_id = None
+def test_product_findings_have_no_evidence_id_and_ids_stay_unique():
+    r = to_chat_response(finalize(ITEMS), end_reason="NORMAL")
+    products = [f for f in r.findings if f.target == "product" and f.badges]
+    assert products and all(f.evidence_id is None for f in products)
+    assert [f.kind for f in products] == ["contra_pair", "contra_pair"]  # 줄 대표 종류 = 첫 배지 종류(text = 첫 배지 글자와 짝)
+    ids = [f.evidence_id for f in r.findings if f.evidence_id is not None]
+    assert ids == [PAIR_EID]  # 쌍 줄만 근거 ID를 가진다: ID로 줄을 찾아도 겹치지 않는다
+    assert {b.evidence_id for f in products for b in f.badges} <= {d.evidence_id for d in r.detail}  # 배지 ID로 근거 상세를 연다
+
+
+def test_real_finalize_output_links_end_to_end():
+    """실제 finalize 출력(fixture를 얹지 않음)으로 `:41`·`:55`: 와파린정 한 줄(배지 둘·칩), 아스피린정 한 줄, 쌍 줄 하나."""
+    r = to_chat_response(finalize(ITEMS), end_reason="NORMAL")
+    (a,) = _product_findings(r, "와파린정")
+    assert [b.kind for b in a.badges] == ["contra_pair", "pregnancy"] and a.ingredients[0].state_labels == ROW_SEQ_A["ingredients"][0][
+        "state_labels"]
+    assert a.sub_line == "와파린"  # 흡수한 "찾음" 줄의 보조줄(성분 이름)은 버리지 않는다
+    assert [f.drugs for f in r.findings if f.target == "pair"] == [["와파린정", "아스피린정"]]
+    (c,) = _product_findings(r, "쿠마딘정")  # 성분 중복 상대 약: 배지 없이 '성분 중복' 표시를 notes로 유지
+    assert c.bucket == "identified" and c.kind == "dup_ingredient" and fp.CAUTION_LABELS["dup_ingredient"] in c.notes
+    assert fp.CAUTION_LABELS["dup_ingredient"] in a.notes
+
+
+def _dose() -> dict:
+    eid = "dose:SEQ_A"
+    return {"kind": "dose", "status": "FOUND", "subject": ["111111ATB"], "evidence_id": eid, "source": KIDS, "as_of": "2026-07-21",
+            "flags": ["API_SAME"], "dataset_key": "dose", "source_kind": "FILE", "drugs": ["와파린정"], "drug_keys": ["SEQ_A"],
+            "matches": [{"row_key": "d", "row_evidence_id": eid + "#a", "notice_no": "제2026-1호"}]}
+
+
+def _age_unlinked() -> dict:
+    return {"kind": "age", "status": "UNIDENTIFIED", "subject": ["111111ATB"], "evidence_id": "age:SEQ_A", "source": KIDS,
+            "as_of": "2026-07-21", "flags": ["CODE_NOT_LINKED"], "dataset_key": "age", "source_kind": None, "drugs": ["와파린정"],
+            "drug_keys": ["SEQ_A"], "matches": []}
+
+
+def test_absorbed_caution_and_notes_are_kept_on_product_line():
+    """주의(용량) 줄을 합쳐도 그 표시(`용량 주의`)와 꼬리 안내는 제품 줄 notes에 남는다(정보를 버리지 않음)."""
+    resp = finalize([_ident(), _preg(), _dose()])
+    dose_entry = next(e for e in resp["entries"] if e["kind"] == "dose")
+    r = to_chat_response(resp, end_reason="NORMAL")
+    (a,) = _product_findings(r, "와파린정")
+    assert fp.CAUTION_LABELS["dose"] in a.notes and all(n in a.notes for n in dose_entry["notes"])
+    assert [b.kind for b in a.badges] == ["pregnancy"]
+
+
+def test_unconfirmed_and_not_listed_lines_stay_separate():
+    """확인하지 못함·목록에 없음 줄은 글자가 종류를 말하지 않아 합치지 않는다: 근거 ID·종류를 가진 줄로 따로 남는다."""
+    nl = {**_preg(), "kind": "age", "status": "NOT_LISTED", "matches": [], "evidence_id": "age:SEQ_A", "dataset_key": "age"}
+    r = to_chat_response(finalize([_ident(), _preg(), _age_unlinked()]), end_reason="NORMAL")
+    lines = _product_findings(r, "와파린정")
+    assert [(f.kind, f.bucket, f.evidence_id) for f in lines] == [("pregnancy", "found", None), ("age", "unconfirmed", "age:SEQ_A")]
+    assert lines[0].unresolved and r.pharmacist_advice
+    r2 = to_chat_response(finalize([_ident(), _preg(), nl]), end_reason="NORMAL")
+    assert [(f.kind, f.bucket) for f in _product_findings(r2, "와파린정")] == [("pregnancy", "found"), ("age", "not_listed")]
+
+
+def test_row_without_found_or_identified_is_not_emitted():
+    """판정이 확인하지 못함뿐인 약은 제품 줄을 내지 않고 근거 줄(찾음 줄 포함)을 지금처럼 둔다(같은 글자 두 번 방지)."""
+    r = to_chat_response(finalize([_ident(), _age_unlinked()]), end_reason="NORMAL")
+    assert [(f.kind, f.bucket) for f in _product_findings(r, "와파린정")] == [("identify", "identified"), ("age", "unconfirmed")]
+
+
+# =========================================================================== FE 계약 확인(goal-fe-sync.md §5, 2026-11-18 메인 추가 지시)
+def test_fe5_7_product_evidence_id_key_is_sent_as_null():
+    """§5-7: `Finding.evidence_id`는 키를 지우지 않고 null로 싣는다(exclude_none 금지). 스트림 바이트로 확인."""
+    raw = json.loads(encode_event(answer(1, to_chat_response(finalize(ITEMS), end_reason="NORMAL"))))
+    products = [f for f in raw["response"]["findings"] if f["target"] == "product"]
+    assert products and all("evidence_id" in f and f["evidence_id"] is None for f in products)
+
+
+def test_fe5_1_openapi_keeps_ingredient_fields_nullable():
+    """§5-1·2: `exclude_if`로 값을 빼도 OpenAPI 스키마에는 칸이 남고(이름 집합 불변), 모름(null)을 허용한다."""
+    schemas = app.openapi()["components"]["schemas"]
+    ing = schemas["Ingredient"]["properties"]
+    assert {"code", "name", "contra_kinds", "dup", "state_labels", "code_missing_text"} == set(ing)
+    assert {"array", "null"} == {x.get("type") for x in ing["contra_kinds"]["anyOf"]}
+    assert {"boolean", "null"} == {x.get("type") for x in ing["dup"]["anyOf"]}
+    assert "evidence_id" in schemas["Finding"]["properties"]
+
+
+def test_fe5_2_null_and_absent_unknown_both_accepted_and_partial_null():
+    """§5-2: 모름은 null·칸 생략 둘 다 받고 한 칸만 null인 조합도 받는다. 응답 글자에서는 둘 다 키 생략으로 나간다."""
+    from app.api.schemas import Ingredient
+
+    for raw in ({"name": "a"}, {"name": "a", "contra_kinds": None, "dup": None}, {"name": "a", "contra_kinds": None, "dup": False},
+                {"name": "a", "contra_kinds": ["pregnancy"], "dup": None, "state_labels": [fp.INGR_STATE_CAUSE]}):
+        ing = Ingredient(**raw)
+        dumped = json.loads(ing.model_dump_json())
+        assert all(k in dumped for k in ("contra_kinds", "dup") if raw.get(k) is not None)
+        assert all(k not in dumped for k in ("contra_kinds", "dup") if raw.get(k) is None)
+
+
+@pytest.mark.parametrize("kinds", [["missing"], ["grade_def"], ["missing", "grade_def"]])
+def test_fe5_4_advice_kinds_enum_only_two_values(kinds: list[str]):
+    """§5-4: 값은 missing·grade_def뿐(OpenAPI enum, 다른 값 거부는 `test_advice_kinds_unknown_value_is_rejected`)."""
+    assert set(kinds) <= set(app.openapi()["components"]["schemas"]["ChatResponse"]["properties"]["pharmacist_advice_kinds"]["items"]["enum"])
+    assert app.openapi()["components"]["schemas"]["ChatResponse"]["properties"]["pharmacist_advice_kinds"]["items"]["enum"] == [
+        "missing", "grade_def"]
+
+
+def _ident_label_missing(reason: str) -> dict:
+    """식별은 됐지만 허가사항 원문을 확보하지 못한 항목(`identify_drug._label_state`: FETCH_FAIL·OUT_OF_SCOPE)."""
+    return {**_ident(), "missing_reason": reason, "label_source": None, "flags": ["EASY_TEXT_MISSING"]}
+
+
+@pytest.mark.parametrize("reason", ["FETCH_FAIL", "OUT_OF_SCOPE"])
+@pytest.mark.parametrize("extra", [[], [_preg()]])
+def test_fe5_5_label_missing_evidence_always_has_one_missing_advice(reason: str, extra: list[dict]):
+    """§5-5: 근거 상세에 미확보 근거(`missing_reason`)가 있으면 `missing` 권고 줄이 정확히 1줄 있다(약이 식별된 경우 포함)."""
+    resp = finalize([_ident_label_missing(reason), *extra], grade_def_missing=None)
+    r = to_chat_response(resp, end_reason="NORMAL")
+    assert any(d.missing_reason for d in r.detail)
+    assert r.pharmacist_advice_kinds.count("missing") == 1 and len(r.pharmacist_advice_kinds) == len(r.pharmacist_advice)
+    assert r.fixed_notice[0] == fp.PHARMACIST_ADVICE_FIXED  # 미확보가 있으면 약사 확인 권고 고정 줄
+
+
+def test_fe5_5_every_missing_reason_path_gets_missing_advice():
+    """§5-5 일반형: 미확보 사유가 붙은 항목 종류(식별·허가사항 절·근거 검색)마다 `missing` 권고가 생긴다."""
+    label = {"kind": "label", "status": "NO_EVIDENCE", "subject": ["와파린정"], "evidence_id": "prmsn:SEQ_A:용법용량", "source": None,
+             "as_of": None, "flags": [], "matches": [], "dataset_key": "prmsn", "source_kind": None, "drugs": ["와파린정"],
+             "section": "용법용량", "text": None, "missing_reason": "FETCH_FAIL"}
+    for it in (_ident_label_missing("FETCH_FAIL"), label):
+        resp = finalize([it])
+        assert resp["pharmacist_advice_kinds"].count("missing") == 1, it["kind"]
+
+
+def test_without_product_rows_output_is_one_line_per_entry():
+    """`product_rows`가 없는 출력(이전 finalize 모양)은 근거 줄마다 한 줄이다(하위 호환)."""
+    resp = finalize(ITEMS)
+    resp.pop("product_rows")
+    r = to_chat_response(resp, end_reason="NORMAL")
+    assert [f.evidence_id for f in r.findings] == [e["evidence_id"] for e in resp["entries"]]

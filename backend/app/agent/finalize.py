@@ -304,9 +304,12 @@ def _product_rows(buckets: list[tuple[dict[str, Any], int]], badges: list[dict[s
     - 성분 칩(`ingredients[]`): 식별 항목이 있으면 그 성분 이름·코드(`_ingredients`). 금기 원인(`contra_kinds`)·중복(`dup`)은
       **어느 성분인지 확실할 때만**(성분이 하나) 칩에 단다. 복합제는 성분별 원인 코드가 도구 결과에 없어 칩 값을 지어내지 않는다.
     - 판정 항목이 없는 약(식별만 됨·후보)은 줄을 만들지 않는다(그 줄은 `entries`에 있다).
+    - `evidence_ids`: 판정 근거 ID(나온 순서) 뒤에 **그 약 키의 식별(`identify` FOUND) 근거 ID**를 붙인다(BE-06-39 A).
+      응답 변환이 이 목록으로 같은 약의 "찾음" 줄을 제품 줄에 흡수한다(PRD-14 식별된 약 한 줄). ID 형식을 파싱하지 않는다.
     """
     rows: dict[str, dict[str, Any]] = {}
     identified: dict[str, dict[str, Any]] = {}
+    identify_ids: dict[str, list[str]] = {}
 
     def row(key: str, label: str) -> dict[str, Any]:
         if key not in rows:
@@ -332,6 +335,9 @@ def _product_rows(buckets: list[tuple[dict[str, Any], int]], badges: list[dict[s
             k = _identify_key(it) if it.get("status") == "FOUND" else None
             if k:
                 identified.setdefault(k, it)
+                eid = it.get("evidence_id")
+                if eid and eid not in identify_ids.setdefault(k, []):
+                    identify_ids[k].append(eid)
             continue
         keys, labels = _item_keys(it), _names(it)
         if it.get("kind") in _PAIR_ITEM_KINDS and len(keys) == 2:
@@ -343,6 +349,7 @@ def _product_rows(buckets: list[tuple[dict[str, Any], int]], badges: list[dict[s
     out: list[dict[str, Any]] = []
     for r in rows.values():
         ids = set(r["evidence_ids"])
+        r["evidence_ids"] = [*r["evidence_ids"], *(x for x in identify_ids.get(r["key"], []) if x not in ids)]  # BE-06-39 A
         mine: list[dict[str, Any]] = []
         for x in sorted((x for x in badges if x.get("evidence_id") in ids and x["kind"] in fp.BADGE_ORDER), key=_badge_key):
             if all((y["kind"], y["text"]) != (x["kind"], x["text"]) for y in mine):
@@ -502,12 +509,17 @@ def finalize(
             d["notes"] = [*(d.get("notes") or []), fp.GRADE_MISMATCH_NOTE]
     not_checked_lines = [fp.NOT_CHECKED_LINES[k] for k in dict.fromkeys(not_checked or []) if k in fp.NOT_CHECKED_LINES]
 
-    unresolved = any(e["unresolved"] for e in entries) or limit_reached or bool(not_checked_lines)
-    names = list(dict.fromkeys(n for e in entries if e["unresolved"] for n in _names_of(e)))
+    # 근거 원문 미확보(`missing_reason`)가 있는데 줄은 "확인하지 못함"이 아닌 경우: 약은 식별됐지만 허가사항 원문을 확보하지 못한
+    # 식별 항목(`identify_drug._label_state`의 FETCH_FAIL·OUT_OF_SCOPE). 줄 묶음은 그대로("찾음") 두되 약사 확인 권고(`missing`)는
+    # 반드시 한 줄 낸다(goal-fe-sync §5-5, 2026-11-18). 없으면 근거 상세에 미확보가 있는데 권고가 비어 응답 검증(BE-06-17 A)이 실패한다
+    label_missing = [not e["unresolved"] and bool(it.get("missing_reason")) for (it, _), e in zip(buckets, entries, strict=True)]
+    needs_missing_advice = any(e["unresolved"] for e in entries) or any(label_missing)
+    unresolved = needs_missing_advice or limit_reached or bool(not_checked_lines)
+    names = list(dict.fromkeys(n for e, lm in zip(entries, label_missing, strict=True) if e["unresolved"] or lm for n in _names_of(e)))
     advice: list[str] = []
     # AG-08-28 A: `pharmacist_advice`와 같은 길이·같은 순서의 줄 종류. 화면이 구역(약 조합 권고 / 등급 정의 권고)별로 거를 때 쓴다
     advice_kinds: list[str] = []
-    if any(e["unresolved"] for e in entries):
+    if needs_missing_advice:
         advice.append(josa.fill(fp.PHARMACIST_ADVICE, drugs=" · ".join(names)) if names else fp.PHARMACIST_ADVICE_NO_NAMES)
         advice_kinds.append(ADVICE_KIND_MISSING)
     gd_lines: list[str] = []
