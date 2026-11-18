@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
+    "e2e:fake": "playwright test -c playwright.fake.config.ts",
     "gen:fixed": "node scripts/gen-fixed-phrases.mjs",
     "gen:api": "node scripts/gen-api.mjs"
   },
