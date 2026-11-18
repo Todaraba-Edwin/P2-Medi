@@ -51,6 +51,7 @@ RFP-29(하네스 전략)는 **제품 안쪽**(런타임·평가·개발 하네�
 - [x] 조사를 하기로 했다면 §3 대상별로 §6 양식의 후보 표가 채워져 있다(차용·보류·제외와 이유, 2026-11-04).
 - [x] 차용하기로 한 스킬·절차가 `CLAUDE.md` 또는 `.claude/`에 반영되었다(2026-11-05, RFP-30-02 A): `.claude/skills/requirements-interview/SKILL.md`, `.claude/agents/plan-critic.md`, `CLAUDE.md` 2장·5장.
 - [x] (RFP-30-03) 스킬 4개가 등록되었다(2026-11-09, B): 기존 `requirements-interview`에 `pr-consistency`·`project-code-review`·`decision-register`·`delegation-brief`를 더해 `.claude/skills/`에 5개가 있다(RFP-30-02의 "정의 파일 2개 이내" 제한을 이 결정으로 확장). `CLAUDE.md` 2장에 목록 반영.
+- [x] (RFP-30-07 A, 2026-11-18) `.claude/agents/schedule-writer.md` 작업 범위 절에 "Bash `cd` 금지·절대 경로·명령 하나씩" 규칙을 넣었다(정의 파일 보강, 새 정의 파일 없음). 정의 파일 변경은 커밋 전이다.
 - [x] 설치한 외부 플러그인이 없다(해당 없음). 외부 코드는 설치·복사하지 않았고 출처 URL·읽은 날짜만 정의 머리에 적었다.
 
 ## 3. 조사 대상과 질문
@@ -109,6 +110,7 @@ RFP-29(하네스 전략)는 **제품 안쪽**(런타임·평가·개발 하네�
 | RFP-30-04 | Recap "현재 상태"가 길어지는 문제를 어떻게 막을까? | A) **단락 1개만 두고 갱신 때 이전 단락은 `schedule-changelog.md`로 이동** / B) 현행(단락 누적) 유지 | **결정됨(2026-11-11, 사용자 "A 권장대로")**: A. ★A. Recap이 약 28KB까지 커져 읽기 어려웠다. 에이전트·스킬 총량은 불변(`.claude/agents/schedule-writer.md` 갱신 규칙 한 줄만 추가). CLAUDE.md 5장은 메인이 판단 | 완료 | [RFP-30 §9](#9-결정-현황) | Recap 구조 |
 | RFP-30-05 | `schedule.md` Top 5를 어떤 구조로 둘까? | A) **트랙 4표**(Agent·BackEnd·FrontEnd·Docs, 트랙당 최대 5행)로 나누고 행마다 `진행`(병렬·부분 병렬·직렬)과 `지금 할 수 있는 것`을 표시 / B) 현행 단일 5행(직렬 N·병렬 A·B) 유지 | **결정됨(2026-11-18, 사용자 지시 "Top-5 를 4개의 열로 나누고 Agent, BackEnd, FrontEnd, Docs 리스트업 확장 / … 직렬로 인한 작업지연보다는 동시에 병렬 처리할 수 있도록")**: A. ★A. 단일 5행은 Agent 직렬만 보여 BE·FE·Docs의 독립 작업이 Top 5 밖에서 놀았다. 절 제목 `## 지금 해야 할 일 (Top 5)`와 앵커는 그대로 둔다(티켓 카드 링크 유지). 에이전트·스킬 총량 불변(`check_schedule.py`·`schedule-writer.md` 규칙 갱신만) | 완료 | [schedule.md 지금 해야 할 일 (Top 5)](../../schedule.md#지금-해야-할-일-top-5) | Top 5 구조, `check_schedule.py` 검사 |
 | RFP-30-06 | Top 5 트랙별 작업을 어떤 환경·모델로 돌릴까? | A) **FrontEnd = VS Code Claude Code(Fable 5.2, 사용자 실행), BackEnd·Agent = herdr pane Opus 5.5, Docs = herdr pane Sonnet 5.5**, 지시서·명령 안내에 환경·대상·모델 3줄 고지 / B) 모두 herdr pane 기본 모델 | **결정됨(2026-11-18, 사용자 지시 "FrontEnd의 경우 vscode-claudecode-fable5.2 / BackEnd, Agent의 경우, 현재 세션의 별도의 pane에서 Opus5.5로 / Docs 의 경우, sonnet 으로 … 해당 작업 환경, 대상, 모델")**: A. ★A. 트랙 병렬에서 어디서 어떤 모델로 도는지 사용자가 한눈에 확인하려고 | 완료 | `CLAUDE.md` 2장 "메인 pane의 역할과 위임" 2번 | 지시서 머리·명령 안내 형식 |
+| RFP-30-07 | `schedule-writer` 정의에 "Bash `cd` 금지·절대 경로" 규칙을 넣을까? | A) 넣는다(`git -C <절대 경로>`, 명령은 하나씩, 파일 읽기·검색은 Read·Grep 우선) / B) 넣지 않는다 | **결정됨(2026-11-18, 사용자 "RFP-30-07 동의")**: A. ★A. `cd`가 든 복합 명령이 `.env` 차단 규칙과 겹쳐 매번 승인 창이 떴다(2026-11-18 하루 7회). 적용 위치는 `.claude/agents/schedule-writer.md` 작업 범위 절(Bash 규칙 줄 아래, 정의 파일은 `.claude/`라 메인·`git-actor` 커밋 대상). 에이전트·스킬 총량 불변(기존 정의 보강) | 완료 | `.claude/agents/schedule-writer.md` | 정의 파일 보강(커밋 예정) |
 
 ## 10. 진행 기록 (실시간 갱신)
 - 2026-11-04 · 결정 RFP-30-01(D 병행)에 따라 별도 pane에서 조사 서브에이전트를 시작한다. 이 티켓 §6 표를 채우고 §11에 조사 결과를 적도록 지시했다(수정 범위는 이 파일만).
