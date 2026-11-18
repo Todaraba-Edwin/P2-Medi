@@ -24,7 +24,10 @@
       "Bash(herdr pane list:*)",
       "Bash(herdr agent get:*)",
       "Bash(herdr agent list:*)",
-      "Bash(herdr agent read:*)"
+      "Bash(herdr agent read:*)",
+      "Bash(/Users/edwin/develop/P2-Medi/backend/.venv/bin/python -m pytest *)",
+      "Bash(PYTHONPATH=* /Users/edwin/develop/P2-Medi/backend/.venv/bin/python -m pytest *)",
+      "Bash(PYTHONPATH=. .venv/bin/python -m pytest *)"
     ],
     "deny": [
       "Read(./.env)",
