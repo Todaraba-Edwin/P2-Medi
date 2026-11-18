@@ -47,6 +47,9 @@ graph 에이전트 실행은 문항 오류가 3건 연속이면 멈추고 결과
 
 재채점: `--rescore RESULT.json [--out PATH]`은 저장된 개발셋 결과의 실행 기록을 지금 채점기(경로 규칙 `traj@v2`, RFP-26-08 A)로 다시
 채점해 새 파일로 쓴다(모델·도구 호출 0, 원본 보존). Router 기록이 없는 예전 결과는 재채점하지 않는다(종료 코드 3, 재측정 필요).
+집계 전 행 보존(AG-11-14 A): 반복 실행은 신뢰성 집계 전에 결과 옆 `결과.rows-partial.json`을 쓰고 저장이 끝나면 지운다. 집계·저장이 멈춰
+이 파일이 남으면 `--reaggregate 결과.rows-partial.json [--out PATH]`이 실행 없이 집계만 다시 해 결과 파일을 쓴다(채점 코드 해시가 다르거나
+결과 파일이 이미 있으면 종료 코드 3).
 """
 
 from __future__ import annotations
@@ -192,6 +195,26 @@ def safety_excl_aux_summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
             "main_metric": SAFETY_MAIN_KEY, "excluded_aux_elements": list(AUX_JUDGE_ELEMENTS)}
 
 
+# AG-11-14 A(2026-11-18): `eval_metrics._path_sig`는 실행 기록(`run`)이 없는 행(시험셋·시험셋 carry)에서 `tuple(t.get("duplicates") or [])`를
+# 하는데 경로 채점의 `duplicates`는 정수(중복 호출 수)라, 1 이상이면 TypeError로 집계가 멈춘다(rel2 사고). 채점 코드는 동결 항목(`metrics_src`)이라
+# 고치지 않고, 신뢰성 집계에 넘기는 **사본**에서만 정수를 서명용 시퀀스로 바꾼다(0 → [], n → [n]). 0만 있으면 서명이 예전과 같고,
+# 회차 사이 중복 수가 같으면 같은 경로로 본다. 원본 행·결과 파일·carry 형식(`_CARRY_TRAJ_KEYS`)은 그대로다.
+
+def _sig_safe_row(r: dict[str, Any]) -> dict[str, Any]:
+    t = r.get("trajectory")
+    if isinstance(r.get("run"), dict) or not isinstance(t, dict):
+        return r  # 실행 기록이 있는 행은 `_path_sig`가 `duplicates`를 보지 않는다
+    d = t.get("duplicates")
+    if isinstance(d, bool) or not isinstance(d, int):
+        return r
+    return {**r, "trajectory": {**t, "duplicates": [d] if d else []}}
+
+
+def reliability_runs(runs: Sequence[Sequence[dict[str, Any]]]) -> dict[str, Any]:
+    """`eval_metrics.reliability`를 그대로 부르되 입력 사본의 `trajectory.duplicates`(정수)만 서명용으로 바꾼다(AG-11-14 A)."""
+    return M.reliability([[_sig_safe_row(r) for r in rs] for rs in runs])
+
+
 RELIABILITY_EXCL_NOTE = ("*_excl_j5 = 같은 신뢰성 정의(§7.7, `eval_metrics.reliability`)에서 안전 응답 통과를 J5 요소를 뺀 값(final_excl_j5와 같은 규칙)으로 "
                          "바꾸고 요소 일관성에서도 J5 요소를 뺀 값(본 지표, AG-12-08 A). J5 포함 pass^k·pass@k는 참고. 판정 일치율은 J5와 무관해 같은 값")
 
@@ -206,7 +229,7 @@ def _row_excl_aux(r: dict[str, Any]) -> dict[str, Any]:
 def reliability_excl_aux(runs: Sequence[Sequence[dict[str, Any]]]) -> dict[str, Any]:
     """신뢰성(pass^k·pass@k·일치율)을 J5 요소를 빼고 다시 계산한 키(`eval_metrics.reliability`를 그대로 쓰고 입력 행만 바꾼다).
     불안정 문항 목록은 담지 않는다(시험셋 실패 문항을 남기지 않게)."""
-    rel = M.reliability([[_row_excl_aux(r) for r in rs] for rs in runs])
+    rel = reliability_runs([[_row_excl_aux(r) for r in rs] for rs in runs])
     return {"pass^k_excl_j5": rel["pass^k"], "pass@k_excl_j5": rel["pass@k"], "undecided_pending_judge_excl_j5": rel["undecided_pending_judge"],
             "judgment_agreement_excl_j5": rel["judgment_agreement"], "safety_element_consistency_excl_j5": rel["safety_element_consistency"],
             "main_metric": "pass^k_excl_j5", "excl_j5_note": RELIABILITY_EXCL_NOTE}
@@ -481,6 +504,7 @@ def run_eval(
     carry_keys_map: dict[str, str] | None = None,
     carry_out: list[dict[str, Any]] | None = None,
     first_run: Sequence[dict[str, Any]] | None = None,
+    partial_out: Path | None = None,
 ) -> dict[str, Any]:
     """`budget`을 주면 문항을 시작하기 전마다 누적 비용을 보고, 상한에 닿았으면 남은 문항을 건너뛴다(`skipped_cost_cap`).
     `skip_judge`면 judge 자리를 비운다(결과 `judge: null`).
@@ -488,7 +512,8 @@ def run_eval(
     (AG-06-09 A). 연속 수는 회차 경계를 넘어 이어 센다. 셋 다 주지 않으면 예전 동작·결과 형식 그대로다.
     신뢰성 1회차 재사용(RFP-35-09 A): `carry_out`(목록)과 `carry_keys_map`(문항 ID → 키)을 주면 첫 회차 행 중 그 문항을 `carry_row`로 줄여 담는다.
     `first_run`(줄인 1회차 행)을 주면 실행은 2회차부터 `repeats - 1`번만 하고, 신뢰성은 1회차를 더한 `repeats`회로 계산한다
-    (지표·문항별 행은 실행한 회차만, `run_index`는 2부터)."""
+    (지표·문항별 행은 실행한 회차만, `run_index`는 2부터).
+    `partial_out`을 주면 반복 실행의 신뢰성 집계 **전에** 그 경로에 집계 전 행 파일을 쓴다(`write_partial_rows`, AG-11-14 A)."""
     first = 1 if first_run is not None else 0  # 실행하는 첫 회차의 번호(0부터)
     ph = phrases or M.Phrases.from_backend()
     judge = judge or NotCalledJudge()
@@ -619,15 +644,32 @@ def run_eval(
     if first_run is not None:  # 1회차 = 본 측정. 추가 회차도 같은 함수로 줄여 같은 모양끼리 비교한다
         rel_runs = [list(first_run), *[[carry_row(r, sealed=sealed, key=keys.get(str(r.get("id")))) for r in rs] for rs in runs]]
     if len(rel_runs) > 1:
-        rel = M.reliability(rel_runs)
-        if sealed:
-            for k in ("unstable_items", "unstable_items_code_part"):
-                rel.pop(k, None)  # 시험셋은 실패 문항을 남기지 않는다
-        if first_run is not None:
-            rel["first_run_reused"] = True
-        if real_judge:
-            rel.update(reliability_excl_aux(rel_runs))
-        result["reliability"] = rel
+        if partial_out is not None:  # 집계 전에 회차 행을 남긴다(집계가 멈춰도 실행·judge 비용이 날아가지 않게, AG-11-14 A)
+            pkeys = keys if first_run is not None else carry_keys(items, sealed=sealed)
+            reduced = rel_runs if first_run is not None else \
+                [[carry_row(r, sealed=sealed, key=pkeys.get(str(r.get("id")))) for r in rs] for rs in runs]
+            snap = {**result, "metrics": {**result["metrics"], "trajectory": dict(result["metrics"]["trajectory"])}}
+            _attach_items(snap, runs, sealed=sealed, first=first)
+            write_partial_rows(snap, reduced, partial_out, sealed=sealed, first_run_reused=first_run is not None, real_judge=real_judge)
+        result["reliability"] = reliability_block(rel_runs, sealed=sealed, first_run_reused=first_run is not None, real_judge=real_judge)
+    _attach_items(result, runs, sealed=sealed, first=first)
+    return result
+
+
+def reliability_block(rel_runs: Sequence[Sequence[dict[str, Any]]], *, sealed: bool, first_run_reused: bool, real_judge: bool) -> dict[str, Any]:
+    """결과의 `reliability` 칸(실행 직후 집계와 `--reaggregate`가 같은 함수를 쓴다)."""
+    rel = reliability_runs(rel_runs)
+    if sealed:
+        for k in ("unstable_items", "unstable_items_code_part"):
+            rel.pop(k, None)  # 시험셋은 실패 문항을 남기지 않는다
+    if first_run_reused:
+        rel["first_run_reused"] = True
+    if real_judge:
+        rel.update(reliability_excl_aux(rel_runs))
+    return rel
+
+
+def _attach_items(result: dict[str, Any], runs: Sequence[Sequence[dict[str, Any]]], *, sealed: bool, first: int) -> None:
     if sealed:
         result["metrics"]["trajectory"].pop("top_fail_kinds", None)
         result["items"] = "omitted: sealed set (scores only, RFP-26-04)"
@@ -635,7 +677,58 @@ def run_eval(
         result["items"] = runs[0]
         if len(runs) > 1:  # AG-06-11 A: 개발셋 반복 실행은 2·N회차 문항별 행도 남긴다(시험셋은 위처럼 점수만)
             result["items_repeats"] = [{"run": i + 1 + first, "items": rows} for i, rows in enumerate(runs) if i > 0]
-    return result
+
+
+# --------------------------------------------------------------------------- 집계 전 회차 행 보존(AG-11-14 A, 2026-11-18)
+# 반복 실행은 결과 옆 `결과.rows-partial.json`에 신뢰성 집계 직전 상태(신뢰성 칸만 빠진 결과 + `carry_row`로 줄인 회차 행)를 먼저 쓰고,
+# 결과 저장이 끝나면 지운다. 집계·저장이 멈추면 이 파일이 남고 `--reaggregate 결과.rows-partial.json`이 LLM·원격 호출 없이 집계만 다시 해
+# 결과 파일을 쓴다. 시험셋은 결과 파일과 같은 비저장 규칙이다(문항 원문·문항 ID·실행 기록 없음, 순번 `#n`, 판정 근거 ID는 해시).
+
+PARTIAL_VERSION = "reliability-rows-partial@v1"
+PARTIAL_SUFFIX = ".rows-partial.json"
+
+
+def partial_rows_path(out: Path | None, meta: dict[str, Any]) -> Path:
+    if out is not None:
+        return out.with_name(out.stem + PARTIAL_SUFFIX)
+    stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
+    return OUT_DIR / f"{meta.get('set', 'set')}-{meta.get('condition', 'C?')}-{meta.get('agent', 'agent')}-{stamp}{PARTIAL_SUFFIX}"
+
+
+def write_partial_rows(result: dict[str, Any], rel_runs: Sequence[Sequence[dict[str, Any]]], path: Path, *, sealed: bool,
+                       first_run_reused: bool, real_judge: bool) -> Path:
+    doc = {"kind": PARTIAL_VERSION, "sealed": sealed, "first_run_reused": first_run_reused, "real_judge": real_judge,
+           "target_out": path.name[: -len(PARTIAL_SUFFIX)] + ".json" if path.name.endswith(PARTIAL_SUFFIX) else None,
+           "result": result, "rel_runs": [list(rs) for rs in rel_runs],
+           "note": "신뢰성 집계 전 회차 행(AG-11-14 A). 결과 저장이 끝나면 지운다. 남아 있으면 --reaggregate로 집계만 다시 한다(LLM 호출 없음)"}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=1, default=str) + "\n", encoding="utf-8")
+    return path
+
+
+def reaggregate_file(src: Path, out: Path | None = None) -> Path:
+    """집계 전 행 파일 → 결과 파일. 채점 코드 해시(`metrics_src`)가 실행 때와 다르거나 결과 파일이 이미 있으면 멈춘다(덮어쓰지 않는다)."""
+    doc = json.loads(src.read_text(encoding="utf-8"))
+    if doc.get("kind") != PARTIAL_VERSION or not isinstance(doc.get("result"), dict) or not isinstance(doc.get("rel_runs"), list):
+        raise ReaggregateUnavailable(f"집계 전 행 파일 형식이 아니다({doc.get('kind')})")
+    res = doc["result"]
+    was = ((res.get("meta") or {}).get("versions") or {}).get("metrics")
+    if was and was != metrics_version():
+        raise ReaggregateUnavailable(f"채점 코드 해시가 실행 때와 다르다({was} → {metrics_version()}, 9.6절 동결)")
+    target = out or (src.with_name(doc["target_out"]) if doc.get("target_out") else None)
+    if target is not None and target.exists():
+        raise ReaggregateUnavailable(f"결과 파일이 이미 있다: {target.name}(덮어쓰지 않는다)")
+    rel = reliability_block(doc["rel_runs"], sealed=bool(doc.get("sealed")), first_run_reused=bool(doc.get("first_run_reused")),
+                            real_judge=bool(doc.get("real_judge")))
+    rel["reaggregated_from"] = {"file": src.name, "sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
+    # 실행 직후 결과와 같은 칸 순서(`reliability`는 `items` 앞)
+    ordered: dict[str, Any] = {}
+    for k, v in res.items():
+        if k == "items":
+            ordered["reliability"] = rel
+        ordered[k] = v
+    ordered.setdefault("reliability", rel)
+    return save(ordered, target)
 
 
 def save(result: dict[str, Any], out: Path | None = None) -> Path:
@@ -1256,6 +1349,10 @@ class RescoreUnavailable(RunnerConfigError):
     """다시 채점할 수 없는 결과(Router 기록이 없는 예전 실행 등). 재측정이 필요하다."""
 
 
+class ReaggregateUnavailable(RunnerConfigError):
+    """집계 전 행 파일로 신뢰성 집계를 다시 할 수 없다(형식·채점 코드 해시·결과 파일 이미 있음, AG-11-14 A)."""
+
+
 def rescore_result(result: dict[str, Any], items_by_id: dict[str, dict[str, Any]], *, set_sha256: str | None = None,
                    phrases: M.Phrases | None = None, source: str | None = None) -> dict[str, Any]:
     """저장된 개발셋 결과의 실행 기록(`run`)을 지금 채점기·지금 평가 세트로 다시 채점한 **새 결과**를 돌려준다(원본은 바꾸지 않는다).
@@ -1292,7 +1389,7 @@ def rescore_result(result: dict[str, Any], items_by_id: dict[str, dict[str, Any]
     res["metrics"] = M.aggregate(runs[0])
     res["items"] = runs[0]
     if len(runs) > 1:
-        res["reliability"] = M.reliability(runs)
+        res["reliability"] = reliability_runs(runs)
         res["items_repeats"] = [{"run": i + 1, "items": rows} for i, rows in enumerate(runs) if i > 0]
     elif result.get("reliability"):
         res["reliability_not_recomputed"] = "원본에 2회차 이후 문항별 행이 없어 신뢰성을 다시 계산하지 못했다"
@@ -1425,7 +1522,17 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("A.json", "B.json"), help="두 결과 파일을 나란히 본다(실행 없음)")
     ap.add_argument("--rescore", type=Path, metavar="RESULT.json",
                     help="저장된 개발셋 결과를 지금 채점기로 다시 채점해 새 파일로 쓴다(실행 없음, 원본 보존. --out으로 경로 지정)")
+    ap.add_argument("--reaggregate", type=Path, metavar="RESULT.rows-partial.json",
+                    help="반복 실행이 집계 단계에서 멈춰 남은 집계 전 행 파일로 신뢰성 집계만 다시 해 결과 파일을 쓴다(실행·LLM 호출 없음, AG-11-14 A)")
     a = ap.parse_args(argv)
+    if a.reaggregate:
+        try:
+            out = reaggregate_file(a.reaggregate, a.out)
+        except (ReaggregateUnavailable, OSError, ValueError) as e:
+            print(f"집계 다시 하기 불가: {e}")
+            return 3
+        print(f"집계 다시 하기 → {out}")
+        return 0
     if a.rescore:
         try:
             out = rescore_file(a.rescore, a.out)
@@ -1538,11 +1645,19 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
             print(f"{e}. 실행하지 않았다(1회차 재사용 불가)")
             return 2
     carry: list[dict[str, Any]] | None = [] if a.save_reliability_carry else None
-    res = run_eval(items, agent, sealed=sealed, meta=meta, repeats=a.repeats, budget=budget, judge=judge,
-                   skip_judge=is_graph and judge is None,  # graph 실행은 --judge sonnet일 때만 judge를 붙인다(기본은 코드 채점만)
-                   max_consecutive_errors=MAX_CONSECUTIVE_ERRORS if is_graph else None,
-                   carry_keys_map=carry_map, carry_out=carry, first_run=first_rows)
-    out = save(res, a.out)
+    partial = partial_rows_path(a.out, meta) if a.repeats > 1 else None  # 반복 실행만 집계 전 행을 남긴다(AG-11-14 A)
+    try:
+        res = run_eval(items, agent, sealed=sealed, meta=meta, repeats=a.repeats, budget=budget, judge=judge,
+                       skip_judge=is_graph and judge is None,  # graph 실행은 --judge sonnet일 때만 judge를 붙인다(기본은 코드 채점만)
+                       max_consecutive_errors=MAX_CONSECUTIVE_ERRORS if is_graph else None,
+                       carry_keys_map=carry_map, carry_out=carry, first_run=first_rows, partial_out=partial)
+        out = save(res, a.out)
+    except Exception:
+        if partial is not None and partial.is_file():
+            print(f"  집계·저장 중 멈췄다. 집계 전 행 → {partial}(--reaggregate {partial}로 실행 없이 집계만 다시 한다)")
+        raise
+    if partial is not None:
+        partial.unlink(missing_ok=True)  # 결과 파일에 모두 들어갔다
     if carry is not None:
         print(f"  1회차 재사용 파일 → {write_carry(res, carry, out, subset=carry_mark)}(안전 핵심 {len(carry)}문항)")
     mt = res["metrics"]
