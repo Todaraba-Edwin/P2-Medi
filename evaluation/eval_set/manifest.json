@@ -114,8 +114,8 @@
   "test": {
    "file": "test_set.SEALED.jsonl",
    "n": 151,
-   "sha256": "ae70bb34cc0be03dcafbc71a2590553d46fcc8d779d0a0c20166c903b9ce180e",
-   "bytes": 334241,
+   "sha256": "dc828888a47715b8d11fb2988629399392d86e6491e8fa877bf767f181f64222",
+   "bytes": 334056,
    "by_group": {
     "정상-병용": 15,
     "정상-임부": 10,
