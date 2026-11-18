@@ -19,6 +19,7 @@ from app.agent import josa
 from app.agent.answer_schema import Sentence
 from app.agent.patterns import has_code
 from app.agent.renderer import render
+from app.logging.spans import LABEL_MISSING_REASONS, SpanLogger
 from app.tools.provenance import DATASET_LABELS, api_flag_note
 from app.tools.provenance import badge as source_badge
 
@@ -222,6 +223,15 @@ def _badge_text(kind: str | None, grade: str | None) -> str:
     return fp.CAUTION_LABELS.get(kind or "", "주의")  # 금기 아닌 종류는 "삐!"를 쓰지 않는다
 
 
+def _item_keys(it: dict[str, Any]) -> list[str]:
+    """항목이 가리키는 약 키(제품 줄 묶음용). 도구가 준 `drug_keys`(품목기준코드·성분 표시명·입력 원문)를 쓰고,
+    없으면 표시 이름(`_names`)으로 대신한다. 식별 항목은 여기서 키를 만들지 않는다(`_identify_key`)."""
+    keys = it.get("drug_keys")
+    if isinstance(keys, list) and keys and all(isinstance(k, str) and k for k in keys):
+        return list(keys)
+    return [] if it.get("kind") == "identify" else _names(it)
+
+
 def _badges(found_items: list[dict[str, Any]], render_badges: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_id = {it.get("evidence_id"): it for it in found_items}
     out: list[dict[str, Any]] = []
@@ -232,12 +242,20 @@ def _badges(found_items: list[dict[str, Any]], render_badges: list[dict[str, Any
         g = _grade_norm(b.get("grade"))
         out.append({"kind": b["kind"], "grade": g, "text": _badge_text(b["kind"], g), "evidence_id": b["evidence_id"],
                     "note": fp.BADGE_PREGNANCY_M_NOTE if (b["kind"] == "pregnancy" and g == "M") else None})
-    grades = {x["grade"] for x in out if x["kind"] == "pregnancy"}
-    if len(grades) > 1:  # 등급 불일치: 합치지 않고 출처 꼬리를 단다(PRD-15-02)
+    # 등급 불일치는 **같은 약** 안에서만 본다(BE-06-12 A): 서로 다른 약의 임부 등급이 다른 것은 불일치가 아니다.
+    # 약 키를 모르는 항목(`_item_keys`가 빈 목록)은 한 묶음으로 본다(키가 없던 이전 입력과 같은 결과).
+    grades_by_drug: dict[tuple[str, ...], set[str | None]] = {}
+    for x in out:
+        if x["kind"] == "pregnancy":
+            grades_by_drug.setdefault(tuple(_item_keys(by_id[x["evidence_id"]])), set()).add(x["grade"])
+    mismatch_drugs = {k for k, gs in grades_by_drug.items() if len(gs) > 1}
+    if mismatch_drugs:  # 등급 불일치: 합치지 않고 출처 꼬리를 단다(PRD-15-02)
         for x in out:
             if x["kind"] != "pregnancy":
                 continue
             it = by_id[x["evidence_id"]]
+            if tuple(_item_keys(it)) not in mismatch_drugs:
+                continue
             sks = [m.get("source_kind") or it.get("source_kind") for m in it.get("matches") or [] if _grade_norm(m.get("grade")) == x["grade"]]
             sk = next((s for s in fp.BADGE_TAIL_ORDER if s in sks), it.get("source_kind"))
             x["source_tail_key"] = sk
@@ -250,6 +268,110 @@ def _badges(found_items: list[dict[str, Any]], render_badges: list[dict[str, Any
         return _kind_rank(x["kind"]), fp.BADGE_TAIL_ORDER.index(t) if t in fp.BADGE_TAIL_ORDER else len(fp.BADGE_TAIL_ORDER)
 
     out.sort(key=key)  # 안정 정렬: 병용 → 임부 → 연령, 불일치는 파일 → 성분 API
+    return out
+
+
+def _badge_key(x: dict[str, Any]) -> tuple[int, int]:
+    t = x.get("source_tail_key")
+    return _kind_rank(x["kind"]), fp.BADGE_TAIL_ORDER.index(t) if t in fp.BADGE_TAIL_ORDER else len(fp.BADGE_TAIL_ORDER)
+
+
+_PAIR_ITEM_KINDS = ("contra_pair", "dup_ingredient")
+
+
+def _identify_key(it: dict[str, Any]) -> str | None:
+    """식별 항목(찾음)의 약 키. `check_contraindications._from_candidate`의 키 규칙과 같다:
+    품목기준코드, 성분 단위면 첫 성분 표시명, 둘 다 없으면 제품 이름."""
+    if it.get("item_seq"):
+        return str(it["item_seq"])
+    ingr = [i for i in it.get("ingredients") or [] if isinstance(i, dict)]
+    if ingr and ingr[0].get("display"):
+        return str(ingr[0]["display"])
+    return str(it["name"]) if it.get("name") else None
+
+
+def _product_rows(buckets: list[tuple[dict[str, Any], int]], badges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """제품별 줄(BE-06-12 A, PRD-15 "한 제품 줄에 병용·임부·연령 배지 여러 개", PRD-09-05 성분 칩).
+
+    `entries`(근거 ID마다 한 줄, 평가 `eval_metrics`가 근거 ID로 읽음)는 그대로 두고, 같은 약 키를 가리키는 판정 항목을 한 줄로 모은다.
+    - 묶음 키는 도구가 준 약 키(`drug_keys`)다. 표시 이름 문자열로 묶지 않는다(키가 없을 때만 이름으로 대신).
+    - 배지: 그 약의 금기 배지(병용·임부·연령)만, 같은 글자는 한 번(병용은 쌍이 여럿이어도 종류당 하나, 파일·API 등급이 같으면 하나).
+      등급 불일치는 출처 꼬리가 달려 글자가 달라 둘 다 남는다. 순서는 `Finding.badges` 검증과 같다(병용 → 임부 → 연령, 파일 → 성분 API).
+    - 성분 칩(`ingredients[]`): 식별 항목이 있으면 그 성분 이름·코드(`_ingredients`). 금기 원인(`contra_kinds`)·중복(`dup`)은
+      **어느 성분인지 확실할 때만**(성분이 하나) 칩에 단다. 복합제는 성분별 원인 코드가 도구 결과에 없어 칩 값을 지어내지 않는다.
+    - 판정 항목이 없는 약(식별만 됨·후보)은 줄을 만들지 않는다(그 줄은 `entries`에 있다).
+    """
+    rows: dict[str, dict[str, Any]] = {}
+    identified: dict[str, dict[str, Any]] = {}
+
+    def row(key: str, label: str) -> dict[str, Any]:
+        if key not in rows:
+            rows[key] = {"key": key, "drug": label, "evidence_ids": [], "found_kinds": [], "not_listed_kinds": [],
+                         "unconfirmed_kinds": [], "caution_kinds": [], "dup": False}
+        return rows[key]
+
+    def add(r: dict[str, Any], it: dict[str, Any], b: int) -> None:
+        eid, kind = it.get("evidence_id"), it.get("kind")
+        if eid and eid not in r["evidence_ids"]:
+            r["evidence_ids"].append(eid)
+        if kind == "dup_ingredient":
+            r["dup"] = r["dup"] or b == BUCKET_FOUND
+            return
+        slot = {BUCKET_FOUND: "found_kinds", BUCKET_NOT_LISTED: "not_listed_kinds"}.get(b, "unconfirmed_kinds")
+        if slot == "found_kinds" and kind not in fp.BADGE_ORDER:
+            slot = "caution_kinds"  # 금기가 아닌 주의(용량·수유부·노인)는 금기 배지를 만들지 않는다
+        if kind and kind not in r[slot]:
+            r[slot].append(kind)
+
+    for it, b in buckets:
+        if it.get("kind") == "identify":
+            k = _identify_key(it) if it.get("status") == "FOUND" else None
+            if k:
+                identified.setdefault(k, it)
+            continue
+        keys, labels = _item_keys(it), _names(it)
+        if it.get("kind") in _PAIR_ITEM_KINDS and len(keys) == 2:
+            for i, k in enumerate(keys):
+                add(row(k, labels[i] if len(labels) == 2 else k), it, b)
+        elif len(keys) == 1:
+            add(row(keys[0], labels[0] if labels else keys[0]), it, b)
+
+    out: list[dict[str, Any]] = []
+    for r in rows.values():
+        ids = set(r["evidence_ids"])
+        mine: list[dict[str, Any]] = []
+        for x in sorted((x for x in badges if x.get("evidence_id") in ids and x["kind"] in fp.BADGE_ORDER), key=_badge_key):
+            if all((y["kind"], y["text"]) != (x["kind"], x["text"]) for y in mine):
+                mine.append(dict(x))
+        contra_kinds = list(dict.fromkeys(x["kind"] for x in mine))
+        for slot in ("found_kinds", "not_listed_kinds", "unconfirmed_kinds"):
+            r[slot].sort(key=_kind_rank)
+        if mine:
+            bucket, text = "found", mine[0]["text"]
+        elif r["unconfirmed_kinds"]:
+            bucket, text = "unconfirmed", fp.UNIDENTIFIED
+        elif r["not_listed_kinds"]:
+            bucket, text = "not_listed", fp.NOT_LISTED
+        else:
+            bucket, text = "identified", fp.IDENTIFIED_LINE
+        ident = identified.get(r["key"])
+        ingredients: list[dict[str, Any]] = []
+        if ident is not None:
+            names = [str(x) for x in (i.get("display") or i.get("name_ko") or i.get("name_en") for i in ident.get("ingredients") or []) if x]
+            ingredients = _ingredients(ident, names)
+            if len(ingredients) == 1:  # 성분이 하나라 원인·중복 성분이 확실하다
+                ingredients[0]["contra_kinds"] = contra_kinds
+                ingredients[0]["dup"] = r["dup"]
+            for ing in ingredients:
+                ing["state_labels"] = fp.ingredient_state_labels(ing.get("contra_kinds") or [], bool(ing.get("dup")))
+        out.append({
+            **r, "name": ident.get("name") if ident is not None else None, "bucket": bucket, "text": text,
+            "badges": mine, "contra_kinds": contra_kinds, "ingredients": ingredients,
+            "unresolved": bool(r["unconfirmed_kinds"]),
+        })
+    # 금기 발견 줄 먼저, 같은 묶음은 처음 나온 순서(안정 정렬)
+    order = {"found": 0, "not_listed": 1, "unconfirmed": 2, "identified": 3}
+    out.sort(key=lambda x: order[x["bucket"]])
     return out
 
 
@@ -430,6 +552,7 @@ def finalize(
             fp.NOTICE_API_FAIL if any(f in (it.get("flags") or []) for it in items for f in _API_FAIL_FLAGS) else None),
         "summary": summary,
         "entries": entries,
+        "product_rows": _product_rows(buckets, badges),  # BE-06-12 A: 제품별 줄(배지 여러 개). `entries`는 그대로
         "badges": badges,
         "detail": rendered.detail,
         "citations": rendered.citations,
@@ -450,6 +573,26 @@ def finalize(
         resp["name_corrections"] = corrections
     resp["text"] = render_text(resp)
     return resp
+
+
+def log_missing_events(events: list[dict[str, Any]], logger: SpanLogger) -> int:
+    """`finalize` 응답의 `events`(미확보 사유 코드) 중 PRD-11-04 사유 코드만 BE-15 로거로 내보낸다. 내보낸 건수를 돌려준다.
+
+    - service: `Aggregator.label_missing(사유)` 카운트만(요청별 행 없음, 질문·약 이름·모델 출력 없음).
+    - dev·eval: `harness_event`(규칙·이벤트·사유 코드 세 칸)와 노드 이름만 남긴다. 다른 칸은 넘기지 않는다.
+    - 사유 코드가 아닌 값(`NO_EVIDENCE` 등)은 내보내지 않는다(라벨 미확보 사유가 아니다). 화면에는 코드를 노출하지 않는다(응답 문구는 상수).
+    """
+    n = 0
+    for ev in events or []:
+        code = ev.get("code") if isinstance(ev, dict) else None
+        if not isinstance(ev, dict) or ev.get("event") != "MISSING_REASON" or code not in LABEL_MISSING_REASONS:
+            continue
+        if logger.mode == "service":
+            logger.aggregator.label_missing(code)
+        else:
+            logger.log(node="finalize", harness_event={"rule": "H27", "event": "MISSING_REASON", "code": code})
+        n += 1
+    return n
 
 
 def _names_of(e: dict[str, Any]) -> list[str]:
