@@ -1,11 +1,12 @@
 """AG-07 Validator 기준선: LLM 답변 문장의 출구 코드 검사(순수 함수, LLM·외부 호출 없음).
 
-코드 검사만 한다. `(개선)`(허용 근거 계층·주장 유형 누락·상태 불일치 문구·제품 단정)과 `(프롬프트 판정)`(의미 일치)은 범위 밖이다.
+코드 검사만 한다. `(개선)`(허용 근거 계층·주장 유형 누락·상태 불일치 문구·제품 단정)은 범위 밖이고, `(프롬프트 판정)`(의미 일치)은
+`validator_judge`(기본 꺼짐, 규칙 다음 단계)가 맡는다. 검사별 처리(문장 삭제·되감기)는 `CHECK_ACTIONS` 표에 있다.
 
 **문장 필터(`sentence_filter`, H1)와의 역할 분담** — 필터는 근거 ID 유무·모르는 ID·성분코드 노출과 요약의 복용량 숫자·진단 단정·
 처방/복용 지시를 *무조건* 거른다. Validator는 필터를 통과한 문장(`FilterResult.kept`)을 입력으로 받아 필터가 보지 않는 것만 본다:
 안전 단정, 복용 변경·의료진 우회(허가사항 원문 인용 예외 포함), 등급 값·M 등급 규칙(H22), 등급 예외 단서 오용(H24),
-파일/API 확정 문장, 미확보 항목 권고,
+파일/API 확정 문장, 미확보 항목 권고, 출처 종류 누락(H29),
 claim_type, 근거에 없는 연령·번호·날짜·등급. 용량 숫자·진단 단정은 여기서 다시 세지 않는다(이중 처리 금지). 단 필터 없이 직접
 불렀을 때 복용 지시가 새지 않도록 복용 지시·변경 표현은 필터의 상수 `_DECISION_PATTERNS`를 재사용한다(`_DECISION_PATTERNS`만 보고 DOSE_NUMBER·DIAGNOSIS는 보지 않는다).
 
@@ -49,16 +50,48 @@ QUOTE_MISMATCH = "QUOTE_MISMATCH"                  # ⑨ H28 인용부호 안 �
 GRADE_EXCEPTION_MISUSE = "GRADE_EXCEPTION_MISUSE"  # ⑩ H24 2등급 예외 단서·"사유 기재 불필요"를 복용 허용 근거로, 등급을 위험 서열로 쓴 문장
 UNCONFIRMED_AS_FACT = "UNCONFIRMED_AS_FACT"        # ⑪ AG-09: 확인하지 못한 항목만 인용한 사실 문장(근거 없는 내용을 사실로 말함)
 REFERENCE_AS_VERDICT = "REFERENCE_AS_VERDICT"      # ⑫ AG-09: 참고 전용·코드 미연결·미식별 항목을 인용해 금기 여부를 확정한 문장
+SOURCE_KIND_MISSING = "SOURCE_KIND_MISSING"        # ⑬ H29 출처 종류(`source_kind`)가 없거나 모르는 값인 판정 항목(FOUND·NOT_LISTED)을 인용한 문장
 
 # 검사 이름 → 하네스 규칙 번호(RFP-29 §6). 여기 없는 검사는 VALIDATOR 이벤트의 기본 규칙(H2)으로만 집계한다.
 # H22(RFP-29-03 A): 기존 등급값·M 원문 필수·M 환산 차단을 한 번호로 묶는다(동작은 그대로, 번호만 명시).
 # H24(RFP-29-03 A): 기준선 출력 패턴 `GRADE_EXCEPTION_MISUSE`.
+# H29: 출처 종류 누락(⑬). H28(⑨ `QUOTE_MISMATCH`)은 평가 보조 집계가 `quote_mismatch`로 따로 세므로 여기 넣지 않는다(이중 집계 방지).
 CHECK_RULES: dict[str, str] = {
     GRADE_VALUE_INVALID: "H22",
     M_NO_DETAIL: "H22",
     M_CONVERTED: "H22",
     GRADE_EXCEPTION_MISUSE: "H24",
+    SOURCE_KIND_MISSING: "H29",
 }
+
+# 실패 처리 흐름(AG-07 §3 "실패 시 처리 흐름"). 검사 이름 → 이 함수의 처리. 그 뒤의 처리는 그래프(`graph/nodes.py` validator)가 한다.
+#   DROPPED  그 문장만 지운다. 남은 문장이 있으면 FIXED → finalize(남은 문장만 요약 칸에).
+#   REWIND   답변 단위 되감기. 상태 FAIL → 노드가 되감기 1회(모델 재생성) → 다시 FAIL이면 폴백(모델 문장 없이 코드 문구만).
+# 남은 문장이 없으면(전부 DROPPED) 상태 FAIL → 같은 되감기·폴백 경로(노드 사유 `ALL_SENTENCES_DROPPED`).
+# "확인할 수 없음" 같은 문장 대체는 하지 않는다(대체 문구는 코드 상수여야 하는데 아직 승인된 문구가 없다. 판정·항목 줄은 finalize가 코드로 붙인다).
+DROPPED, REWIND = "DROPPED", "REWIND"
+CHECK_ACTIONS: dict[str, str] = {
+    BAD_CLAIM_TYPE: DROPPED,
+    QUOTE_MISMATCH: DROPPED,
+    SOURCE_KIND_MISSING: DROPPED,
+    GRADE_EXCEPTION_MISUSE: DROPPED,
+    SAFE_ASSERTION: DROPPED,
+    DOSE_CHANGE_OR_BYPASS: DROPPED,
+    GRADE_VALUE_INVALID: DROPPED,
+    M_CONVERTED: DROPPED,
+    M_NO_DETAIL: DROPPED,
+    FILE_API_CLAIM: DROPPED,
+    REFERENCE_AS_VERDICT: DROPPED,
+    UNCONFIRMED_AS_FACT: DROPPED,
+    NUMBER_NOT_IN_EVIDENCE: DROPPED,
+    MISSING_IMPLIES_NONE: DROPPED,
+    MISSING_ADVICE_ABSENT: REWIND,
+}
+
+# ⑬ H29: 판정 항목은 출처 종류가 `finalize` 표지 상수(`fp.SOURCE_KIND_TEXT`)에 있는 값이어야 근거로 쓴다(`finalize._bucket`과 같은 기준).
+# 출처 종류가 없는 판정 항목은 `finalize`가 "확인하지 못함"으로 내리므로, 그 항목을 인용한 모델 문장도 지운다(근거와 표지가 어긋나지 않게).
+# 미식별·근거 없음(`UNIDENTIFIED`·`NO_EVIDENCE` 등)은 원래 `source_kind`가 없다(도구 출력 계약)라 대상이 아니다(⑪·⑫가 본다).
+VALID_SOURCE_KINDS = frozenset(fp.SOURCE_KIND_TEXT)
 
 # ⑨ 인용 글자 일치(H28). 문장에 연결된 근거 중 원문 인용 대상(`CORPUS_QUOTE` 청크 또는 라벨 항목)이 있을 때만 검사한다.
 # - 인용부호: 큰따옴표(" “ ”)와 낫표(「」『』)만 본다. 작은따옴표(' ‘ ’)는 한국어에서 강조에 흔히 쓰여 보지 않는다(한계).
@@ -298,7 +331,7 @@ class ValidationResult:
 
     @property
     def dropped(self) -> list[Issue]:
-        return [i for i in self.issues if i.action == "DROPPED"]
+        return [i for i in self.issues if i.action == DROPPED]
 
 
 # ---------------------------------------------------------------------------------------- 보조
@@ -399,6 +432,10 @@ def _check_sentence(s: SimpleNamespace, items: list[dict[str, Any]], ctx: Simple
         return None
     norm = _norm(text)
 
+    # ⑬ 출처 종류 누락(H29): 표지 없는 판정 항목을 근거로 쓴 문장은 내용을 보기 전에 지운다
+    if any(_source_kind_missing(it) for it in _cited_items(s, ctx.by_id, ctx.row_to_item)):
+        return SOURCE_KIND_MISSING
+
     # ⑨ 인용 글자 일치(H28): 지어낸 인용은 다른 검사보다 먼저 사유를 정한다(인용 구간 마스킹 ②가 지어낸 인용을 빼지 않도록)
     if _quote_mismatch(text, s, ctx):
         return QUOTE_MISMATCH
@@ -484,6 +521,11 @@ def _is_unconfirmed(it: dict[str, Any]) -> bool:
     return it.get("status") not in _CONFIRMED_STATUS or bool(_UNCONFIRMED_FLAGS & set(it.get("flags") or []))
 
 
+def _source_kind_missing(it: dict[str, Any]) -> bool:
+    """⑬ H29: 판정 항목(FOUND·NOT_LISTED)인데 출처 종류가 없거나 표지 상수에 없는 값이다."""
+    return it.get("status") in _CONFIRMED_STATUS and it.get("source_kind") not in VALID_SOURCE_KINDS
+
+
 # ---------------------------------------------------------------------------------------- 답변 단위 검사(⑥)
 def _missing_checks(kept: list[SimpleNamespace], items: list[dict[str, Any]]) -> tuple[list[tuple[int, str]], list[str]]:
     """미확보 항목마다 약사 확인 권고 문장이 있는지(없으면 되감기), 그 항목을 "없음·안전"으로 암시한 문장(삭제 대상)을 찾는다."""
@@ -536,20 +578,20 @@ def validate(
         s = _sent(raw)
         reason = _check_sentence(s, items, ctx, allowed)
         if reason:
-            res.issues.append(Issue(i, reason, "DROPPED", s.text))
+            res.issues.append(Issue(i, reason, CHECK_ACTIONS[reason], s.text))
         else:
             kept.append(s)
     # ⑥ 미확보 항목: 권고가 있어야 하고 "없음·안전" 암시가 없어야 한다(걸러진 문장은 빼고 센다)
     implied, rewind = _missing_checks(kept, items)
     drop_idx = {i for i, _ in implied}
     for i, why in implied:
-        res.issues.append(Issue(i, why, "DROPPED", kept[i].text))
+        res.issues.append(Issue(i, why, CHECK_ACTIONS[why], kept[i].text))
     if drop_idx:
         kept = [s for j, s in enumerate(kept) if j not in drop_idx]
         implied2, rewind = _missing_checks(kept, items)   # 암시 문장을 지운 뒤 다시 센다
         del implied2
     for eid in rewind:
-        res.issues.append(Issue(-1, MISSING_ADVICE_ABSENT, "REWIND", eid))
+        res.issues.append(Issue(-1, MISSING_ADVICE_ABSENT, CHECK_ACTIONS[MISSING_ADVICE_ABSENT], eid))
     res.rewind = rewind
     res.kept = [s.raw for s in kept]
     n_dropped = len(res.dropped)
