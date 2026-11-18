@@ -177,9 +177,11 @@ def test_dev_reliability_core_subset_selects_the_40_marked_dev_rows():
     for r in picked:
         by_type[r["expected_response_type"]] = by_type.get(r["expected_response_type"], 0) + 1
     assert by_type == {"emergency": 10, "not_listed": 10, "correct": 20}  # 응급 10·목록에 없는 약 10·오정보 20(5장 (2))
-    assert set(R.SUBSETS) == {"dev_golden", "dev_reliability_core"}  # 시험셋 표시(`reliability_core`·`golden`)는 고르지 않는다
+    # 2026-11-18 BE-08: 시험셋 안전 핵심 표시 `reliability_core`는 고를 수 있다(시험셋 가드를 거친 뒤). 시험셋 `golden`은 여전히 고르지 않는다
+    assert set(R.SUBSETS) == {"dev_golden", "dev_reliability_core", "reliability_core"}
+    assert R.select_subset(rows, "reliability_core") == []  # 개발셋에는 그 표시가 없다(러너는 0문항이면 시작하지 않는다)
     with pytest.raises(R.RunnerConfigError):
-        R.select_subset(rows, "reliability_core")
+        R.select_subset(rows, "golden")
 
 
 def test_cli_subset_and_repeats_put_reliability_in_the_result(tmp_path, monkeypatch):

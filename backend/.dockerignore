@@ -1,0 +1,11 @@
+# BE-13 이미지에 넣지 않을 것(Dockerfile은 app/·prompts/·pyproject.toml만 복사하지만 빌드 맥락 전송량과 실수를 줄인다)
+.env
+.env.*
+.venv
+**/__pycache__
+**/*.pyc
+*.egg-info
+tests
+scripts
+.pytest_cache
+.ruff_cache

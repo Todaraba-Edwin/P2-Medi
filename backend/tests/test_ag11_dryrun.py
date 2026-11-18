@@ -155,7 +155,8 @@ def test_cli_passes_on_dry_run_results_and_fails_when_an_item_is_missing(results
     paths = [str(results[c]["path"]) for c in CONDITIONS]
     assert F.main([*paths, "--require-judge", "--same"]) == 0
     out = capsys.readouterr().out
-    assert out.count("21/21 통과") == 3 and "동결 값 같음" in out
+    n = len(F.FREEZE_ITEMS)  # 2026-11-18 채점 코드 해시·judge 설정을 더해 23개
+    assert n == 23 and out.count(f"{n}/{n} 통과") == 3 and "동결 값 같음" in out
     broken = json.loads(json.dumps(results["C2"]["res"]))
     broken["meta"]["versions"]["dict"]["version"] = "be10-dict-s1-다른판"
     broken["meta"]["versions"]["corpus"] = None
@@ -164,7 +165,7 @@ def test_cli_passes_on_dry_run_results_and_fails_when_an_item_is_missing(results
     p.write_text(json.dumps(broken, ensure_ascii=False), encoding="utf-8")
     assert F.main([str(p), "--require-judge"]) == 1
     out = capsys.readouterr().out
-    assert "18/21 통과" in out and all(f"NG  {k}" in out for k in ("dict_version", "corpus", "typo_correction"))
+    assert f"{n - 3}/{n} 통과" in out and all(f"NG  {k}" in out for k in ("dict_version", "corpus", "typo_correction"))
 
 
 @pytest.mark.parametrize("cond,enabled,graph", [("C1", True, None), ("C1+", False, None), ("C2", True, "c1-pipeline@v1")])

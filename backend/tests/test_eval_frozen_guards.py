@@ -1,7 +1,7 @@
 """2026-11-17 정합성 점검 반영(H-2·H-3·H-6) 시험.
 
 - H-2: `eval_runner --condition`은 연결된 조건만 받는다(다른 값은 세트를 읽기 전에 종료 코드 2). 2026-11-18 C1(AG-16 고정 파이프라인)을 연결해
-  C2·C1을 받고, 같은 날 C1+(AG-16-06 A)도 연결했다. C1·C1+는 `--agent graph`에서만 받는다(offline-fixed는 조건과 무관한 연결 확인용). C0·C3는 여전히 거부한다.
+  C2·C1을 받고, 같은 날 C1+(AG-16-06 A)도 연결했다. C1·C1+는 `--agent graph`에서만 받는다(offline-fixed는 조건과 무관한 연결 확인용). 2026-11-18 C0(LLM 단독)도 연결했다(`--agent graph`에서만). C3는 여전히 거부한다.
 - H-3: `build_eval_set`은 출력 파일이 이미 있으면 덮어쓰기를 거부한다(`--overwrite-frozen`과 환경변수가 둘 다 있어야 허용).
   임시 폴더의 가짜 파일만 쓰고, 실제 빌드(`build_and_write`)는 부르지 않으며 시험셋 파일은 열지 않는다(존재 여부만 본다).
 - H-6: 도구 모듈의 문자열(모델 입력이 되는 노트 포함)에 화면 금지 용어(한글 문구)가 없다. 주석은 보지 않는다(AST 문자열 상수만).
@@ -33,11 +33,11 @@ ALLOW_ENV = {B.OVERWRITE_ENV: B.OVERWRITE_ENV_VALUE}
 
 # ------------------------------------------------------------------ H-2 비교 조건 가드
 
-def test_connected_conditions_are_c2_c1_and_c1_plus():
-    assert R.SUPPORTED_CONDITIONS == ("C2", "C1", "C1+") and R.DEFAULT_CONDITION == "C2"
+def test_connected_conditions_are_c2_c1_c1_plus_and_c0():
+    assert R.SUPPORTED_CONDITIONS == ("C2", "C1", "C1+", "C0") and R.DEFAULT_CONDITION == "C2"
 
 
-@pytest.mark.parametrize("cond", ["c2", "c1", "c1+", "C0", "C3", "C2+", ""])
+@pytest.mark.parametrize("cond", ["c2", "c1", "c1+", "c0", "C3", "C2+", ""])
 def test_unconnected_condition_is_refused_before_reading_set(cond, tmp_path, capsys):
     missing = tmp_path / "does_not_exist.jsonl"  # 세트를 읽으려 했다면 FileNotFoundError가 났을 것
     rc = R.main(["--set", str(missing), "--condition", cond, "--out", str(tmp_path / "out.json")])
@@ -47,7 +47,7 @@ def test_unconnected_condition_is_refused_before_reading_set(cond, tmp_path, cap
     assert not (tmp_path / "out.json").exists()
 
 
-@pytest.mark.parametrize("cond", ["C1", "C1+"])
+@pytest.mark.parametrize("cond", ["C1", "C1+", "C0"])
 def test_pipeline_conditions_are_refused_for_offline_agent_before_reading_set(cond, tmp_path, capsys):
     """C1·C1+는 그래프를 실제로 만들 때만 뜻이 있다. offline-fixed 결과에 그 표기가 붙지 않게 세트를 읽기 전에 막는다."""
     rc = R.main(["--set", str(tmp_path / "does_not_exist.jsonl"), "--condition", cond, "--out", str(tmp_path / "out.json")])
@@ -57,7 +57,7 @@ def test_pipeline_conditions_are_refused_for_offline_agent_before_reading_set(co
     assert not (tmp_path / "out.json").exists()
 
 
-@pytest.mark.parametrize("cond", ["C0", "C3"])
+@pytest.mark.parametrize("cond", ["C3"])
 def test_unconnected_condition_refused_for_graph_agent_too(cond, tmp_path, capsys):
     rc = R.main(["--set", str(tmp_path / "x.jsonl"), "--agent", R.GRAPH_AGENT, "--condition", cond, "--max-usd", "0.01"])
     assert rc == 2
