@@ -154,19 +154,26 @@ CAUTION_LABELS = {"dose": "용량 주의", "lactation": "수유부 주의", "eld
 INGR_STATE_CAUSE = "금기 원인"
 INGR_STATE_PAIR_CAUSE = "병용금기 원인"
 INGR_STATE_DUP = "중복"
+# 원인을 가리지 못한 성분 칩(복합제처럼 성분별 원인이 도구 결과에 없음, `contra_kinds is None`). BE-06-42 A 승인 문구(2026-11-18).
+# "원인 아님"으로 보이지 않게 모름을 글자로 알린다. 판정이 아니다
+INGR_STATE_UNKNOWN = "원인 확인 못 함"
 
 
-def ingredient_state_labels(contra_kinds: list[str] | tuple[str, ...], dup: bool) -> list[str]:
-    """성분 하나의 상태 글자 목록(없으면 빈 목록). 순서: 병용금기 원인 → 금기 원인(임부·연령) → 중복.
+def ingredient_state_labels(contra_kinds: list[str] | tuple[str, ...] | None, dup: bool | None) -> list[str]:
+    """성분 하나의 상태 글자 목록(없으면 빈 목록). 순서: 병용금기 원인 → 금기 원인(임부·연령) → 원인 확인 못 함 → 중복.
 
     금기 종류 키(`BADGE_ORDER`)만 원인으로 본다. 주의 종류(용량·수유부 등)는 "금기 원인"이라고 하지 않는다.
+    `contra_kinds is None`(원인 모름, BE-06-40 A)이면 `INGR_STATE_UNKNOWN`을 낸다(BE-06-42 A). `[]`는 원인 아님이라 글자가 없다.
+    `dup is None`(중복 모름)은 "원인" 글자가 아니므로 따로 글자를 만들지 않는다(`중복`만 `True`일 때).
     """
-    kinds = [k for k in BADGE_ORDER if k in contra_kinds]
+    kinds = [k for k in BADGE_ORDER if k in (contra_kinds or ())]
     out: list[str] = []
     if "contra_pair" in kinds:
         out.append(INGR_STATE_PAIR_CAUSE)
     if any(k != "contra_pair" for k in kinds):
         out.append(INGR_STATE_CAUSE)
+    if contra_kinds is None:
+        out.append(INGR_STATE_UNKNOWN)
     if dup:
         out.append(INGR_STATE_DUP)
     return out

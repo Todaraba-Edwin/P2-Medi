@@ -156,8 +156,10 @@ def test_findings_and_badges_follow_finalize_order():
     r = _resp([preg_file(), contra_file(), unid()])
     assert [f.bucket for f in r.findings][:2] == ["found", "found"] and r.findings[-1].bucket == "unconfirmed"
     assert r.findings[-1].input_name == "쿵쿵정" and [s.model_dump() for s in r.findings[-1].searched] == [{"dataset": "허가정보", "count": 0}]
-    # v1: 배지는 판정 줄에 붙는다(최상위 `badges` 없음). 줄 순서대로 펼치면 병용 → 임부
-    assert [b.kind for f in r.findings for b in f.badges] == ["contra_pair", "pregnancy"]
+    # v1: 배지는 판정 줄에 붙는다(최상위 `badges` 없음). 제품 줄(약마다, 병용 → 임부) → 쌍 줄 순서(BE-06-12 A 연결, 2026-11-18)
+    assert [(f.target, f.drugs, [b.kind for b in f.badges]) for f in r.findings if f.badges] == [
+        ("product", [A_DRUG], ["contra_pair", "pregnancy"]), ("product", [B_DRUG], ["contra_pair"]),
+        ("pair", [A_DRUG, B_DRUG], ["contra_pair"])]
     assert "badges" not in ChatResponse.model_fields
 
 
@@ -248,12 +250,13 @@ def test_month_as_of_passes_through_unchanged():
 # --------------------------------------------------------------------------- BE-06-01 A: 쌍 줄, PRD-15 배지(줄별·순서)
 def test_be06_01_pair_finding_is_its_own_line():
     r = _resp([contra_file(), preg_file()])
-    pair = next(f for f in r.findings if f.kind == "contra_pair")
-    assert pair.target == "pair" and pair.drugs == [A_DRUG, B_DRUG]
-    preg = next(f for f in r.findings if f.kind == "pregnancy")
-    assert preg.target == "product" and preg.drugs == [A_DRUG]
-    assert [b.kind for b in pair.badges] == ["contra_pair"] and [b.kind for b in preg.badges] == ["pregnancy"]
-    assert preg.badges[0].grade == "2" and preg.badges[0].source is None  # 등급이 하나면 출처 꼬리 없음
+    (pair,) = [f for f in r.findings if f.target == "pair"]
+    assert pair.kind == "contra_pair" and pair.drugs == [A_DRUG, B_DRUG]
+    # 임부 판정은 그 약의 제품 줄 배지다(제품 줄 하나에 병용 → 임부, BE-06-12 A 연결, 2026-11-18)
+    (preg,) = [f for f in r.findings if f.target == "product" and f.drugs == [A_DRUG]]
+    assert [b.kind for b in pair.badges] == ["contra_pair"] and [b.kind for b in preg.badges] == ["contra_pair", "pregnancy"]
+    preg_badge = preg.badges[1]
+    assert preg_badge.grade == "2" and preg_badge.source is None  # 등급이 하나면 출처 꼬리 없음
     with pytest.raises(ValidationError):
         Finding(target="pair", bucket="found", evidence_id="x", kind="contra_pair", drug=A_DRUG, drugs=[A_DRUG], text="t")
 

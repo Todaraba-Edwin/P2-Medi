@@ -100,7 +100,8 @@ EXAMPLE_ROW_SEQ_A = {
     "contra_kinds": ["contra_pair", "pregnancy"],
     "found_kinds": ["contra_pair", "pregnancy"], "not_listed_kinds": [], "unconfirmed_kinds": [], "caution_kinds": [],
     "dup": True,
-    "evidence_ids": [PAIR_EID, "pregnancy:SEQ_A", "dup_ingredient:SEQ_A:SEQ_C"],
+    # 판정 근거 ID 뒤에 그 약 키의 식별 근거 ID(BE-06-39 A, 2026-11-18)
+    "evidence_ids": [PAIR_EID, "pregnancy:SEQ_A", "dup_ingredient:SEQ_A:SEQ_C", "identify:SEQ_A"],
     "ingredients": [{"name": "와파린", "code": "111111ATB", "contra_kinds": ["contra_pair", "pregnancy"], "dup": True,
                      "state_labels": [fp.INGR_STATE_PAIR_CAUSE, fp.INGR_STATE_CAUSE, fp.INGR_STATE_DUP]}],
     "unresolved": False,
@@ -121,6 +122,17 @@ def test_contract_product_row_example_matches_exactly():
     rows = _rows(_example_resp())
     assert rows["SEQ_A"] == EXAMPLE_ROW_SEQ_A
     assert rows["SEQ_B"] == EXAMPLE_ROW_SEQ_B
+
+
+def test_contract_row_evidence_ids_end_with_same_key_identify_id():
+    """BE-06-39 A: 제품 줄 `evidence_ids` = 판정 근거 ID(나온 순서) + 그 약 키의 식별 근거 ID. 식별 항목이 없거나 다른 약이면 붙지 않는다."""
+    rows = _rows(_example_resp())
+    assert rows["SEQ_A"]["evidence_ids"][-1] == "identify:SEQ_A"
+    assert "identify:SEQ_A" not in rows["SEQ_B"]["evidence_ids"] + rows["SEQ_C"]["evidence_ids"]
+    assert _rows(finalize([_preg()]))["SEQ_A"]["evidence_ids"] == ["pregnancy:SEQ_A"]
+    unfound = {**_ident(), "status": "NOT_FOUND"}  # 찾지 못한 식별 항목은 제품 줄에 흡수하지 않는다
+    assert _rows(finalize([unfound, _preg()]))["SEQ_A"]["evidence_ids"] == ["pregnancy:SEQ_A"]
+    assert finalize([_ident()])["product_rows"] == []  # 식별만 된 약은 줄을 만들지 않는다(그 줄은 entries)
 
 
 def test_contract_product_row_and_badge_key_sets_are_fixed():
