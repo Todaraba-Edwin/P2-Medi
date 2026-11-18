@@ -20,6 +20,10 @@
     backend/.venv/bin/python evaluation/judge/sonnet_judge.py --calib-items data/mock/judge_calib/calib40-items.jsonl \
         --out data/mock/judge_calib/calib40-judge.json --max-usd 1.0 [--dry-run]
   `--dry-run`은 호출 수·예상 비용만 출력하고 호출하지 않는다. 결과 JSON 형식은 `calib_agreement.py` 머리말과 같다.
+  키는 `transport_from_settings`가 설정(`.env`의 `ANTHROPIC_API_KEY`)에서 읽는다. 문항을 하나씩 채점하며 진행을 stderr에 적고,
+  상한에 닿으면 멈추고 그때까지의 결과를 `<out>.partial.json`에 남긴다(종료 코드 3, 2026-11-18 AG-12 보정 실행).
+  `--prompt evaluation/judge/judge_rubric@v2.md`(AG-12-06 A 재보정)이면 프런트매터 `render: v2`로 입력 표시 v2(청크 = 근거 상세,
+  코드 부착 줄 `[코드 부착]`)가 켜지고 루브릭 태그가 `J*@v2`가 된다. 결과 meta에 `prompt_version`·`render_version`을 남긴다.
 """
 
 from __future__ import annotations
@@ -47,6 +51,9 @@ MAX_TOKENS = 2000  # RFP-28 §8.4 실측 출력 약 340 토큰. J1 주장 배열
 PRICE_IN_USD_PER_M, PRICE_OUT_USD_PER_M = 2.0, 10.0  # PJ2-RFP.md 9.7절(2026-11-04 문서 조회 값, 본 측정 전 재확인)
 DEFAULT_PROMPT = HERE / "judge_rubric@v1.md"
 PROMPT_SECTIONS = ("SYSTEM", "J1", "J2", "J3", "J4", "J5", "OUTPUT")
+# 입력 표시(렌더) 버전. 프롬프트 프런트매터 `render: v2`가 있을 때만 v2 표시를 켠다(v1 파일은 v1 표시 그대로 → v1 결과 재현, 2026-11-18 AG-12-06 A)
+RENDER_V1, RENDER_V2 = "render@v1", "render@v2"
+CODE_MARK = "[코드 부착] "  # v2 표시: 답 본문에서 모델 요약이 아닌(코드가 붙인) 줄 앞에 붙인다
 R5_ELEMENT = "NO_STATE_ASSESSMENT"  # RFP-26-07 A: 이 요소가 요구된 문항만 J4 R5를 채점한다
 RUBRIC_ITEMS: dict[str, tuple[str, ...]] = {"J3": ("R1", "R2", "R3"), "J4": ("R1", "R2", "R3"), "J5": ("R1", "R2", "R3")}
 STATUS_OK, STATUS_ERROR, STATUS_NA = "ok", "error", "not_applicable"  # "error" = judge 오류(`calib_agreement.judge_to_labels` 계약)
@@ -229,7 +236,13 @@ def load_prompt(path: Path = DEFAULT_PROMPT) -> dict[str, Any]:
     missing = [s for s in PROMPT_SECTIONS if s not in sections]
     if missing:
         raise JudgeError(f"judge 프롬프트에 절이 없다: {missing} ({path.name})")
-    return {"file": path.name, "sha256": hashlib.sha256(raw).hexdigest(), "frontmatter": fm or {},
+    fm = fm or {}
+    version = str(fm.get("version") or "v1")
+    render = str(fm.get("render") or "v1")
+    if render not in ("v1", "v2"):
+        raise JudgeError(f"judge 프롬프트의 render 값을 모른다: {render!r} ({path.name})")
+    return {"file": path.name, "sha256": hashlib.sha256(raw).hexdigest(), "frontmatter": fm, "version": version,
+            "render": RENDER_V2 if render == "v2" else RENDER_V1, "rubric_versions": {k: f"{k}@{version}" for k in RUBRIC_VERSIONS},
             "sections": {k: "\n".join(v).strip() for k, v in sections.items()}}
 
 
@@ -320,19 +333,42 @@ def rubrics_for(item: Mapping[str, Any], answer: Mapping[str, Any], end_reason: 
     return out
 
 
+def mark_code_lines(summary: str | None, text: str | None) -> str:
+    """v2 표시: 답 본문(`text` = 모델 요약 + 코드가 붙인 판정 줄·등급 정의·고정 문구, `finalize.render_text`)에서 요약에 없는 줄 앞에
+    `[코드 부착]`을 붙인다. 요약 줄은 그대로 둔다(모델이 쓴 문장은 요약뿐이다)."""
+    if not text:
+        return ""
+    model_lines = {ln.strip() for ln in (summary or "").splitlines() if ln.strip()}
+    out = []
+    for ln in text.splitlines():
+        s = ln.strip()
+        out.append(ln if not s or s in model_lines else CODE_MARK + ln)
+    return "\n".join(out)
+
+
 def render_user(rubric: str, inp: JudgeInput, prompt: Mapping[str, Any]) -> str:
-    """사용자 메시지: 루브릭 지시 + 질문·정답 근거·청크·답변 + 출력 스키마. 조건·버전 정보는 없다."""
+    """사용자 메시지: 루브릭 지시 + 질문·정답 근거·청크·답변 + 출력 스키마. 조건·버전 정보는 없다.
+    표시는 `prompt["render"]`를 따른다: v1은 그대로, v2는 청크 묶음을 "근거 상세"로 이름 붙이고 코드 부착 줄을 표시한다."""
     secs = prompt["sections"]
-    parts = [f"[루브릭 {RUBRIC_VERSIONS[rubric]}]\n{secs[rubric]}", f"[질문]\n{inp.question}"]
+    v2 = prompt.get("render") == RENDER_V2
+    versions = prompt.get("rubric_versions") or RUBRIC_VERSIONS
+    parts = [f"[루브릭 {versions[rubric]}]\n{secs[rubric]}", f"[질문]\n{inp.question}"]
     if inp.expected_response_type:
         parts.append(f"[기대 응답 유형]\n{inp.expected_response_type}")
     if inp.reference:
         parts.append(f"[정답 근거(코드가 파일에서 산출)]\n{inp.reference}")
     chunks = "\n\n".join(f"<chunk id=\"{c.id}\" rank=\"{i + 1}\">\n{c.text}\n</chunk>" for i, c in enumerate(inp.contexts)) or "(없음)"
-    parts.append(f"[근거 청크(검색 순위 순)]\n{chunks}")
+    if v2:
+        parts.append("[근거 상세 = 근거 청크(검색 순위 순). 사용자가 답 아래에서 펼쳐 보는 부분이며 머리글의 출처·기준일도 사용자에게 보인다]\n" + chunks)
+    else:
+        parts.append(f"[근거 청크(검색 순위 순)]\n{chunks}")
     if rubric != "J2":
         parts.append(f"[답 요약(모델이 쓴 문장. J1의 주장은 여기서만 센다)]\n{inp.answer_summary or '(없음)'}")
-        parts.append(f"[답 본문(코드가 붙인 줄 포함)]\n{inp.answer_text or '(없음)'}")
+        if v2:
+            parts.append(f"[답 본문(사용자가 본 전체. `{CODE_MARK.strip()}` 줄은 모델이 아니라 코드가 붙인 판정·등급 정의·고정 문구)]\n"
+                         f"{mark_code_lines(inp.answer_summary, inp.answer_text) or '(없음)'}")
+        else:
+            parts.append(f"[답 본문(코드가 붙인 줄 포함)]\n{inp.answer_text or '(없음)'}")
     if rubric == "J4":
         parts.append("[R5 적용]\n" + ("이 문항은 R5(상태 평가 불가 고지)를 채점한다" if inp.r5 else "이 문항은 R5를 채점하지 않는다(칸을 만들지 않는다)"))
     schema = output_schema(rubric, r5=inp.r5)
@@ -342,9 +378,9 @@ def render_user(rubric: str, inp: JudgeInput, prompt: Mapping[str, Any]) -> str:
 
 # --------------------------------------------------------------------------- 사후 계산(모델 값을 믿지 않는다)
 
-def finalize_output(rubric: str, data: dict[str, Any], *, r5: bool) -> dict[str, Any]:
+def finalize_output(rubric: str, data: dict[str, Any], *, r5: bool, versions: Mapping[str, str] = RUBRIC_VERSIONS) -> dict[str, Any]:
     out = dict(data)
-    out["rubric"] = RUBRIC_VERSIONS[rubric]
+    out["rubric"] = versions[rubric]
     out["status"] = STATUS_OK
     if rubric == "J1":
         claims = out.get("claims") or []
@@ -418,12 +454,15 @@ class SonnetJudge:
         self.max_usd = max_usd
         self.max_tokens = max_tokens
         self.prompt = load_prompt(prompt_path)
+        self.rubric_versions = dict(self.prompt["rubric_versions"])  # 프롬프트 파일 버전을 따른다(v1 파일이면 J*@v1)
         self.usage = Usage()
         self._max_call_cost = 0.0  # 지금까지 한 호출의 최대 비용(다음 호출이 상한을 넘길지 미리 보는 데 쓴다)
 
     def meta(self) -> dict[str, Any]:
+        fm = self.prompt["frontmatter"]
         return {"judge_model": self.model_id, "rubric_versions": dict(self.rubric_versions), "prompt_file": self.prompt["file"],
-                "prompt_sha256": self.prompt["sha256"], "prompt_status": self.prompt["frontmatter"].get("status"),
+                "prompt_sha256": self.prompt["sha256"], "prompt_status": fm.get("status"), "prompt_version": self.prompt["version"],
+                "render_version": self.prompt["render"], "prompt_changed_from_v1": list(fm.get("changed_from_v1") or []),
                 "thinking": dict(THINKING), "temperature": None, "max_tokens": self.max_tokens, "usage": self.usage.to_json()}
 
     # ---- 호출 한 번(비용·상한) ----
@@ -479,12 +518,12 @@ class SonnetJudge:
                                 {"role": "user", "content": f"형식 오류: {last_err}. 설명 없이 위 출력 스키마에 맞는 JSON 객체 하나만 다시 출력한다."}]
                 continue
             self.usage.scored += 1
-            return finalize_output(rubric, data, r5=inp.r5)
+            return finalize_output(rubric, data, r5=inp.r5, versions=self.rubric_versions)
         return self._error(rubric, ERR_FORMAT, last_err)
 
     def _error(self, rubric: str, kind: str, detail: str) -> dict[str, Any]:
         self.usage.errors += 1
-        return {"rubric": RUBRIC_VERSIONS[rubric], "status": STATUS_ERROR, "error": kind, "detail": detail}
+        return {"rubric": self.rubric_versions[rubric], "status": STATUS_ERROR, "error": kind, "detail": detail}
 
     # ---- eval_runner.Judge ----
     def score(self, item: Mapping[str, Any], answer: Mapping[str, Any], contexts: Sequence[Context | str] = (),
@@ -499,7 +538,7 @@ class SonnetJudge:
         ok = [v for v in by.values() if v.get("status") == STATUS_OK]
         status = STATUS_OK if len(ok) == len(by) else STATUS_ERROR
         overall = all(bool(v.get("overall_pass")) for v in by.values()) if status == STATUS_OK else None
-        return {"rubric": "+".join(RUBRIC_VERSIONS[r] for r in rubs), "rubrics": by, "overall_pass": overall, "status": status,
+        return {"rubric": "+".join(self.rubric_versions[r] for r in rubs), "rubrics": by, "overall_pass": overall, "status": status,
                 "elements": element_results({"rubrics": by})}
 
     # ---- calib_agreement.JudgeScorer ----
@@ -522,36 +561,74 @@ def calib_result(judge: SonnetJudge, items: Sequence[Mapping[str, Any]]) -> dict
     return {"meta": judge.meta(), "items": scored}
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def transport_from_settings(settings: Any = None) -> AnthropicTransport:
+    """키는 설정(`ANTHROPIC_API_KEY`, 현재 폴더·저장소 루트 `.env`)에서 읽어 SDK에 넘기고 어디에도 남기지 않는다(`eval_runner.default_judge`와 같은 규칙).
+    `.env`를 환경변수로 내보내지 않아도 된다. 키가 없으면 변수 이름만 적은 JudgeError."""
+    from app.config import get_settings, reveal
+
+    key = reveal(getattr(settings if settings is not None else get_settings(), "anthropic_api_key", None))
+    if not key:
+        raise JudgeError("judge에 필요한 환경변수가 없다: ANTHROPIC_API_KEY(.env 또는 환경변수)")
+    return AnthropicTransport(api_key=key)
+
+
+def _default_judge_factory(max_usd: float, prompt_path: Path) -> SonnetJudge:
+    from app.llm.ledger import CostLedger
+
+    return SonnetJudge(transport_from_settings(), ledger=CostLedger(), max_usd=max_usd, prompt_path=prompt_path)
+
+
+def _calib_meta(judge: SonnetJudge, items_path: Path, n_items: int, *, partial: bool, stopped: str | None) -> dict[str, Any]:
+    return {**judge.meta(), "calib_items_file": items_path.name, "calib_items_sha256": hashlib.sha256(items_path.read_bytes()).hexdigest(),
+            "n_items": n_items, "partial": partial, "stopped": stopped}
+
+
+def main(argv: Sequence[str] | None = None, *, judge_factory: Any = None) -> int:
+    """보정 40문항 채점 CLI. 문항을 하나씩 채점하며 진행을 stderr에 적고, 비용 상한에 닿으면 멈추고 그때까지의 결과를
+    `<out>.partial.json`에 남긴다(종료 코드 3). `judge_factory(max_usd)`는 시험에서 가짜 전송 judge를 넣는 자리다."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--calib-items", required=True, type=Path, help="select_calib40.py가 만든 calib40-items.jsonl(개발셋만)")
     ap.add_argument("--out", required=True, type=Path, help="calib40-judge.json 경로(이미 있으면 덮어쓰지 않는다)")
     ap.add_argument("--max-usd", type=float, required=True, help="이번 실행 judge 비용 상한(필수)")
     ap.add_argument("--dry-run", action="store_true", help="호출하지 않고 호출 수·예상 비용만 출력")
+    ap.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT, help="judge 프롬프트 파일(기본 judge_rubric@v1.md. 본 측정 채택본은 judge_rubric@v2.md, eval_runner가 넘긴다)")
     a = ap.parse_args(argv)
     import sealed_guard as G
 
     G.check_access(a.calib_items)  # 시험셋 이름이면 열기 전에 막는다(RFP-26-04)
     items = G.load_jsonl(a.calib_items)
     n_calls = sum(len([r for r in it.get("rubrics") or [] if r in RUBRIC_VERSIONS]) for it in items)
-    print(f"문항 {len(items)}, 호출 {n_calls}회(재시도 제외), 예상 약 ${n_calls * 0.0046:.2f}~${n_calls * 0.0074:.2f}(RFP-28 §8.4 실측 1회 값 기준)")
+    prompt = load_prompt(a.prompt)
+    print(f"문항 {len(items)}, 호출 {n_calls}회(재시도 제외), 예상 약 ${n_calls * 0.0085:.2f}(2026-11-18 보정 40 실측 호출당 $0.0085 기준)"
+          f"  프롬프트 {prompt['file']} {prompt['render']} sha256 {prompt['sha256'][:8]}")
     if a.dry_run:
         return 0
     if a.out.exists():
         print(f"이미 있음(덮어쓰지 않음): {a.out}")
         return 2
-    from app.llm.ledger import CostLedger
-
-    judge = SonnetJudge(AnthropicTransport(), ledger=CostLedger(), max_usd=a.max_usd)
-    try:
-        res = calib_result(judge, items)
-    except JudgeBudgetExceeded as e:
-        print(str(e))
-        return 3
+    judge: SonnetJudge = (judge_factory or _default_judge_factory)(a.max_usd, a.prompt)
+    scored: dict[str, dict[str, Any]] = {}
+    stopped: str | None = None
+    for i, it in enumerate(items, 1):
+        try:
+            scored.update(judge.score_items([it]))
+        except JudgeBudgetExceeded as e:
+            stopped = str(e)
+            break
+        u = judge.usage
+        print(f"[{i}/{len(items)}] {it.get('id')} {'+'.join(it.get('rubrics') or [])} 호출 {u.calls} 오류 {u.errors} 누적 ${u.cost_usd:.4f}",
+              file=sys.stderr)
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(json.dumps(res, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    partial = stopped is not None
+    res = {"meta": _calib_meta(judge, a.calib_items, len(items), partial=partial, stopped=stopped), "items": scored}
+    target = a.out.with_suffix(".partial.json") if partial else a.out
+    target.write_text(json.dumps(res, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     u = judge.usage.to_json()
-    print(f"출력: {a.out}  호출 {u['calls']}(재시도 {u['retries']}, 오류 {u['errors']}) 비용 ${u['cost_usd']:.4f}")
+    print(f"{'중단(부분 저장)' if partial else '출력'}: {target}  문항 {len(scored)}/{len(items)} 호출 {u['calls']}(재시도 {u['retries']}, 오류 {u['errors']})"
+          f" 토큰 in {u['input_tokens']} out {u['output_tokens']} 비용 ${u['cost_usd']:.4f}")
+    if partial:
+        print(stopped)
+        return 3
     return 0
 
 
