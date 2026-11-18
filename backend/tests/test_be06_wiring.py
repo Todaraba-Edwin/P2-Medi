@@ -328,7 +328,7 @@ def test_lifespan_without_settings_keeps_501_and_health(wired):
         assert r.status_code == 501 and r.json() == {"code": "NOT_IMPLEMENTED", "fields": []}
         assert client.get("/health").json() == {"status": "ok"}
         paths = set(client.get("/openapi.json").json()["paths"])
-        assert paths == {"/health", "/chat"} and client.get("/docs").status_code == 200  # §2-6 스모크
+        assert paths == {"/health", "/chat", "/me"} and client.get("/docs").status_code == 200  # §2-6 스모크(/me: BE-11 S1)
     assert wired["fake"].calls == 0
 
 
@@ -370,8 +370,9 @@ def test_runner_does_not_leak_after_fixture_and_openapi_is_unchanged(wired):
 
 def test_openapi_matches_committed_export_shape():
     schema = main_mod.app.openapi()
-    assert set(schema["paths"]) == {"/health", "/chat"}
+    assert set(schema["paths"]) == {"/health", "/chat", "/me"}  # /me: BE-11 S1(2026-11-18)
     assert set(schema["paths"]["/chat"]["post"]["responses"]) == {"200", "422", "501"}
+    assert set(schema["paths"]["/me"]["get"]["responses"]) == {"200", "401", "501", "503"}
 
 
 def test_default_resources_is_not_called_by_tests_and_psycopg_is_imported_lazily():
