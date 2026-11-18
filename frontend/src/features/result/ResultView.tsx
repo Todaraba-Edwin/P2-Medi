@@ -14,8 +14,9 @@ export interface ResultViewProps {
 }
 
 /**
- * 결과 부품 묶음: 상단 배너(`notice`) → 쉬운 요약(`summary`) → 결과 카드 → 확인하지 못한 종류의 줄 → (되묻기면) 후보 카드와 안내.
- * 배너와 요약은 받은 글자를 가공 없이 그린다(요약에 용량 숫자를 만들거나 표로 쪼개지 않는다, S8).
+ * 결과 부품 묶음: 상단 배너(`notice`) → 보정 고지(`name_corrections`) → 쉬운 요약(`summary`) → 결과 카드 → 확인하지 못한 종류의 줄
+ * → (되묻기면) 후보 카드와 안내. 순서는 서버 `finalize.render_text`와 같다(보정 고지는 요약보다 먼저: 무엇을 확인했는지부터).
+ * 배너·고지·요약은 받은 글자를 가공 없이 그린다(요약에 용량 숫자를 만들거나 표로 쪼개지 않고, 고지 문장을 다시 조립하지 않는다, S8).
  * 고정 안내·고지·119·근거 상세는 FE-IMPL-05, 화면 조립은 FE-IMPL-06이 한다.
  */
 export function ResultView({ response, basis, footer, onPickCandidate, onOtherCandidate, selectedCandidate }: ResultViewProps) {
@@ -27,6 +28,16 @@ export function ResultView({ response, basis, footer, onPickCandidate, onOtherCa
           <p data-testid="result-notice" className="m-0 rounded-xl bg-warn-bg px-3 py-2 text-[13px] leading-[19px] font-semibold break-words text-warn-ink">
             {response.notice}
           </p>
+        )}
+        {/* 오탈자 보정 고지(서버가 완성한 문장, FE-02). 요약보다 먼저·접히지 않는 자리에 받은 순서 그대로. "삐!" 표지·마스코트 없음 */}
+        {response.name_corrections.length > 0 && (
+          <ul data-testid="name-corrections" className="m-0 flex list-none flex-col gap-1 p-0">
+            {response.name_corrections.map((correction, index) => (
+              <li key={index} className="rounded-xl border border-line bg-bg-softer px-3 py-2 text-[13px] leading-[19px] break-words text-ink-2">
+                {correction.text}
+              </li>
+            ))}
+          </ul>
         )}
         {response.summary !== null && (
           <p data-testid="result-summary" className="m-0 text-base leading-[25px] break-words whitespace-pre-wrap">

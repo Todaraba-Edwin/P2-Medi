@@ -23,12 +23,14 @@ import {
   REFUSE_DOSAGE,
   SOURCE_KIND_PREFIX,
   SOURCE_PREFIX_FILE,
+  fillCorrection,
   fillJosa,
   ingredientStateLabels,
 } from "./phrases";
 
 // 합성 약 이름·성분(실제 제품이 아니다)
 const DRUG_A = "가나다정";
+const DRUG_A_TYPO = "가나다졍"; // `DRUG_A`에서 모음 하나만 다른 합성 오탈자(백엔드 가짜 서버 `typo` 시나리오와 같은 꼴)
 const DRUG_B = "라마바캡슐";
 const DRUG_C = "사아자시럽";
 const DRUG_AMBIGUOUS = "가나다";
@@ -727,6 +729,15 @@ export const apiFailResponse = make({
   findings: [pairFinding],
   detail: [pairDetail],
   citations: [pairCitation],
+});
+
+/**
+ * 오탈자 보정 고지(AG-10-02 A, FE-02): 질문의 한 글자 틀린 이름을 사전 이름으로 보정해 확인한 결과. 고지 한 줄이 요약보다 먼저 온다.
+ * 백엔드 가짜 서버(`dev_fake_server.py`) `typo` 시나리오와 같은 모양: 보정 1건 + 병용금기 1건, `NORMAL`
+ */
+export const typoCorrectedResponse = make({
+  ...foundResponse,
+  name_corrections: [fillCorrection(DRUG_A_TYPO, DRUG_A)],
 });
 
 /** 상한 도달: 상단 배너(`notice`)와 여기까지의 결과 */

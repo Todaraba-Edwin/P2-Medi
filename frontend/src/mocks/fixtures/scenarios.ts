@@ -25,6 +25,7 @@ import {
   pregnancyResponse,
   refuseResponse,
   rxPermitResponse,
+  typoCorrectedResponse,
   unidentifiedResponse,
 } from "./responses";
 
@@ -154,6 +155,13 @@ export const scenarios = {
   codeNotLinked: normal(codeNotLinkedResponse),
   /** 공공 API 실패 배너 */
   apiFail: normal(apiFailResponse),
+  // ---- FE-02 추가(AG-10-02 A `name_corrections`)
+  /** 오탈자 보정 고지 + 병용금기(가짜 서버 `typo`와 같은 흐름: progress×2 → answer → done) */
+  typoCorrected: {
+    kind: "stream",
+    ending: "close",
+    events: events(progress("drug_lookup"), progress("contraindication_check"), answer(typoCorrectedResponse), done(typoCorrectedResponse)),
+  },
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;

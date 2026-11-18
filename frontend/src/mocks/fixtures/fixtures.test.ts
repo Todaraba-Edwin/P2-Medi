@@ -223,6 +223,24 @@ describe("AG-08·BE-06-13~17 새 칸의 fixture(서버 규칙과 같은 모양)"
     expect(lines).toEqual(defs.filter((d) => d.missing_reason !== null).map((d) => d.missing_text));
   });
 
+  it("보정 고지(FE-02): text는 상수 TYPO_CORRECTED_LINE에 input·name을 넣은 문장 그대로이고, 되묻기 응답에는 없다", () => {
+    // 서버 규칙(schemas.py NameCorrection 검증기·ChatResponse `_check`): 바뀌면 이 시험이 먼저 알린다
+    const schemasPy = readFileSync(path.join(BACKEND, "api/schemas.py"), "utf8");
+    expect(schemasPy).toContain("if self.text != fp.TYPO_CORRECTED_LINE.format(input=self.input, name=self.name):");
+    expect(schemasPy).toContain('if self.name_corrections and self.end_reason == "CLARIFY":');
+    expect(responses.typoCorrectedResponse.name_corrections).toHaveLength(1);
+    expect(responses.typoCorrectedResponse.end_reason).toBe("NORMAL");
+    for (const [name, response] of Object.entries(responses)) {
+      if (response.end_reason === "CLARIFY") expect(response.name_corrections, name).toEqual([]);
+      for (const c of response.name_corrections) {
+        expect(c.text, name).toBe(phrases.PHRASES.TYPO_CORRECTED_LINE.replace("{input}", c.input).replace("{name}", c.name));
+        expect(c.input, name).not.toBe(c.name);
+      }
+    }
+    // 가짜 서버 `typo`와 같은 흐름: 진행 둘 → 답(보정 1건 + 병용금기 1건) → done
+    expect(scenarios.typoCorrected.events.map((e) => e.type)).toEqual(["progress", "progress", "answer", "done"]);
+  });
+
   it("오류 이벤트의 문구는 코드별 상수이고 항상 있다", () => {
     const expected: Record<string, string> = {
       INTERNAL_ERROR: phrases.PHRASES.ERROR_INTERNAL,

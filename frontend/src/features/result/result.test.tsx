@@ -205,6 +205,9 @@ describe("ResultCard·ResultView", () => {
     if (response.summary !== null) expect(screen.getByTestId("result-summary").textContent).toBe(response.summary);
     else expect(screen.queryByTestId("result-summary")).toBeNull();
     if (response.notice !== null) expect(screen.getByTestId("result-notice").textContent).toBe(response.notice);
+    if (response.name_corrections.length > 0) {
+      expect(texts([...screen.getByTestId("name-corrections").querySelectorAll("li")])).toEqual(response.name_corrections.map((c) => c.text));
+    } else expect(screen.queryByTestId("name-corrections")).toBeNull();
     const lines = screen.queryAllByTestId("product-line");
     expect(lines).toHaveLength(response.findings.length);
     response.findings.forEach((finding, index) => {
@@ -413,5 +416,45 @@ describe("AG-08 새 칸(받은 값 그대로)", () => {
   it("공공 API 실패 배너(notice의 새 값)도 받은 글자 그대로 보인다", () => {
     render(<ResultView response={fixtures.apiFailResponse} />);
     expect(screen.getByTestId("result-notice").textContent).toBe(PHRASES.NOTICE_API_FAIL);
+  });
+});
+
+describe("FE-02 보정 고지(name_corrections)", () => {
+  const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it("고지 줄은 요약보다 먼저, 배너보다 뒤에, 받은 글자·순서 그대로 접히지 않는 자리에 보인다(읽기 순서 = DOM 순서)", () => {
+    const response: ChatResponse = {
+      ...fixtures.typoCorrectedResponse,
+      notice: PHRASES.NOTICE_API_FAIL,
+      name_corrections: [
+        { input: "가", name: "가나", text: "받은 고지 하나" },
+        { input: "나", name: "나다", text: "받은 고지 둘" },
+      ],
+    };
+    const { container } = render(<ResultView response={response} />);
+    const list = screen.getByTestId("name-corrections");
+    expect(texts([...list.querySelectorAll("li")])).toEqual(["받은 고지 하나", "받은 고지 둘"]);
+    expect(before(screen.getByTestId("result-notice"), list)).toBe(true);
+    expect(before(list, screen.getByTestId("result-summary"))).toBe(true);
+    expect(before(list, screen.getByTestId("result-card"))).toBe(true);
+    expect(list.closest("details, [hidden], [aria-hidden='true'], [data-state='closed']")).toBeNull();
+    expect(container.textContent).not.toContain("'가' → '가나'"); // 화면이 문장을 조립하지 않는다(input·name을 따로 그리지 않음)
+    expect(within(list).queryByTestId("status-badge")).toBeNull();
+    expect(list.textContent).not.toContain("삐!");
+    expect(screen.queryByTestId("mascot")).toBeNull();
+    expect(list.querySelector("svg, img, audio")).toBeNull();
+  });
+
+  it("fixture 고지는 서버가 완성한 문장(상수 + 두 이름) 그대로이고, 보정이 없으면 그 자리를 그리지 않는다", () => {
+    const { rerender } = render(<ResultView response={fixtures.typoCorrectedResponse} />);
+    const [correction] = fixtures.typoCorrectedResponse.name_corrections;
+    expect(screen.getByTestId("name-corrections").textContent).toBe(correction.text);
+    expect(correction.text).toBe(PHRASES.TYPO_CORRECTED_LINE.replace("{input}", correction.input).replace("{name}", correction.name));
+    rerender(<ResultView response={fixtures.foundResponse} />);
+    expect(screen.queryByTestId("name-corrections")).toBeNull();
+  });
+
+  it("copy.ts에 보정 고지 문구가 없다(문장은 서버 몫)", () => {
+    expect(JSON.stringify(copy)).not.toMatch(/보정|비슷한|다시 알려/);
   });
 });

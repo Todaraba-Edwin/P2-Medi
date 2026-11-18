@@ -23,6 +23,7 @@ import type {
   ErrorEventSchema,
   FindingSchema,
   IngredientSchema,
+  NameCorrectionSchema,
   ProgressEventSchema,
   ProgressStageSchema,
   RequestContextSchema,
@@ -48,6 +49,7 @@ export type Badge = z.infer<typeof BadgeSchema>;
 export type Ingredient = z.infer<typeof IngredientSchema>;
 export type Searched = z.infer<typeof SearchedSchema>;
 export type Candidate = z.infer<typeof CandidateSchema>;
+export type NameCorrection = z.infer<typeof NameCorrectionSchema>;
 export type SentenceRef = z.infer<typeof SentenceRefSchema>;
 export type Emergency = z.infer<typeof EmergencySchema>;
 export type GradeDef = z.infer<typeof GradeDefSchema>;

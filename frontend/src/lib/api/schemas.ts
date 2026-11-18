@@ -200,6 +200,16 @@ export const GradeDefSchema = z
     if (def.missing_reason !== null && def.source !== null) ctx.addIssue({ code: "custom", message: "원문이 없는 등급 정의 블록에는 출처 줄이 없다" });
   });
 
+/**
+ * 오탈자 보정 고지 한 줄(AG-10-02 A, FE-02). 질문에 적힌 이름 조각(`input`)을 비슷한 사전 이름(`name`) 하나로 보고 확인했다는 표시다.
+ * `text`는 서버가 상수 `TYPO_CORRECTED_LINE`에 두 이름을 넣어 완성한 문장이다: 화면은 `text`를 그대로 보이고 다시 조립하지 않는다. 판정이 아니다
+ */
+export const NameCorrectionSchema = z.strictObject({
+  input: z.string().min(1),
+  name: z.string().min(1),
+  text: z.string().min(1),
+});
+
 export const ChatResponseSchema = z
   .strictObject({
     schema_version: z.literal(CHAT_RESPONSE_SCHEMA_VERSION),
@@ -207,6 +217,8 @@ export const ChatResponseSchema = z
     end_reason: EndReasonSchema.nullable().default(null),
     emergency: EmergencySchema.nullable().default(null),
     notice: optionalNullableString, // 상단 배너(서버 상수)
+    // 보정 고지(요약보다 먼저 보인다). 보정이 없으면 서버는 키 자체를 싣지 않으므로 기본 빈 목록(events.py `exclude`)
+    name_corrections: z.array(NameCorrectionSchema).default([]),
     summary: nullableString,
     findings: z.array(FindingSchema).default([]),
     candidates: z.array(CandidateSchema).default([]),
@@ -223,7 +235,8 @@ export const ChatResponseSchema = z
     disclaimer: z.string().min(1),
   })
   .refine((response) => response.candidates.length === 0 || response.end_reason === "CLARIFY", "candidates는 되묻기 응답에만 온다")
-  .refine((response) => response.candidates_line === null || response.candidates.length > 0, "candidates_line은 후보가 있을 때만 온다");
+  .refine((response) => response.candidates_line === null || response.candidates.length > 0, "candidates_line은 후보가 있을 때만 온다")
+  .refine((response) => response.name_corrections.length === 0 || response.end_reason !== "CLARIFY", "name_corrections는 조회 결과를 보이는 응답에만 온다(되묻기에는 없다)");
 
 // ---------------------------------------------------------------- 요청(`ChatRequest`, request.py)
 export const QUESTION_MAX_CHARS = 1000;

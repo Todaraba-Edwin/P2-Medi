@@ -34,6 +34,7 @@ export const SCENARIO_KEYWORDS: ReadonlyArray<readonly [string, ScenarioName]> =
   ["mock:확인못함", "notChecked"],
   ["mock:실시간실패", "apiFail"],
   ["mock:코드미연결", "codeNotLinked"],
+  ["mock:보정", "typoCorrected"],
   ["mock:임부", "pregnancy"],
   ["mock:병용임부", "pairAndPregnancy"],
   ["mock:등급불일치", "gradeMismatch"],
