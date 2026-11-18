@@ -25,7 +25,7 @@
 
 ### (1) 왜 로그가 필요한가
 - **에이전트는 경로가 비결정적이다.** 같은 질문에도 `model`이 고르는 도구 순서·횟수가 달라진다(PJ2-RFP.md 12장 "에이전트 경로 비결정성" 행). 최종 답만 보면 "판정 도구를 건너뛰고 우연히 맞힌 답"과 "제대로 맞힌 답"을 구분할 수 없다(RFP-26 §7.6).
-- **하네스가 실제로 막았는지 확인해야 한다.** `guardrail_in`·호출 상한 8·되돌림 2·Validator·`finalize`(RFP-23 §4.2, RFP-29 §6)가 "설계됨"이라는 것은 문서 상태이고 동작이 아니다(RFP-29 §9). 차단 사유가 로그에 남아야 "어느 규칙(H?)이 몇 번 막았는가"를 셀 수 있다.
+- **하네스가 실제로 막았는지 확인해야 한다.** `guardrail_in`·호출 상한 8·되돌림 2(기준선 코드는 1회, RFP-23-04 A)·Validator·`finalize`(RFP-23 §4.2, RFP-29 §6)가 "설계됨"이라는 것은 문서 상태이고 동작이 아니다(RFP-29 §9). 차단 사유가 로그에 남아야 "어느 규칙(H?)이 몇 번 막았는가"를 셀 수 있다.
 - **개선은 실패 기록에서 시작한다.** "실패 1개당 하네스 부품 1개"(RFP-22 §4 14번)와 실패 기록 양식(RFP-29 §7.3)은 경로 기록이 있어야 채울 수 있다.
 - **비용이 빠듯하다.** OpenAI 보유 크레딧 $8에 본 측정 어림이 약 $4.8이다(PJ2-RFP.md 9.7절, 2026-11-07 4조건 재계산, 제 추정·측정 전). 어디서 토큰이 새는지 로그 없이 알 수 없다.
 
@@ -68,7 +68,7 @@ trace (요청 1건, trace_id)
 ├─ span node=model   (step 2)
 ├─ span node=tools   (step 2)
 │   └─ span tool=check_contraindications → 판정 결과 요약, 파일·API 일치
-├─ …  (steps ≤ 8, 되돌림 ≤ 2)
+├─ …  (steps ≤ 8, 되돌림 ≤ 2; 기준선 코드는 1회, RFP-23-04 A)
 ├─ span node=validator         → verdict, 위반 규칙 ID
 └─ span node=finalize          → 고정 문구·119·기준일 부착 여부, 종료 사유
 ```
@@ -85,7 +85,7 @@ trace (요청 1건, trace_id)
 | 지연 | `latency_ms`, 시작·끝 시각 | 병목 | 단조 시계로 잰다 |
 | 토큰·비용 | `tokens_in`, `tokens_out`, `tokens_cached`, `cost_usd` | 비용 병목 | 단가는 PJ2-RFP.md 9.7절 값(측정 전 재확인) |
 | 재시도 | `retry`, `error_type` | 공공 API·LLM 실패 | 형식 오류 재시도 포함 |
-| 상한 | `model_calls_so_far`(상한 8), `rollbacks_so_far`(상한 2) | NFR-10, H12 | RFP-22-05 |
+| 상한 | `model_calls_so_far`(상한 8), `rollbacks_so_far`(상한 2, 기준선 코드는 1회, RFP-23-04 A) | NFR-10, H12 | RFP-22-05 |
 | 캐시 | `cache`(`off`/`hit`/`miss`/`stored`), `cache_key12` | 평가 오염 방지 | `llm_cache.py`의 키 앞 12자 |
 | 하네스 | `harness_event`(규칙 ID H1~H29(RFP-29 §6, 2026-11-16 기준) + 동작: block/rewrite/rollback/append) | 하네스가 막았나 | RFP-29 §6. 새 하네스 이벤트 이름은 RFP-33 참고 |
 | 검증 | `verdict`(pass/fix/fail), `violations`(규칙 ID 목록) | Validator 효과 | AG-07 |
@@ -235,7 +235,7 @@ trace (요청 1건, trace_id)
 | Q1 | 어떤 문항에서 필수 도구를 안 불렀나(판정 도구 생략)? | `tool`, `item_id`, 문항의 기대 경로 | 경로 평가 필수 도구 호출률·판정 도구 생략(RFP-26 §7.6, 9.4절) |
 | Q2 | 금지 도구를 불렀나, 순서를 어겼나? | `tool`, `step` | 금지 도구 호출 수·순서 위반 수 |
 | Q3 | 같은 도구·같은 인자를 반복했나? | `tool`, `input_summary` | 불필요·중복 호출률(Warn) |
-| Q4 | 호출 상한 8·되돌림 2에 걸렸나, 몇 번째 step에서? | `model_calls_so_far`, `rollbacks_so_far`, `end_reason` | 종료 사유 분포, NFR-10 |
+| Q4 | 호출 상한 8·되돌림 2(기준선 코드는 1회, RFP-23-04 A)에 걸렸나, 몇 번째 step에서? | `model_calls_so_far`, `rollbacks_so_far`, `end_reason` | 종료 사유 분포, NFR-10 |
 | Q5 | 답이 인용한 청크 ID가 도구가 돌려준 ID 안에 있나? | `evidence_ids`(도구) vs 답의 인용 | 인용 청크 ID 검증(환각 인용) |
 | Q6 | 응급 문항에서 119가 LLM 호출 **전에** 표시되었나? | `guardrail_in`의 `harness_event` 시각 vs 첫 모델 span 시각 | 안전 응답률(119), NFR-06 |
 | Q7 | 성분명만 있는 입력·인젝션 입력에서 하네스가 막았나? | `harness_event.rule`, `route` | 안전 응답률(거절), H8. 성분명 입력 처리 규칙은 RFP-33 참고 |
@@ -267,7 +267,7 @@ trace (요청 1건, trace_id)
 | (a) 지연 | `latency_ms`를 `node`·`tool`별 합산, `model_calls_so_far`, 같은 `step`에 도구가 여러 개인지(병렬 여부), `source=api`의 지연, `retry` | 도구 호출 묶기(이미 `check_contraindications` 하나로 묶음), 병렬 도구 호출(`gpt-6-luna` 지원 확인 못 함), 공공 API 응답 캐시(공개 데이터만, 사용자와 연결 안 함, PJ2-RFP.md 7장), 평가·개발은 파일 기준(API 끔) | 요청당 중앙값·상위 지연: 기준 ___ ms → ___ ms. 경로 Pass 비율 하락 없음 | 응답 시간 목표 수치를 측정 전에 정하지 않는다(NFR-06). 지연을 줄이려고 필수 도구·Validator를 빼지 않는다 |
 | (a') 공공 API 한도 | `source=api` 요청 수/일, HTTP 403·429 | 스냅샷·응답 캐시(RFP-32), 같은 요청 재호출 금지, 호출 간격 | 일일 요청 수 ___ / 10,000 | 평가에서 API를 켜지 않는다(BE-08) |
 | (b) 비용 | `tokens_in`의 `step`별 증가(도구 결과 누적), `tokens_out`, `cost_usd`, `cache` 미스율 | 도구 결과를 필드 제한·청크 ID로 줄이기(RFP-22 §4 12번), 시스템 프롬프트 단축(버전 올림), 개발은 캐시 `record/replay`, 개발 중 부분집합 실행, OpenAI 원장 상한(RFP-34-05) | 실행당 평균 비용 ___ USD → ___ USD. 정확도 하락 없음 | 측정 도중 모델을 바꾸지 않는다. 비용을 줄이려고 평가 문항을 측정 뒤에 빼지 않는다(9.2절 축소 순서를 따르고 이유 기록) |
-| (c) 루프·상한 초과 | `end_reason=호출 상한`, 같은 `tool`·같은 인자 반복, `rollbacks_so_far` | 도구 설명(docstring)의 경계 문장 보강, 오류 메시지에 다음 행동 적기(RFP-22 §4 3번), 같은 호출 반복 감지(개선 단계), 종료 sensor(AG-13) | 상한 종료 비율 ___ → ___ (k/n) | 상한 8·되돌림 2를 결과를 보고 몰래 바꾸지 않는다(RFP-22-05, 바꾸면 이유와 날짜를 남기고 이전 결과와 섞지 않음) |
+| (c) 루프·상한 초과 | `end_reason=호출 상한`, 같은 `tool`·같은 인자 반복, `rollbacks_so_far` | 도구 설명(docstring)의 경계 문장 보강, 오류 메시지에 다음 행동 적기(RFP-22 §4 3번), 같은 호출 반복 감지(개선 단계), 종료 sensor(AG-13) | 상한 종료 비율 ___ → ___ (k/n) | 상한 8·되돌림 2(기준선 코드는 1회, RFP-23-04 A)를 결과를 보고 몰래 바꾸지 않는다(RFP-22-05, 바꾸면 이유와 날짜를 남기고 이전 결과와 섞지 않음) |
 | (d) 데이터 적재·검색 | 적재 스크립트 시간·행 수, DB 크기(BE-09 실측, Supabase Pro 디스크 8GB 기준), `search_*` 도구 `latency_ms`, 검색 0건/관련 없음 비율 | 성분 쌍 단위 적재(23,619쌍) 대 제품 쌍 단위(512,464건) 선택(BE-09), pgvector 색인(종류는 BE-05·BE-10에서 시험), 청크 단위·차원 축소(PJ2-RFP.md 12장), 적재 재현 스크립트 | DB 크기 ___ MB / 8GB(Pro, 2026-11-11 실측 적재 997.54MB는 12.2%), 검색 지연 ___ ms | Supabase 일시정지 상태로 측정하지 않는다(시연·측정 전 깨움). 색인을 바꾼 뒤 이전 검색 지표와 섞지 않는다(색인 버전 기록, BE-08) |
 | (e) 개발 병목 | 테스트 실행 시간, 외부 호출 수(`source=api`, `cache=off` 모델 span), 같은 실패 재현 실패 | API 스냅샷으로 오프라인 테스트(RFP-32, `data/mock/api_snapshots/`), LLM `replay`로 결정적 재현, mock trace(`data/mock/traces/`)로 채점기 테스트, 느린 테스트 분리(표시만) | 단위 테스트 전체 ___ 초, 외부 호출 0 | 캐시·mock 값을 평가 측정 값으로 쓰지 않는다(CLAUDE.md 4장). replay 결과로 정확도를 보고하지 않는다 |
 | (f) 평가 병목 | judge span 수·`cost_usd`, 형식 오류 재시도, 실행 시간(150문항 × 조건 × 반복) | 코드 채점 우선(9.1절 3번), 부분집합 리허설, 중단 장치(호출 수·비용 상한, RFP-15 §8.3 ③), 실패 문항만 이어서 실행(같은 설정·같은 `run_id` 접두) | 1회 전체 실행 ___ 분·___ USD | **측정 도중 judge 모델·루브릭·평가 세트·C1 규칙을 바꾸지 않는다**(RFP-26-01, H16). 개선 중 시험셋을 열지 않는다(RFP-26-04) |

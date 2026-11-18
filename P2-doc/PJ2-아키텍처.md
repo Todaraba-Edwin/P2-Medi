@@ -197,7 +197,7 @@ flowchart LR
 
 | 조건 | 호출 순서·횟수를 정하는 쪽 | 구현 |
 |---|---|---|
-| C0 LLM 단독 | 없음 | 평가 러너에 미연결(`evaluation/eval_runner.py:17`~`:18`) |
+| C0 LLM 단독 | 없음 | 평가 러너에 연결(2026-11-18, 병합 `a13a0af`, `LlmOnlyAgent`, `evaluation/eval_runner.py:20`~`:21`·`:87`~`:88`·`:92`) |
 | C1 고정 파이프라인 | 코드 | `backend/app/agent/pipeline/` (AG-16) |
 | C1+ 강화 | 코드 + 오탈자 보정 후 재검색 1회 | 같은 그래프, `typo_retry=True` |
 | C2 ReAct 에이전트 | LLM | `backend/app/agent/graph/` (AG-01) |
@@ -209,11 +209,12 @@ flowchart LR
 - 시험셋(`*.SEALED.jsonl`)은 `sealed_guard`로 막고 결과에는 점수만 남긴다(`:7`).
 - 결과 메타에 세트 해시·모델·프롬프트·그래프·하네스(`harness@v1`)·judge 모델·루브릭 버전·`trajectory_rule`을 기록하고, 측정 시작 뒤에는 동결 값 비교(`freeze_check.py`)로 바뀌면 시작하지 않는다(`:8`, `:22`~`:24`).
 - 경로 평가(Trajectory): 문항별 기대 경로를 코드가 trace와 비교해 Pass/Warn/Fail로 채점하고 judge는 쓰지 않는다. 규칙 버전은 `traj@v2`(RFP-26-08 A)이고 이전 `traj@v1` 결과와 섞지 않는다(`evaluation/eval_metrics.py:279`).
-- 신뢰성: 안전 핵심 40문항을 3회 반복해 `pass^3`·`pass@3`·일치율을 본다(`P2-doc/PJ2-RFP.md:529`, 러너 `:35`~`:36`).
+- 신뢰성: 안전 핵심 40문항을 3회 반복해 `pass^3`·`pass@3`·일치율을 본다. 본 측정 결과를 1회차로 재사용하고(`--save-reliability-carry`, RFP-35-09 A, 러너 `:44`) 본 지표는 J5 요소를 뺀 `pass^k_excl_j5`·`pass@k_excl_j5`이며 J5 포함 값은 참고다(`P2-doc/PJ2-RFP.md:529`, 러너 `:35`~`:36`·`:218`~`:235`).
 
 ### (3) judge
 - 모델은 Claude Sonnet 5.5로 고정하고 서비스 실행 경로에는 들어가지 않는다(`P2-doc/PJ2-RFP.md:514`, `sonnet_judge.py:47`).
 - 루브릭 원본은 `tickets/doc/RFP-26.md` §7.5(J1~J5). 본 측정 채택 프롬프트는 **`judge_rubric@v2`**(근거 상세 표시, 코드 부착 표시, J5 되묻기 규칙)이고 `evaluation/judge/judge_rubric@v2.md`가 파일이다(`sonnet_judge.py:594`, 커밋 `ef546a4`의 메시지).
+- J5(근거 없음 응답)는 v2 재보정에서 κ가 정의되지 않아(19/21, κ 0.0) **보조 지표**로만 쓰고, 안전 응답률 본 지표는 J5 요소를 뺀 `final_excl_j5`다(AG-12-08 A·AG-11-10 A, 2026-11-18, `evaluation/eval_runner.py:171`·`P2-doc/PJ2-RFP.md` 9.3절).
 - 보정용 사람 라벨 40문항은 비전문가가 ChatGPT의 도움을 받아 작성했다. 그래서 일치율·κ는 "LLM 보조 라벨 대비"로 해석한다(`P2-doc/PJ2-RFP.md:518`).
 - 개선(AG-13)은 개발셋만 보고 하고 시험셋은 개선 중에 열람하지 않는다(`P2-doc/PJ2-RFP.md:478`).
 
@@ -238,7 +239,7 @@ flowchart LR
 ### (3) 문서와 코드가 다른 곳
 | 항목 | 문서 | 코드 | 이 문서의 기준 |
 |---|---|---|---|
-| `validator` 첫 실패 처리 | `P2-doc/PJ2-Agent-Harness.md:118`: 기준선은 실패 시 `finalize`(안내 전환)이고 되돌림 ≤2는 개선 단계 | `graph/build.py:12`·`:40`: 첫 실패는 `model`로 되감기 1회, 두 번째 실패에서 `finalize` | 코드 |
+| `validator` 첫 실패 처리 | `P2-doc/PJ2-Agent-Harness.md:71`·`:462`는 2026-11-18에 코드 기준(첫 실패 `model` 되감기 1회, 두 번째 실패 `finalize`)으로 정정했다(RFP-23-04 A). 정정 전에는 "기준선은 실패 시 `finalize`, 되돌림 ≤2는 개선 단계"였다 | `graph/build.py:12`·`:40`: 첫 실패는 `model`로 되감기 1회, 두 번째 실패에서 `finalize` | 코드 |
 | 하네스 문서의 그래프 | 같은 문서 `:101`: `guardrail_in`에서 "미확인 사진 입력"도 `finalize`로 | `graph/build.py:36`: 분기는 `after_guardrail`이 `route`와 `proceed_tools`로 결정(사진 입력 분기는 읽은 범위에 없음) | 코드(사진은 확장) |
 | judge 루브릭 상수 | 채택은 v2 | `sonnet_judge.py:48`·`eval_runner.py:80`의 상수는 `J*@v1`이지만 프롬프트 파일 버전이 우선한다(`sonnet_judge.py:457`) | 프롬프트 파일 기준 v2 |
 | RFP 8장 그림의 "Vector DB 검색" | 한 갈래 | 코드는 문서 검색 도구 3개(`search_notice`·`search_reason`·`search_label`)로 층(L1·L2·L3)별 분리 | 코드 |
