@@ -68,7 +68,7 @@
 
 | 완료 | SCH | Label | Title | 진행 | 선행(티켓·결정) | 지금 할 수 있는 것 | ⛔ 먼저 답할 결정 | 완료일 |
 |---|---|---|---|---|---|---|---|---|
-| `[ ]` | SCH-02 | `FE-01` | [채팅 화면 기본 구현](tickets/frontend/FE-01.md) | 병렬 | BE-06(BackEnd 표, 서버 기동은 2026-11-17 확인) | 시작 화면 문구·`이름 다시 입력` 칩·MSW 반복 되묻기는 2026-11-18 충족(FE goal 1차, goal-fe.md §5). 남은 것: 실연결(200 스트림·501 처리). ISSUE 전후 비교는 goal-fe2가 캡처 33장을 찍었고 사람 확인은 FE-08. 응답 스키마 파일은 FE-02 worktree가 고쳐 두었으므로 FE-02 병합 뒤 | 대기 0건(막는 결정 없음) | - |
+| `[ ]` | SCH-02 | `FE-01` | [채팅 화면 기본 구현](tickets/frontend/FE-01.md) | 병렬 | BE-06(BackEnd 표, 서버 기동은 2026-11-17 확인) | 시작 화면 문구·`이름 다시 입력` 칩·MSW 반복 되묻기는 2026-11-18 충족(FE goal 1차, goal-fe.md §5). ISSUE 전후 비교는 FE-08 사용자 체크리스트로 완료(2026-11-18, 걸리는 점 2건은 FE-02-05·06). §3 하위 작업 6개(골격·스캐폴드·rewrites·스트리밍·타입·Zustand) 체크. 부품 요청 나머지는 VS Code goal `feature/FE-01-parts-1118`(worktree `P2-Medi-wt-fe01`) 진행 중. 남은 것: 실연결(R5, 200 스트림·501 처리)은 AG-11 측정·병합 뒤 실서버 시험(LLM 비용 상한 승인 필요). 응답 스키마 파일은 FE-02 worktree가 고쳐 두었으므로 FE-02 병합 뒤 | 대기 0건(막는 결정 없음) | - |
 | `[ ]` | SCH-02 | `FE-02` | [출처·조회 시각·고지 문구 표시](tickets/frontend/FE-02.md) | 부분 병렬 | FE-01(FrontEnd 표) | 코드·시험 완료·**develop 병합 완료**(병합 커밋 `9205b8c`). 사용자가 FE-02-05·06을 A로 답했다(2026-11-18). **FE-02-05 A·FE-02-06 A 프런트 구현 완료(커밋 `6b2ef2c`, 브랜치 `feature/FE-02-advice-reasons`, 병합 전: typecheck·lint·test 1143·e2e 275·e2e:fake 9 통과(보고 값), 지시서는 Fable 5.2이나 보고상 실행 모델 Sonnet 5.5)**. 지금: 서버 몫 10건(BE-06 §5·AG-08) 중 프런트 대응 확인. 기다림: FE·BE 함께 병합(AG-11 재측정·신뢰성 뒤, BE `7530fe4`의 `findings[].reasons`와 함께, 병합 뒤 `pnpm gen:api`·`contract-check.ts` `Omit` 제거·`pnpm e2e:fake`), 서비스 오탈자 보정 켜기(측정 뒤 메인 몫, Recap 29), FE-01 실연결 | 대기 0건(막는 결정 없음) | - |
 
 ### Docs
