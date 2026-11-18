@@ -18,7 +18,7 @@ L2(개발 골든 스모크, AG-06-06 A): `--agent graph --subset dev_golden [--p
 `--prompt-set`을 주지 않으면 서비스와 같은 기본 묶음(`wiring.DEFAULT_PROMPT_SET`, 2026-11-17부터 `prompt_set@v3`, 모두 adopted)을 쓰고 결과 meta에 그 이름이 남는다.
 `--allow-draft`는 draft 프롬프트가 든 묶음을 점검할 때만 붙인다(기본 L2 사용법에는 필요 없다).
 비교 조건(9.5절): `--condition`은 `C2`(ReAct 그래프, 기본)와 `C1`·`C1+`(AG-16 고정 파이프라인), `C0`(LLM 단독: 같은 모델에 질문만,
-원격 DB 없음)를 받는다(C1·C1+·C0는 `--agent graph`에서만). 그 밖의 값(C3는 AG-13 뒤라 미연결)은 실행 없이 거부한다(종료 코드 2). graph 에이전트 결과 meta에는 조건별 하네스 적용표 `harness`(`harness@v1`, RFP-33-03)를 적는다.
+원격 DB 없음), `C3`(C2 + AG-13 개선 장치, 지금은 AG-07 계층 검사)를 받는다(C1·C1+·C0·C3는 `--agent graph`에서만). 그 밖의 값은 실행 없이 거부한다(종료 코드 2). graph 에이전트 결과 meta에는 조건별 하네스 적용표 `harness`(`harness@v1`, RFP-33-03)를 적는다.
 Validator 규칙 집계(AG-07-02 B): 문항별 `validator`(H22·H24 검사 코드·규칙별 건수)와 `metrics.validator_rule_counts`는 보조 기록이다(9장 지표 아님).
 `--compare A.json B.json`은 두 결과를 나란히 보여 준다(회귀 경보 전용).
 
@@ -92,13 +92,15 @@ OUT_DIR = ROOT / "logs" / "eval"  # 로컬 전용(`logs/`는 .gitignore)
 RUNNER_VERSION = "ag11-runner@v0-skeleton"
 # 러너가 실제로 연결한 비교 조건(9.5절). C1(AG-16 고정 파이프라인)은 2026-11-18에 연결했다(`app.agent.pipeline.build.build_for_condition`).
 # C1+(오탈자 보정 후 재검색 1회, Router의 AG-10 보정 재사용)는 2026-11-18에 연결했다(AG-16-06 A).
-# C0(LLM 단독)는 2026-11-18에 연결했다(`LlmOnlyAgent`, 에이전트 코드 변경 없이 같은 모델 생성 함수만 쓴다). C3는 AG-13 개선 뒤라 연결하지 않았다.
-SUPPORTED_CONDITIONS: tuple[str, ...] = ("C2", "C1", "C1+", "C0")
+# C0(LLM 단독)는 2026-11-18에 연결했다(`LlmOnlyAgent`, 에이전트 코드 변경 없이 같은 모델 생성 함수만 쓴다).
+# C3(C2 + AG-13 개선 장치, 지금은 AG-07 Validator 계층 검사 하나, `pipeline.build.C3_VERSION`)는 2026-11-18 밤에 연결했다(AG-13-13 A, 개발셋 측정).
+SUPPORTED_CONDITIONS: tuple[str, ...] = ("C2", "C1", "C1+", "C0", "C3")
 DEFAULT_CONDITION = "C2"
+C3 = "C3"
 GRAPH_ONLY_CONDITIONS: tuple[str, ...] = ("C1", "C1+")  # 그래프를 실제로 만들어야 뜻이 있는 조건(offline-fixed는 조건과 무관한 연결 확인용이라 C2 표기만 허용)
 C0 = "C0"
 C0_VERSION = "c0-llm-only@v1"  # C0 규칙 버전(질문만, 시스템 프롬프트·도구·Router·Validator·finalize 없음). 규칙을 바꾸면 올린다
-REAL_MODEL_CONDITIONS: tuple[str, ...] = (*GRAPH_ONLY_CONDITIONS, C0)  # --agent graph(실제 모델 실행)에서만 받는 조건
+REAL_MODEL_CONDITIONS: tuple[str, ...] = (*GRAPH_ONLY_CONDITIONS, C0, C3)  # --agent graph(실제 모델 실행)에서만 받는 조건
 
 JUDGE_MODEL = "claude-sonnet-5-5"  # RFP-26-01 고정. 이 골격은 호출하지 않는다
 RUBRIC_VERSIONS = {"J1": "J1@v1", "J2": "J2@v1", "J3": "J3@v1", "J4": "J4@v1", "J5": "J5@v1"}
@@ -1046,6 +1048,10 @@ def code_versions(condition: str = DEFAULT_CONDITION) -> dict[str, str]:
 
         out = {"graph": pipeline_version(condition), "graph_src": out["graph"],
                "pipeline_src": f"pipeline-src@{_sha256_of(sorted((agent / 'pipeline').glob('*.py')))}", "harness": out["harness"]}
+    elif condition == C3:  # 같은 ReAct 그래프(graph-src) + 개선 장치 버전(장치를 더하면 올린다, 이전 C3 결과와 섞지 않는다)
+        from app.agent.pipeline.build import C3_VERSION
+
+        out["improvements"] = C3_VERSION
     out["metrics"] = metrics_version()
     out.update(router_tools_versions())  # BE-08-06 A: 다음 측정 기간 동결 후보(새 키, `freeze_check.NEXT_PERIOD_KEYS`)
     return out
@@ -1661,8 +1667,7 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
         print(format_compare(compare_results(*(json.loads(p.read_text(encoding="utf-8")) for p in a.compare))))
         return 0
     if a.condition not in SUPPORTED_CONDITIONS:
-        print(f"--condition {a.condition!r}은(는) 아직 러너에 연결되지 않았다. 지금 받는 값: {', '.join(SUPPORTED_CONDITIONS)} "
-              "(C3는 AG-13 개선 뒤라 연결 전이다). 실행하지 않았다")
+        print(f"--condition {a.condition!r}은(는) 아직 러너에 연결되지 않았다. 지금 받는 값: {', '.join(SUPPORTED_CONDITIONS)}. 실행하지 않았다")
         return 2
     is_graph = a.agent == GRAPH_AGENT
     if a.typo_correct is not None and not is_graph:

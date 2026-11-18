@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections.abc import Callable, Iterator
@@ -34,6 +35,7 @@ HARNESS_ACTIONS: dict[str, str] = {
     "INJECTION_IN_TOOL_RESULT": "flag",  # H8 도구 결과 안 지시문 모양
 }
 BLOCK_OR_WARN = frozenset({"block", "warn", "rollback"})
+_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")  # 사유 코드 모양(예: NO_EVIDENCE, CLAIM_OMITTED). 이 모양이 아닌 키는 span에 싣지 않는다
 
 
 class SpanSink(Protocol):
@@ -58,6 +60,32 @@ def harness_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             out.append({"rule": rule or "H1", "action": "warn", "detail": "SENTENCE_DROPPED"})
         elif name == "VALIDATOR" and e.get("status") == "FIXED":
             out.append({"rule": rule or "H2", "action": "warn", "detail": "VALIDATOR_FIXED"})
+    return out
+
+
+def _code_counts(raw: Any) -> dict[str, int]:
+    """`{사유 코드: 건수}`만 옮긴다. 값이 정수가 아니거나 0 이하인 항목, 코드 모양(대문자·숫자·밑줄)이 아닌 키는 버린다(문장 원문이 섞이지 않게)."""
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): int(n) for k, n in raw.items()
+            if isinstance(k, str) and _CODE_RE.match(k) and isinstance(n, int) and not isinstance(n, bool) and n > 0}
+
+
+def _check_counts(events: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """validator span의 사유 건수(AG-13-12 A). 문장 필터(`SENTENCE_FILTER`, H1)와 Validator(`VALIDATOR`, H2) 이벤트의 `reasons`를 코드별로 더하고,
+    계층 검사를 켰으면(C3) `claim_gaps` 건수도 싣는다. 문장 원문·근거 ID는 넣지 않는다. 건수가 없으면 키를 만들지 않는다."""
+    out: dict[str, dict[str, int]] = {}
+    for e in events:
+        if not isinstance(e, dict):
+            continue
+        key = {"SENTENCE_FILTER": "filter_reasons", "VALIDATOR": "validator_reasons"}.get(str(e.get("event")))
+        if key is None:
+            continue
+        for k, n in _code_counts(e.get("reasons")).items():
+            out.setdefault(key, {})[k] = out.get(key, {}).get(k, 0) + n
+        if e.get("event") == "VALIDATOR":
+            for k, n in _code_counts(e.get("claim_gaps")).items():
+                out.setdefault("claim_gaps", {})[k] = out.get("claim_gaps", {}).get(k, 0) + n
     return out
 
 
@@ -226,8 +254,12 @@ class GraphTracer:
             # `violations` = 되감기 사유 코드 + 규칙 번호가 붙은 검사 코드(H22·H24, AG-07-02 B). 코드 이름만, 문장 내용 없음.
             checks = {str(k): int(n) for k, n in (v.get("rule_checks") or {}).items()}
             f["violations"] = sorted({*(str(r) for r in v.get("reasons") or []), *checks})
+            summary: dict[str, Any] = {}
             if checks:
-                f["output_summary"] = {"rule_checks": checks, "rules": {str(k): int(n) for k, n in (v.get("rules") or {}).items()}}
+                summary = {"rule_checks": checks, "rules": {str(k): int(n) for k, n in (v.get("rules") or {}).items()}}
+            summary.update(_check_counts(upd.get("events") or []))  # AG-13-12 A: 문장 걸러짐·삭제 사유 코드별 건수(원문 없음)
+            if summary:
+                f["output_summary"] = summary
         elif name == "finalize":
             f["end_reason"] = upd.get("end_reason")
             ans = upd.get("answer") or {}

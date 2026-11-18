@@ -127,6 +127,9 @@ def build_entry(result: Mapping[str, Any], *, result_path: Path | None, status: 
         "judge_transport": (ju.get("transport") or None) if ju else None,
         "result": _rel(result_path), "trace": _rel(trace_path(run_id, root)), "metrics": metric_summary(result),
     }
+    improvements = (m.get("versions") or {}).get("improvements")
+    if improvements:  # C3 개선 장치 버전(예: `c3-layer-check@v1`). 다른 조건에는 키를 만들지 않는다(기존 색인 줄 모양 그대로)
+        entry["improvements"] = improvements
     if stop:
         entry["stopped"] = {"reason": stop.get("reason"), "run": stop.get("run")}  # 문항 ID·위치는 넣지 않는다
     if error:

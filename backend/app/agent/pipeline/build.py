@@ -35,6 +35,11 @@ PIPELINE_VERSION = "c1-pipeline@v1"  # 결과 파일 `graph_version`용. 규칙�
 PIPELINE_PLUS_VERSION = "c1plus-pipeline@v1"  # C1+ 규칙 버전(C1 규칙 + 오탈자 보정 후 재검색 1회). 보정 기준을 바꾸면 올린다
 RECURSION_LIMIT = 30  # 노드 9개 + 되감기 1회를 넉넉히 덮는다
 CONDITION_C1, CONDITION_C1_PLUS, CONDITION_C2 = "C1", "C1+", "C2"
+# C3 = C2(같은 ReAct 그래프·도구·프롬프트) + AG-13 개선 장치. 한 번에 하나씩 더한다(ablation, 9.5절). 지금 장치는 AG-07 Validator 계층·주장 유형
+# 누락 검사(⑭~⑯, AG-13-08 A) 하나다. 장치를 더하거나 바꾸면 `C3_VERSION`을 올리고 이전 C3 결과와 섞지 않는다
+CONDITION_C3 = "C3"
+C3_VERSION = "c3-layer-check@v1"
+C3_IMPROVEMENTS = ("AG07_LAYER_CHECK",)
 HARNESS_VERSION = "harness@v1"
 # 조건별 하네스 적용표(RFP-33-03 A, PJ2-Agent-Harness.md 7.2절). 기준선 장치는 공통, 개선 단계 선택 제한 장치는 C3에서만 ablation으로 더한다
 HARNESS_BASELINE = ("ARG_SCHEMA", "TOOL_OUTPUT_CONTRACT", "STATE_KEY_LIMIT", "FINALIZE_PHRASES")
@@ -53,8 +58,8 @@ class PipelineConfig:
 
 def build_pipeline(deps: GraphDeps, config: PipelineConfig | None = None) -> Any:
     cfg = config or PipelineConfig()
-    # 보정 스위치는 조건이 정한다: C1은 끔, C1+는 켬. 주입된 `deps`는 바꾸지 않는다(사본)
-    deps = replace(deps, typo_correct=cfg.typo_retry)
+    # 보정 스위치는 조건이 정한다: C1은 끔, C1+는 켬. 계층 검사(C3 장치)는 항상 끈다. 주입된 `deps`는 바꾸지 않는다(사본)
+    deps = replace(deps, typo_correct=cfg.typo_retry, layer_check=False)
     nodes = {name: guard_node(deps, name, fn, PIPELINE_WRITABLE) for name, fn in make_pipeline_nodes(deps).items()}
     g = StateGraph(PipelineState)
     for name, fn in nodes.items():
@@ -73,14 +78,18 @@ def build_pipeline(deps: GraphDeps, config: PipelineConfig | None = None) -> Any
 
 
 def build_for_condition(deps: GraphDeps, condition: str) -> Any:
-    """평가 설정 식별자 → 컴파일된 그래프. `C1`·`C1+`는 고정 파이프라인, `C2`는 ReAct 그래프(`graph.build.build_graph`). 그 밖은 오류."""
+    """평가 설정 식별자 → 컴파일된 그래프. `C1`·`C1+`는 고정 파이프라인, `C2`는 ReAct 그래프(`graph.build.build_graph`),
+    `C3`는 같은 ReAct 그래프에 개선 장치(`C3_IMPROVEMENTS`)를 켠 것이다. 장치 스위치는 조건이 정한다(C3만 켬, C1·C1+·C2는 주입값과 무관하게 끔).
+    주입된 `deps`는 바꾸지 않는다(사본). 그 밖은 오류."""
     if condition == CONDITION_C1:
         return build_pipeline(deps)
     if condition == CONDITION_C1_PLUS:
         return build_pipeline(deps, PipelineConfig(typo_retry=True))
     if condition == CONDITION_C2:
-        return build_graph(deps)
-    raise ValueError(f"그래프를 만들 수 없는 조건: {condition!r} (C1·C1+·C2 중 하나)")
+        return build_graph(replace(deps, layer_check=False))
+    if condition == CONDITION_C3:
+        return build_graph(replace(deps, layer_check=True))
+    raise ValueError(f"그래프를 만들 수 없는 조건: {condition!r} (C1·C1+·C2·C3 중 하나)")
 
 
 def pipeline_version(condition: str) -> str | None:
@@ -90,11 +99,17 @@ def pipeline_version(condition: str) -> str | None:
 
 def harness_profile(condition: str) -> dict[str, Any]:
     """결과 파일에 적을 조건별 하네스 적용표(`harness@v1`). 기준선 장치는 C1·C1+·C2 공통이다(RFP-33-03 A).
-    개선 단계 장치(`known_ids`·단위 보조 차단·반복 경고)는 C3 ablation 행이 따로 적는다. 모르는 조건은 오류다(표에 없는 조건을 조용히 적지 않는다)."""
-    if condition not in (CONDITION_C1, CONDITION_C1_PLUS, CONDITION_C2):
-        raise ValueError(f"하네스 적용표에 없는 조건: {condition!r} (C1·C1+·C2 중 하나)")
-    return {"version": HARNESS_VERSION, "condition": condition, "baseline": list(HARNESS_BASELINE), "selection_limits": []}
+    개선 단계 장치(`known_ids`·단위 보조 차단·반복 경고)는 C3 ablation 행이 따로 적는다. 모르는 조건은 오류다(표에 없는 조건을 조용히 적지 않는다).
+    C3 행은 기준선 장치가 같고, 선택 제한 장치는 아직 더하지 않았다(빈 목록). 지금 C3 장치(Validator 계층 검사)는 `improvements`에 따로 적는다."""
+    if condition not in (CONDITION_C1, CONDITION_C1_PLUS, CONDITION_C2, CONDITION_C3):
+        raise ValueError(f"하네스 적용표에 없는 조건: {condition!r} (C1·C1+·C2·C3 중 하나)")
+    row: dict[str, Any] = {"version": HARNESS_VERSION, "condition": condition, "baseline": list(HARNESS_BASELINE), "selection_limits": []}
+    if condition == CONDITION_C3:
+        row["improvements"] = list(C3_IMPROVEMENTS)
+        row["c3_version"] = C3_VERSION
+    return row
 
 
-__all__ = ["CONDITION_C1", "CONDITION_C1_PLUS", "CONDITION_C2", "HARNESS_VERSION", "PIPELINE_PLUS_VERSION", "PIPELINE_VERSION", "PipelineConfig",
-           "build_for_condition", "build_pipeline", "harness_profile", "initial_state", "pipeline_version", "run_question"]
+__all__ = ["C3_IMPROVEMENTS", "C3_VERSION", "CONDITION_C1", "CONDITION_C1_PLUS", "CONDITION_C2", "CONDITION_C3", "HARNESS_VERSION",
+           "PIPELINE_PLUS_VERSION", "PIPELINE_VERSION", "PipelineConfig", "build_for_condition", "build_pipeline", "harness_profile", "initial_state",
+           "pipeline_version", "run_question"]

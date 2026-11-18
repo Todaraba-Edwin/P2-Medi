@@ -68,6 +68,9 @@ class GraphDeps:
     # 서비스(`wiring.build_deps(service=True)`)는 `wiring.SERVICE_TYPO_CORRECT_DEFAULT`를 따른다(AG-10-02 A 승인, BE-06-35 A로 FE-02 반영 전까지 끔).
     # 평가 실행기는 비교 조건으로 정한다(C2·C1+ 켬, C1 끔. `eval_runner.resolve_typo_correct`).
     typo_correct: bool = False
+    # (개선) AG-07 허용 근거 계층·주장 유형 누락 검사(AG-13-08 A, Validator ⑭~⑯). 기본 꺼짐. 켜는 곳은 비교 조건 C3뿐이다
+    # (`pipeline.build.build_for_condition`이 C3에서만 켜고 C1·C1+·C2에서는 끈다. 서비스 배선은 켜지 않는다)
+    layer_check: bool = False
 
 
 # --------------------------------------------------------------------------- 보조
@@ -196,7 +199,9 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
             if draft.sentences and not fr.kept:
                 reasons = ["ALL_SENTENCES_FILTERED"]
             else:
-                vr = validate(fr.kept, items)
+                # C3(`deps.layer_check`)일 때만 계층 검사와 Router의 `required_claims`(⑯ 주장 유형 누락)를 넘긴다. 꺼져 있으면 기준선 호출과 같다
+                vr = (validate(fr.kept, items, layer_check=True, required_claims=state.get("required_claims") or [])
+                      if deps.layer_check else validate(fr.kept, items))
                 events.extend(vr.events)
                 status, kept = vr.status, list(vr.kept)
                 reasons = sorted({i.check for i in vr.issues if i.action == "REWIND"}) if status == FAIL else []

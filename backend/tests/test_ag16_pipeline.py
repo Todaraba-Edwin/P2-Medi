@@ -467,8 +467,9 @@ def test_pipeline_versions_and_harness_table_by_condition():
     assert pipeline_version("C2") is None
     assert harness_profile("C1+") == {**harness_profile("C1"), "condition": "C1+"}  # 기준선 장치는 공통
     assert harness_profile("C2")["baseline"] == harness_profile("C1")["baseline"]
+    assert harness_profile("C3")["baseline"] == harness_profile("C1")["baseline"]  # C3(AG-13-13 A)도 기준선 장치는 공통
     with pytest.raises(ValueError, match="조건"):
-        harness_profile("C3")
+        harness_profile("C4")
 
 
 def test_c2_condition_builds_react_graph_with_same_deps(dd):

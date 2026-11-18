@@ -157,9 +157,9 @@ def test_c1_plus_runs_the_pipeline_with_correction_on(tmp_path):
 
 
 def test_unconnected_condition_stops_before_building_resources(tmp_path, capsys):
-    rc, res, fac = _run(tmp_path, "C3")
+    rc, res, fac = _run(tmp_path, "C4")  # C3는 2026-11-18 밤 연결(AG-13-13 A). 연결되지 않은 값으로 확인한다
     assert rc == 2 and res == {} and fac.calls == []  # 자원을 만들기 전에 멈춘다
-    assert "C3" in capsys.readouterr().out
+    assert "C4" in capsys.readouterr().out
 
 
 def test_graph_agent_builds_by_condition(tmp_path):

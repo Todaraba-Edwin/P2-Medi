@@ -36,9 +36,9 @@ JUDGE_MODEL = "claude-sonnet-5-5"  # RFP-26-01 고정
 HARNESS_VERSION = "harness@v1"
 _SHA64 = re.compile(r"^[0-9a-f]{64}$")
 # 조건 → 기대하는 오탈자 보정 스위치(None = 조건이 정하지 않음: C2는 기본 켬이지만 비교용으로 끌 수 있다)
-TYPO_BY_CONDITION: dict[str, bool | None] = {"C1": False, "C1+": True, "C2": None, "C0": False}
-# 조건 → 그래프 버전 글자의 머리(C2는 ReAct 그래프 소스 해시, C1·C1+는 파이프라인 규칙 버전)
-GRAPH_PREFIX: dict[str, str] = {"C1": "c1-pipeline@", "C1+": "c1plus-pipeline@", "C2": "graph-src@", "C0": "c0-llm-only@"}
+TYPO_BY_CONDITION: dict[str, bool | None] = {"C1": False, "C1+": True, "C2": None, "C0": False, "C3": None}
+# 조건 → 그래프 버전 글자의 머리(C2·C3는 ReAct 그래프 소스 해시, C1·C1+는 파이프라인 규칙 버전). C3 개선 장치 버전은 `versions.improvements`
+GRAPH_PREFIX: dict[str, str] = {"C1": "c1-pipeline@", "C1+": "c1plus-pipeline@", "C2": "graph-src@", "C0": "c0-llm-only@", "C3": "graph-src@"}
 # C0(LLM 단독, 9.5절)는 질문만 보내 프롬프트 묶음·하네스 소스·사전·코퍼스를 쓰지 않는다. 이 항목은 C0에서 "해당 없음"(None)이어야 하고 비교에서 뺀다
 C0 = "C0"
 NOT_FOR_C0 = ("prompt", "harness_src", "dict_version", "corpus")
