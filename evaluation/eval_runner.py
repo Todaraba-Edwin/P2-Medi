@@ -5,6 +5,9 @@
 - 에이전트는 어댑터로 주입한다. `GraphAdapter`는 컴파일된 LangGraph(AG-01)를 받아 최종 상태에서 실행 기록을 뽑는다(가짜 모델을 넣은
   그래프면 LLM 호출 0). CLI 기본 에이전트 `offline-fixed`는 도구·모델 없이 코드 고정 문구 답만 만드는 연결 확인용(채점 파이프라인 점검, 측정값 아님).
 - 시험셋(`*.SEALED.jsonl`)은 `sealed_guard`로 막는다. 허용돼 돌렸더라도 결과 파일에는 **점수만** 남기고 문항별 기록·실패 문항 ID는 남기지 않는다(9.1절 8번).
+  AG-11-10 A(2026-11-18): judge를 붙인 실행은 `items_judge`에 문항별 judge 판정(루브릭별 pass/fail·R 항목·요소 코드·오류 종류)만 남긴다.
+  시험셋은 문항 ID 대신 실행 문항 목록 안 순번(`#n`, 신뢰성 옆 파일과 같은 방식)으로 적어 문항 ID를 남기지 않는다. 문항·답·근거 원문과
+  judge 사유·인용·주장 문장도 남기지 않는다(`judge_item_record` 허용 목록).
 - 결과 파일에는 세트 버전·파일 sha256(manifest와 대조)·조건·모델·프롬프트·그래프·하네스·사전 버전·judge 모델·루브릭 버전·패턴 버전을 적는다(9.6절 동결 확인).
 - 이 모듈은 원격 DB·공공 API·LLM을 부르지 않는다(어댑터가 실제 모델을 넣었을 때만 그 모델이 호출된다).
 
@@ -27,6 +30,9 @@ judge(AG-11-02·05): `--judge sonnet --judge-max-usd X`는 Claude Sonnet 5.5(`ev
 `ragas_metrics.py`)를 채점한다(graph 전용, **실제 호출·비용 발생**, `anthropic` SDK는 `backend[eval]`). judge 요소는 코드 채점 칸의 보류(None)만 채우고
 안전 응답 통과를 다시 계산한다. 근거 청크는 그래프가 받은 순서(`run.evidence_order`)로 준다. 결과 meta `judge`에 모델·루브릭 버전·judge 프롬프트
 sha256, `judge_usage`에 호출·재시도·오류율·비용이 남는다. judge 비용은 에이전트 상한(`--max-usd`)과 따로 센다. 기본(`--judge none`)은 코드 채점만이다.
+judge 집계(AG-11-10 A): `metrics.safety_response_rate.final_excl_j5`(J5 요소를 뺀 본 지표, `final`은 J5 포함 참고), `metrics.judge_rubric_pass`
+(J1~J5 통과율), `metrics.judge_error_kinds`(FORMAT·API·REFUSAL 건수), 문항별 `items_judge`, 반복 실행이면 `reliability`의
+`pass^k_excl_j5`·`pass@k_excl_j5`·`judgment_agreement_excl_j5` 등(J5 요소 제외, 본 지표)을 더한다(채점 코드 `eval_metrics.py`는 그대로).
 
 오탈자 보정(AG-10): 스위치는 **비교 조건이 정한다**(`resolve_typo_correct`). C1은 항상 끔, C1+는 항상 켬, C2는 기본 켬(AG-10-04 A. 서비스 배선은
 BE-06-35 A로 FE-02 반영 전까지 끔)이고 `--no-typo-correct`로만 끌 수 있다(보정 전 결과와 비교할 때). 조건과 어긋나는 플래그는 실행 없이 거부한다.
@@ -149,6 +155,166 @@ def merge_judge(row: dict[str, Any], judged: dict[str, Any]) -> None:
         code_pass = bool(row["safety"]["code_pass"])
         failed = not code_pass or any(v is False for v in els.values())
         row["safety"] = {"code_pass": code_pass, "pending_judge": pend, "pass": False if failed else (None if pend else True)}
+
+
+# --------------------------------------------------------------------------- judge 집계(AG-11-10 A, 2026-11-18)
+# 채점 코드(`eval_metrics.py`)는 내용 해시가 동결 항목(`metrics_src`)이라 고치지 않고, judge를 붙인 실행의 결과에만 아래 키를 **더한다**.
+# 기존 키(`safety_response_rate.final` 등)의 값·의미는 그대로다.
+
+AUX_RUBRIC = "J5"  # AG-12-08 A·AG-11-09 A: J5(근거 없음 응답)는 보조 지표
+AUX_JUDGE_ELEMENTS: tuple[str, ...] = tuple(sorted(el for el, (rub, _) in SJ.ELEMENT_MAP.items() if rub == AUX_RUBRIC))
+JUDGE_RUBRICS: tuple[str, ...] = ("J1", "J2", "J3", "J4", "J5")
+JUDGE_ERROR_KINDS: tuple[str, ...] = (SJ.ERR_FORMAT, SJ.ERR_API, SJ.ERR_REFUSAL)
+SAFETY_MAIN_KEY = "final_excl_j5"  # 안전 응답률 본 지표(J5 요소 제외). `final`(J5 포함)은 참고
+SAFETY_NOTE_JUDGED = ("final = 필수 요소 모두(코드 요소 + judge J3·J4·J5 요소, J5 포함, 참고). "
+                      "final_excl_j5 = J5 요소(SAYS_NOT_FOUND·DISTINCT_FROM_NOT_LISTED, 보조 지표 AG-12-08 A)를 뺀 본 지표. "
+                      "judge 오류·상한으로 요소가 비어 보류된 문항은 각 분모에서 뺀다(pending_judge_items, pending_judge_items_excl_j5)")
+RUBRIC_RATE_NOTE = ("분모 = 그 루브릭을 judge가 정상 채점(status ok)한 답. 루브릭이 적용되지 않은 문항(해당 없음)과 judge 오류(judge_error_kinds)·"
+                    "미호출(not_called_items)은 분모에서 뺀다. 통과 = 코드가 다시 계산한 overall_pass(J1: 뒷받침 안 된 주장 0개, "
+                    "J3·J5: R1~R3 모두, J4: R1~R3 + 적용 시 R5). J2는 통과 규칙이 없어(청크 관련성 → Ragas CP·CR) 채점 건수만 둔다. "
+                    "J1은 안전 응답 채점의 J1(C0의 Ragas용 J1 재채점은 오류 건수에만 센다)")
+
+
+def safety_pass_excl_aux(row: dict[str, Any]) -> bool | None:
+    """안전 응답 통과를 J5 요소를 빼고 다시 계산한다(`merge_judge`와 같은 규칙). 코드 요소 실패나 J5 밖 요소 실패면 False,
+    J5 밖 judge 요소가 비어 있으면 None(보류), 아니면 True. 안전 응답 대상이 아닌 행은 부르지 않는다."""
+    s = row["safety"]
+    els = {k: v for k, v in (row.get("elements") or {}).items() if k not in AUX_JUDGE_ELEMENTS}
+    if not s.get("code_pass") or any(v is False for v in els.values()):
+        return False
+    return None if any(v is None for v in els.values()) else True
+
+
+def safety_excl_aux_summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    vals = [safety_pass_excl_aux(r) for r in rows if r.get("safety")]
+    pend = sum(v is None for v in vals)
+    return {SAFETY_MAIN_KEY: M.kn(sum(v is True for v in vals), len(vals) - pend), "pending_judge_items_excl_j5": pend,
+            "main_metric": SAFETY_MAIN_KEY, "excluded_aux_elements": list(AUX_JUDGE_ELEMENTS)}
+
+
+RELIABILITY_EXCL_NOTE = ("*_excl_j5 = 같은 신뢰성 정의(§7.7, `eval_metrics.reliability`)에서 안전 응답 통과를 J5 요소를 뺀 값(final_excl_j5와 같은 규칙)으로 "
+                         "바꾸고 요소 일관성에서도 J5 요소를 뺀 값(본 지표, AG-12-08 A). J5 포함 pass^k·pass@k는 참고. 판정 일치율은 J5와 무관해 같은 값")
+
+
+def _row_excl_aux(r: dict[str, Any]) -> dict[str, Any]:
+    out = {**r, "elements": {k: v for k, v in (r.get("elements") or {}).items() if k not in AUX_JUDGE_ELEMENTS}}
+    if r.get("safety"):
+        out["safety"] = {**r["safety"], "pass": safety_pass_excl_aux(r)}
+    return out
+
+
+def reliability_excl_aux(runs: Sequence[Sequence[dict[str, Any]]]) -> dict[str, Any]:
+    """신뢰성(pass^k·pass@k·일치율)을 J5 요소를 빼고 다시 계산한 키(`eval_metrics.reliability`를 그대로 쓰고 입력 행만 바꾼다).
+    불안정 문항 목록은 담지 않는다(시험셋 실패 문항을 남기지 않게)."""
+    rel = M.reliability([[_row_excl_aux(r) for r in rs] for rs in runs])
+    return {"pass^k_excl_j5": rel["pass^k"], "pass@k_excl_j5": rel["pass@k"], "undecided_pending_judge_excl_j5": rel["undecided_pending_judge"],
+            "judgment_agreement_excl_j5": rel["judgment_agreement"], "safety_element_consistency_excl_j5": rel["safety_element_consistency"],
+            "main_metric": "pass^k_excl_j5", "excl_j5_note": RELIABILITY_EXCL_NOTE}
+
+
+def _rubric_outputs(row: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """문항 행의 루브릭별 judge 출력(안전 응답 채점의 J1·J3~J5 + Ragas의 J2). Ragas가 재사용한 J1은 원본이 앞에 있어 넣지 않는다."""
+    out = {k: v for k, v in (((row.get("judge") or {}).get("rubrics")) or {}).items() if isinstance(v, dict)}
+    j2 = ((row.get("ragas") or {}).get("judge") or {}).get("J2")
+    if isinstance(j2, dict):
+        out["J2"] = j2
+    return out
+
+
+def judge_rubric_pass(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """루브릭 J1~J5 통과율(k/n·Wilson 95%). 분모 규칙은 `RUBRIC_RATE_NOTE`."""
+    cnt = {r: {"applied": 0, "ok": 0, "errors": 0, "passed": 0} for r in JUDGE_RUBRICS}
+    not_called: dict[str, int] = {}
+    for row in rows:
+        j = row.get("judge")
+        if isinstance(j, dict) and j.get("status") == "not_called":
+            reason = str(j.get("reason") or "not_called")
+            not_called[reason] = not_called.get(reason, 0) + 1
+        for rub, o in _rubric_outputs(row).items():
+            if rub not in cnt:
+                continue
+            c = cnt[rub]
+            c["applied"] += 1
+            if o.get("status") == SJ.STATUS_OK:
+                c["ok"] += 1
+                c["passed"] += o.get("overall_pass") is True
+            elif o.get("status") == SJ.STATUS_ERROR:
+                c["errors"] += 1
+    out: dict[str, Any] = {}
+    for rub, c in cnt.items():
+        d: dict[str, Any] = {"applied": c["applied"], "ok": c["ok"], "errors": c["errors"]}
+        if rub == "J2":
+            d.update({"pass": None, "note": "통과 규칙 없음(RFP-26 §7.5): 청크 관련성 → Ragas Context Precision·Recall"})
+        else:
+            d["pass"] = M.kn(c["passed"], c["ok"])
+        if rub == AUX_RUBRIC:
+            d["role"] = "보조 지표(AG-12-08 A·AG-11-09 A)"
+        out[rub] = d
+    out["not_called_items"] = dict(sorted(not_called.items()))
+    out["note"] = RUBRIC_RATE_NOTE
+    return out
+
+
+def judge_error_kinds(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """judge 오류(루브릭 호출 단위) 종류별·루브릭별 건수. 안전 응답 채점과 Ragas의 호출을 모두 센다(재사용 J1은 한 번만).
+    합계는 `judge_usage.errors`와 같아야 한다(같은 호출을 센다)."""
+    by_kind = dict.fromkeys(JUDGE_ERROR_KINDS, 0)
+    by_rubric: dict[str, dict[str, int]] = {}
+    for row in rows:
+        outs = [((row.get("judge") or {}).get("rubrics") or {}).items(), ((row.get("ragas") or {}).get("judge") or {}).items()]
+        for part in outs:
+            for rub, o in part:
+                if not isinstance(o, dict) or o.get("reused") or o.get("status") != SJ.STATUS_ERROR:
+                    continue
+                kind = str(o.get("error") or "UNKNOWN")
+                by_kind[kind] = by_kind.get(kind, 0) + 1
+                r = by_rubric.setdefault(str(rub), {})
+                r[kind] = r.get(kind, 0) + 1
+    return {"total": sum(by_kind.values()), "by_kind": by_kind, "by_rubric": dict(sorted(by_rubric.items())),
+            "note": "루브릭 호출 단위(문항 하나에 여러 건 가능). FORMAT = 형식 오류 1회 재시도 뒤에도 실패, API = 전송 오류, REFUSAL = 모델 거부"}
+
+
+# 문항별 judge 판정 기록에 남기는 칸(허용 목록). 사유·인용(`reason`·`evidence`)·주장 문장(`claims`)·오류 상세(`detail`)는 답·근거 원문을
+# 담을 수 있어 넣지 않는다(시험셋 결과에 원문을 남기지 않는다, RFP-26-04).
+_RUBRIC_COUNT_KEYS = ("n_claims", "n_supported", "n_chunks", "n_relevant", "n_reference_claims", "n_attributed")
+
+
+def _rubric_record(o: dict[str, Any]) -> dict[str, Any]:
+    rec: dict[str, Any] = {"status": o.get("status")}
+    if o.get("status") == SJ.STATUS_ERROR:
+        rec["error"] = o.get("error")
+        return rec
+    if o.get("reused"):
+        rec["reused"] = True
+        return rec
+    rec["pass"] = o.get("overall_pass") if isinstance(o.get("overall_pass"), bool) else None
+    items = o.get("items")
+    if isinstance(items, dict):
+        rec["items"] = {str(k): bool((v or {}).get("pass")) for k, v in sorted(items.items()) if isinstance(v, dict)}
+    rec.update({k: o[k] for k in _RUBRIC_COUNT_KEYS if isinstance(o.get(k), int)})
+    return rec
+
+
+def judge_item_record(row: dict[str, Any], *, key: str | None = None) -> dict[str, Any]:
+    """문항 하나의 judge 판정 기록: 문항 키(개발셋 = 문항 ID, 시험셋 = `key` 순번), judge 상태(미호출 사유), 루브릭별 pass/fail·항목(R1~R5)·
+    오류 종류, judge 요소 코드 값, 안전 응답 통과(J5 포함·제외). 문항·답·근거 원문은 담지 않는다(허용 목록으로만 만든다)."""
+    j = row.get("judge") if isinstance(row.get("judge"), dict) else {}
+    rec: dict[str, Any] = {"id": key if key is not None else row.get("id")}
+    if "run_index" in row:
+        rec["run_index"] = row["run_index"]
+    rec["status"] = j.get("status")
+    if j.get("status") == "not_called" and j.get("reason"):
+        rec["reason"] = j.get("reason")
+    rec["rubrics"] = {rub: _rubric_record(o) for rub, o in sorted(_rubric_outputs(row).items())}
+    ragas_j1 = ((row.get("ragas") or {}).get("judge") or {}).get("J1")
+    if isinstance(ragas_j1, dict) and not ragas_j1.get("reused"):  # C0: 정답 근거로 다시 받은 J1(안전 응답 채점의 J1과 따로)
+        rec["ragas_j1"] = _rubric_record(ragas_j1)
+    els = row.get("elements") or {}
+    rec["judge_elements"] = {el: els[el] for el in sorted(els) if el in SJ.ELEMENT_MAP}
+    if row.get("safety"):
+        rec["safety"] = {"code_pass": bool(row["safety"].get("code_pass")), "pass": row["safety"].get("pass"),
+                         "pass_excl_j5": safety_pass_excl_aux(row)}
+    return rec
 
 
 # --------------------------------------------------------------------------- 에이전트 어댑터
@@ -424,6 +590,18 @@ def run_eval(
         result["metrics"]["ragas"] = RG.aggregate_ragas([r["ragas"] for r in runs[0] if r.get("ragas")])
         left = ["J3·J4·J5 요소"] if any((r.get("safety") or {}).get("pending_judge") for r in runs[0]) else []
         result["metrics"]["judge_metrics_not_computed"] = left  # 보류가 남았으면(judge 오류·상한) 그대로 알린다
+        # AG-11-10 A: J5 뺀 안전 응답률(본 지표)·루브릭별 통과율·judge 오류 종류를 더한다(기존 키는 그대로, note만 실제 호출에 맞게)
+        saf = result["metrics"]["safety_response_rate"]
+        saf.update(safety_excl_aux_summary(runs[0]))
+        saf["note"] = SAFETY_NOTE_JUDGED
+        result["metrics"]["judge_rubric_pass"] = judge_rubric_pass(runs[0])
+        result["metrics"]["judge_error_kinds"] = judge_error_kinds(runs[0])
+        # 문항별 judge 판정(루브릭 pass/fail·요소 코드·오류 종류만, 원문 없음). 시험셋도 남긴다(AG-11-10 A).
+        # 시험셋은 문항 ID 대신 이번 실행 문항 목록 안 순번 `#n`(9.1절 8번: 실패 문항 ID를 남기지 않음). 회차가 달라도 같은 문항은 같은 순번이고,
+        # 신뢰성 실행(부분집합)의 순번은 신뢰성 옆 파일(`carry_keys`)의 키와 같다. 개발셋은 문항 ID 그대로.
+        # 반복 실행은 실행한 모든 회차를 `run_index`와 함께 담는다(집계 키는 지금처럼 첫 실행 회차만)
+        pos = carry_keys(items, sealed=True)
+        result["items_judge"] = [judge_item_record(r, key=pos.get(str(r.get("id"))) if sealed else None) for rows in runs for r in rows]
     if budget is not None:
         result["meta"]["n_items_run"] = len(runs[0])
         result["cost_usd"] = {"total": round(budget.spent(), 6), "max_usd": budget.max_usd, "cap_reached": bool(skipped) or budget.exhausted(),
@@ -447,6 +625,8 @@ def run_eval(
                 rel.pop(k, None)  # 시험셋은 실패 문항을 남기지 않는다
         if first_run is not None:
             rel["first_run_reused"] = True
+        if real_judge:
+            rel.update(reliability_excl_aux(rel_runs))
         result["reliability"] = rel
     if sealed:
         result["metrics"]["trajectory"].pop("top_fail_kinds", None)
@@ -1385,6 +1565,14 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
             rg = mt.get("ragas") or {}
             print(f"  judge: 호출 {ju['calls']}(재시도 {ju['retries']}, 오류 {ju['errors']}, 오류율 {ju['error_rate']}) "
                   f"${ju['cost_usd']:.4f} / 상한 ${ju['max_usd']}" + (", 상한 도달" if ju["cap_reached"] else ""))
+            fx = s.get(SAFETY_MAIN_KEY)
+            if fx:
+                print(f"  safety final_excl_j5(본 지표): {fx['k']}/{fx['n']} {fx['wilson95']}, final(J5 포함, 참고): "
+                      f"{s['final']['k']}/{s['final']['n']}")
+            jr = mt.get("judge_rubric_pass") or {}
+            print("  judge 통과율: " + ", ".join(f"{r} {jr[r]['pass']['k']}/{jr[r]['pass']['n']}" for r in JUDGE_RUBRICS
+                                             if isinstance((jr.get(r) or {}).get("pass"), dict))
+                  + f", 오류 종류 {(mt.get('judge_error_kinds') or {}).get('by_kind')}")
             print("  ragas: " + ", ".join(f"{k} {rg[k]['mean']}(n={rg[k]['n']}, 빠짐 {rg[k]['n_missing']})"
                                           for k in ("faithfulness", "context_precision", "context_recall") if k in rg))
         st = res.get("stopped")
@@ -1396,6 +1584,10 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
             pa, pc = rel["pass^k"], rel["pass^k_code_part"]
             print(f"  반복 {rel['repeats']}회: pass^k {pa['k']}/{pa['n']}(judge 보류 {rel['undecided_pending_judge']}문항 제외), "
                   f"코드 요소만 {pc['k']}/{pc['n']}, 판정 일치 {rel['judgment_agreement']['k']}/{rel['judgment_agreement']['n']}")
+            if "pass^k_excl_j5" in rel:
+                px, ax = rel["pass^k_excl_j5"], rel["pass@k_excl_j5"]
+                print(f"  J5 제외(본 지표): pass^k {px['k']}/{px['n']} {px['wilson95']}, pass@k {ax['k']}/{ax['n']}"
+                      f"(judge 보류 {rel['undecided_pending_judge_excl_j5']}문항 제외)")
     return 0
 
 
