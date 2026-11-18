@@ -13,6 +13,7 @@ dependencies = [
     "langgraph>=1.2,<2",  # AG-01 ReAct 그래프(2026-11-11 사용자 설치 승인). LangChain 패키지는 노드 안의 모델·도구 부품으로만 쓴다.
     "langchain-openai>=1.7,<2",
     "langchain-core>=1.0,<2",
+    "pyjwt[crypto]>=2.10,<3",  # BE-11 S1 JWKS 토큰 검증(ES256·RS256, BE-11-17 A, 2026-11-18 사용자 승인). crypto는 기존 cryptography를 쓴다
 ]
 
 [project.optional-dependencies]

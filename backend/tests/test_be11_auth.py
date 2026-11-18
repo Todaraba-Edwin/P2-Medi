@@ -29,11 +29,13 @@ from golden_synth import FakeDur, golden_conn, golden_dict  # noqa: E402
 from app import main as main_mod  # noqa: E402
 from app.agent.graph.fakes import ScriptedSummary, ScriptedToolModel, tool_call  # noqa: E402
 from app.agent.graph.wiring import build_deps, build_tool_context  # noqa: E402
+from app.api import account as account_api  # noqa: E402
 from app.api import chat as chat_api  # noqa: E402
 from app.api import events as ev  # noqa: E402
 from app.api import me as me_api  # noqa: E402
 from app.api.runner import GraphRunner  # noqa: E402
 from app.config import Settings  # noqa: E402
+from app.db.account_repo import InMemoryAccountRepo  # noqa: E402
 from app.security import auth  # noqa: E402
 from app.security.auth import (  # noqa: E402
     GUEST,
@@ -90,12 +92,13 @@ def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _app(verifier: Any = None) -> FastAPI:
-    """`/me` + 주체를 그대로 돌려주는 시험용 `/whoami` + `/chat`(실행기 없음 → 501)."""
+def _app(verifier: Any = None, repo: Any = None) -> FastAPI:
+    """`/me` + 주체를 그대로 돌려주는 시험용 `/whoami` + `/chat`(실행기 없음 → 501). 계정 저장소는 메모리 가짜(없으면 501)."""
     app = FastAPI()
     chat_api.register(app)
     me_api.register(app)
     auth.set_verifier(app, verifier)
+    account_api.set_repo(app, repo)
 
     @app.get("/whoami")
     async def whoami(p: Annotated[Principal, Depends(auth.get_principal)]) -> dict[str, Any]:
@@ -111,7 +114,7 @@ def fake() -> FakeVerifier:
 
 @pytest.fixture
 def client(fake: FakeVerifier) -> TestClient:
-    return TestClient(_app(fake))
+    return TestClient(_app(fake, InMemoryAccountRepo()))
 
 
 # --------------------------------------------------------------------------- 주체
@@ -185,8 +188,18 @@ def test_me_guest_is_401_auth_required(client, fake):
 
 def test_me_with_valid_token(client):
     r = client.get("/me", headers=_bearer(GOOD))
-    assert r.status_code == 200 and r.json() == {"user_id": USER_ID, "is_guest": False}
+    assert r.status_code == 200 and r.json() == {
+        "user_id": USER_ID, "is_guest": False, "onboarding_step": "consent", "onboarding_completed_at": None,
+        "consents": [], "health_consent_active": False, "profile_limit": 4,
+    }  # 약관 문서가 없는 빈 저장소: 동의 상태 목록이 비고 첫 단계(BE-11-10 A로 계정 행 생성)
     assert r.headers["cache-control"] == "no-store"
+
+
+def test_me_with_token_but_no_account_repo_is_501_and_guest_still_401():
+    app = _app(FakeVerifier(), None)
+    c = TestClient(app)
+    assert c.get("/me", headers=_bearer(GOOD)).json() == {"code": "NOT_IMPLEMENTED", "fields": []}
+    assert c.get("/me").status_code == 401  # 인증 검사가 저장소 검사보다 먼저
 
 
 @pytest.mark.parametrize("token", [BAD, EXPIRED])
@@ -199,15 +212,20 @@ def test_me_in_openapi_with_error_bodies():
     paths = TestClient(_app(None)).get("/openapi.json").json()["paths"]
     responses = paths["/me"]["get"]["responses"]
     assert {"200", "401", "501", "503"} <= set(responses)
-    assert "/legal/{doc_type}" not in paths  # DB 결정 뒤에 만든다
+    assert {"get", "delete"} <= set(paths["/me"])
+    assert "/legal/{doc_type}" in paths and "get" in paths["/legal/{doc_type}"]  # BE-11-06 A 뒤 계정 API(2026-11-18)
+    for name in ("401", "501", "503"):
+        assert responses[name]["content"]["application/json"]["schema"]["$ref"].endswith("/ErrorBody")
 
 
 def test_main_app_registers_me(monkeypatch):
     fake = FakeVerifier()
     monkeypatch.setattr(main_mod.app.state, auth.VERIFIER_STATE_KEY, fake, raising=False)
+    monkeypatch.setattr(main_mod.app.state, account_api.REPO_STATE_KEY, InMemoryAccountRepo(), raising=False)
     c = TestClient(main_mod.app)  # lifespan 없이(설정 읽기·접속 0)
     assert c.get("/me").status_code == 401
-    assert c.get("/me", headers=_bearer(GOOD)).json() == {"user_id": USER_ID, "is_guest": False}
+    body = c.get("/me", headers=_bearer(GOOD)).json()
+    assert (body["user_id"], body["is_guest"], body["onboarding_step"]) == (USER_ID, False, "consent")
 
 
 # --------------------------------------------------------------------------- /chat: 게스트 허용, 토큰을 읽지 않음
@@ -372,7 +390,7 @@ def test_httpx_verifier_repr_hides_key_and_rejects_bad_url():
 async def test_httpx_verifier_through_api_end_to_end():
     v, rec = _verifier(lambda req: httpx.Response(200, json={"id": USER_ID})
                        if req.headers["authorization"] == f"Bearer {GOOD}" else httpx.Response(401))
-    transport = httpx.ASGITransport(app=_app(v))
+    transport = httpx.ASGITransport(app=_app(v, InMemoryAccountRepo()))
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         ok = await c.get("/me", headers=_bearer(GOOD))
         bad = await c.get("/me", headers=_bearer(BAD))
@@ -383,7 +401,8 @@ async def test_httpx_verifier_through_api_end_to_end():
 
 # --------------------------------------------------------------------------- build_verifier
 def test_build_verifier_needs_url_and_publishable_key(monkeypatch):
-    for name in ("SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY"):
+    """JWKS 주소가 없을 때의 대안 경로((b) httpx 검증기). JWKS 기본 경로는 test_be11_jwks.py."""
+    for name in ("SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_JWKS_URL"):
         monkeypatch.delenv(name, raising=False)
     assert auth.build_verifier(Settings(_env_file=None)) is None
     assert auth.build_verifier(Settings(_env_file=None, supabase_url=SB_URL)) is None

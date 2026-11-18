@@ -2,7 +2,9 @@
 
 /health: 서비스 상태 확인 → 200 {"status":"ok"}
 /chat: BE-06 채팅(NDJSON 스트림 계약 `chat_event@v1`). 설정이 갖춰지지 않으면 501(의도된 상태, `app.api.chat`)
-/me: BE-11 S1 로그인 사용자 확인(`app.api.me`, 토큰 검증 `app.security.auth`). 검증기가 없으면 토큰이 온 요청은 501
+/me·/legal/{doc_type}·/consents·/profiles: BE-11 계정 API(`app.api.me`·`app.api.account`, 토큰 검증 `app.security.auth`).
+  검증기가 없으면 토큰이 온 요청은 501, 계정 저장소(`account.set_repo`)가 없으면 계정 API는 501. 원격 `account` 스키마가 아직 적용 전이라
+  lifespan은 저장소를 붙이지 않는다(적용 뒤 `PostgresAccountRepo.from_dsn`을 붙이는 한 줄을 더한다).
 
 앱 시작(lifespan, BE-06-22 A): 설정을 읽어 필수 값이 다 있으면 지연 실행기를 붙인다(`app.api.service`). 시작 때는 어디에도 접속하지 않고
 무거운 자원은 첫 요청에서 만든다. 필수 값이 하나라도 없으면 실행기를 붙이지 않는다(→ 501). 새 환경변수는 없다(BE-06-19 A).
@@ -41,7 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="MediAgent", lifespan=lifespan)
 settings = get_settings()
 chat_api.register(app)  # POST /chat(BE-06, 설정이 갖춰지지 않으면 501), 요청 형식 오류 422. 게스트 허용, 토큰을 읽지 않는다
-me_api.register(app)  # GET /me(BE-11 S1, 로그인 필수), 인증 오류 401·501·503
+me_api.register(app)  # BE-11 계정 API(chat 뒤에 등록: 요청 형식 오류 처리기를 계정 경로 분기로 바꾼다), 인증 오류 401·501·503
 
 
 @app.get("/health")

@@ -4,17 +4,19 @@
   헤더가 있는데 형식이 틀리거나 검증에 실패하거나 만료됐으면 게스트로 떨어뜨리지 않고 401 `AUTH_INVALID`다
   (`P2-doc/PJ2-계정-프로필-데이터.md` 9.1절). `require_user`는 게스트를 401 `AUTH_REQUIRED`로 막는다(`GET /me` 등 계정 API).
 - `/chat`은 이 의존성을 쓰지 않는다(응급 상황 게스트 원칙 CLAUDE.md 1장, 같은 문서 11장 "토큰이 붙어 와도 읽지 않는다").
-- 검증은 `TokenVerifier` 프로토콜 뒤에 둔다. JWT 라이브러리(PyJWT)는 새 의존성이라 사용자 승인 전이다(auth-research §9 후보 3).
-  - (a) 승인 뒤 자리: PyJWT `PyJWKClient`로 `SUPABASE_JWKS_URL`의 공개 키(`kid`)를 골라 `ES256`·`RS256`, `aud="authenticated"`,
-    `iss={SUPABASE_URL}/auth/v1`, `exp`를 로컬에서 검증하는 `JwksTokenVerifier`. 아직 만들지 않는다(`build_verifier` 한 곳만 바꾸면 된다).
-  - (b) 지금 있는 것: `SupabaseUserEndpointVerifier`는 이미 있는 `httpx`로 `{SUPABASE_URL}/auth/v1/user`를 불러 Supabase가 검증하게 한다.
-    요청마다 네트워크 왕복이 하나 는다. 시험은 `httpx.MockTransport`만 쓴다.
+- 검증은 `TokenVerifier` 프로토콜 뒤에 둔다(PyJWT는 BE-11-17 A로 2026-11-18 승인).
+  - (a) 기본: `JwksTokenVerifier`는 PyJWT `PyJWKClient`로 `SUPABASE_JWKS_URL`의 공개 키(`kid`)를 골라 `ES256`·`RS256`만,
+    `aud="authenticated"`, `iss={SUPABASE_URL}/auth/v1`, `exp`를 로컬에서 검증한다. JWKS는 10분 이하로 캐시한다.
+    키 목록을 가져오지 못하면(연결 오류·이상한 JWKS) 503 `AUTH_UNAVAILABLE`(BE-11-20 A), 모르는 `kid`·서명 불일치는 401.
+  - (b) 대안: `SupabaseUserEndpointVerifier`는 이미 있는 `httpx`로 `{SUPABASE_URL}/auth/v1/user`를 불러 Supabase가 검증하게 한다.
+    `SUPABASE_JWKS_URL`이 없을 때만 `build_verifier`가 고른다. 시험은 `httpx.MockTransport`만 쓴다.
 - **토큰·클레임·응답 본문을 로그·예외 메시지·응답 본문에 남기지 않는다**(sec-guard, `app.security.redact`). 이 모듈은 토큰을 로그에 쓰지 않고,
   예외 메시지는 고정 문구만 담는다. 검증기 연결 실패 경고에도 예외 종류 이름만 쓴다.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -27,6 +29,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any, Protocol, runtime_checkable
 
 import httpx
+import jwt
 from fastapi import Depends, Request
 
 from app.config import Settings, reveal
@@ -180,15 +183,95 @@ class SupabaseUserEndpointVerifier:
         return _valid_user_id(body.get("id"))
 
 
-def build_verifier(settings: Settings) -> TokenVerifier | None:
-    """앱 시작 때 붙일 검증기. 접속하지 않는다. 필요한 설정이 없으면 None(→ 토큰이 온 요청은 501).
+JWT_ALGORITHMS = ("ES256", "RS256")  # 비대칭만. HS256(공유 비밀)·none은 받지 않는다
+JWT_AUDIENCE = "authenticated"
+JWKS_CACHE_MAX_S = 600.0  # JWKS 캐시 상한 10분(설계 9.1절, Supabase 엣지 캐시와 같음)
 
-    지금은 (b) `SupabaseUserEndpointVerifier`(`SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`). PyJWT가 승인되면 이 함수에서
-    (a) `JwksTokenVerifier`(`SUPABASE_JWKS_URL`)로 바꾼다. 새 환경변수는 없다.
+
+def _http_base(url: str, name: str) -> str:
+    base = url.rstrip("/")
+    if not base.startswith("https://") and not base.startswith("http://"):
+        raise ValueError(f"{name}은 http(s) 주소여야 한다")
+    return base
+
+
+class JwksTokenVerifier:
+    """(a) PyJWT 로컬 검증: `SUPABASE_JWKS_URL`의 공개 키로 서명·`aud`·`iss`·`exp`·`sub`를 확인한다.
+
+    - 헤더의 `alg`가 `ES256`·`RS256`이 아니거나 `kid`가 없으면 키 조회 전에 `TokenInvalid`(네트워크 0).
+    - 키 목록 조회 실패(연결 오류·시간 초과·JSON 아님·서명 키 없음) → `VerifierUnavailable`(→ 503 `AUTH_UNAVAILABLE`).
+      목록은 받았는데 `kid`가 없으면(한 번 새로 받은 뒤에도) 위조로 보고 `TokenInvalid`.
+    - JWKS는 `PyJWKClient`가 `cache_s`(≤10분) 동안 캐시한다. `PyJWKClient`는 동기(urllib)라 스레드에서 돌린다.
+    - 시험은 `jwks_client`에 `fetch_data`를 덮은 `PyJWKClient`를 넣는다(네트워크 0). 예외 메시지·로그에 토큰·클레임을 싣지 않는다.
+    """
+
+    def __init__(self, jwks_url: str, issuer: str, *, audience: str = JWT_AUDIENCE, cache_s: float = JWKS_CACHE_MAX_S,
+                 timeout_s: float = 5.0, leeway_s: int = 0, jwks_client: jwt.PyJWKClient | None = None) -> None:
+        if not 0 < cache_s <= JWKS_CACHE_MAX_S:
+            raise ValueError("cache_s는 0 초과 600초 이하")
+        self._issuer = _http_base(issuer, "issuer")
+        self._audience = audience
+        self._leeway = leeway_s
+        self._client = jwks_client or jwt.PyJWKClient(
+            _http_base(jwks_url, "jwks_url"), cache_jwk_set=True, lifespan=cache_s, timeout=int(max(1, timeout_s)))
+
+    def __repr__(self) -> str:  # 주소를 repr에 싣지 않는다
+        return f"{type(self).__name__}(jwks=<set>, iss=<set>)"
+
+    async def verify(self, token: str) -> str:
+        return await asyncio.to_thread(self._verify_sync, token)
+
+    def _signing_key(self, kid: str) -> Any:
+        try:
+            self._client.get_signing_keys()  # 캐시 적중이면 네트워크 0. 목록 자체를 못 얻으면 검증 서버 장애다
+        except (jwt.PyJWKClientError, jwt.PyJWKSetError, jwt.PyJWKError) as exc:
+            raise VerifierUnavailable(type(exc).__name__) from None
+        try:
+            return self._client.get_signing_key(kid)
+        except jwt.PyJWKClientConnectionError as exc:  # 모르는 kid로 다시 받으려다 연결 실패
+            raise VerifierUnavailable(type(exc).__name__) from None
+        except (jwt.PyJWKClientError, jwt.PyJWKSetError, jwt.PyJWKError):
+            raise TokenInvalid("unknown key") from None
+
+    def _verify_sync(self, token: str) -> str:
+        try:
+            header = jwt.get_unverified_header(token)
+        except jwt.PyJWTError:
+            raise TokenInvalid("malformed") from None
+        kid = header.get("kid")
+        if header.get("alg") not in JWT_ALGORITHMS or not isinstance(kid, str) or not kid:
+            raise TokenInvalid("bad header")
+        key = self._signing_key(kid)
+        try:
+            claims = jwt.decode(
+                token, key=key, algorithms=list(JWT_ALGORITHMS), audience=self._audience, issuer=self._issuer,
+                leeway=self._leeway, options={"require": ["exp", "sub", "aud", "iss"]},
+            )
+        except jwt.ExpiredSignatureError:
+            raise TokenExpired("expired") from None
+        except jwt.PyJWTError:  # 서명·aud·iss·필수 클레임·키와 알고리즘 불일치
+            raise TokenInvalid("rejected") from None
+        return _valid_user_id(claims.get("sub"))
+
+
+def build_verifier(settings: Settings) -> TokenVerifier | None:
+    """앱 시작 때 붙일 검증기. 접속하지 않는다(JWKS는 첫 토큰 검증 때 받는다). 설정이 없으면 None(→ 토큰이 온 요청은 501).
+
+    1. `SUPABASE_JWKS_URL`·`SUPABASE_URL`이 있으면 (a) `JwksTokenVerifier`(BE-11-17 A, 기본).
+    2. 아니면 `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`로 (b) `SupabaseUserEndpointVerifier`(대안).
+    새 환경변수는 없다. 형식 오류는 값 없이 경고만 남긴다.
     """
     url = settings.supabase_url
+    if not url:
+        return None
+    if settings.supabase_jwks_url:
+        try:
+            return JwksTokenVerifier(settings.supabase_jwks_url, f"{url.rstrip('/')}/auth/v1")
+        except ValueError:
+            logger.warning("JWKS 검증기를 만들지 않았다: SUPABASE_JWKS_URL·SUPABASE_URL 형식 오류")  # 값은 남기지 않는다
+            return None
     key = reveal(settings.supabase_publishable_key)
-    if not url or not key:
+    if not key:
         return None
     try:
         return SupabaseUserEndpointVerifier(url, key)
@@ -247,6 +330,6 @@ def set_verifier(app: Any, verifier: TokenVerifier | None) -> None:
 
 
 __all__ = [
-    "GUEST", "AuthError", "Principal", "SupabaseUserEndpointVerifier", "TokenExpired", "TokenInvalid", "TokenVerifier",
+    "GUEST", "AuthError", "JwksTokenVerifier", "Principal", "SupabaseUserEndpointVerifier", "TokenExpired", "TokenInvalid", "TokenVerifier",
     "VerifierUnavailable", "build_verifier", "get_principal", "require_user", "set_verifier", "unverified_exp",
 ]

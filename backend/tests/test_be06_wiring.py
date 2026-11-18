@@ -328,7 +328,7 @@ def test_lifespan_without_settings_keeps_501_and_health(wired):
         assert r.status_code == 501 and r.json() == {"code": "NOT_IMPLEMENTED", "fields": []}
         assert client.get("/health").json() == {"status": "ok"}
         paths = set(client.get("/openapi.json").json()["paths"])
-        assert paths == {"/health", "/chat", "/me"} and client.get("/docs").status_code == 200  # §2-6 스모크(/me: BE-11 S1)
+        assert paths == {"/health", "/chat", *ACCOUNT_PATHS} and client.get("/docs").status_code == 200  # §2-6 스모크(계정: BE-11)
     assert wired["fake"].calls == 0
 
 
@@ -368,11 +368,22 @@ def test_runner_does_not_leak_after_fixture_and_openapi_is_unchanged(wired):
     assert TestClient(main_mod.app).post("/chat", json={"question": Q_PAIR}).status_code == 501
 
 
+ACCOUNT_PATHS = {"/me", "/legal/{doc_type}", "/consents", "/profiles", "/profiles/{profile_id}"}  # BE-11 계정 API(2026-11-18)
+
+
 def test_openapi_matches_committed_export_shape():
     schema = main_mod.app.openapi()
-    assert set(schema["paths"]) == {"/health", "/chat", "/me"}  # /me: BE-11 S1(2026-11-18)
-    assert set(schema["paths"]["/chat"]["post"]["responses"]) == {"200", "422", "501"}
-    assert set(schema["paths"]["/me"]["get"]["responses"]) == {"200", "401", "501", "503"}
+    paths = schema["paths"]
+    assert set(paths) == {"/health", "/chat", *ACCOUNT_PATHS}
+    assert set(paths["/chat"]["post"]["responses"]) == {"200", "422", "501"}
+    assert set(paths["/me"]["get"]["responses"]) == {"200", "401", "501", "503"}
+    assert set(paths["/me"]["delete"]["responses"]) == {"204", "401", "501", "503"}
+    assert set(paths["/me"]) == {"get", "delete"} and set(paths["/legal/{doc_type}"]) == {"get"}
+    assert set(paths["/consents"]) == {"post"} and set(paths["/profiles"]) == {"get", "post"}
+    assert set(paths["/profiles/{profile_id}"]) == {"patch", "delete"}
+    assert set(paths["/legal/{doc_type}"]["get"]["responses"]) == {"200", "404", "422", "501", "503"}
+    assert {"201", "401", "403", "404", "409", "422", "501", "503"} <= set(paths["/consents"]["post"]["responses"])
+    assert "security" not in paths["/legal/{doc_type}"]["get"]  # 게스트 허용
 
 
 def test_default_resources_is_not_called_by_tests_and_psycopg_is_imported_lazily():
