@@ -8,7 +8,7 @@
 - [3. 스택과 이유](#3-스택과-이유)
 - [4. 실행 방법](#4-실행-방법)
   - [(1) 준비](#1-준비)
-  - [(2) 백엔드](#2-백엔드)
+  - [(2) 백엔드(실서버)](#2-백엔드실서버)
   - [(3) 가짜 자원 서버](#3-가짜-자원-서버)
   - [(4) 프런트](#4-프런트)
   - [(5) 환경변수 이름](#5-환경변수-이름)
@@ -51,9 +51,14 @@ ReAct 에이전트가 중심이며 LangGraph 6노드 `guardrail_in → router �
 ### (1) 준비
 - Python 3.11 이상(`backend/pyproject.toml`), Node.js와 pnpm.
 - 저장소 루트의 `.env`에 환경변수를 둔다(이름은 (5)). `.env`는 커밋하지 않는다.
-- 백엔드 가상환경은 `backend/.venv`를 쓴다고 가정한다(문서·스크립트가 이 경로를 쓴다).
+- 백엔드 가상환경은 `backend/.venv`를 쓴다(문서·스크립트가 이 경로를 쓴다). 의존성은 `backend/pyproject.toml`에 있다(`dev`: 시험·린트, `eval`: 평가 judge용 `anthropic`).
 
-### (2) 백엔드
+```bash
+python3 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -e "backend[dev]"
+```
+
+### (2) 백엔드(실서버)
 `backend/app/main.py`의 FastAPI 앱 `app`을 uvicorn으로 띄운다. 가정: 진입점 모듈 경로는 `app.main:app`이며 `backend/`를 작업 디렉터리로 쓴다.
 
 ```bash
@@ -61,7 +66,8 @@ backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --port 8000
 ```
 
 - 상태 확인: `GET /health`
-- 질문 1건: `POST /chat`. 요청·응답 스키마는 서버가 띄우는 `/docs`(OpenAPI)에서 확인한다.
+- 질문 1건: `POST /chat`(게스트 허용). 요청·응답 스키마는 서버가 띄우는 `/docs`(OpenAPI)에서 확인한다. 필요한 환경변수(5)가 갖춰지지 않으면 `/chat`은 501을 돌려준다(의도된 상태, `backend/app/main.py` 머리 설명).
+- 로그인 사용자 확인: `GET /me`(BE-11 S1, 로그인 필수). 토큰 검증기가 없으면 토큰이 온 요청은 501.
 - 시험: `PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests -q -p no:cacheprovider`
 
 ### (3) 가짜 자원 서버
@@ -83,6 +89,8 @@ pnpm --dir frontend dev
 
 - 그 밖의 스크립트: `build`, `start`, `lint`, `test`(vitest), `gen:api`(백엔드 OpenAPI에서 타입 생성).
 - 프런트가 백엔드를 부르는 주소는 `MEDIAGENT_BACKEND_ORIGIN`(서버 전용 rewrites 대상)과 `NEXT_PUBLIC_API_BASE_URL`이다. `NEXT_PUBLIC_API_MOCKING`이 `enabled`일 때만 MSW 목을 쓴다.
+- rewrites(`frontend/next.config.ts`): `MEDIAGENT_BACKEND_ORIGIN`이 있으면 `/api/:path*` 요청을 `{MEDIAGENT_BACKEND_ORIGIN}/:path*`로 넘긴다. 없으면 rewrites는 비어 있다(개발은 MSW 목).
+- 가짜 서버(3) 또는 실서버(2)와 함께 쓰려면 `MEDIAGENT_BACKEND_ORIGIN`을 `http://127.0.0.1:8000`처럼 그 서버 주소로 두고 프런트를 띄운다.
 - 세부는 `frontend/README.md`.
 
 ### (5) 환경변수 이름
@@ -98,8 +106,11 @@ pnpm --dir frontend dev
 | Anthropic(평가 judge 전용, 서비스 런타임에는 쓰지 않음) | `ANTHROPIC_API_KEY` |
 | Upstage(평가 문항 생성) | `UPSTAGE_API_KEY` |
 | Supabase(DB) | `SUPABASE_DB_URL` |
-| Supabase(로그인, 확장) | `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `SUPABASE_JWKS_URL` |
-| 프런트 | `MEDIAGENT_BACKEND_ORIGIN`, `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_API_MOCKING` |
+| Supabase(로그인·JWT 검증, 백엔드) | `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`(서버 전용), `SUPABASE_JWKS_URL` |
+| 프런트 | `MEDIAGENT_BACKEND_ORIGIN`(서버 전용), `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_API_MOCKING` |
+| 프런트 로그인(공개용, BE-11-18 A) | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
+
+- `NEXT_PUBLIC_*`에는 비밀 키를 넣지 않는다. 위 두 변수는 공개용 publishable 키로 RLS를 전제하는 예외이며, `SUPABASE_SECRET_KEY`는 `NEXT_PUBLIC_*`에 두지 않는다.
 
 ## 5. 평가 요약
 평가 기준의 단일 원본은 [`P2-doc/PJ2-RFP.md`](P2-doc/PJ2-RFP.md) 9장이다. 결과는 k/n과 Wilson 95% 구간으로 보고하며, 칸당 n이 8 이하면 유의성을 주장하지 않는다(9.1절).
@@ -119,7 +130,7 @@ pnpm --dir frontend dev
 - 소표본이므로 위 구간 외에 유의성은 주장하지 않는다(9.1절).
 
 ### (2) 평가 실행
-평가 러너는 `evaluation/eval_runner.py`다. 개발셋 기준 사용 예(저장소 루트)는 아래와 같다. 시험셋은 개선 중에 열람하지 않는다(RFP-26-04). 재현 절차의 확정본은 BE-08 뒤에 채운다.
+평가 러너는 `evaluation/eval_runner.py`다. 개발셋 기준 사용 예(저장소 루트)는 아래와 같다. 시험셋은 개선 중에 열람하지 않는다(RFP-26-04). 재현 절차의 확정본은 BE-08 뒤에 채운다(자리만 둔다).
 
 ```bash
 backend/.venv/bin/python evaluation/eval_runner.py --set dev --agent offline-fixed --limit 5
@@ -139,6 +150,10 @@ backend/.venv/bin/python evaluation/eval_runner.py --set dev --agent offline-fix
 - [`P2-doc/PJ2-Agent-Harness.md`](P2-doc/PJ2-Agent-Harness.md): 하네스 규칙
 - [`P2-doc/PJ2-프롬프트-설계.md`](P2-doc/PJ2-프롬프트-설계.md): 프롬프트 설계
 - [`P2-doc/PJ2-DUR-RAG-근거설계.md`](P2-doc/PJ2-DUR-RAG-근거설계.md): 근거 코퍼스 설계
+- [`P2-doc/PJ2-API-엔티티.md`](P2-doc/PJ2-API-엔티티.md): API·엔티티
+- [`P2-doc/PJ2-Agent-로깅-전략.md`](P2-doc/PJ2-Agent-로깅-전략.md): 로깅 전략
+- [`P2-doc/PJ2-프론트-기술스택.md`](P2-doc/PJ2-프론트-기술스택.md): 프런트 기술 스택
+- [`P2-doc/MFDS_병용금기_지정규정_고시.md`](P2-doc/MFDS_병용금기_지정규정_고시.md): 병용금기 지정 규정 고시 정리본
 - [`schedule.md`](schedule.md), [`tickets/`](tickets/): 일정과 티켓
 
 ## 8. 면책과 한계

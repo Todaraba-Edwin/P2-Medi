@@ -2,8 +2,9 @@
 
 **DATA DESIGN: 계정·프로필·약관·동의 데이터 설계**
 
-> 작성 2026-11-18 밤(사용자 요청: "수퍼베이스의 RDB를 활용하여 user 테이블에 대한 관리", "프로필 설정에 자녀와 부모를 추가", "이용약관, 개인정보, 민감정보 들에 대해서도 RDB에서 관리 … 추후 수정시 DB만 손보면 되기에", "온보딩에서 수집한 정보들에 대해서 처리할 ERD 설계와 DB 적재"). 티켓: [BE-11](../tickets/backend/BE-11.md)·[FE-04](../tickets/frontend/FE-04.md). 상태: **설계 초안, 코드·마이그레이션 없음, 원격 적용 0.** SQL과 시드는 이 문서 부록(A·B)의 초안이며, 파일로 옮기고 원격에 적용하는 일은 결정(14장)과 승인 flag 뒤다(12장).
-> 근거로 삼은 결정: PRD-01-05 B(계정 서버 저장), PRD-01-09 A′(소셜 로그인. 요구서 표기는 "PRD-01-06 A′", 14.1절), AG-10-06 A(프로필·온보딩을 축소 순서에서 뺌, W2~W3), RFP-30-08 A(2일 스프린트 S1~S3), BE-11-01 B·BE-11-02~05 A(2026-11-18). 법률 검토는 거치지 않았다(PJ2-RFP.md 12장 위험 표 ①②). 이 문서의 약관·동의 문서 본문 시드는 모두 "초안·법률 검토 전"이다.
+> 작성 2026-11-18 밤(사용자 요청: "수퍼베이스의 RDB를 활용하여 user 테이블에 대한 관리", "프로필 설정에 자녀와 부모를 추가", "이용약관, 개인정보, 민감정보 들에 대해서도 RDB에서 관리 … 추후 수정시 DB만 손보면 되기에", "온보딩에서 수집한 정보들에 대해서 처리할 ERD 설계와 DB 적재"). 티켓: [BE-11](../tickets/backend/BE-11.md)·[FE-04](../tickets/frontend/FE-04.md). 상태: **설계 초안, 원격 적용 0.** SQL과 시드는 이 문서 부록(A·B)의 초안이며, 파일로 옮기고 원격에 적용하는 일은 승인 flag 뒤다(12장).
+> **2026-11-19 정정**: 결정 BE-11-06~22가 모두 A로 완료(2026-11-18 밤 늦게 사용자 "권장대로")되어 본문·부록을 그 결정에 맞췄다. 14장은 "결정 후보"에서 "결정됨(2026-11-18)"으로 바꿨고(원본은 `tickets/backend/BE-11.md` §6 결정 현황), 오류 본문(9.1절)·탈퇴 때 동의 기록 파기(7장)·`anonymized_at` 열 삭제(4.6절, 부록 A)가 가장 크게 바뀐 곳이다.
+> 근거로 삼은 결정: PRD-01-05 B(계정 서버 저장), PRD-01-09 A′(소셜 로그인. 요구서 표기는 "PRD-01-06 A′", 14.1절), AG-10-06 A(프로필·온보딩을 축소 순서에서 뺌, W2~W3), RFP-30-08 A(2일 스프린트 S1~S3), BE-11-01 B·BE-11-02~05 A(2026-11-18), BE-11-06~22 A(2026-11-18 밤 늦게, 1.3절). 법률 검토는 거치지 않았다(PJ2-RFP.md 12장 위험 표 ①②). 이 문서의 약관·동의 문서 본문 시드는 모두 "초안·법률 검토 전"이다.
 
 ## Index
 - [1. 목적과 범위](#1-목적과-범위)
@@ -34,8 +35,8 @@
   - [6.3 철회 시 삭제 트리거](#63-철회-시-삭제-트리거)
 - [7. 탈퇴·보관](#7-탈퇴보관)
   - [7.1 탈퇴 순서](#71-탈퇴-순서)
-  - [7.2 동의 기록 보관 선택지](#72-동의-기록-보관-선택지)
-  - [7.3 조사 결과 반영 자리](#73-조사-결과-반영-자리)
+  - [7.2 동의 기록 처리(BE-11-22 A)](#72-동의-기록-처리be-11-22-a)
+  - [7.3 조사 결과](#73-조사-결과)
 - [8. 약관 문서 버전 관리](#8-약관-문서-버전-관리)
 - [9. API 계약](#9-api-계약)
   - [9.1 공통(인증 헤더·게스트·오류)](#91-공통인증-헤더게스트오류)
@@ -45,9 +46,9 @@
 - [11. chat 연동](#11-chat-연동)
 - [12. 마이그레이션·시드 적재 절차](#12-마이그레이션시드-적재-절차)
 - [13. 시험 계획](#13-시험-계획)
-- [14. 결정 후보](#14-결정-후보)
+- [14. 결정됨(2026-11-18)](#14-결정됨2026-11-18)
   - [14.1 확인된 문서 충돌](#141-확인된-문서-충돌)
-  - [14.2 결정 후보 표](#142-결정-후보-표)
+  - [14.2 결정 현황 표](#142-결정-현황-표)
 - [15. 코드 대조·출처](#15-코드-대조출처)
 - [부록 A. 마이그레이션 SQL 초안](#부록-a-마이그레이션-sql-초안)
 - [부록 B. 약관·동의 문서 시드 초안](#부록-b-약관동의-문서-시드-초안)
@@ -65,7 +66,7 @@ RFP-30-08 A의 2일 스프린트에 맞춘 데이터·API 범위다.
 | 스프린트 | 화면·인증 | 이 문서의 데이터·API 범위 |
 |---|---|---|
 | S1 인증 | 이메일·Google·Kakao 로그인, 게스트 유지 | `app_users`, `legal_documents`(시드), `user_consents`, `GET /legal/*`, `GET /me`, `POST /consents`, `DELETE /me`, 백엔드 JWT 검증 |
-| S2 프로필·온보딩 + Naver | 온보딩 단계, 프로필 CRUD, Naver 연동(방식 확인 뒤) | `profiles`, `profile_medications`, 프로필 CRUD API, 건강 정보 동의·철회 트리거, `provider='naver'` |
+| S2 프로필·온보딩 + Naver | 온보딩 단계, 프로필 CRUD, Naver 연동(Supabase Custom OIDC, BE-11-15 A. 반나절 상한을 넘으면 Naver 제외, BE-11-19 A) | `profiles`, `profile_medications`, 프로필 CRUD API, 건강 정보 동의·철회 트리거, `provider='naver'` |
 | S3 chat 연동 | "누가 먹나요" 대상 선택 | 프로필 → `context` 변환(프런트), `/chat` 무변경 확인 |
 
 ### 1.3 근거 결정
@@ -77,13 +78,29 @@ RFP-30-08 A의 2일 스프린트에 맞춘 데이터·API 범위다.
 | BE-11-01 B | 본인 + 가족 최대 3명, 관계 칸 | 4.3절 행 수 제한·`relation` |
 | BE-11-02 A | `legal_documents` + `user_consents`, 프런트는 API로 받아 표시 | 4.5·4.6·8·9장 |
 | BE-11-03 A | 건강 정보(임신 여부·복용 약)는 별도 선택 동의, 미동의면 그 칸 저장 안 함 | 6.2절, 부록 A 트리거 |
-| BE-11-04 A | 탈퇴 시 프로필·약 즉시 삭제, 동의 기록은 식별자를 지운 채 보관(기간은 조사 뒤) | 7장 |
+| BE-11-04 A → BE-11-22 A | 탈퇴 시 프로필·약 즉시 삭제. 동의 기록은 BE-11-04에서 "식별자를 지운 채 보관(기간은 조사 뒤)"이었으나 조사 뒤 **BE-11-22 A로 동의 기록 포함 즉시 전부 파기**로 확정(2026-11-18, 법률 검토 전) | 7장 |
 | BE-11-05 A | 복용 약은 입력 원문 + 사전 확인 시 `item_seq` | 4.4절 |
+| BE-11-06 A | 계정 테이블은 `account` 스키마(Data API 비노출) + 요청마다 `SET LOCAL ROLE authenticated`로 RLS 아래에서 실행. 단 `SET ROLE` 가능 여부를 읽기 전용으로 먼저 확인하고 안 되면 B(`WHERE user_id` 코드 검사) | 2.3·5.2절 |
+| BE-11-07 A | 연령대 11구간. 확정 전 원격 `age_contra` 분포를 읽기 전용으로 센다 | 4.8절 |
+| BE-11-08 A | 관계 5종 `self`·`child`·`parent`·`spouse`·`other` | 4.1절 |
+| BE-11-09 A | 임신 주차 열을 지금 만들지 않는다 | 1.4절 |
+| BE-11-10 A | `app_users`는 백엔드가 첫 `GET /me`에서 만든다(`auth.users` 트리거 안 씀) | 4.2절 |
+| BE-11-11 A | 공급자 동의 항목을 최소로 요청하고 S1에서 실제 저장 항목을 확인해 처리방침에 적는다 | 4.7절 |
+| BE-11-12 A | 필수 개인정보 동의 철회 시 프로필 전부 삭제, 계정은 유지 | 6.3절 |
+| BE-11-13 A | 복용 약은 기본 끔, 질문마다 "내 복용 약과 함께 확인" 토글 | 11장 |
+| BE-11-14 A | RLS 시험은 로컬 Postgres + `auth` 스키마 스텁, 원격은 승인 뒤 스모크만 | 13장 |
+| BE-11-15 A | Naver는 Supabase Custom OIDC(`issuer https://nid.naver.com`, 이메일 없음), 실패하면 OAuth2 + userinfo 어댑터 | 4.7·7.3절 |
+| BE-11-16 A | Kakao는 이메일을 받지 않는다(닉네임만, "Allow users without an email") | 4.7·7.3절 |
+| BE-11-17 A | 백엔드 JWT 검증은 PyJWT(`PyJWKClient`, 새 의존성 승인됨) | 9.1절 |
+| BE-11-18 A | `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` 허용(publishable 키는 RLS 전제의 공개 키라 CLAUDE.md 3장 "키 금지"의 예외) | 9.1절 |
+| BE-11-19 A | Naver S2는 반나절 상한, 넘으면 Naver 제외 | 1.2절 |
+| BE-11-20 A | 토큰 검증 서버 장애는 503 `AUTH_UNAVAILABLE` | 9.1절 |
+| BE-11-21 A | 계정 API 오류 본문은 `/chat`과 같은 `{code, fields}` | 9.1절 |
 | PRD-07-01 A | 서버는 대화 상태를 저장·로그하지 않고 요청의 `context`만 쓴다 | 11장 |
 | FE-07-18 A | 프로필 나이로 연령금기 판정, 특정할 수 없으면 나이별 원문 값 | 4.8·11장 |
 
 ### 1.4 범위 밖
-질문·대화 이력 저장(PRD-07-01 A, 3주 범위 밖), Apple 로그인, 알레르기(PRD-01-03 A에서 제외), 임신 주차(FE-07-12 B는 "추후 확장", 14.2절 BE-11-09 후보), 마케팅 수신 동의, 관리자 화면(약관 수정은 SQL로 새 버전 행 삽입).
+질문·대화 이력 저장(PRD-07-01 A, 3주 범위 밖), Apple 로그인, 알레르기(PRD-01-03 A에서 제외), 임신 주차(FE-07-12 B는 "추후 확장". 열을 지금 만들지 않는다, BE-11-09 A. 필요해지면 비파괴 열 추가 마이그레이션), 마케팅 수신 동의, 관리자 화면(약관 수정은 SQL로 새 버전 행 삽입).
 
 ## 2. 데이터 원칙
 
@@ -101,7 +118,7 @@ RFP-30-08 A의 2일 스프린트에 맞춘 데이터·API 범위다.
 
 ### 2.3 접근 통제의 두 겹
 1. **RLS**: 모든 계정 테이블에 RLS를 켜고 `auth.uid()` 기준으로 본인 행만 허용한다(5장).
-2. **노출하지 않는 스키마**: 계정 테이블은 `public`이 아니라 새 스키마 `account`에 둔다. Supabase Data API(PostgREST)는 설정한 스키마만 노출하므로(기본 `public`) 브라우저가 계정 테이블을 직접 부르지 못하고 FastAPI만 거친다. `public`에 둔 사전 테이블을 RLS + REVOKE로 막은 BE-06-32 A(`backend/app/db/schema_dict_pg.sql:3-6`)와 같은 목적이다. 노출 스키마 설정은 확인 필요(14.2절 BE-11-06 후보).
+2. **노출하지 않는 스키마**: 계정 테이블은 `public`이 아니라 새 스키마 `account`에 둔다. Supabase Data API(PostgREST)는 설정한 스키마만 노출하므로(기본 `public`) 브라우저가 계정 테이블을 직접 부르지 못하고 FastAPI만 거친다. `public`에 둔 사전 테이블을 RLS + REVOKE로 막은 BE-06-32 A(`backend/app/db/schema_dict_pg.sql:3-6`)와 같은 목적이다. 이 구성은 BE-11-06 A로 정해졌다. 노출 스키마 설정은 적용 뒤 사용자가 대시보드에서 확인한다(12장 5번).
 
 백엔드가 테이블 소유 역할(`SUPABASE_DB_URL`의 postgres 계열)로 접속하면 RLS를 **우회한다**(`schema_dict_pg.sql:5-6`의 가정과 같다). 그래서 계정 API는 요청마다 `authenticated` 역할로 내려가 RLS 아래에서 돈다(5.2절). 이렇게 해야 RLS가 장식이 아니라 실제 방어선이 되고, 다른 계정 시험(13장)이 의미를 갖는다.
 
@@ -112,7 +129,7 @@ erDiagram
     AUTH_USERS ||--o| APP_USERS : "1:1 (ON DELETE CASCADE)"
     APP_USERS ||--o{ PROFILES : "1:N (본인 1 + 가족 ≤3)"
     PROFILES ||--o{ PROFILE_MEDICATIONS : "1:N (≤10, 건강 동의 필요)"
-    APP_USERS |o--o{ USER_CONSENTS : "1:N (탈퇴 시 user_id NULL)"
+    APP_USERS ||--o{ USER_CONSENTS : "1:N (탈퇴 시 함께 삭제)"
     LEGAL_DOCUMENTS ||--o{ USER_CONSENTS : "(doc_type, version)"
 
     AUTH_USERS {
@@ -163,13 +180,12 @@ erDiagram
     }
     USER_CONSENTS {
         bigint consent_id PK
-        uuid user_id FK "NULL 허용"
+        uuid user_id FK "NOT NULL"
         doc_type doc_type FK
         int doc_version FK
         consent_action action "agree|withdraw"
         text channel "onboarding|settings|reconsent"
         timestamptz acted_at
-        timestamptz anonymized_at
     }
 ```
 
@@ -182,9 +198,9 @@ erDiagram
 | enum | 값 | 근거·메모 |
 |---|---|---|
 | `provider` | `email`, `google`, `kakao`, `naver` | 이메일 포함, Apple 제외(PRD-01-09 A′). 값은 가입 경로 기록용이며 공급자 연결 목록의 원본은 `auth.identities`다 |
-| `relation` | `self`, `child`, `parent`, `spouse`, `other` | BE-11-01 B "관계 칸: 자녀·부모 등". `spouse`·`other`는 "등"에 대한 가정(14.2절 BE-11-08 후보) |
+| `relation` | `self`, `child`, `parent`, `spouse`, `other` | BE-11-01 B "관계 칸: 자녀·부모 등". `spouse`·`other`는 "등"에 해당하며 BE-11-08 A로 확정 |
 | `pregnancy_status` | `pregnant`, `not_pregnant`, `unknown` | NULL = 입력 안 함 또는 건강 동의 없음. `unknown`은 사용자가 "모름"을 고른 것(판정 입력은 `pregnant=None`과 같다, 11장) |
-| `age_band` | 4.8절 표의 11개 | 연령대(PRD-01-03 A). 경계는 연령금기 기준값에 맞춘 가정(14.2절 BE-11-07 후보) |
+| `age_band` | 4.8절 표의 11개 | 연령대(PRD-01-03 A). 11구간은 BE-11-07 A로 정해졌고, 경계는 연령금기 기준값에서 흔한 값으로 둔 것이라 원격 분포 확인이 남았다(4.8절) |
 | `doc_type` | `terms`, `privacy_policy`, `privacy_consent`, `sensitive_consent` | 사용자 "이용약관, 개인정보, 민감정보". 처리방침(`privacy_policy`)은 공개 고지이고 동의 대상이 아니다. 수집·이용 동의(`privacy_consent`)와 민감정보 동의(`sensitive_consent`)는 따로 둔다 |
 | `doc_status` | `draft`, `published`, `retired` | 8장 |
 | `consent_action` | `agree`, `withdraw` | 4.6절 |
@@ -200,7 +216,7 @@ erDiagram
 | `onboarding_completed_at` | timestamptz | NULL 허용 | `done`이 된 시각 |
 | `created_at`·`updated_at` | timestamptz | NOT NULL DEFAULT now() | `updated_at`은 트리거로 갱신 |
 
-행은 **백엔드가 첫 `GET /me`에서 만든다**(INSERT … ON CONFLICT DO NOTHING). `auth.users`에 트리거를 거는 방식(가입과 동시에 행 생성)은 트리거 실패가 가입 자체를 막고 `auth` 스키마를 건드리므로 쓰지 않는다(14.2절 BE-11-10 후보).
+행은 **백엔드가 첫 `GET /me`에서 만든다**(INSERT … ON CONFLICT DO NOTHING, BE-11-10 A). `auth.users`에 트리거를 거는 방식(가입과 동시에 행 생성)은 트리거 실패가 가입 자체를 막고 `auth` 스키마를 건드리므로 쓰지 않는다.
 
 ### 4.3 profiles(본인·가족 프로필)
 | 열 | 타입 | 제약 | 설명 |
@@ -256,22 +272,25 @@ erDiagram
 | 열 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | `consent_id` | bigint | PK, IDENTITY | |
-| `user_id` | uuid | NULL 허용, FK → `app_users` ON DELETE SET NULL | 탈퇴 때 NULL(7장) |
+| `user_id` | uuid | NOT NULL, FK → `app_users` ON DELETE CASCADE | 탈퇴 때 `app_users`와 함께 삭제된다(BE-11-22 A, 7장) |
 | `doc_type`·`doc_version` | `doc_type`·integer | NOT NULL, FK → `legal_documents(doc_type, version)` | 동의한 바로 그 버전 |
 | `action` | `consent_action` | NOT NULL | `agree` 또는 `withdraw` |
 | `channel` | text | NOT NULL, ∈ {onboarding, settings, reconsent} | 어디서 했는가 |
 | `acted_at` | timestamptz | NOT NULL DEFAULT now() | |
-| `anonymized_at` | timestamptz | NULL 허용 | 식별자를 지운 시각(7장) |
 
-- **추가만 한다**(append-only). `authenticated` 역할에 UPDATE·DELETE 권한과 정책이 없다. 현재 상태는 `(user_id, doc_type)`별 가장 최근 행이다(뷰 `account.user_consent_current`, 부록 A).
+- 이전 초안에 있던 `anonymized_at` 열과 `user_id` NULL 허용은 BE-11-22 A(탈퇴 시 동의 기록 포함 즉시 전부 파기)로 **삭제했다**. 식별자를 지워 남기는 행이 없기 때문이다.
+- **추가만 한다**(append-only). `authenticated` 역할에 UPDATE·DELETE 권한과 정책이 없다. 탈퇴 때의 삭제는 `app_users` DELETE의 CASCADE로 서버(소유 역할)가 한다. 현재 상태는 `(user_id, doc_type)`별 가장 최근 행이다(뷰 `account.user_consent_current`, 부록 A).
 - `privacy_policy`에는 동의 행을 만들지 않는다(API가 400). 처리방침은 고지 문서다.
 - 색인: `(user_id, doc_type, acted_at DESC)`.
 
 ### 4.7 auth.users(Supabase Auth, 우리가 만들지 않음)
-Supabase Auth가 관리하며 이메일·공급자 identity·`raw_user_meta_data`를 둔다. **Google·Kakao가 넘기는 이름·사진 URL이 `raw_user_meta_data`에 들어갈 수 있다**(가정, 공급자 scope에 따라 다름). 이는 "로그인 최소 정보"(PJ2-RFP.md:331) 밖이므로 공급자 동의 항목을 최소로 요청하고, 실제로 무엇이 저장되는지 S1에서 확인해 처리방침 본문에 맞춘다(14.2절 BE-11-11 후보, `auth-research` 조사와 연결).
+Supabase Auth가 관리하며 이메일·공급자 identity·`raw_user_meta_data`를 둔다. **Google·Kakao가 넘기는 이름·사진 URL이 `raw_user_meta_data`에 들어갈 수 있다**(가정, 공급자 scope에 따라 다름). 이는 "로그인 최소 정보"(PJ2-RFP.md:331) 밖이므로 공급자 동의 항목을 최소로 요청하고(Kakao는 닉네임만, Google은 Supabase 기본 scope), 실제로 무엇이 저장되는지 S1에서 확인해 처리방침 본문에 맞춘다(BE-11-11 A). 필요하면 로그인 직후 서버가 메타데이터의 이름·사진을 지우는 안을 S1 실측 뒤에 더한다.
+
+- **Kakao**: 이메일을 받지 않는다(BE-11-16 A). 동의 항목은 닉네임(`profile_nickname`)만 요청하고 Supabase의 "Allow users without an email"을 켠다. 그래서 `auth.users.email`이 비어 있을 수 있다.
+- **Naver**: Supabase Custom OIDC로 연동한다(`issuer https://nid.naver.com`, 이메일 없음, BE-11-15 A). 실패하면 OAuth2 + userinfo 어댑터로 내리고, S2 반나절 상한을 넘으면 Naver를 제외한다(BE-11-19 A).
 
 ### 4.8 age_band ↔ 나이 구간 대응
-`/chat`의 `context.age`는 `AgeInput(lower, upper, unit)`이다(`backend/app/api/request.py:29-42`). 프로필의 `age_band`는 아래 표로 바뀐다(프런트 한 곳, 11장). 경계는 연령금기 기준(`age_contra.age_value`·`age_unit`·`age_cond`, `backend/app/db/schema.sql:44-46`)에서 흔히 쓰일 값으로 **가정**했고 원격 판정 테이블의 실제 분포는 아직 세지 않았다(14.2절 BE-11-07 후보).
+`/chat`의 `context.age`는 `AgeInput(lower, upper, unit)`이다(`backend/app/api/request.py:29-42`). 프로필의 `age_band`는 아래 표로 바뀐다(프런트 한 곳, 11장). **11구간은 BE-11-07 A로 정해졌다.** 경계 값은 연령금기 기준(`age_contra.age_value`·`age_unit`·`age_cond`, `backend/app/db/schema.sql:44-46`)에서 흔히 쓰일 값으로 **가정**했고, 결정에 따라 확정 전에 원격 `age_contra`의 (기준값·단위·조건) 분포를 읽기 전용으로 세는 일이 남아 있다(아직 세지 않음).
 
 | `age_band` | 화면 표시 | `lower` | `upper` | `unit` |
 |---|---|---|---|---|
@@ -303,7 +322,7 @@ Supabase Auth가 관리하며 이메일·공급자 identity·`raw_user_meta_data
 | `profile_medications` | 없음 | 본인 | 본인 | 본인 | 본인 |
 | `user_consents` | 없음 | 본인 | 본인(`user_id = auth.uid()`) | **없음** | **없음** |
 
-시드·약관 새 버전 넣기·탈퇴 익명화는 소유 역할(마이그레이션 스크립트, 서버)만 한다. SQL은 부록 A 5절.
+시드·약관 새 버전 넣기·탈퇴 삭제는 소유 역할(마이그레이션 스크립트, 서버)만 한다. SQL은 부록 A 5절.
 
 ### 5.2 백엔드가 RLS 아래에서 도는 방식
 계정 API는 요청마다 한 트랜잭션 안에서 아래를 실행한다.
@@ -317,7 +336,7 @@ COMMIT;
 ```
 
 - claims는 **백엔드가 JWKS로 서명을 검증한 뒤의 값만** 넣는다(9.1절). 검증하지 않은 값을 넣으면 RLS가 무의미해진다.
-- 확인 필요(읽기 전용 점검): 소유 역할이 `authenticated`로 `SET ROLE`할 수 있는지(`pg_has_role(current_user, 'authenticated', 'MEMBER')`), `auth.uid()`가 `request.jwt.claims`의 `sub`를 읽는지. 둘 중 하나라도 안 되면 대안은 질의마다 `WHERE user_id = :sub`를 코드로 강제하고 RLS는 Data API 방어로만 두는 것이다(14.2절 BE-11-06 후보).
+- 확인 필요(읽기 전용 점검): 소유 역할이 `authenticated`로 `SET ROLE`할 수 있는지(`pg_has_role(current_user, 'authenticated', 'MEMBER')`), `auth.uid()`가 `request.jwt.claims`의 `sub`를 읽는지. 둘 중 하나라도 안 되면 대안은 질의마다 `WHERE user_id = :sub`를 코드로 강제하고 RLS는 Data API 방어로만 두는 것이다(BE-11-06 B). BE-11-06 A는 이 점검이 통과한다는 조건으로 정해졌다.
 - 연결은 기존 `SUPABASE_DB_URL`(Session pooler)을 쓴다. `SET LOCAL`은 트랜잭션이 끝나면 풀리므로 풀 연결에 역할이 남지 않는다.
 
 ## 6. 동의 흐름
@@ -334,7 +353,7 @@ COMMIT;
 
 ### 6.2 건강 정보 별도 동의(BE-11-03 A)
 - DB 트리거 두 개가 강제한다(부록 A `enforce_health_consent_*`): `profiles.pregnancy_status`를 NULL이 아닌 값으로 쓰거나 `profile_medications`에 행을 넣을 때, 그 계정의 최신 `sensitive_consent` 기록이 `agree`가 아니면 거부한다.
-- API도 같은 검사를 먼저 해서 403 `CONSENT_REQUIRED`(`doc_type: sensitive_consent`)로 답한다. DB 트리거는 API 검사가 빠졌을 때의 두 번째 방어선이다.
+- API도 같은 검사를 먼저 해서 403 `CONSENT_REQUIRED`(`fields: ["sensitive_consent"]`, 9.1절)로 답한다. DB 트리거는 API 검사가 빠졌을 때의 두 번째 방어선이다.
 - 건강 동의가 없을 때 화면은 임신 여부·복용 약 칸을 **비활성 + 안내**로 두고, 질문할 때는 대화 중 입력으로 같은 값을 쓸 수 있다(저장만 안 할 뿐 기능은 그대로).
 
 ### 6.3 철회 시 삭제 트리거
@@ -343,7 +362,7 @@ COMMIT;
 | 철회 문서 | 즉시 하는 일 |
 |---|---|
 | `sensitive_consent` | 그 계정의 모든 `profiles.pregnancy_status` → NULL, `profile_medications` 전부 DELETE |
-| `privacy_consent` | 그 계정의 `profiles` 전부 DELETE(약은 CASCADE). 계정은 남는다(14.2절 BE-11-12 후보) |
+| `privacy_consent` | 그 계정의 `profiles` 전부 DELETE(약은 CASCADE). 계정은 남는다(BE-11-12 A). 계정 삭제는 별도 버튼(`DELETE /me`)으로 받는다 |
 | `terms` | 트리거가 거부(`P0001 USE_ACCOUNT_DELETE`) → API 409. 약관 철회는 탈퇴(`DELETE /me`)로만 |
 
 삭제는 즉시이며 휴지통·지연 삭제가 없다. 지운 뒤 API는 갱신된 `GET /me` 모양을 돌려준다.
@@ -354,28 +373,32 @@ COMMIT;
 `DELETE /me`(9장) 처리 순서다.
 
 1. JWT 검증(본인).
-2. 한 트랜잭션(소유 역할): `user_consents`의 그 계정 행을 `user_id = NULL, anonymized_at = now()`로 바꾸고(BE-11-04 A "식별자를 지운 채"), `app_users` 행을 DELETE → `profiles`·`profile_medications` CASCADE 삭제. 7.2절이 B로 정해지면 이 단계에서 동의 기록도 DELETE한다.
+2. 한 트랜잭션(소유 역할): `app_users` 행을 DELETE → `profiles`·`profile_medications`·`user_consents`가 모두 CASCADE로 삭제된다. 동의 기록도 남기지 않는다(BE-11-22 A, 7.2절). 같은 트랜잭션 끝에서 파기 사실을 **일자와 건수만** 식별자 없이 운영 로그에 한 줄 남긴다(7.2절).
 3. Supabase Admin API로 `auth.users` 사용자 삭제(서버 전용 `SUPABASE_SECRET_KEY`). 공급자 identity도 함께 지워진다(가정, 확인 필요).
 4. 3이 실패하면 502 `AUTH_DELETE_FAILED`를 돌려주고 재시도를 안내한다. 이때 앱 데이터는 이미 지워져 있어 다시 로그인하면 빈 계정이며, 재요청하면 1~3을 다시 한다(멱등). 로그에는 오류 유형만 남긴다.
 
-`auth.users`가 다른 경로로 지워져도 `app_users`가 ON DELETE CASCADE라 프로필은 남지 않는다. 다만 이 경로에서는 2단계의 익명화 UPDATE가 돌지 않고 FK의 SET NULL만 적용되어 `anonymized_at`이 비므로, `app_users`에 BEFORE DELETE 트리거로 `anonymized_at`도 채운다(부록 A).
+`auth.users`가 다른 경로로 지워져도 `app_users`가 ON DELETE CASCADE라 프로필·복용 약·동의 기록이 모두 남지 않는다. 이전 초안의 BEFORE DELETE 익명화 트리거(`anonymize_consents`)는 삭제로 바뀌어 부록 A에서 뺐다. 다만 이 경로(`auth.users`를 직접 지우는 경우)에서는 앱 코드가 돌지 않아 파기 로그 한 줄이 남지 않는다(가정: 3주 범위에서는 수동 점검으로 둔다).
 
-### 7.2 동의 기록 보관 선택지
-| 안 | 내용 | 장점 | 단점 |
-|---|---|---|---|
-| A | 식별자를 지운 동의 기록을 정해진 기간 보관 후 삭제(기간은 7.3절 조사 결과) | 문서 버전별 동의 수·시점 같은 집계를 남긴다. BE-11-04 A 원문 | 식별자가 없으므로 **특정인의 동의를 증명하는 용도로는 쓸 수 없다**. 보관 기간 근거가 필요 |
-| B | 탈퇴 즉시 동의 기록도 삭제 | 남기는 개인 관련 정보 0, 보관 기간 근거 불필요 | 탈퇴자 동의 이력 집계가 사라진다 |
+### 7.2 동의 기록 처리(BE-11-22 A)
+> **결론(법률 검토 전, 2026-11-18 조사)**: 탈퇴하면 프로필·복용 약과 함께 동의 기록(`user_consents`)도 즉시 삭제한다(BE-11-22 A. 이전 BE-11-04 표의 B와 같은 내용). 이 서비스는 의료기관이 아니고 결제·판매가 없어, 의료법 제22조·전자상거래법 제6조 같은 보존 의무 법령이 해당하지 않는다. 그래서 개인정보 보호법 제21조 제1항과 표준 개인정보 보호지침 제10조 제1항(불필요해진 날부터 5일 이내 파기)을 따른다. 식별자를 지운 동의 기록은 특정인의 동의를 증명하지 못하고, 결합하면 재식별될 수 있어 남기지 않는다. 파기 사실은 식별자 없이 일자·건수만 운영 로그에 남긴다(지침 제10조 제3항). 백업에 남는 기간은 Supabase 백업 보존 기간을 확인해 처리방침에 적는다. 출처는 조사 보고 `auth-research-retention.md`(로컬 전용)다. 법률 검토는 거치지 않았다.
 
-- 보관 기간 근거(법령·고시)를 조사로 찾지 못하면 **B**가 최소 수집 원칙(PJ2-RFP.md 7장)에 맞다. 찾으면 A로 그 기간을 쓴다(14.2절 BE-11-04 후속 후보).
-- A의 기간 만료 삭제는 서버 정기 작업이 아니라 수동 SQL로 시작한다(3주 범위, 탈퇴자 수가 적다). 자동화는 범위 밖.
-- 사용자 식별자의 해시를 남기는 안은 쓰지 않는다. 해시도 가명정보로 볼 수 있어 "식별자를 지운"과 맞지 않는다(법률 검토 전 판단, 추측).
+| 안(결정 표 기호) | 내용 | 결과 |
+|---|---|---|
+| BE-11-22 A (채택) | 탈퇴 시 동의 기록 포함 즉시 전부 파기. 파기 사실은 일자·건수만 식별자 없이 기록 | 보존 법령이 없고 식별자 없는 기록은 동의 입증에 못 쓴다. 단점: 탈퇴 뒤 동의 분쟁 자료가 없고(법률 검토 전) 탈퇴자 동의 이력 집계가 사라진다 |
+| BE-11-22 B (기각) | 동의 기록만 식별자를 지운 채 보관 | 식별자가 없어 동의 입증에 못 쓰고 보관 기간의 법적 근거를 찾지 못했으며, 인증 로그와 결합하면 재식별될 수 있다 |
 
-### 7.3 조사 결과 반영 자리
-> **부분 반영(2026-11-18)**: 조사 보고 `data/mock/briefs/reports/auth-research.md`(로컬 전용, 같은 날 작성)를 반영했다. 그 조사는 인증 연동이 범위였고 **동의 기록 보관 기간의 법적 근거는 조사하지 않았다.** 그래서 BE-11-04 후속 후보는 잠정 B로 두고, 보관 근거 조사를 따로 맡긴다(14.2절).
+- 번호 주의: 조사 보고의 "A(즉시 전부 파기)"는 BE-11-04 표와 이전 초안 7.2절의 "B"와 같은 내용이다. 이 문서는 결정 번호 BE-11-22 기준으로 쓴다.
+- **파기 로그**: 탈퇴 처리 코드가 일자와 파기 건수(대상 테이블별)만 한 줄 남긴다. 사용자 식별자·이메일·프로필 값은 남기지 않는다(BE-15 redact 규칙).
+- 집계가 필요해지면 `(문서 종류, 버전)별 동의 건수` 카운터만 남기는 안을 나중에 더할 수 있다(조사 보고의 C안, 지금은 쓰지 않는다).
+- 사용자 식별자의 해시를 남기는 안은 쓰지 않는다. 해시도 가명정보로 볼 수 있다(법률 검토 전 판단, 추측).
+- **확인 필요**: Supabase Pro 자동 백업에 삭제한 행이 백업 보존 기간 동안 남는지(추정)와 그 기간, 처리방침의 "백업은 N일 뒤 순환 삭제" 문구. 조사에서 읽지 못했다.
+
+### 7.3 조사 결과
+> **반영(2026-11-18, 2026-11-19 정정)**: 인증 연동 조사 `data/mock/briefs/reports/auth-research.md`(로컬 전용)와 보관 기간 조사 `data/mock/briefs/reports/auth-research-retention.md`(로컬 전용)를 반영했다. 보관 조사는 7.2절의 BE-11-22 A로 이어졌다.
 
 | 항목 | 조사 결과 | 출처(조사 보고가 적은 URL, 읽은 날짜 2026-11-18) |
 |---|---|---|
-| 동의 기록 보관 의무·기간 근거 | **조사 범위 밖, 미확인** | — |
+| 동의 기록 보관 의무·기간 근거 | 보존을 요구하는 법령이 이 서비스에 해당하지 않음(의료법·전자상거래법, 해석). 7.2절 | `auth-research-retention.md` §0·§4(로컬 전용) |
 | Admin API 사용자 삭제 | `auth.admin.deleteUser(id)`(기본 `shouldSoftDelete:false`)이면 `auth.users` 행이 지워지고 cascade로 세션·refresh token이 무효가 된다. **이미 발급된 access token은 `exp`까지 유효**하다. service_role 키가 필요하다 | supabase.com/docs/guides/auth/managing-user-data, supabase.com/docs/reference/javascript/auth-admin-deleteuser |
 | 탈퇴 뒤 남은 access token | 이 설계에서는 `GET /me`의 `app_users` 생성이 `auth.users` FK에 막혀 실패하므로 401 `AUTH_INVALID`로 답한다(7.1절 보강, 추론). 다른 계정 API는 `app_users`가 없으면 401로 통일 | 위 + 이 문서 4.2절 |
 | `auth.users` 트리거 방식의 위험 | 공식 문서가 "If the trigger fails, it could block signups"라고 경고한다(BE-11-10 A의 근거) | supabase.com/docs/guides/auth/managing-user-data |
@@ -383,7 +406,7 @@ COMMIT;
 | 공급자 연결 끊기(unlink) | 미확인 | — |
 | JWT | JWKS `…/auth/v1/.well-known/jwks.json`, ES256(권장)·RS256, 레거시 HS256이면 JWKS가 비어 검증 실패. `aud="authenticated"`, `iss=https://<ref>.supabase.co/auth/v1`, 헤더 `kid`. JWKS는 엣지 10분 캐시 | supabase.com/docs/guides/auth/jwts, …/signing-keys, …/jwt-fields |
 
-이 설계는 **이메일에 기대지 않는다**(우리 테이블에 이메일 열이 없고 식별은 `auth.users.id`). 그래서 Kakao 이메일 없는 가입과 Naver 미검증 이메일이 데이터 구조를 바꾸지 않는다.
+이 설계는 **이메일에 기대지 않는다**(우리 테이블에 이메일 열이 없고 식별은 `auth.users.id`). 그래서 Kakao 이메일 없는 가입(BE-11-16 A)과 Naver Custom OIDC의 이메일 없음·미검증(BE-11-15 A)이 데이터 구조를 바꾸지 않는다.
 
 ## 8. 약관 문서 버전 관리
 - **현재본**: `doc_type`별로 `status='published' AND effective_at <= now()`인 행 중 `version`이 가장 큰 것(뷰 `account.legal_current`, 부록 A).
@@ -399,10 +422,10 @@ COMMIT;
 ## 9. API 계약
 
 ### 9.1 공통(인증 헤더·게스트·오류)
-- **인증**: `Authorization: Bearer <Supabase access token>`. 백엔드는 `SUPABASE_JWKS_URL`의 공개 키(헤더 `kid`로 선택)로 서명을 검증하고 알고리즘을 `ES256`·`RS256`으로 제한하며 `aud = "authenticated"`, `iss = {SUPABASE_URL}/auth/v1`, `exp`를 확인한다. JWKS는 10분보다 길게 캐시하지 않는다(7.3절 조사 결과). 프로젝트 서명 키가 레거시 HS256이면 JWKS가 비므로 S1 전에 사용자가 대시보드에서 확인한다. 서버 설정 필드는 이미 있다(`backend/app/config.py:62-66`). JWT 라이브러리는 새 의존성이라 승인이 필요하다(조사 보고 §9 후보 3).
+- **인증**: `Authorization: Bearer <Supabase access token>`. 백엔드는 **PyJWT**(`PyJWKClient`, BE-11-17 A로 새 의존성 승인)로 `SUPABASE_JWKS_URL`의 공개 키(헤더 `kid`로 선택)를 받아 서명을 검증하고 알고리즘을 `ES256`·`RS256`으로 제한하며 `aud = "authenticated"`, `iss = {SUPABASE_URL}/auth/v1`, `exp`를 확인한다. 검증기 교체는 `backend/app/security/auth.py`의 `build_verifier` 한 곳이다(요청마다 네트워크 왕복이 없는 로컬 검증). JWKS는 10분보다 길게 캐시하지 않는다(7.3절 조사 결과). 프로젝트 서명 키가 레거시 HS256이면 JWKS가 비므로 S1 전에 사용자가 대시보드에서 확인한다. 서버 설정 필드는 이미 있다(`backend/app/config.py:62-66`). 검증 서버(Supabase)에 닿지 못하면 사용자 잘못이 아니므로 401로 로그아웃시키지 않고 503 `AUTH_UNAVAILABLE`로 답한다(BE-11-20 A).
 - **게스트**: 토큰이 없으면 계정 API는 401 `AUTH_REQUIRED`. 헤더가 있는데 검증에 실패하면 게스트로 떨어뜨리지 않고 401 `AUTH_INVALID`. `/chat`·`/legal/*`는 토큰 없이 동작하며, `/chat`은 토큰이 붙어 와도 **읽지 않는다**(11장).
-- **프런트 키**: 브라우저는 `NEXT_PUBLIC_*`에 Supabase publishable 키만 쓸 수 있고(로그인 SDK용), `SUPABASE_SECRET_KEY`는 서버 전용이다(CLAUDE.md 3장). 계정 데이터는 모두 FastAPI(`/api/*` rewrites)를 거친다.
-- **오류 본문**: 기존 `/chat` 오류 형식과 같게 `{"error": {"code": "...", "message": "..."}}`이고 입력 값을 되돌려 주지 않는다(`request.py:8`의 원칙). 코드: `AUTH_REQUIRED`(401), `AUTH_INVALID`(401), `CONSENT_REQUIRED`·`RECONSENT_REQUIRED`(403, `doc_type` 포함), `NOT_FOUND`(404, 남의 행도 404), `PROFILE_LIMIT`·`SELF_EXISTS`·`USE_ACCOUNT_DELETE`·`VERSION_MISMATCH`(409), 검증 오류(422), `AUTH_DELETE_FAILED`(502).
+- **프런트 키**: 브라우저는 `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`(공개용 publishable 키, RLS 전제, `@supabase/ssr` 로그인용)만 쓸 수 있다. 이는 CLAUDE.md 3장 "`NEXT_PUBLIC_*`에 키 금지"의 **예외**다(BE-11-18 A, 2026-11-18). `SUPABASE_SECRET_KEY`는 서버 전용이며 `NEXT_PUBLIC_*`에 두지 않는다. 계정 데이터는 모두 FastAPI(`/api/*` rewrites)를 거친다.
+- **오류 본문**: 기존 `/chat`과 같은 `{"code": "...", "fields": ["..."]}`다(BE-11-21 A, 구현 `backend/app/api/chat.py:43` `ErrorBody`: `code: str`, `fields: list[str] = []`). 이전 초안의 `{"error": {"code", "message"}}`는 쓰지 않는다. `message` 칸은 없다(문구 상수는 승인 전). 입력 값을 되돌려 주지 않는다(`request.py:8`의 원칙). 코드: `AUTH_REQUIRED`(401), `AUTH_INVALID`(401), `AUTH_UNAVAILABLE`(503, BE-11-20 A, 검증 서버 장애), `CONSENT_REQUIRED`·`RECONSENT_REQUIRED`(403), `NOT_FOUND`(404, 남의 행도 404), `PROFILE_LIMIT`·`SELF_EXISTS`·`SELF_REQUIRED`·`USE_ACCOUNT_DELETE`·`VERSION_MISMATCH`(409), 검증 오류(422), `AUTH_DELETE_FAILED`(502). 동의 오류가 가리키는 문서 종류(`doc_type`)는 `fields`에 싣는다(가정: 예 `{"code": "CONSENT_REQUIRED", "fields": ["sensitive_consent"]}`, 구현 때 BE 몫으로 확인).
 - **로그**: 본문을 로그에 남기지 않는다. 접근 로그는 경로 템플릿(`/profiles/{profile_id}`)으로 남겨 ID도 남기지 않는다(BE-15 redact 규칙 재사용).
 - **캐시**: 계정 응답은 `Cache-Control: no-store`. `/legal/*`는 `max-age=300`.
 
@@ -518,7 +541,7 @@ PJ2-PRD.md 15.3절 (10) S10의 단계에 맞춘다. 모달 코너 규칙은 PRD-
 |---|---|---|
 | `age_band` | `age: AgeInput` | 4.8절 표. NULL이면 `age=None`(대화 중 입력·되묻기) |
 | `pregnancy_status` | `pregnant: bool \| None` | `pregnant`→true, `not_pregnant`→false, `unknown`·NULL→None |
-| `profile_medications` | `confirmed_drugs` | **기본은 싣지 않는다.** 화면의 "내 복용 약과 함께 확인" 토글을 켠 질문에만 `{name: input_text, item_seq}`로 싣는다(14.2절 BE-11-13 후보) |
+| `profile_medications` | `confirmed_drugs` | **기본은 싣지 않는다.** 화면의 "내 복용 약과 함께 확인" 토글을 켠 질문에만 `{name: input_text, item_seq}`로 싣는다(BE-11-13 A) |
 
 - 변환은 프런트 `buildChatRequest` 한 곳에서 한다(`request.py:5`의 기존 규칙과 같은 자리). `/chat`에 `profile_id`를 보내고 서버가 DB에서 읽는 방식은 쓰지 않는다. 그러면 `/chat`이 인증·DB 읽기를 갖게 되어 게스트 경로와 갈라지고, "요청에 실린 값만 쓴다"는 원칙이 깨진다.
 - 프로필 값은 질문과 함께 외부 LLM으로 전송된다. 시작 화면 고지(`START_EXTERNAL_AI_NOTICE`)가 이미 "입력한 프로필"을 포함한다(PJ2-PRD.md:365).
@@ -535,39 +558,49 @@ PJ2-PRD.md 15.3절 (10) S10의 단계에 맞춘다. 모달 코너 규칙은 PRD-
 ## 13. 시험 계획
 | 묶음 | 환경 | 확인할 것 |
 |---|---|---|
-| T1 RLS | 로컬 Postgres + `auth` 스텁(14.2절 BE-11-14 후보) | 계정 A·B를 만들고 B의 claims로 A의 `profiles`·`profile_medications`·`user_consents` SELECT 0행, UPDATE·DELETE 0행, A의 `user_id`로 INSERT 거부. anon은 `legal_documents` published만. `user_consents` UPDATE·DELETE 권한 오류 |
+| T1 RLS | 로컬 Postgres + `auth` 스텁(BE-11-14 A) | 계정 A·B를 만들고 B의 claims로 A의 `profiles`·`profile_medications`·`user_consents` SELECT 0행, UPDATE·DELETE 0행, A의 `user_id`로 INSERT 거부. anon은 `legal_documents` published만. `user_consents` UPDATE·DELETE 권한 오류 |
 | T2 제약 | 같은 환경 | 프로필 5번째 INSERT → `PROFILE_LIMIT`, 동시 INSERT 2건(advisory lock), `self` 2행 거부, 건강 동의 없이 `pregnancy_status`·약 INSERT 거부, 게시 문서 본문 UPDATE 거부, `item_seq` 형식 |
-| T3 철회·탈퇴 | 같은 환경 | `sensitive_consent` 철회 → 임신 NULL·약 0행, `privacy_consent` 철회 → 프로필 0행·계정 유지, `terms` 철회 거부, `app_users` 삭제 → 프로필 0행·동의 `user_id` NULL·`anonymized_at` 채움 |
+| T3 철회·탈퇴 | 같은 환경 | `sensitive_consent` 철회 → 임신 NULL·약 0행, `privacy_consent` 철회 → 프로필 0행·계정 유지, `terms` 철회 거부, `app_users` 삭제 → 프로필 0행·복용 약 0행·동의 기록 0행(BE-11-22 A) |
 | T4 API | pytest + FastAPI TestClient, 저장소 계층은 가짜(DB 없음) | 토큰 없음 401, 서명 틀림·`aud` 틀림·만료 401, 남의 `profile_id` 404, 동의 없는 저장 403, `VERSION_MISMATCH` 409, 오류 본문에 입력 값 없음, 로그에 본문·ID 없음 |
 | T5 게스트·chat | 기존 `/chat` 시험에 추가 | 토큰 없이 `/chat` 정상, 토큰을 붙여도 계정 모듈을 부르지 않음(가짜 저장소 호출 0), `/chat` 처리 중 계정 테이블 쓰기 0 |
 | T6 변환 | 프런트 단위 시험 | 4.8절 11개 값 → `AgeInput` 왕복, `pregnancy_status` 3값 + NULL, 약 토글 꺼짐이면 `confirmed_drugs=[]` |
 | T7 원격 스모크 | 원격(승인 뒤) | `verify` 읽기 전용 점검 + 시험 계정 2개로 T1 축약판(쓰기이므로 flag 필요, 끝나면 두 계정 `DELETE /me`) |
 
-pytest 실행은 공통 규칙의 메인 venv 명령을 쓴다. T1~T3은 Postgres가 없으면 skip하고 그 사실을 보고에 적는다.
+pytest 실행은 공통 규칙의 메인 venv 명령을 쓴다. T1~T3은 Postgres가 없으면 skip하고 그 사실을 보고에 적는다. **이 Mac에는 로컬 Postgres가 설치되어 있지 않다**(메인 확인, Recap 40). 설치와 로컬 DSN 환경변수 이름은 사용자 확인 뒤 정하므로 그때까지 T1~T3은 skip이다.
 
-## 14. 결정 후보
-결정 번호는 **제안**이다. 원본 등록은 `schedule-writer`가 BE-11 `결정 현황` 표에 한다(BE-11-01~05 다음이라 06부터).
+## 14. 결정됨(2026-11-18)
+이 장의 후보 BE-11-06~14·BE-11-04 후속은 2026-11-18 밤 늦게 사용자 "권장대로"로 모두 A(★)로 **완료**됐고, 같은 날 BE-11-15~22도 완료됐다. 결정의 **원본은 `tickets/backend/BE-11.md` §6 결정 현황**이며, 이 장은 그 결정 17건(BE-11-06~22)을 이 문서의 어느 절에 반영했는지 보여 준다.
 
 ### 14.1 확인된 문서 충돌
 | 충돌 | 근거 | 제안 |
 |---|---|---|
-| 소셜 로그인 결정은 PRD-01에 **PRD-01-09**로 등록됐다(`PRD-01-06`은 2026-11-04 NFR-09·10 결정에 이미 쓰임). 그러나 요구서·PRD·CLAUDE.md는 아직 "PRD-01-06 A′"로 적는다 | `tickets/doc/PRD-01.md:83,86`, `P2-doc/PJ2-RFP.md:56,79,321,331,359,662`, `P2-doc/PJ2-PRD.md:133,157,374`, `CLAUDE.md:15` | 문서 담당이 표기를 PRD-01-09로 정정(이 문서는 PRD-01-09로 쓴다) |
+| 소셜 로그인 결정은 PRD-01에 **PRD-01-09**로 등록됐다(`PRD-01-06`은 2026-11-04 NFR-09·10 결정에 이미 쓰임). 그러나 요구서·PRD·CLAUDE.md는 아직 "PRD-01-06 A′"로 적는다(2026-11-19 이 문서 작성 시점 기준, 이후 정정 여부는 다시 확인하지 않았다) | `tickets/doc/PRD-01.md:83,86`, `P2-doc/PJ2-RFP.md:56,79,321,331,359,662`, `P2-doc/PJ2-PRD.md:133,157,374`, `CLAUDE.md:15` | 문서 담당이 표기를 PRD-01-09로 정정(이 문서는 PRD-01-09로 쓴다) |
+| 설계 문서 9.1절 오류 본문 `{"error": {"code","message"}}`는 "기존 `/chat` 오류 형식과 같게"라는 같은 문장과 충돌했다(실제 `/chat`은 `{code, fields}`) | `backend/app/api/chat.py:43` | 해결: BE-11-21 A로 `{code, fields}`, 9.1절을 정정했다 |
 | BE-11 §2 완료 조건은 "설계 문서 뒤 상세 재작성" 상태이며 "본인 포함 여부는 설계 문서에서 확정"이 열려 있다 | `tickets/backend/BE-11.md:34,38` | 이 문서 4.3절: **본인 1 + 가족 3 = 계정당 4행**. 재작성 초안은 `eve-erd` 보고서에 있고 `schedule-writer`가 반영 |
 | BE-11 하위 작업 일부가 옛 기준(무료 플랜 등)으로 남아 있을 수 있다(티켓 자체가 그렇게 밝힘) | `tickets/backend/BE-11.md:34` | 위와 같이 `schedule-writer`가 반영 |
 
-### 14.2 결정 후보 표
-| 번호(제안) | 질문 | 선택지 | 권장 | 읽을 곳 |
+### 14.2 결정 현황 표
+상태는 모두 **완료**(2026-11-18 밤 늦게, 사용자 "권장대로", 선택 A). 질문·선택지는 이 문서가 올린 후보 원문을 줄여 옮겼다.
+
+| 번호 | 질문 | 선택지 | 결과(A) | 반영한 곳 |
 |---|---|---|---|---|
-| BE-11-06 | 계정 테이블을 어디에 두고 RLS를 어떻게 적용할까? | A) 새 스키마 `account`(Data API 비노출) + 백엔드가 요청마다 `SET LOCAL ROLE authenticated`로 RLS 아래에서 실행 / B) `public`에 두고 백엔드는 소유 역할로 `WHERE user_id` 코드 검사, RLS는 Data API 방어만 | ★ A: RLS가 실제 방어선이 되고 다른 계정 시험이 그대로 실서비스 동작을 증명한다. 단 `SET ROLE` 가능 여부를 읽기 전용으로 먼저 확인하고 안 되면 B | 이 문서 2.3·5.2절 |
-| BE-11-07 | 연령대 구간을 어떻게 나눌까? | A) 4.8절 11구간(영아 3구간 포함) / B) 영아를 "1세 미만" 한 구간으로 줄인 9구간 | ★ A: 영유아 연령금기 기준이 개월 단위일 가능성이 커서 구간이 기준에 걸려 "원문 값 표시"로 빠지는 일을 줄인다. 확정 전에 원격 `age_contra`의 (기준값·단위·조건) 분포를 읽기 전용으로 센다 | 4.8절 |
-| BE-11-08 | 관계 값에 배우자·기타를 둘까? | A) `self`·`child`·`parent`·`spouse`·`other` / B) `self`·`child`·`parent`만 | ★ A: 사용자 표현 "자녀·부모 등"의 "등"과 임신 여부를 쓰는 배우자 프로필(P1 시나리오의 엄마)을 받는다. 화면 선택지만 늘고 저장 항목은 같다 | 4.1절 |
-| BE-11-09 | 임신 주차(FE-07-12 B "추후 확장") 열을 지금 만들까? | A) 지금 만들지 않는다(추후 열 추가 마이그레이션) / B) NULL 허용 열을 미리 만든다 | ★ A: 쓰는 화면·판정이 없고 건강 정보 저장 항목이 하나 늘어난다. 열 추가는 비파괴 마이그레이션이라 나중에 해도 비용이 작다 | 1.4절 |
-| BE-11-10 | `app_users` 행을 언제 만들까? | A) 백엔드 첫 `GET /me`에서 / B) `auth.users` INSERT 트리거로 | ★ A: 트리거 실패가 가입을 막지 않고 `auth` 스키마를 건드리지 않는다 | 4.2절 |
-| BE-11-11 | 공급자가 넘기는 이름·사진(`raw_user_meta_data`)을 어떻게 할까? | A) 공급자 동의 항목을 최소로 요청(Kakao는 `profile_nickname`만, Google은 Supabase 기본 scope)하고 S1에서 실제 저장 항목을 확인해 처리방침에 적는다 / B) 로그인 직후 서버가 메타데이터의 이름·사진을 지운다 | ★ A: Kakao는 이메일 없이 가입하면 닉네임이 최소 항목이고(7.3절), B는 Supabase가 다음 로그인 때 다시 채울 수 있어(추측) 효과가 불확실하다. S1 실측 뒤 필요하면 B를 더한다 | 4.7·7.3절 |
-| BE-11-12 | 필수 개인정보 동의를 철회하면? | A) 프로필 전부 삭제, 계정은 유지(로그인한 게스트) / B) 계정 삭제까지 | ★ A: 탈퇴는 별도 버튼(`DELETE /me`)으로 의도를 분명히 받는다. 철회 한 번으로 계정이 사라지는 놀람을 막는다 | 6.3절 |
-| BE-11-13 | 프로필의 복용 약을 질문에 자동으로 실을까? | A) 기본 끔, 질문마다 "내 복용 약과 함께 확인" 토글 / B) 대상 프로필을 고르면 항상 실음 | ★ A: 항상 실으면 모든 질문이 병용금기 조회로 바뀌어 에이전트 경로·응답이 사용자가 묻지 않은 쪽으로 커지고, 외부 LLM으로 가는 건강 정보도 늘어난다 | 11장 |
-| BE-11-14 | RLS 시험(T1~T3)을 어디서 돌릴까? | A) 로컬 Postgres(Homebrew 등) + `auth` 스키마 스텁(`auth.users`·`auth.uid()`), 원격은 승인 뒤 스모크만 / B) Supabase CLI 로컬 스택(Docker) / C) 원격 Supabase의 시험 스키마 | ★ A: 새 의존성이 Postgres 하나이고 원격 쓰기가 없다. B는 Docker·CLI 의존성이 크고, C는 시험마다 원격 쓰기 승인이 필요하다. 로컬 DSN 환경변수 이름은 사용자 승인 뒤 정한다 | 13장 |
-| BE-11-04 후속 | 탈퇴자의 식별자 없는 동의 기록을 보관할까? | A) 조사로 찾은 기간만큼 보관 후 삭제 / B) 탈퇴 즉시 삭제 | ★ 잠정 B: 식별자를 지우면 동의 증명 용도가 없고 최소 수집에 맞다. `auth-research`는 보관 근거를 조사하지 않았으므로(7.3절) 보관 근거 조사를 별도로 맡기고, 근거가 나오면 A로 바꾼다(★가 조사 결과에 달려 있어 `권장대로`에 넣지 않기를 제안) | 7.2·7.3절 |
+| BE-11-06 | 계정 테이블을 어디에 두고 RLS를 어떻게 적용할까? | A) `account` 스키마 + 요청마다 `SET LOCAL ROLE authenticated` / B) `public` + 소유 역할 `WHERE user_id` 코드 검사 | A. 단 `SET ROLE` 가능 여부를 읽기 전용으로 먼저 확인하고 안 되면 B | 2.3·5.2절 |
+| BE-11-07 | 연령대 구간을 어떻게 나눌까? | A) 11구간(영아 3구간 포함) / B) 영아를 "1세 미만" 한 구간으로 줄인 9구간 | A. 확정 전 원격 `age_contra`의 (기준값·단위·조건) 분포를 읽기 전용으로 센다 | 4.8절 |
+| BE-11-08 | 관계 값에 배우자·기타를 둘까? | A) `self`·`child`·`parent`·`spouse`·`other` / B) `self`·`child`·`parent`만 | A | 4.1절 |
+| BE-11-09 | 임신 주차 열을 지금 만들까(FE-07-12 B "추후 확장")? | A) 지금 만들지 않는다 / B) NULL 허용 열을 미리 만든다 | A | 1.4절 |
+| BE-11-10 | `app_users` 행을 언제 만들까? | A) 백엔드 첫 `GET /me`에서 / B) `auth.users` INSERT 트리거 | A | 4.2절 |
+| BE-11-11 | 공급자가 넘기는 이름·사진(`raw_user_meta_data`)을 어떻게 할까? | A) 동의 항목 최소 요청 + S1 실측 뒤 처리방침에 적음 / B) 로그인 직후 서버가 메타데이터를 지움 | A. 필요하면 S1 실측 뒤 B를 더한다 | 4.7절 |
+| BE-11-12 | 필수 개인정보 동의를 철회하면? | A) 프로필 전부 삭제, 계정 유지 / B) 계정 삭제까지 | A | 6.3절 |
+| BE-11-13 | 프로필의 복용 약을 질문에 자동으로 실을까? | A) 기본 끔, 질문마다 토글 / B) 프로필을 고르면 항상 실음 | A | 11장 |
+| BE-11-14 | RLS 시험(T1~T3)을 어디서 돌릴까? | A) 로컬 Postgres + `auth` 스키마 스텁 / B) Supabase CLI 로컬 스택(Docker) / C) 원격 시험 스키마 | A. 이 Mac에는 Postgres가 없어 설치와 로컬 DSN 변수 이름은 사용자 확인 필요(Recap 40) | 13장 |
+| BE-11-15 | Naver 연동 방식은? | A) Supabase Custom OIDC(실패하면 OAuth2 + userinfo 어댑터) / B) 백엔드 직접 OAuth + Admin API 세션 / C) Naver 제외 | A | 4.7·7.3절 |
+| BE-11-16 | Kakao에서 이메일을 받을까? | A) 받지 않음(닉네임만) / B) 비즈 앱으로 `account_email` 받음 | A | 4.7·7.3절 |
+| BE-11-17 | 백엔드 JWT 검증 라이브러리는? | A) PyJWT(`PyJWKClient`, 새 의존성) / B) 의존성 없이 `httpx`로 `/auth/v1/user` 호출 | A | 9.1절 |
+| BE-11-18 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`를 허용할까(CLAUDE.md 3장 예외)? | A) 허용 / B) 프런트는 Supabase를 직접 부르지 않고 백엔드가 OAuth 대행 | A. CLAUDE.md 3장에 예외를 추가함 | 9.1절 |
+| BE-11-19 | Naver S2에 시간 상한을 둘까? | A) 반나절 상한, 넘으면 Naver 제외 / B) 상한 없이 끝까지 | A | 1.2·4.7절 |
+| BE-11-20 | 토큰 검증 서버 장애 때 상태 코드는? | A) 503 `AUTH_UNAVAILABLE` / B) 401 `AUTH_INVALID`로 통일 | A | 9.1절 |
+| BE-11-21 | 계정 API 오류 본문 형식은? | A) `/chat`과 같은 `{code, fields}` / B) `{"error": {"code","message"}}` | A | 9.1절 |
+| BE-11-22 | 탈퇴 시 동의 기록도 즉시 파기할까(BE-11-04 후속)? | A) 즉시 전부 파기(파기 사실은 일자·건수만) / B) 동의 기록만 식별자 제거 후 보관 | A. 법률 검토 전 | 7장, 4.6절, 부록 A·B |
 
 ## 15. 코드 대조·출처
 | 사실 | 출처 |
@@ -588,8 +621,12 @@ pytest 실행은 공통 규칙의 메인 venv 명령을 쓴다. T1~T3은 Postgre
 | 연령금기는 프로필 나이로, 특정 불가 시 나이별 원문 | `tickets/frontend/FE-07.md:117`(FE-07-18 A) |
 | PRD-01-06 번호의 기존 결정, 소셜 로그인 결정 PRD-01-09 | `tickets/doc/PRD-01.md:83,86` |
 | 인증 연동 조사(공급자·JWT·탈퇴·RLS 우회 위험 R4) | `data/mock/briefs/reports/auth-research.md`(로컬 전용, 2026-11-18, 외부 URL은 그 보고가 읽은 것이며 이 작업에서 다시 열지 않음) |
+| 동의 기록 보관 조사(개인정보 보호법 제21조·표준지침 제10조·의료법·전자상거래법, 국내 헬스케어 앱 처리방침) | `data/mock/briefs/reports/auth-research-retention.md` §0·§4·§6(로컬 전용, 2026-11-18, 법률 자문 아님) |
+| 오류 본문 `ErrorBody`(`code`, `fields`) | `backend/app/api/chat.py:43-47` |
+| 검증 서버 장애 503 `AUTH_UNAVAILABLE`·검증 실패 401 `AUTH_INVALID` | `backend/app/security/auth.py:39-40,204-234` |
+| 결정 BE-11-06~22(모두 A, 2026-11-18 밤 늦게) | `tickets/backend/BE-11.md` §6 결정 현황 |
 
-**확인하지 못한 것**: Supabase에서 소유 역할의 `SET ROLE authenticated` 가능 여부와 `auth.uid()`의 claims 읽기 방식, Data API 노출 스키마 설정, 현재 프로젝트의 JWT 서명 키 종류, 공급자 연결 끊기, 공급자 메타데이터의 실제 저장 항목(S1 실측), 원격 `age_contra` 기준값 분포, 동의 기록 보관 근거. 모두 이 문서에서 "확인 필요"·"가정"으로 표시했다.
+**확인하지 못한 것**: Supabase에서 소유 역할의 `SET ROLE authenticated` 가능 여부와 `auth.uid()`의 claims 읽기 방식, Data API 노출 스키마 설정, 현재 프로젝트의 JWT 서명 키 종류, 공급자 연결 끊기, 공급자 메타데이터의 실제 저장 항목(S1 실측), 원격 `age_contra` 기준값 분포, Supabase 백업 보존 기간(삭제한 행이 백업에 남는 기간), 동의 분쟁 가능성에 대한 법적 판단(법률 검토 대상). 모두 이 문서에서 "확인 필요"·"가정"으로 표시했다.
 
 ## 부록 A. 마이그레이션 SQL 초안
 > 초안이다. 원격 적용은 12장 절차와 승인 flag 뒤다. Postgres 15+ 가정(Supabase). `gen_random_uuid()`는 Postgres 13+ 기본 제공.
@@ -692,13 +729,12 @@ CREATE INDEX IF NOT EXISTS idx_legal_current ON account.legal_documents (doc_typ
 
 CREATE TABLE IF NOT EXISTS account.user_consents (
     consent_id    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id       uuid REFERENCES account.app_users (user_id) ON DELETE SET NULL,
+    user_id       uuid NOT NULL REFERENCES account.app_users (user_id) ON DELETE CASCADE,  -- 탈퇴 때 동의 기록도 함께 삭제(BE-11-22 A)
     doc_type      account.doc_type NOT NULL,
     doc_version   integer NOT NULL,
     action        account.consent_action NOT NULL,
     channel       text NOT NULL CHECK (channel IN ('onboarding', 'settings', 'reconsent')),
     acted_at      timestamptz NOT NULL DEFAULT now(),
-    anonymized_at timestamptz,
     FOREIGN KEY (doc_type, doc_version) REFERENCES account.legal_documents (doc_type, version),
     CHECK (doc_type <> 'privacy_policy')
 );
@@ -714,7 +750,6 @@ ORDER BY doc_type, version DESC;
 CREATE OR REPLACE VIEW account.user_consent_current WITH (security_invoker = true) AS
 SELECT DISTINCT ON (user_id, doc_type) user_id, doc_type, doc_version, action, acted_at
 FROM account.user_consents
-WHERE user_id IS NOT NULL
 ORDER BY user_id, doc_type, acted_at DESC, consent_id DESC;
 
 -- 4. 함수·트리거 --------------------------------------------------------
@@ -799,20 +834,13 @@ BEGIN
 END
 $$;
 
--- 탈퇴(app_users 삭제) 전에 동의 기록 식별자 제거(7.1절). 7.2절이 B면 UPDATE 대신 DELETE.
-CREATE OR REPLACE FUNCTION account.anonymize_consents() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-    UPDATE account.user_consents SET user_id = NULL, anonymized_at = now() WHERE user_id = OLD.user_id;
-    RETURN OLD;
-END
-$$;
+-- 탈퇴(app_users 삭제) 때 동의 기록도 user_consents의 ON DELETE CASCADE로 함께 지워진다(7.1·7.2절, BE-11-22 A).
+-- 이전 초안의 익명화 함수·트리거(anonymize_consents)와 anonymized_at 열은 삭제했다.
 
 DROP TRIGGER IF EXISTS trg_app_users_touch ON account.app_users;
 CREATE TRIGGER trg_app_users_touch BEFORE UPDATE ON account.app_users
     FOR EACH ROW EXECUTE FUNCTION account.touch_updated_at();
-DROP TRIGGER IF EXISTS trg_app_users_anonymize ON account.app_users;
-CREATE TRIGGER trg_app_users_anonymize BEFORE DELETE ON account.app_users
-    FOR EACH ROW EXECUTE FUNCTION account.anonymize_consents();
+DROP TRIGGER IF EXISTS trg_app_users_anonymize ON account.app_users;  -- 이전 초안에서 만든 트리거가 있으면 지운다(멱등)
 
 DROP TRIGGER IF EXISTS trg_profiles_touch ON account.profiles;
 CREATE TRIGGER trg_profiles_touch BEFORE UPDATE ON account.profiles
@@ -895,7 +923,7 @@ $$;
 메모:
 - `has_active_consent`는 버전과 관계없이 최신 기록이 `agree`인지만 본다. 현재본 재동의 여부는 API가 8장 규칙으로 판정한다(DB 트리거는 최소 방어선).
 - `on_consent_withdraw`는 호출자 권한으로 돈다. 철회 행의 `user_id`는 RLS WITH CHECK로 본인이므로 지우는 행도 본인 것뿐이다.
-- `anonymize_consents`의 UPDATE는 탈퇴 경로(소유 역할)에서 돈다. `authenticated`에는 `user_consents` UPDATE 권한이 없어 이 트리거를 사용자 역할로 부를 일이 없게 `app_users` DELETE 권한도 주지 않았다.
+- 탈퇴 때 동의 기록 삭제는 `user_consents.user_id`의 ON DELETE CASCADE가 한다(BE-11-22 A). `authenticated`에는 `user_consents` UPDATE·DELETE 권한이 없고 `app_users` DELETE 권한도 주지 않았으므로 탈퇴 삭제는 서버(소유 역할) 경로에서만 일어난다. 위의 `DROP TRIGGER … trg_app_users_anonymize`는 이전 초안을 적용한 환경이 있을 때만 의미가 있다(원격 적용은 0이라 지금은 no-op).
 - `auth.uid()`·`auth.users`는 Supabase가 제공한다. 로컬 시험(BE-11-14 A)에서는 스텁으로 같은 이름을 만든다.
 
 ## 부록 B. 약관·동의 문서 시드 초안
@@ -917,7 +945,7 @@ Can I PPiyak은 공공데이터(한국의약품안전관리원 DUR 자료, 식�
 금기 목록에 없다는 것은 안전하다는 뜻이 아닙니다. 요양기관의 DUR 점검을 대체하지 않습니다. 복용 전에는 가까운 약국·약사에게 확인하세요. 응급 상황에서는 119에 연락하세요.
 
 ## 4. 계정 해지
-설정에서 언제든 계정을 삭제할 수 있으며, 삭제하면 저장한 프로필과 복용 약 정보가 즉시 지워집니다.
+설정에서 언제든 계정을 삭제할 수 있으며, 삭제하면 저장한 프로필·복용 약 정보와 동의 기록이 즉시 지워집니다.
 $md$, true, 'published', :effective_at),
 
 ('privacy_policy', 1, '개인정보 처리방침(초안)', $md$
@@ -927,7 +955,7 @@ $md$, true, 'published', :effective_at),
 - 로그인 정보: 이메일 또는 소셜 로그인 공급자(Google·Kakao·Naver)의 계정 식별자. 공급자가 넘기는 그 밖의 항목은 확인 후 이 문서에 적습니다(확정 전).
 - 프로필(동의한 경우): 관계, 표시 이름(선택), 연령대.
 - 건강 정보(별도 동의한 경우): 임신 여부, 복용 중인 약.
-- 동의 기록: 동의·철회한 문서와 버전, 시각.
+- 동의 기록: 동의·철회한 문서와 버전, 시각(계정을 삭제하면 함께 지웁니다).
 
 ## 2. 처리하지 않는 항목
 질문과 대화 내용은 저장하지 않습니다. 로그인하지 않고 쓰면 아무것도 저장하지 않습니다. 약봉투 사진과 음성은 저장하지 않습니다.
@@ -936,7 +964,7 @@ $md$, true, 'published', :effective_at),
 질문과 질문할 때 선택한 프로필 값은 답변을 만들기 위해 외부 AI 서비스(OpenAI)로 전송되며, 제공자의 정책에 따라 일정 기간 보관될 수 있습니다.
 
 ## 4. 보관과 파기
-프로필과 복용 약 정보는 삭제하거나 동의를 철회하거나 계정을 삭제하면 즉시 지웁니다. 계정 삭제 뒤 동의 기록의 처리(식별자 제거 후 보관 또는 즉시 삭제)와 보관 기간은 확정 전입니다.
+프로필과 복용 약 정보는 삭제하거나 동의를 철회하거나 계정을 삭제하면 즉시 지웁니다. 계정을 삭제하면 동의 기록도 함께 즉시 지우며, 지운 사실은 일자와 건수만 개인을 알아볼 수 없게 기록합니다. 백업에 남는 기간은 확인 후 이 문서에 적습니다(확정 전).
 
 ## 5. 저장 위치와 접근
 데이터는 Supabase(Postgres)에 저장되며 본인 계정만 읽고 수정·삭제할 수 있도록 행 수준 보안을 적용합니다.
