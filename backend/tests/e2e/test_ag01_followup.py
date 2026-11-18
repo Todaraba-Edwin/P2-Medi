@@ -27,7 +27,7 @@ from app.agent.tools import check_contraindications as cc
 from app.llm import CostLedger
 from app.tools.drug_dict import DrugDict
 from app.tools.dur import DurRow
-from app.tools.provenance import FLAG_NOTES
+from app.tools.provenance import API_REASON_NOTES, FLAG_NOTES
 
 USAGE_TOOL = {"input_tokens": 1000, "output_tokens": 50, "total_tokens": 1050}
 USAGE_SUM = {"input_tokens": 1500, "output_tokens": 200, "total_tokens": 1700}
@@ -251,7 +251,8 @@ def test_third_ingredient_pair_not_queried_gives_pair_incomplete_on_p3(dd):
     it = next(i for i in st["evidence"] if i["evidence_id"] == "contra_pair:254000ATB:625201ATB")
     assert it["status"] == "FOUND" and "API_PAIR_INCOMPLETE" in it["flags"]
     assert not {"FILE_ONLY", "TRUNCATED", "API_SAME"} & set(it["flags"])  # 대조가 끝나지 않았으므로 "파일에만 있음"·"같음"은 붙지 않는다
-    assert FLAG_NOTES["API_PAIR_INCOMPLETE"] in it["notes"] and FLAG_NOTES["FILE_ONLY"] not in it["notes"]
+    # 노트는 사유(`TRUNCATED`)별 승인 문구(AG-01-11 A)다. "해제되었을 수 있어요"(FILE_ONLY)로 말하지 않는다
+    assert API_REASON_NOTES["TRUNCATED"] in it["notes"] and FLAG_NOTES["FILE_ONLY"] not in it["notes"]
     assert not [i for i in st["evidence"] if i.get("source_kind") == "API_DIRECT" and i["kind"] == "contra_pair"]
 
 

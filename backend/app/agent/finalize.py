@@ -412,7 +412,7 @@ def finalize(
     else:
         summary = model_summary.strip() if isinstance(model_summary, str) and model_summary.strip() else None
     # 응급인데 질문에 약 이름이 없다(AG-09 §2, TC-11): 119 안내는 그대로 맨 위에 두고 약 이름을 묻는 문장을 요약 끝에 붙인다.
-    # 문구가 승인 전(`DRAFT_KEYS`)이면 아무것도 붙이지 않는다(지금까지와 같은 답). 거절·상한·검증 폴백 경로에는 붙이지 않는다.
+    # 문구는 AG-01-11 A(2026-11-17)로 원문 승인됐다. 다시 `DRAFT_KEYS`에 올리면 아무것도 붙지 않는다. 거절·상한·검증 폴백 경로에는 붙이지 않는다.
     if (emergency and emergency_no_drug and not refuse_keys and not limit_reached and not validation_fallback
             and "EMERGENCY_ASK_DRUG_NAME" not in fp.DRAFT_KEYS):
         summary = f"{summary} {fp.EMERGENCY_ASK_DRUG_NAME}" if summary else fp.EMERGENCY_ASK_DRUG_NAME

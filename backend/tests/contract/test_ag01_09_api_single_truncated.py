@@ -28,7 +28,7 @@ from app.agent.tools.contract import check_items  # noqa: E402
 from app.agent.tools.schemas import CheckContraArgs  # noqa: E402
 from app.api.schemas import response_from_state  # noqa: E402
 from app.tools.dur import DurRow  # noqa: E402
-from app.tools.provenance import FLAG_NOTES  # noqa: E402
+from app.tools.provenance import API_REASON_NOTES, FLAG_NOTES  # noqa: E402
 
 T500, COLD = "타이레놀정500밀리그람", "타이레놀콜드-에스정"  # COLD만 API 성분 코드 3개(한도 2 초과). 파일: COLD 임부금기 있음, 연령금기 없음
 API_FLAGS = {"API_SAME", "FILE_ONLY", "API_ONLY", "API_FAIL", "API_PAIR_INCOMPLETE"}
@@ -86,7 +86,7 @@ def test_ag01_09_truncated_same_found_is_api_fail_not_same():
     it = _file(items, "pregnancy")
     assert it["status"] == "FOUND"  # 파일 판정은 그대로
     assert API_FLAGS & set(it["flags"]) == {"API_FAIL"}
-    assert FLAG_NOTES["API_FAIL"] in it["notes"] and FLAG_NOTES["API_SAME"] not in it["notes"]
+    assert API_REASON_NOTES["TRUNCATED"] in it["notes"] and FLAG_NOTES["API_SAME"] not in it["notes"]  # 사유별 승인 문구(AG-01-11 A)
     assert it["api"]["codes_truncated"] is True and it["api"]["outcome"] == "BOTH_FOUND"  # outcome 값은 바꾸지 않는다
     assert _calls(fd, "pregnancy") == [D_APAP, D_PSE]  # ④ 호출 수는 한도(2) 그대로(세 번째 성분은 묻지 않는다)
     api = _api_direct(items, "pregnancy")
