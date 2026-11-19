@@ -294,6 +294,9 @@ export interface components {
         /**
          * ConfirmedDrug
          * @description 되묻기 등으로 사용자가 고른 약(이름과, 있으면 품목기준코드).
+         *
+         *     `input_name`(선택, FE-09-05 A)은 그 약을 고른 되묻기 묶음의 이름(응답 `candidates[].input_name` 그대로)이다. 있으면 서버가 질문 속 그 이름의
+         *     약에만 이 코드를 확정한다(묶음 후보가 겹쳐도 다른 묶음을 덮지 않는다). 없으면 이전 규칙(후보 집합 포함 + 나중 것) 그대로다.
          */
         ConfirmedDrug: {
             /** Input Name */
