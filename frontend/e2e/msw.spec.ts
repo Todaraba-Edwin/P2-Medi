@@ -40,6 +40,41 @@ test("되묻기 → 후보 선택 → 다시 묻기: 워커가 confirmed_drugs�
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toEqual({
     question,
-    context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001" }] },
+    context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }] },
+  });
+});
+
+test("여러 약 되묻기(FE-09): 워커가 이름별 묶음 둘을 주고, 둘 다 골라 한 번 보내면 결과로 답한다", async ({ page }) => {
+  const bodies: unknown[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/api/chat")) bodies.push(request.postDataJSON());
+  });
+  await openApp(page);
+  const question = "mock:되묻기여러 합성 질문";
+  await ask(page, question);
+  const groups = page.getByTestId("candidate-group");
+  await expect(groups).toHaveCount(2);
+  const resend = page.getByRole("button", { name: "이 약들로 확인하기" });
+  await expect(resend).toHaveAttribute("aria-disabled", "true");
+  await groups.nth(0).getByTestId("candidate").nth(0).click();
+  await expect(resend).toHaveAttribute("aria-disabled", "true");
+  await groups.nth(1).getByTestId("candidate").nth(1).click();
+  await expect(resend).not.toHaveAttribute("aria-disabled", "true");
+  expect(bodies).toHaveLength(1); // 고르기만 하면 보내지 않는다
+  await resend.click();
+  const second = page.locator('[data-turn="turn-2"]');
+  await expect(second.getByTestId("result-card")).toBeVisible();
+  await expect(second.getByTestId("result-view")).toHaveAttribute("data-end-reason", "NORMAL");
+  expect(bodies).toHaveLength(2); // 요청은 한 번 더뿐이다
+  expect(bodies[1]).toEqual({
+    question,
+    context: {
+      age: null,
+      pregnant: null,
+      confirmed_drugs: [
+        { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" },
+        { name: "가나다시럽 키즈", item_seq: "200000004", input_name: "가나다시럽" },
+      ],
+    },
   });
 });

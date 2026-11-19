@@ -146,14 +146,14 @@ describe("streamChat (MSW)", () => {
         return new HttpResponse("", { headers: { "Content-Type": "application/x-ndjson" } });
       }),
     );
-    const context = { age: { lower: 5, upper: 5 }, pregnant: false, confirmed_drugs: [{ name: "가나다정", item_seq: "200000001" }, { name: "라마바캡슐" }] };
+    const context = { age: { lower: 5, upper: 5 }, pregnant: false, confirmed_drugs: [{ name: "가나다정", item_seq: "200000001", input_name: "가나다" }, { name: "라마바캡슐" }] };
     for await (const event of streamChat({ question: "합성 질문", context })) void event;
     expect(body).toEqual({
       question: "합성 질문",
       context: {
         age: { lower: 5, upper: 5, unit: "세" },
         pregnant: false,
-        confirmed_drugs: [{ name: "가나다정", item_seq: "200000001" }, { name: "라마바캡슐", item_seq: null }],
+        confirmed_drugs: [{ name: "가나다정", item_seq: "200000001", input_name: "가나다" }, { name: "라마바캡슐", item_seq: null, input_name: null }],
       },
     });
   });

@@ -11,6 +11,11 @@ import type { ContextStorage, ConversationContext } from "./conversation-context
 export interface ChatTurn {
   id: string;
   question: string;
+  /**
+   * 말풍선에 보일 표시용 글자(FE-09-04 A: 되묻기에서 고른 약으로 다시 물을 때). 있으면 말풍선은 이 글자를 보이고,
+   * 서버로는 항상 `question`(원 질문)을 보낸다. 다른 값과 같이 메모리에만 있다
+   */
+  display?: string;
   stream: StreamState;
 }
 
@@ -22,8 +27,8 @@ export interface ChatState {
   /** 이 대화에서 받은 119 안내. 한 번 받으면 새 대화(reset) 전까지 내리지 않는다(S2) */
   emergency: Emergency | null;
   context: ConversationContext;
-  /** 새 질문을 보낸다. 진행 중인 요청이 있으면 먼저 끊는다 */
-  send: (question: string) => Promise<void>;
+  /** 새 질문을 보낸다. 진행 중인 요청이 있으면 먼저 끊는다. `display`를 주면 말풍선에는 그 글자를 보인다(보내는 것은 `question`) */
+  send: (question: string, display?: string) => Promise<void>;
   /** 같은 질문을 다시 보낸다. 사용자가 "다시 시도"를 눌렀을 때만 부른다(자동 재시도 없음) */
   retry: (turnId: string) => Promise<void>;
   /** 진행 중인 요청을 끊는다(화면 이탈 등) */
@@ -76,12 +81,12 @@ export function createChatStore({ run = runChatStream, contextStorage = createMe
       emergency: null,
       context: contextStorage.read(),
 
-      send: async (question) => {
+      send: async (question, display) => {
         const text = question.trim();
         if (!text) return;
         sequence += 1;
         const id = `turn-${sequence}`;
-        set((state) => ({ turns: [...state.turns, { id, question: text, stream: initialStreamState }] }));
+        set((state) => ({ turns: [...state.turns, { id, question: text, ...(display ? { display } : {}), stream: initialStreamState }] }));
         await execute(id, text, false);
       },
 

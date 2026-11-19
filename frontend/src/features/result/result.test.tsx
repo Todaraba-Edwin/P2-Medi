@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +10,7 @@ import * as fixtures from "@/mocks/fixtures/responses";
 import { scenarios } from "@/mocks/fixtures/scenarios";
 import { ChatThread } from "../chat/ChatThread";
 import { CandidateCard } from "./CandidateCard";
+import { groupCandidates, isTakenElsewhere } from "./candidate-groups";
 import * as copy from "./copy";
 import { IngredientChip, IngredientChips } from "./IngredientChips";
 import { ProductLine } from "./ProductLine";
@@ -369,12 +371,12 @@ describe("CandidateCard", () => {
 
   it("selected를 주면 고른 후보만 눌린 상태(aria-pressed)이고, 눌러도 onPick만 부른다", async () => {
     const onPick = vi.fn();
-    const { rerender } = render(<CandidateCard candidates={candidates} onPick={onPick} selected={null} />);
+    const { rerender } = render(<CandidateCard candidates={candidates} onPick={onPick} selected={{}} />);
     expect(screen.getAllByTestId("candidate").map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false"]);
     await userEvent.click(screen.getAllByTestId("candidate")[1]);
     expect(onPick).toHaveBeenCalledTimes(1);
     expect(onPick).toHaveBeenCalledWith(candidates[1]);
-    rerender(<CandidateCard candidates={candidates} onPick={onPick} selected={candidates[1]} />);
+    rerender(<CandidateCard candidates={candidates} onPick={onPick} selected={{ [candidates[1].input_name]: candidates[1] }} />);
     expect(screen.getAllByTestId("candidate").map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true", "false"]);
   });
 
@@ -420,6 +422,95 @@ describe("CandidateCard", () => {
     const groups = screen.getAllByTestId("candidate-group");
     expect(groups.map((g) => g.querySelector("header")?.textContent)).toEqual([candidates[0].input_name, "라마바"]);
     expect(within(groups[0]).getAllByTestId("candidate")).toHaveLength(2);
+  });
+
+  describe("되묻는 이름이 둘 이상(FE-09)", () => {
+    const multi = fixtures.clarifyMultiResponse.candidates;
+    const [nameA, nameB] = [multi[0].input_name, multi[3].input_name];
+    /** 고른 값을 들고 있는 조립 쪽 대역 */
+    function Harness({ onOther }: { onOther?: () => void }) {
+      const [picks, setPicks] = useState<Record<string, (typeof multi)[number]>>({});
+      return <CandidateCard candidates={multi} selected={picks} onOther={onOther} onPick={(candidate) => setPicks((prev) => ({ ...prev, [candidate.input_name]: candidate }))} />;
+    }
+    const group = (index: number) => screen.getAllByTestId("candidate-group")[index];
+
+    it("fixture: 묶음 둘, 묶음마다 후보 3~5개, 겹치는 제품 1개, 질문은 승인 원문(물음표 1개)", () => {
+      expect([...new Set(multi.map((c) => c.input_name))]).toEqual([nameA, nameB]);
+      for (const name of [nameA, nameB]) {
+        const size = multi.filter((c) => c.input_name === name).length;
+        expect(size).toBeGreaterThanOrEqual(3);
+        expect(size).toBeLessThanOrEqual(5);
+      }
+      const seqA = multi.filter((c) => c.input_name === nameA).map((c) => c.item_seq);
+      expect(multi.filter((c) => c.input_name === nameB && seqA.includes(c.item_seq))).toHaveLength(1);
+      expect(fixtures.clarifyMultiResponse.summary).toBe(`'${nameA}', '${nameB}'에 해당하는 약이 여러 개예요. 약마다 하나씩 골라 주시겠어요?`);
+      expect(fixtures.clarifyMultiResponse.summary?.match(/\?/g)).toHaveLength(1);
+    });
+
+    it("고른 묶음은 한 줄 요약으로 접히고 초점이 '바꾸기'로 가며, '바꾸기'로 다시 펼치면 고른 값이 눌린 채 남는다", async () => {
+      render(<Harness />);
+      expect(screen.getAllByTestId("candidate")).toHaveLength(6);
+      await userEvent.click(within(group(0)).getAllByTestId("candidate")[0]);
+      // 첫 묶음만 접힌다: 입력한 이름 → 고른 제품 · 바꾸기
+      expect(group(0)).toHaveAttribute("data-collapsed", "true");
+      expect(within(group(0)).queryAllByTestId("candidate")).toHaveLength(0);
+      expect(within(group(0)).getByTestId("candidate-picked").textContent).toBe(`${nameA} ${copy.CANDIDATE_PICKED_ARROW} ${multi[0].name}${copy.CANDIDATE_CHANGE_LABEL}`);
+      const change = within(group(0)).getByRole("button", { name: `${nameA} ${copy.CANDIDATE_CHANGE_LABEL}` });
+      expect(change).toHaveFocus();
+      expect(group(1)).not.toHaveAttribute("data-collapsed");
+      expect(within(group(1)).getAllByTestId("candidate")).toHaveLength(3);
+      // 다시 펼친다: 고른 값은 그대로(눌린 상태)이고 초점이 그 후보로 간다
+      await userEvent.click(change);
+      const reopened = within(group(0)).getAllByTestId("candidate");
+      expect(reopened.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
+      expect(reopened[0]).toHaveFocus();
+      // 다른 후보를 고르면 다시 접히고 요약이 바뀐다
+      await userEvent.click(reopened[1]);
+      expect(within(group(0)).getByTestId("candidate-picked").textContent).toContain(multi[1].name);
+      // 묶음은 이름으로 불린다(보조기기)
+      expect(screen.getByRole("group", { name: nameA })).toBe(group(0));
+      expect(screen.getByRole("group", { name: nameB })).toBe(group(1));
+    });
+
+    it("다른 묶음에서 이미 고른 제품은 비활성이고 이유를 보인다. 그 묶음을 바꾸면 다시 고를 수 있다(FE-09-03 A)", async () => {
+      render(<Harness />);
+      // 첫 묶음에서 겹치는 제품(가나다시럽)을 고른다
+      await userEvent.click(within(group(0)).getAllByTestId("candidate")[2]);
+      const second = within(group(1)).getAllByTestId("candidate");
+      expect(second[0]).toBeDisabled();
+      expect(second[0]).toHaveAttribute("data-taken", "true");
+      expect(second[0].querySelector('[data-slot="taken-note"]')?.textContent).toBe(copy.CANDIDATE_TAKEN_NOTE);
+      expect(second[1]).toBeEnabled();
+      expect(second[1].querySelector('[data-slot="taken-note"]')).toBeNull();
+      await userEvent.click(second[0]); // 눌러도 고르지 않는다
+      expect(group(1)).not.toHaveAttribute("data-collapsed");
+      // 첫 묶음을 다른 제품으로 바꾸면 풀린다
+      await userEvent.click(within(group(0)).getByTestId("candidate-change"));
+      await userEvent.click(within(group(0)).getAllByTestId("candidate")[0]);
+      expect(within(group(1)).getAllByTestId("candidate")[0]).toBeEnabled();
+      expect(screen.getByTestId("candidate-card").textContent).not.toMatch(/삐!|금기|안전|먹어도|드셔도/);
+    });
+
+    it("'직접 입력'은 펼쳐진 묶음마다 있고, 누르면 onOther만 부른다(그 묶음을 고른 것으로 치지 않는다)", async () => {
+      const onOther = vi.fn();
+      render(<Harness onOther={onOther} />);
+      expect(screen.getAllByRole("button", { name: copy.CANDIDATE_OTHER_LABEL })).toHaveLength(2);
+      await userEvent.click(within(group(1)).getByRole("button", { name: copy.CANDIDATE_OTHER_LABEL }));
+      expect(onOther).toHaveBeenCalledTimes(1);
+      expect(group(1)).not.toHaveAttribute("data-collapsed");
+      // 접힌 묶음에는 없다
+      await userEvent.click(within(group(0)).getAllByTestId("candidate")[0]);
+      expect(screen.getAllByRole("button", { name: copy.CANDIDATE_OTHER_LABEL })).toHaveLength(1);
+    });
+
+    it("isTakenElsewhere: 코드가 같을 때만, 다른 묶음의 선택만 본다", () => {
+      const picks = { [nameA]: multi[2] };
+      expect(isTakenElsewhere(multi[3], picks)).toBe(true); // 다른 묶음, 같은 코드
+      expect(isTakenElsewhere(multi[2], picks)).toBe(false); // 같은 묶음
+      expect(isTakenElsewhere(multi[4], picks)).toBe(false); // 다른 코드
+      expect(isTakenElsewhere({ ...multi[3], item_seq: null }, { [nameA]: { ...multi[2], item_seq: null } })).toBe(false); // 코드 없음
+      expect(groupCandidates(multi).map((g) => [g.inputName, g.items.length])).toEqual([[nameA, 3], [nameB, 3]]);
+    });
   });
 
   it("ResultView: 되묻기 응답이고 콜백이 있을 때만 후보 카드를 그린다", () => {
@@ -619,7 +710,7 @@ describe("PRD-01-01·FR-10 되묻기: 후보와 질문 1개, 가부 미표시", 
   const response = fixtures.clarifyResponse;
 
   it("되묻기 화면에는 질문 한 문장(summary)과 후보 카드·안내 줄만 있고 결과 카드·배지·판정 줄이 없다", () => {
-    render(<ResultView response={response} onPickCandidate={() => {}} onOtherCandidate={() => {}} selectedCandidate={null} />);
+    render(<ResultView response={response} onPickCandidate={() => {}} onOtherCandidate={() => {}} selectedCandidates={{}} />);
     expect(screen.getAllByTestId("result-summary")).toHaveLength(1);
     expect(screen.getByTestId("result-summary").textContent).toBe(response.summary);
     expect(screen.getByTestId("candidate-card")).toBeInTheDocument();
@@ -631,7 +722,7 @@ describe("PRD-01-01·FR-10 되묻기: 후보와 질문 1개, 가부 미표시", 
 
   it("후보를 고른 뒤에도(선택 상태) 가부·판정 글자가 생기지 않는다", () => {
     const { container } = render(
-      <ResultView response={response} onPickCandidate={() => {}} onOtherCandidate={() => {}} selectedCandidate={response.candidates[1]} />,
+      <ResultView response={response} onPickCandidate={() => {}} onOtherCandidate={() => {}} selectedCandidates={{ [response.candidates[1].input_name]: response.candidates[1] }} />,
     );
     expect(screen.getAllByTestId("candidate")[1]).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByTestId("status-badge")).toBeNull();

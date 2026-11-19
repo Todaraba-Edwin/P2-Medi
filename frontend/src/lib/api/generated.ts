@@ -296,6 +296,8 @@ export interface components {
          * @description 되묻기 등으로 사용자가 고른 약(이름과, 있으면 품목기준코드).
          */
         ConfirmedDrug: {
+            /** Input Name */
+            input_name?: string | null;
             /** Item Seq */
             item_seq?: string | null;
             /** Name */

@@ -1,7 +1,7 @@
 // 대화 상태 한 입력 묶음(FE-01 완료 조건, PRD-07-01 A): 같은 대화 안에서 이미 말한 값.
 // 브라우저 메모리에만 두고 새로고침하면 사라진다. 저장 위치는 ContextStorage 구현만 바꿔 끼우면 된다
 // (예: 로그인 프로필은 서버, BE-11 확장). 질문 문장·응답은 여기에 넣지 않는다.
-import { CONFIRMED_DRUGS_MAX } from "@/lib/api";
+import { CONFIRMED_DRUGS_MAX, DRUG_NAME_MAX_CHARS } from "@/lib/api";
 import type { ChatRequest } from "@/lib/api";
 
 /** 먹는 사람의 나이 구간(요청 `context.age`와 같은 모양). 한 나이면 두 값이 같다 */
@@ -15,6 +15,8 @@ export interface AgeRange {
 export interface ConfirmedDrug {
   name: string;
   itemSeq: string | null;
+  /** 그 약을 고른 되묻기 묶음의 이름(후보의 `input_name` 그대로, FE-09-05 A). 되묻기를 거치지 않은 값이면 없다 */
+  inputName?: string | null;
 }
 
 export interface ConversationContext {
@@ -49,10 +51,13 @@ export function createMemoryContextStorage(): ContextStorage {
 }
 
 const ITEM_SEQ = /^\d{9}$/;
+/** 서버 규칙(비어 있지 않고 약 이름 상한 이하)에 맞는 입력 이름만 싣는다. 아니면 null(서버는 이전 규칙으로 매칭한다) */
+const inputNameOf = (drug: ConfirmedDrug) => (drug.inputName && drug.inputName.trim().length > 0 && drug.inputName.length <= DRUG_NAME_MAX_CHARS ? drug.inputName : null);
 
 /**
  * 요청 본문을 만드는 한 곳(`ChatRequest` v1). 요청마다 묶음 값만 `context`로 싣는다.
  * 품목 번호는 9자리 숫자일 때만 싣고, 확인한 약은 서버 상한까지만 싣는다(뒤에 고른 것이 남는다).
+ * 되묻기에서 고른 약에는 그 묶음의 이름을 `input_name`으로 함께 싣는다(FE-09-05 A, 서버가 이름별로 매칭한다).
  */
 export function buildChatRequest(question: string, context: ConversationContext): ChatRequest {
   return {
@@ -62,7 +67,7 @@ export function buildChatRequest(question: string, context: ConversationContext)
       pregnant: context.pregnant,
       confirmed_drugs: context.confirmedDrugs
         .slice(-CONFIRMED_DRUGS_MAX)
-        .map((drug) => ({ name: drug.name, item_seq: drug.itemSeq !== null && ITEM_SEQ.test(drug.itemSeq) ? drug.itemSeq : null })),
+        .map((drug) => ({ name: drug.name, item_seq: drug.itemSeq !== null && ITEM_SEQ.test(drug.itemSeq) ? drug.itemSeq : null, input_name: inputNameOf(drug) })),
     },
   };
 }

@@ -102,6 +102,12 @@ export const SOURCE_PREFIX_FILE = "공식 파일";
 // `router._clarify`는 `CLARIFY_MANY_CANDIDATES.format(drug=t.raw)`로 만든다(fixture는 앞에 합성 이름을 붙인다)
 export const CLARIFY_TAIL = PHRASES.CLARIFY_MANY_CANDIDATES.slice("'{drug}'".length);
 
+// 되묻는 이름이 둘 이상일 때의 질문(FE-09-02 A 승인 원문, 2026-11-19): `'{A}', '{B}'에 해당하는 약이 여러 개예요. 약마다 하나씩 골라 주시겠어요?`(물음표 1개).
+// 백엔드 상수는 Agent 쪽 브랜치(`feature/FE-09-agent-clarify`)가 더한다. 그 브랜치가 병합되기 전이라 `PHRASES`(백엔드 상수와 글자 단위로 맞추는 표)에 넣지 않고
+// 승인 원문을 여기 따로 둔다(병합 뒤 `PHRASES`로 옮겨 상수와 맞춘다)
+export const CLARIFY_MULTI_TAIL = "에 해당하는 약이 여러 개예요. 약마다 하나씩 골라 주시겠어요?";
+export const clarifyMultiQuestion = (names: readonly string[]) => `${names.map((name) => `'${name}'`).join(", ")}${CLARIFY_MULTI_TAIL}`;
+
 // 출처 표 값: backend/app/tools/provenance.py PUBLISHER["kids"](= backend/app/db/loaders.py SRC_KIDS), DATASET_LABELS
 export const PUBLISHER_KIDS = "한국의약품안전관리원";
 export const DATASET_CONTRA_PAIR = "병용금기 파일";

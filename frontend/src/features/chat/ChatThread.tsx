@@ -35,7 +35,7 @@ export function ChatThread({ turns, hasEmergency, onRetry }: ChatThreadProps) {
     <div data-testid="chat-thread" className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-0.5 pt-2 pb-3">
       {turns.map((turn) => (
         <div key={turn.id} data-turn={turn.id} data-status={turn.stream.status} className="flex flex-col gap-2.5">
-          <MessageBubble side="me">{turn.question}</MessageBubble>
+          <MessageBubble side="me">{turn.display ?? turn.question}</MessageBubble>
           <TurnAnswer turn={turn} isLast={turn === last} hasEmergency={hasEmergency} onRetry={() => onRetry(turn.id)} />
         </div>
       ))}

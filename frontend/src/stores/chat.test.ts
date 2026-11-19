@@ -42,6 +42,23 @@ describe("대화 스토어", () => {
     expect(requests).toBe(1);
   });
 
+  it("표시용 글자를 주면 차례에 따로 두고, 서버로는 원 질문을 보낸다(FE-09-04 A)", async () => {
+    const seen: unknown[] = [];
+    const store = createChatStore({
+      run: async (request, options) => {
+        seen.push(request);
+        return options?.previous ?? initialStreamState;
+      },
+    });
+    await store.getState().send(QUESTION);
+    await store.getState().send(QUESTION, "고른 약: 가나다정, 가나다시럽으로 다시 확인");
+    const [first, second] = store.getState().turns;
+    expect("display" in first).toBe(false);
+    expect(second).toMatchObject({ question: QUESTION, display: "고른 약: 가나다정, 가나다시럽으로 다시 확인" });
+    expect(seen.map((request) => (request as { question: string }).question)).toEqual([QUESTION, QUESTION]);
+    expect(JSON.stringify(seen)).not.toContain("고른 약");
+  });
+
   it("빈 질문은 보내지 않는다", async () => {
     const store = createChatStore();
     await store.getState().send("   ");
@@ -202,7 +219,7 @@ describe("대화 상태 묶음", () => {
     await store.getState().send(QUESTION);
     const expected = {
       question: QUESTION,
-      context: { age: AGE_5, pregnant: true, confirmed_drugs: [{ name: "가나다정", item_seq: "200000001" }] },
+      context: { age: AGE_5, pregnant: true, confirmed_drugs: [{ name: "가나다정", item_seq: "200000001", input_name: null }] },
     };
     expect(seen[1]).toEqual(expected);
     expect(ChatRequestSchema.safeParse(seen[1]).success).toBe(true);
@@ -213,7 +230,29 @@ describe("대화 상태 묶음", () => {
     const drugs = Array.from({ length: 12 }, (_, i) => ({ name: `합성약${i}`, itemSeq: i === 11 ? "12345" : null }));
     const request = buildChatRequest(QUESTION, { age: null, pregnant: null, confirmedDrugs: drugs });
     expect(request.context?.confirmed_drugs).toHaveLength(10);
-    expect(request.context?.confirmed_drugs?.at(-1)).toEqual({ name: "합성약11", item_seq: null });
+    expect(request.context?.confirmed_drugs?.at(-1)).toEqual({ name: "합성약11", item_seq: null, input_name: null });
+    expect(ChatRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("되묻기에서 고른 약에는 그 묶음의 이름을 input_name으로 싣는다(FE-09-05 A). 서버 규칙에 안 맞는 이름은 null로 보낸다", () => {
+    const request = buildChatRequest(QUESTION, {
+      age: null,
+      pregnant: null,
+      confirmedDrugs: [
+        { name: "가나다정 100밀리그램", itemSeq: "200000001", inputName: "가나다" },
+        { name: "가나다시럽 키즈", itemSeq: "200000004", inputName: "가나다시럽" },
+        { name: "합성약1", itemSeq: null }, // 되묻기를 거치지 않은 값
+        { name: "합성약2", itemSeq: null, inputName: "  " },
+        { name: "합성약3", itemSeq: null, inputName: "가".repeat(101) },
+      ],
+    });
+    expect(request.context?.confirmed_drugs).toEqual([
+      { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" },
+      { name: "가나다시럽 키즈", item_seq: "200000004", input_name: "가나다시럽" },
+      { name: "합성약1", item_seq: null, input_name: null },
+      { name: "합성약2", item_seq: null, input_name: null },
+      { name: "합성약3", item_seq: null, input_name: null },
+    ]);
     expect(ChatRequestSchema.safeParse(request).success).toBe(true);
   });
 });
