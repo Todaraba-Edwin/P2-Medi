@@ -81,6 +81,11 @@ def _groups(candidates: list[Any]) -> list[str]:
     return list(dict.fromkeys(c.input_name for c in candidates))
 
 
+def _pick(input_name: str, item_seq: str) -> dict[str, str]:
+    """그래프 입력 `confirmed_item_seqs`의 이름 있는 원소(`runner.confirmed_from_context`가 만드는 모양, FE-09-05 A)."""
+    return {"item_seq": item_seq, "input_name": input_name}
+
+
 # =========================================================================== 1. 고정 문구(FE-09-02 A)
 class TestPhrase:
     def test_approved_text_for_two_and_three_names(self):
@@ -170,11 +175,42 @@ class TestConfirmBoth:
         assert [g.target_raw for g in c.groups] == ["타이레놀"]
         assert c.question == fp.CLARIFY_MANY_CANDIDATES.format(drug="타이레놀")  # 묶음 1개로 줄면 이전 문구
 
-    @pytest.mark.xfail(strict=True, reason="FE-09 결정 후보: 두 묶음의 후보 집합이 겹치면(Q_P3의 '타이레놀'·'콜드-에스') 묶음 순서로 보낸 "
-                                           "고른 약 하나가 '가장 나중에 고른 것' 규칙에 밀려 빠진다. 요청에 묶음 이름이 없어 BE가 가를 수 없다")
-    def test_overlapping_groups_keep_each_pick(self, dd):
-        res = route_input(Q_P3, dd, confirmed_item_seqs=[SEQ_AZI, SEQ_T500, SEQ_COLD])  # 묶음 순서: 이지렉트정→AZI, 타이레놀→T500, 콜드-에스→COLD
-        assert {e.item_seq for e in res.entities} == {SEQ_AZI, SEQ_T500, SEQ_COLD}
+    @pytest.mark.parametrize("order", [(0, 1, 2), (0, 2, 1), (2, 1, 0), (1, 0, 2)])
+    def test_overlapping_groups_keep_each_pick(self, dd, order):
+        """FE-09-05 A: 묶음 이름(`input_name`)을 실어 보내면 두 묶음의 후보가 겹쳐도(Q_P3의 '타이레놀'·'콜드-에스') 보낸 순서와 상관없이 세 약을 모두 유지한다."""
+        picks = [_pick("이지렉트정", SEQ_AZI), _pick("타이레놀", SEQ_T500), _pick("콜드-에스", SEQ_COLD)]
+        res = route_input(Q_P3, dd, confirmed_item_seqs=[picks[i] for i in order])
+        assert [(e.raw, e.status, e.item_seq) for e in res.entities] == [
+            ("이지렉트정", ST_RESOLVED, SEQ_AZI), ("타이레놀", ST_RESOLVED, SEQ_T500), ("콜드-에스", ST_RESOLVED, SEQ_COLD)]
+        assert not res.ambiguous and res.n_pairs == 3
+
+    def test_without_names_old_rule_is_unchanged(self, dd):
+        """이름 없는 요청은 이전 규칙(후보 집합 포함 + 나중 것) 그대로다: 묶음 순서로 보내면 겹친 묶음에서 한 약이 빠지는 이전 결과도 같다."""
+        res = route_input(Q_P3, dd, confirmed_item_seqs=[SEQ_AZI, SEQ_T500, SEQ_COLD])
+        assert [(e.raw, e.item_seq) for e in res.entities] == [("이지렉트정", SEQ_AZI), ("타이레놀", SEQ_COLD)]
+        res2 = route_input(Q_P3, dd, confirmed_item_seqs=[SEQ_AZI, SEQ_COLD, SEQ_T500])
+        assert [(e.raw, e.item_seq) for e in res2.entities] == [("이지렉트정", SEQ_AZI), ("타이레놀", SEQ_T500), ("콜드-에스", SEQ_COLD)]
+
+    def test_named_pick_is_not_applied_to_other_name(self, dd):
+        """다른 묶음 이름으로 고른 코드는 이 이름의 후보에 들어 있어도 쓰지 않는다(콜드-에스로 고른 COLD가 '타이레놀'을 확정하지 않는다)."""
+        res = route_input(Q_P3, dd, confirmed_item_seqs=[_pick("콜드-에스", SEQ_COLD)])
+        st = {e.raw: (e.status, e.item_seq) for e in res.entities}
+        assert st["콜드-에스"] == (ST_RESOLVED, SEQ_COLD) and st["타이레놀"] == (ST_AMBIGUOUS, None)
+        assert res.ambiguous and [g.target_raw for g in res.clarify.groups] == ["이지렉트정", "타이레놀"]
+
+    def test_unknown_name_or_non_candidate_code_is_ignored(self, dd):
+        base = route_input(Q_P3, dd).model_dump()
+        assert route_input(Q_P3, dd, confirmed_item_seqs=[_pick("질문에없는이름", SEQ_AZI)]).model_dump() == base
+        assert route_input(Q_P3, dd, confirmed_item_seqs=[_pick("이지렉트정", SEQ_T500)]).model_dump() == base  # 그 이름의 후보가 아님
+
+    def test_named_pick_wins_over_unnamed_for_same_entity(self, dd):
+        res = route_input(Q_TWO, dd, confirmed_item_seqs=[_pick("타이레놀", SEQ_T500), SEQ_COLD])
+        assert res.entities[0].item_seq == SEQ_T500  # 이름 없는 나중 것(COLD)보다 그 이름으로 고른 것이 먼저
+
+    def test_blank_name_counts_as_unnamed_and_bad_values_are_dropped(self):
+        assert R.confirmed_picks([_pick("  ", SEQ_AZI), SEQ_AZI, {"item_seq": "12", "input_name": "x"}, {"input_name": "x"}, 7, None,
+                                  _pick("타이레놀", SEQ_T500), _pick("타이레놀", SEQ_T500)]) == [(None, SEQ_AZI), ("타이레놀", SEQ_T500)]
+        assert R.confirmed_seqs([_pick("타이레놀", SEQ_T500), SEQ_T500, SEQ_AZI]) == [SEQ_T500, SEQ_AZI]
 
 
 # =========================================================================== 5. 세 경로가 같은 묶음을 낸다

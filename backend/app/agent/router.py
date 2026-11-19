@@ -724,28 +724,66 @@ def _clarify(ents: list[Entity]) -> Clarify | None:
 
 # --------------------------------------------------------------------------- 되묻기에서 고른 약(AG-05-03 A)
 
-def confirmed_seqs(values: Any) -> list[str]:
-    """확정 약 입력(품목기준코드 문자열 목록)에서 형식이 맞는 값만 순서대로(중복 제거) 남긴다. 형식이 틀린 값은 조용히 버린다."""
-    out: list[str] = []
+ConfirmedPick = tuple[str | None, str]  # (되묻기 묶음 이름 `input_name` 또는 None, 품목기준코드)
+
+
+def confirmed_picks(values: Any) -> list[ConfirmedPick]:
+    """확정 약 입력을 `(input_name, item_seq)` 목록으로 정리한다(보낸 순서, 같은 쌍은 한 번만). 형식이 틀린 값은 조용히 버린다.
+
+    원소는 두 모양을 받는다(FE-09-05 A, 하위 호환):
+    - 품목기준코드 문자열: 이름 없음(AG-05-03 A 규칙 그대로).
+    - `{"item_seq": ..., "input_name": ...}`: 되묻기 묶음 이름이 있으면 그 이름의 엔티티에만 쓴다. 이름이 비면 이름 없음과 같다."""
+    out: list[ConfirmedPick] = []
     for v in values or ():
-        if isinstance(v, str) and _ITEM_SEQ_RE.match(v) and v not in out:
-            out.append(v)
+        if isinstance(v, str):
+            name, seq = None, v
+        elif isinstance(v, dict):
+            seq = v.get("item_seq")
+            raw_name = v.get("input_name")
+            name = raw_name if isinstance(raw_name, str) and raw_name.strip() else None
+        else:
+            continue
+        if isinstance(seq, str) and _ITEM_SEQ_RE.match(seq) and (name, seq) not in out:
+            out.append((name, seq))
     return out
 
 
-def apply_confirmed(dd: DrugDict, e: Entity, seqs: list[str]) -> Entity:
-    """사용자가 되묻기에서 고른 품목기준코드(`seqs`, 앞이 먼저 고른 것)로 확정되지 않은 엔티티를 확정한다(AG-05-03 A).
+def confirmed_seqs(values: Any) -> list[str]:
+    """확정 약 입력에서 형식이 맞는 품목기준코드만 순서대로(중복 제거) 남긴다(이름은 버린다). 형식이 틀린 값은 조용히 버린다."""
+    return list(dict.fromkeys(seq for _, seq in confirmed_picks(values)))
 
-    매칭 규칙: 엔티티가 조회에 쓴 문자열(`e.raw`)을 사전에 다시 조회해 얻은 **제품 후보 집합**(상한 `CONFIRM_LOOKUP_MAX`)에 고른 코드가 있을 때만
-    확정한다. 고른 약의 이름은 보지 않는다(이름은 화면 표시용이라 바뀔 수 있고, 코드가 사전 키다). 여러 개가 맞으면 **가장 나중에 고른 것**을 쓴다.
+
+def _same_name(a: str, b: str) -> bool:
+    return a == b or normalize_name(a) == normalize_name(b)
+
+
+def _seqs_for(e: Entity, picks: list[ConfirmedPick]) -> list[str]:
+    """이 엔티티에 쓸 고른 코드(앞이 먼저 고른 것). 이 엔티티 이름으로 고른 것이 있으면 그것만, 없으면 이름 없이 고른 것.
+    다른 이름으로 고른 코드는 이 엔티티에 쓰지 않는다(FE-09-05 A: 묶음 후보가 겹쳐도 고른 약이 다른 묶음을 덮지 않게)."""
+    named = [s for n, s in picks if n is not None and _same_name(n, e.raw)]
+    return named or [s for n, s in picks if n is None]
+
+
+def apply_confirmed(dd: DrugDict, e: Entity, seqs: list[str] | list[ConfirmedPick]) -> Entity:
+    """사용자가 되묻기에서 고른 약(`seqs`, 앞이 먼저 고른 것)으로 확정되지 않은 엔티티를 확정한다(AG-05-03 A, FE-09-05 A).
+
+    `seqs`는 품목기준코드 목록(이름 없음) 또는 `confirmed_picks`가 만든 `(input_name, item_seq)` 목록이다.
+    - **이름 있음**(FE-09-05 A): `input_name`이 이 엔티티의 조회 문자열(`e.raw`, 정규화 비교 포함)과 같은 고른 약만 본다. 다른 이름으로 고른 코드는
+      이 엔티티의 후보에 들어 있어도 쓰지 않는다. 같은 이름으로 고른 것이 있으면 이름 없이 고른 것보다 먼저다.
+    - **이름 없음**(AG-05-03 A 그대로): 엔티티가 조회에 쓴 문자열을 사전에 다시 조회해 얻은 **제품 후보 집합**(상한 `CONFIRM_LOOKUP_MAX`)에
+      고른 코드가 있을 때만 확정한다.
+    두 경우 모두 후보 집합에 있는 코드만 확정하고, 여러 개가 맞으면 **가장 나중에 고른 것**을 쓴다. 이름은 매칭에만 쓰고 확정은 코드로 한다.
     - 이미 확정(RESOLVED)인 엔티티, 후보가 없는 NOT_FOUND, 성분명 후보만 있는 경우는 그대로 둔다.
-    - 사전에 없는 코드, 이 엔티티의 후보가 아닌 코드는 무시한다(지금 동작: 되묻기). 질문에 없는 약을 새로 더하지 않는다.
+    - 사전에 없는 코드, 이 엔티티의 후보가 아닌 코드, 질문에 없는 이름은 무시한다(지금 동작: 되묻기). 질문에 없는 약을 새로 더하지 않는다.
     """
     if not seqs or e.status == ST_RESOLVED or e.n_candidates == 0:
         return e
+    mine = _seqs_for(e, [p if isinstance(p, tuple) else (None, p) for p in seqs])
+    if not mine:
+        return e
     top_k = min(max(MAX_CLARIFY_OPTIONS, e.n_candidates), CONFIRM_LOOKUP_MAX)
     by_seq = {c.item_seq: c for c in dd.lookup_name(e.raw, top_k=top_k).candidates if c.item_seq and c.matched_by == MATCHED_BY_PRODUCT}
-    c = next((by_seq[s] for s in reversed(seqs) if s in by_seq), None)
+    c = next((by_seq[s] for s in reversed(mine) if s in by_seq), None)
     if c is None:
         return e
     flags = [f for f in e.flags if f == FLAG_SAME_NAME_INGREDIENT]
@@ -906,9 +944,10 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
     `typo_correct=True`이면 오탈자 의심 엔티티를 `correct_typo`로 보정해 본다(AG-10). 기본값 False는 지금까지와 같은 결과(되묻기)다.
     켜는 곳은 `GraphDeps.typo_correct`다(서비스 기본은 `wiring.SERVICE_TYPO_CORRECT_DEFAULT`, BE-06-35 A).
 
-    `confirmed_item_seqs`는 같은 대화의 되묻기에서 사용자가 고른 약의 품목기준코드다(AG-05-03 A, `apply_confirmed`). 비어 있으면 지금과 같다
+    `confirmed_item_seqs`는 같은 대화의 되묻기에서 사용자가 고른 약이다(AG-05-03 A, `apply_confirmed`). 원소는 품목기준코드 문자열(이름 없음) 또는
+    `{"item_seq", "input_name"}`(묶음 이름으로 매칭, FE-09-05 A)이다(`confirmed_picks`). 비어 있으면 지금과 같다
     (평가 경로는 늘 비어 있다). 값은 상태·이벤트·로그에 그대로 옮기지 않는다(확정된 엔티티의 `item_seq`는 일반 확정과 같은 자리에 들어간다)."""
-    seqs = confirmed_seqs(confirmed_item_seqs)
+    seqs = confirmed_picks(confirmed_item_seqs)
     mentions = extract_mention_details(text, dd)
     truncated = len(mentions) > MAX_DRUGS
     mentions = mentions[:MAX_DRUGS]

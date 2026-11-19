@@ -26,7 +26,7 @@ from app.agent.graph.metered import usage_of
 from app.agent.graph.nodes import GraphDeps
 from app.agent.tools.context import ToolContext
 from app.agent.tools.langchain_adapter import build_tools
-from app.api.runner import ChatRunner, GraphRunner, NodeUpdate
+from app.api.runner import ChatRunner, ConfirmedInput, GraphRunner, NodeUpdate
 from app.config import reveal
 
 logger = logging.getLogger(__name__)
@@ -192,7 +192,7 @@ class LazyGraphRunner:
         return self._base
 
     def updates(self, question: str, profile: dict[str, Any] | None,
-                confirmed_item_seqs: Sequence[str] = ()) -> Iterator[NodeUpdate]:
+                confirmed_item_seqs: Sequence[ConfirmedInput] = ()) -> Iterator[NodeUpdate]:
         graph = build_graph(request_deps(self._resources()))
         yield from GraphRunner(lambda: graph).updates(question, profile, confirmed_item_seqs)
 

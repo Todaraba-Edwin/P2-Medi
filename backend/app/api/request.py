@@ -43,15 +43,19 @@ class AgeInput(_Strict):
 
 
 class ConfirmedDrug(_Strict):
-    """되묻기 등으로 사용자가 고른 약(이름과, 있으면 품목기준코드)."""
+    """되묻기 등으로 사용자가 고른 약(이름과, 있으면 품목기준코드).
+
+    `input_name`(선택, FE-09-05 A)은 그 약을 고른 되묻기 묶음의 이름(응답 `candidates[].input_name` 그대로)이다. 있으면 서버가 질문 속 그 이름의
+    약에만 이 코드를 확정한다(묶음 후보가 겹쳐도 다른 묶음을 덮지 않는다). 없으면 이전 규칙(후보 집합 포함 + 나중 것) 그대로다."""
 
     name: str = Field(min_length=1, max_length=DRUG_NAME_MAX_CHARS)
     item_seq: str | None = Field(default=None, pattern=r"^\d{9}$")
+    input_name: str | None = Field(default=None, min_length=1, max_length=DRUG_NAME_MAX_CHARS)
 
-    @field_validator("name")
+    @field_validator("name", "input_name")
     @classmethod
-    def _not_blank(cls, v: str) -> str:
-        if not v.strip():
+    def _not_blank(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
             raise ValueError("약 이름이 비어 있다")
         return v
 

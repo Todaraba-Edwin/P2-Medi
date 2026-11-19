@@ -357,6 +357,50 @@ def test_confirmed_from_context_keeps_only_item_seqs_in_order():
     assert confirmed_from_context(ConversationContext()) == []
 
 
+def test_confirmed_from_context_carries_input_name_when_given():
+    """FE-09-05 A: `input_name`이 있으면 `{item_seq, input_name}`로, 없으면 이전처럼 코드 문자열로 넘긴다. 표시용 `name`은 넘기지 않는다.
+    같은 코드라도 묶음 이름이 다르면 따로 남긴다(겹친 묶음에서 같은 약을 골라도 두 이름 모두 확정)."""
+    ctx = ConversationContext(confirmed_drugs=[
+        ConfirmedDrug(name="가", item_seq=SEQ_AZI, input_name="이지렉트정"), ConfirmedDrug(name="나", item_seq=SEQ_COLD, input_name="타이레놀"),
+        ConfirmedDrug(name="다", item_seq=SEQ_COLD, input_name="콜드-에스"), ConfirmedDrug(name="라", item_seq=SEQ_COLD, input_name="타이레놀"),
+        ConfirmedDrug(name="마", item_seq=SEQ_T500), ConfirmedDrug(name="바", input_name="타이레놀")])
+    assert confirmed_from_context(ctx) == [{"item_seq": SEQ_AZI, "input_name": "이지렉트정"}, {"item_seq": SEQ_COLD, "input_name": "타이레놀"},
+                                           {"item_seq": SEQ_COLD, "input_name": "콜드-에스"}, SEQ_T500]
+
+
+@pytest.mark.parametrize("order", [(0, 1, 2), (0, 2, 1)])
+def test_named_picks_from_overlapping_groups_all_reach_lookup(dd, order):
+    """FE-09-05 A: 턴 1의 세 묶음(`이지렉트정`·`타이레놀`·`콜드-에스`, 뒤 둘의 후보가 겹침)에서 각각 고른 약을 `input_name`과 함께 보내면
+    보낸 순서와 상관없이 세 약이 모두 확정돼 조회로 간다(이름 없이 묶음 순서로 보내면 정500이 빠지던 경우)."""
+    _, first = _stream(dd, Q_P3, [], [])
+    cands = {(c.input_name, c.item_seq) for c in _answer(first).candidates}
+    picks = [("이지렉트정", SEQ_AZI, AZI), ("타이레놀", SEQ_T500, T500), ("콜드-에스", SEQ_COLD, COLD)]
+    assert {(n, s) for n, s, _ in picks} <= cands  # 화면이 보낼 값은 턴 1 응답의 후보 그대로다
+    body = [{"name": name, "item_seq": seq, "input_name": n} for n, seq, name in (picks[i] for i in order)]
+    tm = RecordingToolModel(script=[AIMessage("조회를 마쳤다")])
+    _, second = _stream(dd, Q_P3, [], [{"sentences": [_guide()]}], context={"confirmed_drugs": body}, tool_model=tm)
+    assert events_end(second) == "NORMAL" and not _answer(second).candidates
+    note = json.loads(re.search(r"<<<ROUTER_NOTE\n(.*)\nROUTER_NOTE>>>", tm._seen[0], re.S).group(1))
+    assert [(d["raw"], d["status"], d["item_seq"]) for d in note["drug_candidates"]] == [
+        ("이지렉트정", "RESOLVED", SEQ_AZI), ("타이레놀", "RESOLVED", SEQ_T500), ("콜드-에스", "RESOLVED", SEQ_COLD)]
+
+
+def test_confirmed_input_name_is_not_logged_or_measured(dd, caplog):
+    """`input_name`도 고른 약 값이라 로그·서비스 지표에 남기지 않는다."""
+    caplog.set_level(logging.DEBUG)
+    metrics = ListSink()
+    app = FastAPI()
+    chat_api.register(app)
+    chat_api.set_runner(app, GraphRunner.from_deps(_deps(dd, _script(AZI, COLD), [PAIR_DRAFT])), metrics=metrics)
+    body = {"question": Q_P3, "context": {"confirmed_drugs": [{"name": AZI, "item_seq": SEQ_AZI, "input_name": f"{MARKER}정"}]}}
+    r = TestClient(app).post("/chat", json=body)
+    assert r.status_code == 200 and MARKER not in r.text
+    logged = "\n".join(f"{x.getMessage()} {x.args!r}" for x in caplog.records)
+    assert MARKER not in logged and SEQ_AZI not in logged
+    measured = json.dumps(metrics.records, ensure_ascii=False, default=str)
+    assert metrics.records and MARKER not in measured
+
+
 def events_end(events: list[ev.ChatEvent]) -> str | None:
     return events[-1].root.end_reason
 
