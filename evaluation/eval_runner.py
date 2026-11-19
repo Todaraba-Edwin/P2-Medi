@@ -1633,6 +1633,8 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
     ap.add_argument("--baseline", type=Path, metavar="RESULT.json",
                     help="이전 측정 결과. 세트 해시·모델·호출 상한·사전·코퍼스·채점 규칙·judge 모델·루브릭이 다르면 시작하지 않는다(9.6절 동결, graph 전용)")
     ap.add_argument("--freeze-diff-reason", help="--baseline과 동결 값이 다른데도 실행할 이유(결과 meta `freeze_baseline`에 기록된다)")
+    ap.add_argument("--note", help="실행 메모(판 이름 등, 예: caution_rule@v1·intake@v1). 결과 meta `note`에 그대로 남는다. 동결 값이 아니며 비교에 쓰지 않는다"
+                                   "(AG-13-35 A). 비밀값·문항 내용을 적지 않는다")
     ap.add_argument("--ids", help="쉼표로 나눈 문항 ID만 돌린다(개발셋 전용, --subset 뒤에 적용). 예: dev-056,dev-057")
     ap.add_argument("--typo-correct", action=argparse.BooleanOptionalAction, default=None,
                     help="오탈자 보정 후 진행(AG-10). 기본은 조건이 정한다(C2·C1+ 켬, C1 끔). C2에서만 --no-typo-correct로 끌 수 있다(graph 전용)")
@@ -1745,6 +1747,8 @@ def main(argv: Sequence[str] | None = None, *, settings_fn: Callable[[], Any] | 
             "agent": a.agent, "agent_info": getattr(agent, "info", {}), "versions": versions,
             # BE-08-06 A: 결과를 만든 커밋·추적 파일 변경 여부. 측정 실행(graph)만 적는다(연결 확인용 offline-fixed 결과 모양은 그대로)
             **(RR.git_state() if is_graph else {})}
+    if a.note is not None:  # AG-13-35 A: 실행 메모. 주었을 때만 키를 만든다(메모 없는 결과 모양 그대로). 동결 점검(`freeze_check`)은 이 키를 보지 않는다
+        meta["note"] = a.note
     if is_graph:
         from app.agent.pipeline.build import harness_profile
 
