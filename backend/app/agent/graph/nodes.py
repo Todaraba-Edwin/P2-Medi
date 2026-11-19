@@ -36,7 +36,7 @@ from app.agent.sentence_filter import filter_sentences
 from app.agent.tools.context import ToolContext
 from app.agent.tools.registry import REGISTRY, ToolSpec, invoke
 from app.agent.tools.schemas import POST_WRITABLE_KEYS
-from app.agent.validator import CHECK_RULES, CLAIM_OMITTED, FAIL, validate
+from app.agent.validator import CHECK_RULES, CLAIM_OMITTED, FAIL, FIXED, MISSING_ADVICE_ABSENT, PASS, REWIND, validate
 from app.tools.drug_dict import DrugDict
 
 # 최종 요약 호출에 붙는 지시(코드 상수). 요약 프롬프트 파일(`answer_summary@v1`, AG-06)이 든 묶음(기본 `prompt_set@v3`, 2026-11-17 채택)을 쓰면
@@ -62,6 +62,20 @@ CLAIM_OMIT_MAX_ITEMS = 5      # 줄 수 상한(메시지 길이 제한)
 CLAIM_OMIT_MAX_NAMES = 4      # 항목당 성분명 상한
 CLAIM_OMIT_NAME_LEN = 40      # 성분명 한 개 글자 상한
 _ROW_NAME_KEYS = ("name_a", "name_b", "ingr_name")   # 판정 파일 원문 행의 성분명 칸(`tools.lookup`). API 직접 행에는 이름 칸이 없다
+# (개선, C3 `c3-layer-check@v4`, AG-13-29 A) ⑯은 되감기 대신 기록만 한다(AG-13-09 → B). 위 ⑯ 보강 지시(v2)는 v4부터 그래프에서 쓰지 않고
+# 이전 판 재현·시험을 위해 함수만 남긴다. 기록은 `validation.recorded`·VALIDATOR 이벤트 `recorded`(사유 코드 건수만, 근거 ID·문장 없음)
+RECORD_ONLY_CHECKS = (CLAIM_OMITTED,)
+# (개선, C3 `c3-layer-check@v4`, AG-13-32 A) ⑥ `MISSING_ADVICE_ABSENT` 되감기 때 REWIND_MESSAGE 뒤에 붙이는 고정 지시. 줄에 들어가는 값은
+# Validator가 고른 미확보 항목(약사 권고가 빠진 것)의 근거 ID와 항목 종류(코드 상수 표)뿐이다. 모델 입력에만 들어가고 span·이벤트에는 남지 않는다
+MISSING_ADVICE_HINT_HEAD = (
+    "[HARNESS] 약사 확인 안내가 빠진 미확보 항목: 아래 근거(코드 조회 결과, 확인하지 못함)에 대해 직전 답변이 약국·약사 확인을 안내하지 않았다. "
+    "항목마다 그 근거 ID를 evidence_ids에 단 문장에 확인하지 못했다는 말과 약국·약사 확인 안내를 함께 넣어 다시 작성한다. "
+    "확인하지 못한 항목을 없다거나 안전하다고 쓰지 않는다."
+)
+MISSING_ADVICE_HINT_LINE = "- {what} (근거 ID {eid})"
+MISSING_ADVICE_KIND_LABELS = {"label": "허가사항 원문", "search_miss": "검색 근거"}
+MISSING_ADVICE_KIND_OTHER = "확인하지 못한 항목"
+MISSING_ADVICE_MAX_ITEMS = 5   # 줄 수 상한(메시지 길이 제한)
 
 
 @dataclass
@@ -132,6 +146,22 @@ def claim_omit_hint(omitted_ids: list[str], items: list[dict[str, Any]]) -> str:
         if len(lines) >= CLAIM_OMIT_MAX_ITEMS:
             break
     return "\n".join([CLAIM_OMIT_HINT_HEAD, *lines]) if lines else ""
+
+
+def missing_advice_hint(missing_ids: list[str], items: list[dict[str, Any]]) -> str:
+    """⑥ 되감기 보강 지시(C3 v4). `missing_ids`는 Validator가 고른 미확보 항목(약사 확인 권고가 빠진 것)의 근거 ID다(`ValidationResult.rewind`).
+    값은 근거 ID와 항목 종류 표기(코드 상수)뿐이다. 묶음에 없는 ID·미확보가 아닌 항목은 건너뛰고, 줄이 하나도 없으면 빈 문자열이다."""
+    by_id = {it.get("evidence_id"): it for it in items if isinstance(it, dict) and it.get("evidence_id")}
+    lines: list[str] = []
+    for eid in dict.fromkeys(missing_ids):
+        it = by_id.get(eid)
+        if it is None or not it.get("missing_reason"):
+            continue
+        what = MISSING_ADVICE_KIND_LABELS.get(str(it.get("kind")), MISSING_ADVICE_KIND_OTHER)
+        lines.append(MISSING_ADVICE_HINT_LINE.format(what=what, eid=eid))
+        if len(lines) >= MISSING_ADVICE_MAX_ITEMS:
+            break
+    return "\n".join([MISSING_ADVICE_HINT_HEAD, *lines]) if lines else ""
 
 
 def _tool_texts(messages: list[Any]) -> list[str]:
@@ -254,7 +284,8 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         draft, err = parse_draft(state.get("draft"))
         events: list[dict[str, Any]] = []
         status, reasons, kept = FAIL, ["SCHEMA_INVALID"] if draft is None else [], []
-        omitted_ids: list[str] = []   # ⑯ 누락 FOUND 항목 근거 ID(C3에서만 채워짐). 되감기 메시지에만 쓰고 상태·span에는 싣지 않는다
+        missing_ids: list[str] = []   # ⑥ 약사 권고가 빠진 미확보 항목 근거 ID(C3에서만 채워짐). 되감기 메시지에만 쓰고 상태·span에는 싣지 않는다
+        recorded: dict[str, int] = {}  # (C3 v4) 되감기 대신 기록만 한 검사의 건수(코드 이름·건수만)
         # AG-07-02 B: 규칙 번호가 붙은 검사(`CHECK_RULES`: H22 등급값·M 규칙, H24 등급 예외 오용)의 코드별·규칙별 건수. 문장 내용은 넣지 않는다.
         rule_checks: dict[str, int] = {}
         rules: dict[str, int] = {}
@@ -267,25 +298,38 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
                 # C3(`deps.layer_check`)일 때만 계층 검사와 Router의 `required_claims`(⑯ 주장 유형 누락)를 넘긴다. 꺼져 있으면 기준선 호출과 같다
                 vr = (validate(fr.kept, items, layer_check=True, required_claims=state.get("required_claims") or [])
                       if deps.layer_check else validate(fr.kept, items))
-                events.extend(vr.events)
+                v_events = vr.events
                 status, kept = vr.status, list(vr.kept)
-                reasons = sorted({i.check for i in vr.issues if i.action == "REWIND"}) if status == FAIL else []
+                rewind_issues = [i for i in vr.issues if i.action == REWIND]
+                if deps.layer_check:
+                    # (C3 v4, AG-13-29 A) ⑯은 되감기 사유에서 빼고 건수만 기록한다. ⑯ 때문에만 FAIL이었으면(남은 문장 있음·⑥ 없음) 통과로 본다
+                    for i in rewind_issues:
+                        if i.check in RECORD_ONLY_CHECKS:
+                            recorded[i.check] = recorded.get(i.check, 0) + 1
+                    if recorded:
+                        rewind_issues = [i for i in rewind_issues if i.check not in RECORD_ONLY_CHECKS]
+                        if status == FAIL and not rewind_issues and kept:
+                            status = FIXED if vr.dropped else PASS
+                        v_events = [{**e, "status": status, "recorded": dict(recorded)} if e.get("event") == "VALIDATOR" else e for e in vr.events]
+                    missing_ids = list(vr.rewind)
+                events.extend(v_events)
+                reasons = sorted({i.check for i in rewind_issues}) if status == FAIL else []
                 if status == FAIL and not reasons:
                     reasons = ["ALL_SENTENCES_DROPPED"]
-                if deps.layer_check:
-                    omitted_ids = [str(i.text) for i in vr.issues if i.check == CLAIM_OMITTED]
                 for issue in vr.issues:
                     if issue.check in CHECK_RULES:
                         rule_checks[issue.check] = rule_checks.get(issue.check, 0) + 1
                         rules[CHECK_RULES[issue.check]] = rules.get(CHECK_RULES[issue.check], 0) + 1
         del err
         base = {"status": status, "reasons": reasons, "kept": len(kept), "rule_checks": rule_checks, "rules": rules}
+        if recorded:  # C3 v4에서만 생긴다(C1·C1+·C2 상태 모양 그대로)
+            base["recorded"] = recorded
         if status != FAIL:
             return {"validation": {**base, "next": "finalize"}, "final_sentences": [s.model_dump() for s in kept], "events": events}
         rewinds = state.get("rewind_count", 0)
         if rewinds < deps.max_rewind and state.get("call_count", 0) < deps.max_calls:  # 되감기 1회: 모델로 되돌아간다
             text = REWIND_MESSAGE.format(reasons=", ".join(reasons) or "UNKNOWN")
-            hint = claim_omit_hint(omitted_ids, items) if deps.layer_check and CLAIM_OMITTED in reasons else ""
+            hint = missing_advice_hint(missing_ids, items) if deps.layer_check and MISSING_ADVICE_ABSENT in reasons else ""
             msg = HumanMessage(f"{text}\n{hint}" if hint else text)
             events.append({"rule": "H2", "event": "REWIND", "reasons": reasons})
             return {"validation": {**base, "next": "rewind"}, "rewind_count": rewinds + 1, "draft": None, "messages": [msg], "events": events}
