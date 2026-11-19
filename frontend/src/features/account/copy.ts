@@ -133,30 +133,30 @@ export const MEDICATION_ADD_LABEL = "추가";
 export const removeMedicationLabel = (name: string) => `${name} 삭제`;
 export const medicationCount = (count: number) => `약 ${count}개`;
 
-// ---- 프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A, 2026-11-20 fedrug). 아래 글자는 모두 **승인 전(fedrug)**: 구현은 초안이고 원문은 보고의 표로 승인받는다
-/** 입력 칸 아래 한 줄(기존 `MEDICATION_HINT` 뒤에 이어 보인다). 승인 전(fedrug) */
+// ---- 프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A, 2026-11-20 fedrug). 아래 글자는 모두 **원문 승인(2026-11-20 사용자 "문구 승인")**
+/** 입력 칸 아래 한 줄(기존 `MEDICATION_HINT` 뒤에 이어 보인다). 원문 승인(2026-11-20) */
 export const MEDICATION_SEARCH_HINT = "한 글자 이상 적으면 자료에서 찾은 제품명·성분명 후보가 보여요. 후보에 없으면 적은 글자 그대로 저장할 수 있어요.";
-/** 후보를 찾는 동안(보조기기가 읽는다). 승인 전(fedrug) */
+/** 후보를 찾는 동안(보조기기가 읽는다). 원문 승인(2026-11-20) */
 export const MEDICATION_SEARCHING = "후보를 찾는 중이에요.";
-/** 후보 목록의 이름과 개수 한 줄(보조기기가 읽는다). 승인 전(fedrug) */
+/** 후보 목록의 이름과 개수 한 줄(보조기기가 읽는다). 원문 승인(2026-11-20) */
 export const medicationCandidatesLabel = (count: number) => `후보 ${count}개`;
-/** 후보가 하나도 없을 때(FE-04-20 A: 제품 → 성분 사전 모두 없음). 승인 전(fedrug) */
+/** 후보가 하나도 없을 때(FE-04-20 A: 제품 → 성분 사전 모두 없음). 원문 승인(2026-11-20) */
 export const MEDICATION_NO_CANDIDATES = "자료에서 찾지 못했어요. 그대로 추가하면 확인 안 된 약으로 저장돼요. 약봉투의 제품명·성분명을 확인해 보세요.";
-/** 후보의 종류 표지: 제품 사전·성분 사전(백엔드 `matched_by`). 승인 전(fedrug) */
+/** 후보의 종류 표지: 제품 사전·성분 사전(백엔드 `matched_by`). 원문 승인(2026-11-20) */
 export const MEDICATION_KIND_LABELS: Readonly<Record<DrugMatchedBy, string>> = { product_name: "제품명", ingredient_name: "성분명" };
-/** 비슷한 이름(`match_type: bm25`)으로 찾은 후보의 표지: 이름이 같지 않으니 확인하고 고른다. 승인 전(fedrug) */
+/** 비슷한 이름(`match_type: bm25`)으로 찾은 후보의 표지: 이름이 같지 않으니 확인하고 고른다. 원문 승인(2026-11-20) */
 export const MEDICATION_SIMILAR_TAG = "비슷한 이름";
-/** 사전 후보 없이 글자만 저장한 약(`item_seq` null, FE-04-20 A "확인 안 된 약")의 표지. 승인 전(fedrug) */
+/** 사전 후보 없이 글자만 저장한 약(`item_seq` null, FE-04-20 A "확인 안 된 약")의 표지. 원문 승인(2026-11-20) */
 export const MEDICATION_UNCONFIRMED_TAG = "확인 안 된 약";
-/** 확인 안 된 약이 목록에 있을 때 목록 아래 한 줄. 승인 전(fedrug) */
+/** 확인 안 된 약이 목록에 있을 때 목록 아래 한 줄. 원문 승인(2026-11-20) */
 export const MEDICATION_UNCONFIRMED_NOTE = "확인 안 된 약은 금기 확인에서 빠져요. 약봉투의 제품명·성분명을 약사에게 확인하세요.";
-/** 검색이 로그인 만료(401)로 실패했을 때: 입력은 그대로 두고 글자 저장은 할 수 있다. 승인 전(fedrug) */
+/** 검색이 로그인 만료(401)로 실패했을 때: 입력은 그대로 두고 글자 저장은 할 수 있다. 원문 승인(2026-11-20) */
 export const MEDICATION_SEARCH_AUTH_EXPIRED = "로그인이 만료돼 후보를 찾지 못했어요. 적은 글자는 그대로 추가할 수 있어요.";
-/** 검색이 그 밖의 이유(422·네트워크·5xx)로 실패했을 때. 승인 전(fedrug) */
+/** 검색이 그 밖의 이유(422·네트워크·5xx)로 실패했을 때. 원문 승인(2026-11-20) */
 export const MEDICATION_SEARCH_FAILED = "지금은 후보를 찾지 못했어요. 적은 글자는 그대로 추가할 수 있어요.";
 /** 약이 10개라 더 넣을 수 없을 때는 기존 승인 글자 `ERROR_MEDICATION_LIMIT`를 그대로 쓴다 */
 /**
- * 질문 때 고정 문구 **초안**(FE-04-20 A: 프로필의 확인 안 된 약은 금기 확인에서 빠진다고 알린다). 승인 전(fedrug).
+ * 질문 때 고정 문구 **초안**(FE-04-20 A: 프로필의 확인 안 된 약은 금기 확인에서 빠진다고 알린다). 원문 승인(2026-11-20), 채팅 쪽 적용은 S3 연동 때.
  * 이번 범위(fedrug)에서는 채팅 쪽에 붙이지 않았다. 고정 문구는 코드로 강제하는 원칙(CLAUDE.md 1장)이라 승인되면 백엔드 고정 문구
  * (`pnpm gen:fixed` → `lib/fixed/phrases.generated`)로 옮기고 이 상수는 지운다. 화면 코드는 아직 이 상수를 쓰지 않는다
  */
