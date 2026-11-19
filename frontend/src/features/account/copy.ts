@@ -34,15 +34,16 @@ export const CONTINUE_AS_GUEST_LABEL = "로그인 없이 계속하기";
 /** 가입 화면 제목·버튼 */
 export const SIGNUP_TITLE = "이메일로 가입";
 export const SIGNUP_SUBMIT_LABEL = "가입하기";
-/** 소셜 로그인 묶음 이름(S1은 소셜만 남는다, PRD-01-10 A). 승인 전(FE-04d) */
-export const SOCIAL_HEADING = "간편 로그인";
+/** 소셜 로그인 묶음 이름(FE-04d 이전 글자로 되돌림, 사용자 지시 2026-11-19 FE-04e) */
+export const SOCIAL_HEADING = "다른 방법으로 로그인";
 /**
- * 소셜 로그인 버튼의 접근 가능한 이름(사용자 결정 2026-11-18: Google·Kakao, Apple 없음).
- * 버튼 면은 회사 공식 로고 그림이라 이 글자는 화면에 보이지 않고 보조기기만 읽는다. 승인 전(FE-04d)
+ * 소셜 로그인 버튼의 보이는 글자(사용자 결정 2026-11-18: Google·Kakao, Apple 없음). 글자 앞에 공식 로고가 붙는다(FE-04e).
+ * - Google: FE-04d 이전 글자 그대로. Google 가이드의 권장 문구 "Continue with Google"의 한국어 표현이다(현지화 허용)
+ * - Kakao: 카카오 디자인 가이드가 레이블을 "카카오 로그인"(완성형)·"로그인"(축약형)으로만 두어 이전 글자 "카카오로 계속하기"를 쓰지 않는다. 승인 전(FE-04e)
  */
 export const SOCIAL_LABELS: Readonly<Record<SocialProvider, string>> = {
-  google: "Google로 로그인",
-  kakao: "카카오로 로그인",
+  google: "Google로 계속하기",
+  kakao: "카카오 로그인",
 };
 // Naver 버튼은 S2(연동 방식 확인 뒤)에서 다시 넣는다. 그때까지 화면에 두지 않는다(사용자 지시 2026-11-19)
 /** MSW 목일 때만 보이는 줄(ISSUE-006 "프로토타입이라 실제로 가입되지 않아요.") */

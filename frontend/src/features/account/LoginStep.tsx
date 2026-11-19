@@ -38,18 +38,22 @@ const EMAIL_AUTH_ENABLED: boolean = false;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
 
 /**
- * 소셜 로그인 버튼의 면: 각 회사가 배포한 그림을 그대로 쓴다(직접 그리지 않고 색·비율을 바꾸지 않는다. 크기는 원본 비율로만 맞춘다).
- * - Google: Sign in with Google 승인 아이콘 버튼(Light·Pill·글자 없음, 흰 바탕 + 회색 테두리 + 4색 G). 원본 40×40을 46×46으로 같은 비율 확대
- *   출처 https://developers.google.com/identity/branding-guidelines 의 signin-assets.zip(2026-11-19 받음)
- * - Kakao: 카카오 로그인 축약형 버튼(노랑 바탕 + 말풍선 심볼 + "로그인"), 원본 112×46 그대로.
- *   카카오 디자인 가이드는 레이블을 완성형·축약형으로만 두고 심볼만 쓰는 형태를 허용 목록에 두지 않아, 허용되는 가장 짧은 형태(축약형)를 쓴다
- *   출처 https://developers.kakao.com/tool/resource/login 의 축약형 그림(2026-11-19 받음), 가이드 https://developers.kakao.com/docs/latest/ko/kakaologin/design-guide
- * 모서리 값(`shape`)은 호버 그림자·초점 윤곽선이 그림 모양을 따라가게 하는 값이다.
+ * 소셜 로그인 버튼의 면(FE-04e, 사용자 지시 2026-11-19): 가로로 꽉 찬 버튼에 "공식 로고 + 글자". 로고는 회사가 배포한 그림에서 떼어 낸 것이고
+ * 모양·비율·색을 바꾸지 않는다(크기는 같은 비율로만 맞춘다). 바탕·테두리·글자 색은 디자인 토큰이 아니라 각 회사 가이드의 값이라
+ * `src/styles/globals.css`의 `social-face-*`에 둔다(부품에서는 hex를 쓰지 않는다).
+ * - Google: 4색 "G"(승인 아이콘 버튼 `google-signin-icon.svg`에서 바깥 원·테두리만 뺀 `google-g-logo.svg`, 18px),
+ *   흰 바탕 #FFFFFF + 테두리 #747775 1px + 글자 #1F1F1F, 로고와 글자 사이 10px(가이드 값).
+ *   가이드 https://developers.google.com/identity/branding-guidelines (2026-11-19 읽음)
+ * - Kakao: 말풍선 심볼(축약형 그림 `kakao-login-simple-ko.svg`의 심볼 경로 그대로인 `kakao-symbol.svg`, 18px),
+ *   컨테이너 #FEE500 + 모서리 12px + 심볼 #000000 + 레이블 #000000 85%, 심볼과 글자 사이 8px.
+ *   가이드 https://developers.kakao.com/docs/ko/kakaologin/design-guide (2026-11-19 읽음): 서비스에 맞게 버튼을 재구성할 수 있고 레이블은 "카카오 로그인"(완성형)·"로그인"(축약형)뿐이다
  */
-const SOCIAL_FACES: Readonly<Record<SocialProvider, { src: string; width: number; height: number; shape: string }>> = {
-  google: { src: "/social/google-signin-icon.svg", width: 46, height: 46, shape: "rounded-full" },
-  kakao: { src: "/social/kakao-login-simple-ko.svg", width: 112, height: 46, shape: "rounded-lg" },
+const SOCIAL_FACES: Readonly<Record<SocialProvider, { logo: string; face: string }>> = {
+  google: { logo: "/social/google-g-logo.svg", face: "social-face-google gap-2.5" },
+  kakao: { logo: "/social/kakao-symbol.svg", face: "social-face-kakao gap-2" },
 };
+/** 로고 한 변(px). 지시서 18~20px */
+const SOCIAL_LOGO_SIZE = 18;
 
 /**
  * 로그인(S10 1단계). 넓으면 2열(왼쪽 소개, 오른쪽 로그인 방법), 모달 폭이 좁으면 1열로 쌓인다(PRD-13 §4.3, 가로 스크롤 없음).
@@ -93,29 +97,27 @@ export function LoginStep({ mode: requested }: { mode: "login" | "signup" }) {
                 {SIGNUP_ENTRY_LABEL}
               </button>
             )}
-            <div role="group" aria-labelledby={`${id}-social`} data-testid="social-login" className="flex flex-col items-center gap-3">
-              <h3 id={`${id}-social`} className="m-0 text-base font-bold">
+            <div role="group" aria-labelledby={`${id}-social`} data-testid="social-login" className="flex flex-col gap-2">
+              <h3 id={`${id}-social`} className="m-0 mt-1 text-xs font-bold text-ink-2">
                 {SOCIAL_HEADING}
               </h3>
-              <div className="flex flex-wrap items-center justify-center gap-4">
-                {SOCIAL_PROVIDERS.map((provider) => {
-                  const face = SOCIAL_FACES[provider];
-                  return (
-                    <button
-                      key={provider}
-                      type="button"
-                      data-testid={`social-${provider}`}
-                      aria-label={SOCIAL_LABELS[provider]}
-                      disabled={pending}
-                      onClick={() => void store.getState().loginSocial(provider)}
-                      className={cn(SOCIAL_BUTTON, face.shape)}
-                    >
-                      {/* 이름은 버튼의 aria-label이 읽는다. 그림은 장식이라 두 번 읽히지 않게 비운다 */}
-                      <Image src={face.src} alt="" width={face.width} height={face.height} unoptimized className={face.shape} />
-                    </button>
-                  );
-                })}
-              </div>
+              {SOCIAL_PROVIDERS.map((provider) => {
+                const { logo, face } = SOCIAL_FACES[provider];
+                return (
+                  <button
+                    key={provider}
+                    type="button"
+                    data-testid={`social-${provider}`}
+                    disabled={pending}
+                    onClick={() => void store.getState().loginSocial(provider)}
+                    className={cn(SOCIAL_BUTTON, face)}
+                  >
+                    {/* 이름은 보이는 글자가 준다. 로고는 장식이라 두 번 읽히지 않게 비운다 */}
+                    <Image src={logo} alt="" width={SOCIAL_LOGO_SIZE} height={SOCIAL_LOGO_SIZE} unoptimized className="flex-none" />
+                    {SOCIAL_LABELS[provider]}
+                  </button>
+                );
+              })}
             </div>
           </>
         )}

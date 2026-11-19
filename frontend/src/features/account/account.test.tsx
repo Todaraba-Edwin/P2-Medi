@@ -56,7 +56,7 @@ function setup(store: AccountStore = createAccountStore()) {
 async function login(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "프로필 저장" }));
   // S1 로그인은 소셜만이다(PRD-01-10 A). 목은 페이지를 옮기지 않고 목 세션만 만든다
-  await user.click(screen.getByRole("button", { name: "카카오로 로그인" }));
+  await user.click(screen.getByRole("button", { name: "카카오 로그인" }));
   await waitFor(() => expect(step()).toBe("consent"));
   await waitFor(() => expect(modal().querySelectorAll('[data-testid="legal-doc"]')).toHaveLength(4));
 }
@@ -126,29 +126,37 @@ describe("모달 배치(PRD-13)", () => {
 });
 
 describe("로그인 화면", () => {
-  // 사양 변경(사용자 지시 2026-11-19): 글자 버튼 → 회사 공식 로고 버튼, Naver는 화면에서 뺀다(S2에서 다시)
-  it("Google·Kakao는 공식 로고 그림 버튼이고 이름은 aria-label이 준다. Naver·Apple은 없다", async () => {
+  // 사양 변경(사용자 지시 2026-11-19 FE-04e): 로고만 있던 버튼 → 가로로 꽉 찬 "공식 로고 + 글자" 버튼. Naver는 화면에 없다(S2에서 다시)
+  it("Google·Kakao는 공식 로고 + 글자 버튼이고 이름은 보이는 글자가 준다. Naver·Apple은 없다", async () => {
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-    const group = screen.getByRole("group", { name: "간편 로그인" });
+    const group = screen.getByRole("group", { name: "다른 방법으로 로그인" });
+    expect(modal().textContent).not.toContain("간편 로그인");
     const buttons = within(group).getAllByRole("button");
     expect(buttons.map((button) => button.getAttribute("data-testid"))).toEqual(["social-google", "social-kakao"]);
-    expect(screen.getByRole("button", { name: "Google로 로그인" })).toBe(screen.getByTestId("social-google"));
-    expect(screen.getByRole("button", { name: "카카오로 로그인" })).toBe(screen.getByTestId("social-kakao"));
-    for (const [button, file] of [
-      [buttons[0], "/social/google-signin-icon.svg"],
-      [buttons[1], "/social/kakao-login-simple-ko.svg"],
+    expect(screen.getByRole("button", { name: "Google로 계속하기" })).toBe(screen.getByTestId("social-google"));
+    expect(screen.getByRole("button", { name: "카카오 로그인" })).toBe(screen.getByTestId("social-kakao"));
+    for (const [button, file, text] of [
+      [buttons[0], "/social/google-g-logo.svg", "Google로 계속하기"],
+      [buttons[1], "/social/kakao-symbol.svg", "카카오 로그인"],
     ] as const) {
       expect(button).toBeEnabled();
-      expect(button).toHaveTextContent(""); // 글자가 아니라 그림이다
-      expect(button.className).toContain("min-h-12"); // 누르는 영역 48px 이상
-      expect(button.className).toContain("min-w-12");
+      expect(button).toHaveTextContent(text); // 글자가 보인다
+      expect(button).not.toHaveAttribute("aria-label"); // 이름은 보이는 글자 하나뿐이다
+      expect(button.className).toContain("min-h-12"); // 높이 44px 이상(48px)
+      expect(button.className).toContain("w-full"); // 가로로 꽉 찬다
       const image = button.querySelector("img")!;
       expect(image).toHaveAttribute("alt", ""); // 장식: 이름이 두 번 읽히지 않는다
       expect(image.getAttribute("src")).toContain(file);
+      expect(image).toHaveAttribute("width", "18"); // 로고 18~20px, 1:1
+      expect(image).toHaveAttribute("height", "18");
+      expect(button.firstElementChild).toBe(image); // 로고가 글자 앞이다
     }
-    expect(buttons[0].parentElement!.className).toContain("gap-4"); // 간격 16px
-    expect(buttons[0].parentElement!.className).toContain("justify-center");
+    // 회사 가이드 색: Google 흰 바탕·테두리, Kakao 노랑 컨테이너
+    expect(buttons[0].className).toContain("social-face-google");
+    expect(buttons[1].className).toContain("social-face-kakao");
+    expect(buttons[1].className).toContain("rounded-xl"); // 카카오 컨테이너 모서리 12px
+    expect(group.className).toContain("flex-col"); // 세로 목록
     expect(screen.queryByTestId("social-naver")).toBeNull();
     expect(modal().textContent).not.toMatch(/네이버|naver|준비 중|apple|애플/i);
     expect(within(group).queryByTestId("mascot")).toBeNull(); // 마스코트는 이 영역에 쓰지 않는다
@@ -171,7 +179,7 @@ describe("로그인 화면", () => {
     };
     hidden();
     // 남는 것: 제목·설명·소셜 2개·로그인 없이 계속하기
-    expect(within(modal()).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["닫기", "Google로 로그인", "카카오로 로그인", "로그인 없이 계속하기"]);
+    expect(within(modal()).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["닫기", "Google로 계속하기", "카카오 로그인", "로그인 없이 계속하기"]);
     store.getState().go("signup");
     await waitFor(() => expect(step()).toBe("signup"));
     hidden();
@@ -194,7 +202,7 @@ describe("로그인 화면", () => {
   it("소셜 로그인 목 → 로그인 상태가 되고 동의 화면으로 간다", async () => {
     const { user, store } = setup();
     await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-    await user.click(screen.getByRole("button", { name: "카카오로 로그인" }));
+    await user.click(screen.getByRole("button", { name: "카카오 로그인" }));
     await waitFor(() => expect(step()).toBe("consent"));
     expect(store.getState()).toMatchObject({ status: "member", me: { onboarding_step: "consent" } });
   });
@@ -207,7 +215,7 @@ describe("로그인 화면", () => {
     expect(screen.getByTestId("account-error")).toHaveTextContent("카카오계정에 이메일이 없거나 동의하지 않으면 로그인할 수 없어요. 다른 방법으로 로그인하거나 로그인 없이 쓰세요.");
     expect(screen.getByTestId("account-error")).toHaveTextContent(copy.ERROR_OAUTH_EMAIL_REQUIRED);
     // 다른 길이 그대로 열려 있다: Google·로그인 없이 계속하기
-    expect(screen.getByRole("button", { name: "Google로 로그인" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Google로 계속하기" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "로그인 없이 계속하기" })).toBeEnabled();
     store.getState().failLogin("OAUTH_FAILED");
     await waitFor(() => expect(screen.getByTestId("account-error")).toHaveTextContent(copy.ERROR_OAUTH_FAILED));
