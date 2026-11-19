@@ -3,7 +3,7 @@
 import { useId } from "react";
 import type { Profile } from "@/lib/api/account";
 import { cn } from "@/lib/utils";
-import { NOT_SELECTED, TARGET_LABEL } from "./copy";
+import { NOT_SELECTED, TARGET_LABEL, profileName } from "./copy";
 
 export interface TargetPickerProps {
   profiles: readonly Profile[];
@@ -20,7 +20,7 @@ export function TargetPicker({ profiles, value, onChange }: TargetPickerProps) {
   const id = useId();
   const options: { key: string; profileId: string | null; label: string }[] = [
     { key: "none", profileId: null, label: NOT_SELECTED },
-    ...profiles.map((profile) => ({ key: profile.id, profileId: profile.id, label: profile.label })),
+    ...profiles.map((profile) => ({ key: profile.profile_id, profileId: profile.profile_id, label: profileName(profile) })),
   ];
   return (
     <div role="radiogroup" aria-labelledby={`${id}-label`} data-testid="target-picker" className="flex min-w-0 flex-wrap items-center gap-1.5 px-1">

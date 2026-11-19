@@ -36,7 +36,12 @@ describe("fixture 문구는 백엔드 상수 원문과 같다", () => {
     expect(provenance).toContain(`SK_FILE: "${phrases.SOURCE_PREFIX_FILE}"`);
     expect(provenance).toContain('return f"{SOURCE_KIND_PREFIX[source_kind]} · {DATASET_LABELS[dataset_key]}"');
     expect(pyConst(fixedPhrases, "FALLBACK_SOME_DATASET_SEP")).toBe(phrases.FALLBACK_SOME_DATASET_SEP);
-    expect(router).toContain(`'{t.raw}'${phrases.CLARIFY_TAIL}`);
+    // 되묻기 질문(AG-05-10): 문구는 fixed_phrases 상수이고 router는 그 상수에 약 이름만 채운다
+    expect(router).toContain("q = CLARIFY_MANY_CANDIDATES.format(drug=t.raw)");
+    expect(router).toContain("q = CLARIFY_ONE_CANDIDATE.format(drug=t.raw)");
+    expect(pyConst(fixedPhrases, "CLARIFY_MANY_CANDIDATES")).toBe(`'{drug}'${phrases.CLARIFY_TAIL}`);
+    expect(responses.clarifyResponse.summary).toBe(pyConst(fixedPhrases, "CLARIFY_MANY_CANDIDATES")?.replace("{drug}", "가나다"));
+    expect(responses.clarifyResponse.summary?.match(/\?/g)).toHaveLength(1);
     expect(provenance).toContain(`"contra_pair": "${phrases.DATASET_CONTRA_PAIR}"`);
     expect(provenance).toContain(`"pregnancy": "${phrases.DATASET_PREGNANCY}"`);
     expect(provenance).toContain(`"age": "${phrases.DATASET_AGE}"`);

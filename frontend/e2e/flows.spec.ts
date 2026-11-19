@@ -155,7 +155,7 @@ test.describe("흐름 360px", () => {
     await ask(page);
     const candidates = page.getByTestId("candidate");
     await expect(candidates).toHaveCount(3);
-    await expect(page.getByTestId("result-summary")).toContainText("어떤 약인지 하나를 골라 주세요.");
+    await expect(page.getByTestId("result-summary")).toContainText("어떤 약을 말씀하시는 건가요?");
     await expect(page.getByTestId("result-card")).toHaveCount(0); // 고르기 전에는 판정이 없다
     await expect(page.getByTestId("status-badge")).toHaveCount(0);
     await expect(page.getByTestId("candidates-line")).toHaveText("어느 제품인지 고르면 금기를 확인해 드려요."); // 되묻기 안내(응답 값)
@@ -1485,7 +1485,7 @@ for (const width of [360, 320]) {
       await expect(turn1.getByTestId("candidate")).toHaveCount(3);
       // 질문은 한 문장 자리 하나뿐이다
       await expect(turn1.getByTestId("result-summary")).toHaveCount(1);
-      await expect(turn1.getByTestId("result-summary")).toHaveText("'가나다'에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요.");
+      await expect(turn1.getByTestId("result-summary")).toHaveText("'가나다'에 해당하는 약이 여러 개예요. 어떤 약을 말씀하시는 건가요?");
       const noVerdict = async ({ cardShown = true } = {}) => {
         await expect(turn1.getByTestId("result-card")).toHaveCount(0);
         await expect(turn1.getByTestId("product-line")).toHaveCount(0);

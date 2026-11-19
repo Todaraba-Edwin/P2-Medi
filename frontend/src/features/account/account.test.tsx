@@ -2,15 +2,19 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
+import type { Profile } from "@/lib/api/account";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { MOCK_LEGAL_DOCS } from "@/mocks/fixtures/account";
 import { createAccountStore } from "@/stores/account";
 import type { AccountStore } from "@/stores/account";
 import { AccountModal, openAccountModal } from "./AccountModal";
+import * as copy from "./copy";
 import { HEALTH_CONSENT_REQUIRED_FALLBACK } from "./copy";
+import { failureMessage } from "./parts";
 import { AccountMenu, EntryChoice } from "./EntryChoice";
 import { Markdown, parseMarkdown } from "./Markdown";
 import { TargetPicker } from "./TargetPicker";
@@ -60,8 +64,8 @@ async function login(user: ReturnType<typeof userEvent.setup>) {
 
 async function consent(user: ReturnType<typeof userEvent.setup>, { health }: { health: boolean }) {
   await user.click(check("terms"));
-  await user.click(check("privacy"));
-  if (health) await user.click(check("sensitive_health"));
+  await user.click(check("privacy_consent"));
+  if (health) await user.click(check("sensitive_consent"));
   await user.click(screen.getByTestId("consent-submit"));
   await waitFor(() => expect(step()).toBe("profiles"));
 }
@@ -152,7 +156,7 @@ describe("로그인 화면", () => {
     await user.click(screen.getByRole("button", { name: "프로필 저장" }));
     await user.click(screen.getByRole("button", { name: "카카오로 계속하기" }));
     await waitFor(() => expect(step()).toBe("consent"));
-    expect(store.getState().me?.providers).toEqual(["kakao"]);
+    expect(store.getState()).toMatchObject({ status: "member", me: { onboarding_step: "consent" } });
   });
 
   it("'로그인 없이 계속하기'는 모달을 닫고 게스트로 둔다", async () => {
@@ -165,19 +169,56 @@ describe("로그인 화면", () => {
 });
 
 describe("약관 동의 화면", () => {
-  it("문서 제목·본문은 API 값 그대로이고 필수·선택 표지가 붙는다", async () => {
+  it("문서 제목·본문은 API 값 그대로이고 필수·선택·안내 표지와 버전·시행일, '초안·법률 검토 전' 표지가 붙는다", async () => {
     const { user } = setup();
     await login(user);
+    const tags = { terms: "필수", privacy_policy: "안내", privacy_consent: "필수", sensitive_consent: "선택" } as const;
     for (const doc of Object.values(MOCK_LEGAL_DOCS)) {
       const item = docItem(doc.doc_type);
       expect(item).toHaveAttribute("data-required", String(doc.required));
-      expect(within(item).getByRole("heading", { level: 3 })).toHaveTextContent(`[${doc.required ? "필수" : "선택"}] ${doc.title}`);
-      expect(item).toHaveTextContent(doc.version);
+      expect(within(item).getByRole("heading", { level: 3 })).toHaveTextContent(`[${tags[doc.doc_type]}] ${doc.title}`);
+      expect(item).toHaveTextContent("버전 1 · 시행일 2026-11-18"); // 버전은 정수, 시행일은 일시의 날짜 부분
+      expect(within(item).getByTestId("legal-not-reviewed")).toHaveTextContent("초안·법률 검토 전"); // legal_review: not_reviewed
     }
     expect(docItem("terms")).toHaveTextContent("이 문서는 화면 개발용 합성 목 문서이며 실제 약관이 아닙니다.");
     // 외부 AI 전송 고지: 화면이 기존 시작 화면 고지 문구를 한 번 더 넣지 않는다(문서 본문은 서버 값뿐이다)
     expect(modal().textContent).not.toContain(START_EXTERNAL_AI_NOTICE);
-    expect(MOCK_LEGAL_DOCS.external_ai.body_md).not.toContain(START_EXTERNAL_AI_NOTICE);
+    expect(MOCK_LEGAL_DOCS.privacy_policy.body_md).not.toContain(START_EXTERNAL_AI_NOTICE);
+  });
+
+  it("법률 검토를 마친 문서(legal_review: reviewed)에는 '초안·법률 검토 전' 표지가 없다", async () => {
+    server.use(http.get("*/api/legal/terms", () => HttpResponse.json({ ...MOCK_LEGAL_DOCS.terms, legal_review: "reviewed" })));
+    const { user } = setup();
+    await login(user);
+    expect(within(docItem("terms")).queryByTestId("legal-not-reviewed")).toBeNull();
+    expect(within(docItem("privacy_consent")).getByTestId("legal-not-reviewed")).toBeInTheDocument();
+  });
+
+  it("고지 문서(외부 AI 전송 안내가 든 처리방침)는 체크 없는 고지로만 보이고 동의 항목에 들어가지 않는다(FE-04-03 A)", async () => {
+    const bodies: unknown[] = [];
+    const { user } = setup();
+    await login(user);
+    const notice = docItem("privacy_policy");
+    expect(notice).toHaveAttribute("data-consent", "false");
+    expect(within(notice).queryByRole("checkbox")).toBeNull();
+    expect(notice).toHaveTextContent("외부 AI 전송"); // 본문(서버 값)은 그대로 읽을 수 있다
+    expect(within(modal()).getAllByRole("checkbox")).toHaveLength(3); // 동의 대상은 약관·개인정보·건강 정보 셋뿐
+    expect(modal().querySelector('[data-doc-type="external_ai"]')).toBeNull();
+    server.events.on("request:start", async ({ request }) => {
+      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/api/consents")) bodies.push(await request.clone().json());
+    });
+    await consent(user, { health: true });
+    server.events.removeAllListeners();
+    expect(bodies).toEqual([
+      {
+        channel: "onboarding",
+        items: [
+          { doc_type: "terms", version: 1, action: "agree" },
+          { doc_type: "privacy_consent", version: 1, action: "agree" },
+          { doc_type: "sensitive_consent", version: 1, action: "agree" },
+        ],
+      },
+    ]);
   });
 
   it("필수 두 문서에 모두 동의하기 전에는 다음 버튼이 비활성이고 이유가 보인다", async () => {
@@ -187,14 +228,35 @@ describe("약관 동의 화면", () => {
     expect(submit).toBeDisabled();
     expect(screen.getByTestId("consent-hint")).toBeVisible();
     await user.click(check("terms"));
-    await user.click(check("sensitive_health"));
-    await user.click(check("external_ai"));
+    await user.click(check("sensitive_consent"));
     expect(submit).toBeDisabled(); // 선택만으로는 안 된다
-    await user.click(check("privacy"));
+    await user.click(check("privacy_consent"));
     expect(submit).toBeEnabled();
     expect(screen.queryByTestId("consent-hint")).toBeNull();
     await user.click(check("terms"));
     expect(submit).toBeDisabled();
+  });
+
+  it("동의해 둔 건강 정보 동의를 끄면 삭제 경고가 보이고, 보내면 철회되어 건강 정보가 지워진다", async () => {
+    const { user, store } = setup();
+    await login(user);
+    await consent(user, { health: true });
+    await user.click(screen.getByTestId("add-self"));
+    await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await user.click(screen.getByRole("radio", { name: "예" }));
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    await user.click(screen.getByRole("button", { name: "동의 내용 보기" }));
+    await waitFor(() => expect(step()).toBe("consent"));
+    for (const docType of ["terms", "privacy_consent", "sensitive_consent"]) expect(check(docType)).toBeChecked(); // 지금 동의 상태가 채워져 있다
+    expect(screen.queryByTestId("health-withdraw-warning")).toBeNull();
+    await user.click(check("sensitive_consent"));
+    expect(screen.getByTestId("health-withdraw-warning")).toHaveTextContent(copy.HEALTH_WITHDRAW_WARNING);
+    await user.click(screen.getByTestId("consent-submit"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(store.getState().me?.health_consent_active).toBe(false);
+    expect(store.getState().profiles[0]).toMatchObject({ label: "나", pregnancy_status: null, medications: [] });
+    expect(screen.getByTestId("health-consent-notice")).toBeVisible();
   });
 
   it("동의 화면의 `<`는 로그인으로 돌아간다", async () => {
@@ -206,7 +268,7 @@ describe("약관 동의 화면", () => {
 });
 
 describe("프로필 화면", () => {
-  it("건강 정보 동의가 없으면 임신 여부·복용 약 칸이 비활성이고 서버 문구가 그대로 보인다", async () => {
+  it("건강 정보 동의가 없으면 임신 여부·복용 약 칸이 비활성이고 이유 한 줄이 보인다. 저장 요청에 건강 칸을 싣지 않는다", async () => {
     const { user, store } = setup();
     await login(user);
     await consent(user, { health: false });
@@ -216,14 +278,14 @@ describe("프로필 화면", () => {
     for (const radio of screen.getAllByRole("radio")) expect(radio).toBeDisabled();
     expect(screen.getByLabelText("복용 중인 약(선택)")).toBeDisabled();
     expect(screen.getByTestId("medication-add")).toBeDisabled();
-    expect(screen.getByTestId("health-consent-notice")).toHaveTextContent(MOCK_LEGAL_DOCS.sensitive_health.declined_notice!);
-    expect(screen.getByTestId("health-consent-notice")).not.toHaveTextContent(HEALTH_CONSENT_REQUIRED_FALLBACK);
-    // 저장해도 건강 정보는 가지 않는다
+    expect(screen.getByTestId("health-consent-notice")).toHaveTextContent(HEALTH_CONSENT_REQUIRED_FALLBACK);
+    // 저장해도 건강 정보는 가지 않는다(서버가 422로 막지 않는다 = 건강 칸이 요청에 없다)
     await user.type(screen.getByLabelText("이름(별명)"), "첫째");
-    await user.selectOptions(screen.getByLabelText("연령대"), "child");
+    expect(within(screen.getByLabelText("연령대")).getAllByRole("option").map((option) => option.textContent)).toEqual(["선택 안 함", ...Object.values(copy.AGE_BAND_LABELS)]);
+    await user.selectOptions(screen.getByLabelText("연령대"), "y6_11");
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
-    expect(store.getState().profiles).toEqual([expect.objectContaining({ label: "첫째", relation: "child", age_band: "child", pregnancy_status: "unknown", medications: [] })]);
+    expect(store.getState().profiles).toEqual([expect.objectContaining({ label: "첫째", relation: "child", age_band: "y6_11", pregnancy_status: null, medications: [] })]);
   });
 
   it("건강 정보 동의가 있으면 임신 여부·복용 약(입력 원문)을 넣어 저장하고, 수정·삭제할 수 있다", async () => {
@@ -234,14 +296,14 @@ describe("프로필 화면", () => {
     await user.click(screen.getByTestId("add-self"));
     expect(screen.getByLabelText("관계")).toBeDisabled(); // 본인은 관계 고정
     await user.type(screen.getByLabelText("이름(별명)"), "나");
-    await user.selectOptions(screen.getByLabelText("연령대"), "adult");
+    await user.selectOptions(screen.getByLabelText("연령대"), "y19_64");
     await user.click(screen.getByRole("radio", { name: "예" }));
     await user.type(screen.getByLabelText("복용 중인 약(선택)"), "가나다정 100밀리그램{Enter}");
     expect(step()).toBe("profile-form"); // Enter는 저장이 아니라 약 추가
     expect(screen.getAllByTestId("medication")).toHaveLength(1);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
-    expect(store.getState().profiles[0]).toMatchObject({ relation: "self", label: "나", pregnancy_status: "yes", medications: [{ drug_name: "가나다정 100밀리그램", item_seq: null }] });
+    expect(store.getState().profiles[0]).toMatchObject({ relation: "self", label: "나", pregnancy_status: "pregnant", medications: [{ input_text: "가나다정 100밀리그램", item_seq: null }] });
     expect(screen.getByTestId("profile-item")).toHaveTextContent("본인 · 만 19~64세 · 임신 여부 예 · 약 1개");
     expect(screen.queryByTestId("add-self")).toBeNull(); // 본인은 1개
     // 수정
@@ -251,10 +313,35 @@ describe("프로필 화면", () => {
     await user.type(screen.getByLabelText("이름(별명)"), "본인");
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(screen.getByTestId("profile-item")).toHaveTextContent("본인"));
-    // 삭제(확인 모달)
-    await user.click(screen.getByRole("button", { name: "본인 삭제" }));
+    expect(store.getState().profiles[0]).toMatchObject({ label: "본인", pregnancy_status: "pregnant", medications: [{ input_text: "가나다정 100밀리그램" }] }); // 수정해도 건강 정보는 그대로
+    // 본인 프로필에는 삭제 버튼이 없다(서버 409 SELF_REQUIRED. 계정을 지우려면 탈퇴)
+    expect(screen.queryByRole("button", { name: "본인 삭제" })).toBeNull();
+    // 가족 프로필은 삭제할 수 있다(확인 모달)
+    await user.click(screen.getByTestId("add-family"));
+    await user.type(screen.getByLabelText("이름(별명)"), "첫째");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(screen.getAllByTestId("profile-item")).toHaveLength(2));
+    await user.click(screen.getByRole("button", { name: "첫째 삭제" }));
     await user.click(within(screen.getByTestId("confirm-dialog")).getByTestId("confirm-action"));
-    await waitFor(() => expect(store.getState().profiles).toEqual([]));
+    await waitFor(() => expect(store.getState().profiles.map((profile) => profile.label)).toEqual(["본인"]));
+  });
+
+  it("저장이 서버 오류로 막히면 폼에 남고 코드에 맞는 문구가 보인다(501·503·422)", async () => {
+    const { user } = setup();
+    await login(user);
+    await consent(user, { health: true });
+    await user.click(screen.getByTestId("add-family"));
+    await user.type(screen.getByLabelText("이름(별명)"), "첫째");
+    for (const [status, code, text] of [
+      [501, "NOT_IMPLEMENTED", copy.ERROR_NOT_IMPLEMENTED],
+      [503, "ACCOUNT_UNAVAILABLE", copy.ERROR_ACCOUNT_UNAVAILABLE],
+      [422, "HEALTH_CONSENT_REQUIRED", copy.HEALTH_CONSENT_REQUIRED_FALLBACK],
+    ] as const) {
+      server.use(http.post("*/api/profiles", () => HttpResponse.json({ code, fields: [] }, { status })));
+      await user.click(screen.getByTestId("profile-save"));
+      await waitFor(() => expect(screen.getByTestId("account-error")).toHaveTextContent(text));
+      expect(step()).toBe("profile-form");
+    }
   });
 
   it("가족이 3명이면 4번째 추가 버튼이 비활성이다", async () => {
@@ -300,6 +387,47 @@ describe("프로필 화면", () => {
     await user.click(within(screen.getByTestId("confirm-dialog")).getByRole("button", { name: "탈퇴하기" }));
     await waitFor(() => expect(store.getState().status).toBe("guest"));
     await waitFor(() => expect(screen.queryByTestId("account-modal")).toBeNull());
+  });
+});
+
+describe("오류 코드 → 화면 문구(서버는 문구를 주지 않는다: {code, fields})", () => {
+  const failure = (status: number, code: string | null) => ({ kind: "http", status, code, fields: [] }) as const;
+
+  it.each([
+    [422, "HEALTH_CONSENT_REQUIRED", copy.HEALTH_CONSENT_REQUIRED_FALLBACK],
+    [422, "PROFILE_LIMIT", copy.ERROR_PROFILE_LIMIT],
+    [422, "MEDICATION_LIMIT", copy.ERROR_MEDICATION_LIMIT],
+    [422, "INVALID_REQUEST", copy.ERROR_INVALID_REQUEST],
+    [409, "SELF_REQUIRED", copy.ERROR_SELF_REQUIRED],
+    [409, "SELF_EXISTS", copy.ERROR_SELF_EXISTS],
+    [409, "SELF_FIXED", copy.ERROR_SELF_FIXED],
+    [409, "VERSION_MISMATCH", copy.ERROR_VERSION_MISMATCH],
+    [409, "USE_ACCOUNT_DELETE", copy.ERROR_USE_ACCOUNT_DELETE],
+    [403, "CONSENT_REQUIRED", copy.ERROR_REQUIRED_CONSENT],
+    [403, "RECONSENT_REQUIRED", copy.ERROR_RECONSENT_REQUIRED],
+    [404, "NOT_FOUND", copy.ERROR_NOT_FOUND],
+    [401, "AUTH_REQUIRED", copy.ERROR_AUTH_REQUIRED],
+    [401, "AUTH_INVALID", copy.ERROR_AUTH_REQUIRED],
+    [501, "NOT_IMPLEMENTED", copy.ERROR_NOT_IMPLEMENTED],
+    [503, "AUTH_UNAVAILABLE", copy.ERROR_AUTH_UNAVAILABLE],
+    [503, "ACCOUNT_UNAVAILABLE", copy.ERROR_ACCOUNT_UNAVAILABLE],
+  ])("%i %s", (status, code, text) => {
+    expect(failureMessage(failure(status, code))).toBe(text);
+    expect(text.length).toBeGreaterThan(0);
+  });
+
+  it("코드가 없거나 모르는 코드면 상태 코드로 고르고, 그것도 없으면 일반 문구다. 네트워크 실패는 따로다", () => {
+    expect(failureMessage(failure(501, null))).toBe(copy.ERROR_NOT_IMPLEMENTED);
+    expect(failureMessage(failure(503, "SOMETHING_NEW"))).toBe(copy.ERROR_ACCOUNT_UNAVAILABLE);
+    expect(failureMessage(failure(401, null))).toBe(copy.ERROR_AUTH_REQUIRED);
+    expect(failureMessage(failure(500, "INTERNAL"))).toBe(copy.ERROR_GENERIC);
+    expect(failureMessage({ kind: "network", status: 0, code: null, fields: [] })).toBe(copy.ERROR_NETWORK);
+  });
+
+  it("오류 문구는 금기·안전을 말하지 않고 119 외 연락처를 넣지 않는다", () => {
+    const texts = Object.entries(copy).filter(([name, value]) => name.startsWith("ERROR_") && typeof value === "string").map(([, value]) => value as string);
+    expect(texts.length).toBeGreaterThanOrEqual(15);
+    for (const text of texts) expect(text).not.toMatch(/안전|괜찮|먹어도|\d{2,4}-\d{3,4}/);
   });
 });
 
@@ -351,11 +479,11 @@ describe("시작 화면 진입 선택·사이드바 계정 자리", () => {
     expect(onLogin).toHaveBeenCalledTimes(1);
   });
 
-  it("게스트는 '로그인/가입', 로그인하면 이름·프로필 관리·로그아웃", () => {
-    const { rerender } = render(<AccountMenu displayName={null} onOpen={() => {}} onLogout={() => {}} />);
+  it("게스트는 '로그인/가입', 로그인하면 상태 글자·프로필 관리·로그아웃(서버는 이름·이메일을 주지 않는다)", () => {
+    const { rerender } = render(<AccountMenu member={false} onOpen={() => {}} onLogout={() => {}} />);
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["로그인/가입"]);
-    rerender(<AccountMenu displayName="삐약 사용자" onOpen={() => {}} onLogout={() => {}} />);
-    expect(screen.getByTestId("account-name")).toHaveTextContent("삐약 사용자");
+    rerender(<AccountMenu member onOpen={() => {}} onLogout={() => {}} />);
+    expect(screen.getByTestId("account-name")).toHaveTextContent("로그인됨");
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["프로필 관리", "로그아웃"]);
   });
 });
@@ -363,20 +491,25 @@ describe("시작 화면 진입 선택·사이드바 계정 자리", () => {
 describe("대상 선택 '누가 먹나요'", () => {
   it("프로필마다 고를 수 있고 '선택 안 함'으로 되돌린다", async () => {
     const onChange = vi.fn();
-    const profiles = [
-      { id: "a", relation: "self", label: "나", age_band: "adult", pregnancy_status: "unknown", medications: [] },
-      { id: "b", relation: "child", label: "첫째", age_band: "child", pregnancy_status: "unknown", medications: [] },
-    ] as const;
-    const { rerender } = render(<TargetPicker profiles={profiles.map((profile) => ({ ...profile, medications: [] }))} value={null} onChange={onChange} />);
+    const profiles: Profile[] = [
+      { profile_id: "a", relation: "self", label: "나", age_band: "y19_64", pregnancy_status: null, sort_order: 0, medications: [] },
+      { profile_id: "b", relation: "child", label: "첫째", age_band: "y6_11", pregnancy_status: null, sort_order: 1, medications: [] },
+    ];
+    const { rerender } = render(<TargetPicker profiles={profiles} value={null} onChange={onChange} />);
     expect(screen.getByRole("radiogroup", { name: "누가 먹나요" })).toBeInTheDocument();
     expect(screen.getAllByRole("radio").map((radio) => radio.closest("label")?.textContent)).toEqual(["선택 안 함", "나", "첫째"]);
     expect(screen.getByRole("radio", { name: "선택 안 함" })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: "첫째" }));
     expect(onChange).toHaveBeenLastCalledWith("b");
-    rerender(<TargetPicker profiles={profiles.map((profile) => ({ ...profile, medications: [] }))} value="b" onChange={onChange} />);
+    rerender(<TargetPicker profiles={profiles} value="b" onChange={onChange} />);
     expect(screen.getByRole("radio", { name: "첫째" })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: "선택 안 함" }));
     expect(onChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("별명이 없는 프로필(서버는 label null을 허용한다)은 관계 글자로 보인다", () => {
+    render(<TargetPicker profiles={[{ profile_id: "c", relation: "parent", label: null, age_band: null, pregnancy_status: null, sort_order: 0, medications: [] }]} value={null} onChange={() => {}} />);
+    expect(screen.getByRole("radio", { name: "부모" })).toBeInTheDocument();
   });
 });
 

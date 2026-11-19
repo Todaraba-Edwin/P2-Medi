@@ -1,82 +1,172 @@
-// MSW 핸들러: 계정·약관 동의·프로필(임시 계약, `src/lib/api/account.ts` 머리 주석). 개발·시험 전용이다.
-// 세션·동의·프로필은 이 핸들러 묶음의 메모리에만 있다(페이지를 새로 열면 사라진다. 실제 서버는 쿠키 세션을 쓴다는 가정).
+// MSW 핸들러: 계정·약관 동의·프로필. 개발·시험 전용이다.
+// 응답·오류 모양과 규칙은 백엔드 코드(`backend/app/api/me.py`·`account.py`, BE-11)를 따른다: 경로, `MeResponse`·`ProfileOut`,
+// 오류 본문 `{code, fields}`와 코드, 본인 1 + 가족 3, 건강 정보 동의, 철회 시 즉시 삭제.
+// **백엔드 없음**: `/api/auth/*`(이메일 로그인·가입, 로그아웃, 소셜 시작)과 세션. 실제는 Bearer 토큰이고 여기서는 핸들러 메모리의 세션으로 흉내 낸다
+// (세션·동의·프로필은 이 핸들러 묶음의 메모리에만 있다. 페이지를 새로 열면 사라진다).
 import { HttpResponse, http } from "msw";
 import { z } from "zod";
 import {
   AgeBandSchema,
+  CONSENT_DOC_TYPES,
+  ConsentDocTypeSchema,
   FAMILY_PROFILE_MAX,
   HEALTH_CONSENT_DOC,
-  LEGAL_DOC_TYPES,
   LegalDocTypeSchema,
-  MedicationSchema,
+  MEDICATIONS_MAX,
+  MEDICATION_NAME_MAX_CHARS,
+  PROFILE_LABEL_MAX_CHARS,
   PregnancyStatusSchema,
   RelationSchema,
-  SELF_PROFILE_MAX,
   SOCIAL_PROVIDERS,
 } from "@/lib/api/account";
-import type { ConsentRecord, Me, Profile } from "@/lib/api/account";
+import type { ConsentDocType, ConsentState, Me, Medication, OnboardingStep, Profile } from "@/lib/api/account";
 import { MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK, MOCK_SIGNUP_TAKEN_MARK } from "./fixtures/account";
 
 const CredentialsSchema = z.object({ email: z.string().min(1), password: z.string().min(1) });
-const ConsentsSchema = z.object({ items: z.array(z.object({ doc_type: LegalDocTypeSchema, version: z.string(), agreed: z.boolean() })) });
-const ProfileDraftSchema = z.object({
-  relation: RelationSchema,
-  label: z.string(),
-  age_band: AgeBandSchema.nullable().default(null),
-  pregnancy_status: PregnancyStatusSchema.default("unknown"),
-  medications: z.array(MedicationSchema).default([]),
+// 요청 모델(백엔드 `_Strict`: 모르는 칸은 422)
+const ConsentRequestSchema = z.strictObject({
+  items: z
+    .array(z.strictObject({ doc_type: ConsentDocTypeSchema, version: z.number().int().min(1), action: z.enum(["agree", "withdraw"]) }))
+    .min(1)
+    .max(3)
+    .refine((items) => new Set(items.map((item) => item.doc_type)).size === items.length),
+  channel: z.enum(["onboarding", "settings", "reconsent"]),
 });
+const MedicationInSchema = z.strictObject({ input_text: z.string().trim().min(1).max(MEDICATION_NAME_MAX_CHARS), item_seq: z.string().regex(/^\d{9}$/).nullable().optional() });
+const profileFields = {
+  label: z.string().trim().min(1).max(PROFILE_LABEL_MAX_CHARS).nullable().optional(),
+  age_band: AgeBandSchema.nullable().optional(),
+  pregnancy_status: PregnancyStatusSchema.nullable().optional(),
+};
+const ProfileCreateSchema = z.strictObject({ relation: RelationSchema, ...profileFields, medications: z.array(MedicationInSchema).max(MEDICATIONS_MAX).optional() });
+// `relation`·`medications`는 보낼 수는 있지만 null일 수 없다(백엔드 `_no_null_required`)
+const ProfileUpdateSchema = z.strictObject({ relation: RelationSchema.optional(), ...profileFields, medications: z.array(MedicationInSchema).max(MEDICATIONS_MAX).optional() });
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const NOW = "2026-11-18T00:00:00Z";
-const error = (status: number, code: string) => HttpResponse.json({ code, fields: [] }, { status });
-const noContent = () => new HttpResponse(null, { status: 204 });
+const NO_STORE = { "Cache-Control": "no-store" };
+const error = (status: number, code: string, fields: string[] = []) => HttpResponse.json({ code, fields }, { status, headers: NO_STORE });
+const noContent = () => new HttpResponse(null, { status: 204, headers: NO_STORE });
+/** 합성 UUID(모양만 맞춘 값) */
+const mockId = (group: number, sequence: number) => `00000000-0000-4000-8000-${String(group).padStart(4, "0")}${String(sequence).padStart(8, "0")}`;
+const MOCK_USER_ID = mockId(0, 1);
 
-export interface AccountMockState {
-  me: Me | null;
+interface ConsentRecord {
+  action: "agree" | "withdraw";
+  version: number;
+  acted_at: string;
+}
+
+interface Session {
+  step: OnboardingStep;
+  completedAt: string | null;
+  consents: Partial<Record<ConsentDocType, ConsentRecord>>;
   profiles: Profile[];
 }
 
-/** 핸들러 묶음 하나가 세션 하나를 갖는다(시험마다 새로 만들면 서로 섞이지 않는다) */
-export function createAccountHandlers(state: AccountMockState = { me: null, profiles: [] }) {
-  let sequence = 0;
+export interface AccountMockState {
+  /** 로그인한 목 세션. 없으면 게스트다(실제의 "토큰 없음"에 해당) */
+  session: Session | null;
+}
 
-  const login = (provider: string, email = "") => {
-    const onboarded = email.includes(MOCK_ONBOARDED_MARK);
-    const consents: ConsentRecord[] = onboarded
-      ? LEGAL_DOC_TYPES.map((docType) => ({ doc_type: docType, version: MOCK_LEGAL_DOCS[docType].version, agreed_at: NOW }))
-      : [];
-    state.me = { user_id: "mock-user-1", display_name: "삐약 사용자", providers: [provider], onboarding_completed_at: onboarded ? NOW : null, consents };
-    state.profiles = onboarded
-      ? [
-          { id: "mock-profile-self", relation: "self", label: "나", age_band: "adult", pregnancy_status: "no", medications: [] },
-          { id: "mock-profile-child", relation: "child", label: "첫째", age_band: "child", pregnancy_status: "unknown", medications: [] },
-        ]
-      : [];
+/** 핸들러 묶음 하나가 세션 하나를 갖는다(시험마다 새로 만들면 서로 섞이지 않는다) */
+export function createAccountHandlers(state: AccountMockState = { session: null }) {
+  let sequence = 0;
+  const nextId = (group: number) => mockId(group, (sequence += 1));
+
+  const consentStates = (session: Session): ConsentState[] =>
+    CONSENT_DOC_TYPES.map((docType) => {
+      const record = session.consents[docType];
+      const agreed = record?.action === "agree";
+      const current = MOCK_LEGAL_DOCS[docType];
+      return {
+        doc_type: docType,
+        required: current.required,
+        agreed_version: agreed ? record.version : null,
+        acted_at: record?.acted_at ?? null,
+        current_version: current.version,
+        needs_consent: !agreed,
+        needs_reconsent: false, // 목 문서는 버전이 하나뿐이다
+      };
+    });
+  const agreedTo = (session: Session, docType: ConsentDocType) => session.consents[docType]?.action === "agree";
+  const requiredOk = (session: Session) => agreedTo(session, "terms") && agreedTo(session, "privacy_consent");
+  const healthOk = (session: Session) => agreedTo(session, HEALTH_CONSENT_DOC);
+
+  /** 백엔드 `next_step`과 같은 규칙 */
+  const syncOnboarding = (session: Session) => {
+    const hasSelf = session.profiles.some((profile) => profile.relation === "self");
+    const family = session.profiles.filter((profile) => profile.relation !== "self").length;
+    const step: OnboardingStep = !requiredOk(session)
+      ? "consent"
+      : !hasSelf
+        ? "profile_self"
+        : family >= FAMILY_PROFILE_MAX
+          ? "done"
+          : session.step === "consent" || session.step === "profile_self"
+            ? "family"
+            : session.step;
+    session.step = step;
+    session.completedAt = step === "done" ? (session.completedAt ?? NOW) : null;
   };
 
-  const healthConsent = () => state.me?.consents.some((consent) => consent.doc_type === HEALTH_CONSENT_DOC) ?? false;
-  const hasHealthData = (draft: z.infer<typeof ProfileDraftSchema>) => draft.pregnancy_status !== "unknown" || draft.medications.length > 0;
+  const me = (session: Session): Me => {
+    syncOnboarding(session);
+    return {
+      user_id: MOCK_USER_ID,
+      is_guest: false,
+      onboarding_step: session.step,
+      onboarding_completed_at: session.completedAt,
+      consents: consentStates(session),
+      health_consent_active: healthOk(session),
+      profile_limit: 1 + FAMILY_PROFILE_MAX,
+    };
+  };
+
+  const medications = (items: z.infer<typeof MedicationInSchema>[]): Medication[] =>
+    // 목에는 품목 확인 함수가 없다: 백엔드처럼 원문만 저장한다(`item_seq`·`confirmed_at`은 null)
+    items.map((item) => ({ medication_id: nextId(2), input_text: item.input_text, item_seq: null, confirmed_at: null }));
+
+  const login = (email = "") => {
+    const session: Session = { step: "consent", completedAt: null, consents: {}, profiles: [] };
+    if (email.includes(MOCK_ONBOARDED_MARK)) {
+      for (const docType of CONSENT_DOC_TYPES) session.consents[docType] = { action: "agree", version: MOCK_LEGAL_DOCS[docType].version, acted_at: NOW };
+      session.profiles = [
+        { profile_id: mockId(1, 9001), relation: "self", label: "나", age_band: "y19_64", pregnancy_status: "not_pregnant", sort_order: 0, medications: [] },
+        { profile_id: mockId(1, 9002), relation: "child", label: "첫째", age_band: "y6_11", pregnancy_status: null, sort_order: 1, medications: [] },
+      ];
+    }
+    state.session = session;
+  };
+
+  /** 프로필 쓰기 앞의 필수 동의 검사(백엔드 `gate_consents`) */
+  const gate = (session: Session) => {
+    const missing = (["terms", "privacy_consent"] as const).filter((docType) => !agreedTo(session, docType));
+    return missing.length > 0 ? error(403, "CONSENT_REQUIRED", missing) : null;
+  };
 
   return [
+    // 약관·동의 문서 현재본(게스트 허용)
     http.get("*/api/legal/:docType", ({ params }) => {
       const docType = LegalDocTypeSchema.safeParse(params.docType);
-      return docType.success ? HttpResponse.json(MOCK_LEGAL_DOCS[docType.data]) : error(404, "NOT_FOUND");
+      if (!docType.success) return error(422, "INVALID_REQUEST", ["doc_type"]);
+      return HttpResponse.json(MOCK_LEGAL_DOCS[docType.data], { headers: { "Cache-Control": "public, max-age=300" } });
     }),
 
-    http.get("*/api/me", () => (state.me ? HttpResponse.json(state.me) : error(401, "UNAUTHENTICATED"))),
+    http.get("*/api/me", () => (state.session ? HttpResponse.json(me(state.session), { headers: NO_STORE }) : error(401, "AUTH_REQUIRED"))),
 
     http.delete("*/api/me", () => {
-      if (!state.me) return error(401, "UNAUTHENTICATED");
-      state.me = null;
-      state.profiles = [];
+      if (!state.session) return error(401, "AUTH_REQUIRED");
+      state.session = null;
       return noContent();
     }),
 
+    // ---- 백엔드 없음: 로그인·가입·로그아웃·소셜 시작(Supabase Auth가 맡을 자리)
     http.post("*/api/auth/email/login", async ({ request }) => {
       const body = CredentialsSchema.safeParse(await request.json().catch(() => null));
       if (!body.success) return error(422, "INVALID_REQUEST");
       if (body.data.email.includes(MOCK_LOGIN_FAIL_MARK)) return error(401, "INVALID_CREDENTIALS");
-      login("email", body.data.email);
+      login(body.data.email);
       return noContent();
     }),
 
@@ -84,68 +174,111 @@ export function createAccountHandlers(state: AccountMockState = { me: null, prof
       const body = CredentialsSchema.safeParse(await request.json().catch(() => null));
       if (!body.success) return error(422, "INVALID_REQUEST");
       if (body.data.email.includes(MOCK_SIGNUP_TAKEN_MARK)) return error(409, "EMAIL_TAKEN");
-      login("email");
+      login();
       return noContent();
     }),
 
     http.post("*/api/auth/logout", () => {
-      state.me = null;
-      state.profiles = [];
+      state.session = null;
       return noContent();
     }),
 
     // 소셜 로그인 시작: 실제로는 페이지 이동이다. 목에서는 fetch로 불려 세션만 만든다(Naver는 준비 중이라 없다)
     http.get("*/api/auth/:provider/start", ({ params }) => {
-      const provider = String(params.provider);
-      if (!(SOCIAL_PROVIDERS as readonly string[]).includes(provider)) return error(404, "NOT_FOUND");
-      login(provider);
+      if (!(SOCIAL_PROVIDERS as readonly string[]).includes(String(params.provider))) return error(404, "NOT_FOUND");
+      login();
       return noContent();
     }),
 
+    // ---- 동의·철회 기록 → 201 Me
     http.post("*/api/consents", async ({ request }) => {
-      if (!state.me) return error(401, "UNAUTHENTICATED");
-      const body = ConsentsSchema.safeParse(await request.json().catch(() => null));
-      if (!body.success) return error(422, "INVALID_REQUEST");
-      const agreed = new Set(body.data.items.filter((item) => item.agreed && item.version === MOCK_LEGAL_DOCS[item.doc_type].version).map((item) => item.doc_type));
-      if (LEGAL_DOC_TYPES.some((docType) => MOCK_LEGAL_DOCS[docType].required && !agreed.has(docType))) return error(422, "REQUIRED_CONSENT_MISSING");
-      state.me = {
-        ...state.me,
-        onboarding_completed_at: state.me.onboarding_completed_at ?? NOW,
-        consents: LEGAL_DOC_TYPES.filter((docType) => agreed.has(docType)).map((docType) => ({ doc_type: docType, version: MOCK_LEGAL_DOCS[docType].version, agreed_at: NOW })),
-      };
-      return noContent();
+      const session = state.session;
+      if (!session) return error(401, "AUTH_REQUIRED");
+      const body = ConsentRequestSchema.safeParse(await request.json().catch(() => null));
+      if (!body.success) return error(422, "INVALID_REQUEST", ["body"]);
+      for (const item of body.data.items) {
+        if (MOCK_LEGAL_DOCS[item.doc_type].version !== item.version) return error(409, "VERSION_MISMATCH", [item.doc_type]);
+        if (item.action === "withdraw" && item.doc_type === "terms") return error(409, "USE_ACCOUNT_DELETE", ["terms"]); // 약관 철회는 탈퇴로만
+      }
+      for (const item of body.data.items) {
+        session.consents[item.doc_type] = { action: item.action, version: item.version, acted_at: NOW };
+        if (item.action !== "withdraw") continue;
+        // 철회는 즉시 삭제를 일으킨다(설계 6.3절): 건강 동의 → 임신 여부·복용 약, 개인정보 동의 → 프로필 전부
+        if (item.doc_type === HEALTH_CONSENT_DOC) session.profiles = session.profiles.map((profile) => ({ ...profile, pregnancy_status: null, medications: [] }));
+        if (item.doc_type === "privacy_consent") session.profiles = [];
+      }
+      return HttpResponse.json(me(session), { status: 201, headers: NO_STORE });
     }),
 
-    http.get("*/api/profiles", () => (state.me ? HttpResponse.json(state.profiles) : error(401, "UNAUTHENTICATED"))),
+    http.get("*/api/profiles", () => (state.session ? HttpResponse.json(state.session.profiles, { headers: NO_STORE }) : error(401, "AUTH_REQUIRED"))),
 
     http.post("*/api/profiles", async ({ request }) => {
-      if (!state.me) return error(401, "UNAUTHENTICATED");
-      const body = ProfileDraftSchema.safeParse(await request.json().catch(() => null));
-      if (!body.success) return error(422, "INVALID_REQUEST");
-      const sameKind = state.profiles.filter((profile) => (profile.relation === "self") === (body.data.relation === "self")).length;
-      // 본인 1 + 가족 3: 넘치면 422
-      if (sameKind >= (body.data.relation === "self" ? SELF_PROFILE_MAX : FAMILY_PROFILE_MAX)) return error(422, "PROFILE_LIMIT");
-      if (hasHealthData(body.data) && !healthConsent()) return error(422, "HEALTH_CONSENT_REQUIRED");
-      sequence += 1;
-      const profile: Profile = { id: `mock-profile-${sequence}`, ...body.data };
-      state.profiles = [...state.profiles, profile];
-      return HttpResponse.json(profile, { status: 201 });
+      const session = state.session;
+      if (!session) return error(401, "AUTH_REQUIRED");
+      const body = ProfileCreateSchema.safeParse(await request.json().catch(() => null));
+      if (!body.success) return error(422, "INVALID_REQUEST", ["body"]);
+      const blocked = gate(session);
+      if (blocked) return blocked;
+      const draft = body.data;
+      const meds = draft.medications ?? [];
+      const health = [...(draft.pregnancy_status != null ? ["pregnancy_status"] : []), ...(meds.length > 0 ? ["medications"] : [])];
+      if (health.length > 0 && !healthOk(session)) return error(422, "HEALTH_CONSENT_REQUIRED", health);
+      // 본인 1 + 가족 3: 본인 2개째는 409, 가족 4명째는 422
+      if (draft.relation === "self" && session.profiles.some((profile) => profile.relation === "self")) return error(409, "SELF_EXISTS", ["relation"]);
+      if (draft.relation !== "self" && session.profiles.filter((profile) => profile.relation !== "self").length >= FAMILY_PROFILE_MAX) return error(422, "PROFILE_LIMIT", ["relation"]);
+      const profile: Profile = {
+        profile_id: nextId(1),
+        relation: draft.relation,
+        label: draft.label ?? null,
+        age_band: draft.age_band ?? null,
+        pregnancy_status: draft.pregnancy_status ?? null,
+        sort_order: session.profiles.length,
+        medications: medications(meds),
+      };
+      session.profiles = [...session.profiles, profile];
+      return HttpResponse.json(profile, { status: 201, headers: NO_STORE });
     }),
 
-    http.patch("*/api/profiles/:id", async ({ params, request }) => {
-      if (!state.me) return error(401, "UNAUTHENTICATED");
-      const body = ProfileDraftSchema.safeParse(await request.json().catch(() => null));
-      if (!body.success) return error(422, "INVALID_REQUEST");
-      if (!state.profiles.some((profile) => profile.id === params.id)) return error(404, "NOT_FOUND");
-      if (hasHealthData(body.data) && !healthConsent()) return error(422, "HEALTH_CONSENT_REQUIRED");
-      const profile: Profile = { id: String(params.id), ...body.data };
-      state.profiles = state.profiles.map((item) => (item.id === profile.id ? profile : item));
-      return HttpResponse.json(profile);
+    // 보낸 칸만 바꾼다. null은 지움. `medications`를 보내면 목록 전체 교체
+    http.patch("*/api/profiles/:profileId", async ({ params, request }) => {
+      const session = state.session;
+      if (!session) return error(401, "AUTH_REQUIRED");
+      const profileId = String(params.profileId);
+      if (!UUID_SHAPE.test(profileId)) return error(422, "INVALID_REQUEST", ["profile_id"]);
+      const body = ProfileUpdateSchema.safeParse(await request.json().catch(() => null));
+      if (!body.success) return error(422, "INVALID_REQUEST", ["body"]);
+      const current = session.profiles.find((profile) => profile.profile_id === profileId);
+      if (!current) return error(404, "NOT_FOUND");
+      const blocked = gate(session);
+      if (blocked) return blocked;
+      const patch = body.data;
+      if (patch.relation !== undefined && patch.relation !== current.relation && (patch.relation === "self" || current.relation === "self")) return error(409, "SELF_FIXED", ["relation"]);
+      const health = [
+        ...(patch.pregnancy_status != null && patch.pregnancy_status !== current.pregnancy_status ? ["pregnancy_status"] : []),
+        ...(patch.medications !== undefined && patch.medications.length > 0 ? ["medications"] : []),
+      ];
+      if (health.length > 0 && !healthOk(session)) return error(422, "HEALTH_CONSENT_REQUIRED", health);
+      const next: Profile = {
+        ...current,
+        relation: patch.relation ?? current.relation,
+        label: patch.label !== undefined ? patch.label : current.label,
+        age_band: patch.age_band !== undefined ? patch.age_band : current.age_band,
+        pregnancy_status: patch.pregnancy_status !== undefined ? patch.pregnancy_status : current.pregnancy_status,
+        medications: patch.medications !== undefined ? medications(patch.medications) : current.medications,
+      };
+      session.profiles = session.profiles.map((profile) => (profile.profile_id === profileId ? next : profile));
+      return HttpResponse.json(next, { headers: NO_STORE });
     }),
 
-    http.delete("*/api/profiles/:id", ({ params }) => {
-      if (!state.me) return error(401, "UNAUTHENTICATED");
-      state.profiles = state.profiles.filter((profile) => profile.id !== params.id);
+    http.delete("*/api/profiles/:profileId", ({ params }) => {
+      const session = state.session;
+      if (!session) return error(401, "AUTH_REQUIRED");
+      const profileId = String(params.profileId);
+      if (!UUID_SHAPE.test(profileId)) return error(422, "INVALID_REQUEST", ["profile_id"]);
+      const current = session.profiles.find((profile) => profile.profile_id === profileId);
+      if (!current) return error(404, "NOT_FOUND");
+      if (current.relation === "self") return error(409, "SELF_REQUIRED"); // 본인 프로필은 지우지 않는다(계정 삭제는 탈퇴)
+      session.profiles = session.profiles.filter((profile) => profile.profile_id !== profileId);
       return noContent();
     }),
   ];

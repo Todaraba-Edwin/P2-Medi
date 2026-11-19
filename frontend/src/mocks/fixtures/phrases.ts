@@ -26,6 +26,9 @@ export const PHRASES = {
   PREGNANCY_NOT_CHECKED: "임신 여부를 알 수 없어 임부금기는 확인하지 못했어요.",
   AGE_INFO_LINE: "나이를 특정할 수 없어 판정하지 않고, 이 약의 나이별 연령금기 기준을 원문 그대로 보여 드려요.",
   CLARIFY_PICK_LINE: "어느 제품인지 고르면 금기를 확인해 드려요.",
+  // 되묻기 질문(`summary`, AG-05-05 A·AG-05-10 A): 후보 1개 / 여럿. `router._clarify`가 `.format(drug=t.raw)`로 채운다(물음표 1개)
+  CLARIFY_ONE_CANDIDATE: "'{drug}'은(는) 아래 약을 말씀하신 건가요? 맞으면 골라 주시고, 아니면 약 이름을 다시 알려 주세요.",
+  CLARIFY_MANY_CANDIDATES: "'{drug}'에 해당하는 약이 여러 개예요. 어떤 약을 말씀하시는 건가요?",
   // 근거 상세 안내 줄·등급 정의 블록
   GRADE_DEF_TITLE: "임부금기 {grade}등급이란?",
   GRADE_DEF_PHARMACIST_ADVICE: "등급의 뜻이 궁금하면 약국·약사에게 물어보세요.",
@@ -95,8 +98,9 @@ export const SOURCE_KIND_FILE = "공식 파일 기준이에요";
 // (finalize._source_label: dataset_key가 있으면 이 표지, 없을 때만 SOURCE_KIND_TEXT)
 export const SOURCE_PREFIX_FILE = "공식 파일";
 
-// backend/app/agent/router.py `_clarify` 템플릿의 꼬리(앞의 '{raw}'는 합성 이름으로 채운다)
-export const CLARIFY_TAIL = "에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요.";
+// 후보가 여럿인 되묻기 질문의 꼬리(AG-05-10 A): `fixed_phrases.CLARIFY_MANY_CANDIDATES`에서 앞의 `'{drug}'`를 뗀 글자.
+// `router._clarify`는 `CLARIFY_MANY_CANDIDATES.format(drug=t.raw)`로 만든다(fixture는 앞에 합성 이름을 붙인다)
+export const CLARIFY_TAIL = PHRASES.CLARIFY_MANY_CANDIDATES.slice("'{drug}'".length);
 
 // 출처 표 값: backend/app/tools/provenance.py PUBLISHER["kids"](= backend/app/db/loaders.py SRC_KIDS), DATASET_LABELS
 export const PUBLISHER_KIDS = "한국의약품안전관리원";

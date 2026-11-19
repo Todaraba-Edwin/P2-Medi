@@ -19,6 +19,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 동의·철회 기록(철회는 즉시 삭제를 일으킨다) */
+        post: operations["post_consents_consents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -37,6 +54,80 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/legal/{doc_type}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 약관·동의 문서 현재본(게스트 허용)
+         * @description 토큰을 읽지 않는다(`/chat`처럼 게스트 경로). `version`을 주면 그 게시 버전.
+         */
+        get: operations["get_legal_legal__doc_type__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 로그인한 사용자 정보(첫 호출에 계정 행 생성, 온보딩·동의 상태) */
+        get: operations["me_me_get"];
+        put?: never;
+        post?: never;
+        /** 계정 삭제(프로필·복용 약·동의 기록 즉시 전부 파기) */
+        delete: operations["delete_me_me_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 내 프로필 목록(본인 1 + 가족 최대 3) */
+        get: operations["list_profiles_profiles_get"];
+        put?: never;
+        /** 프로필 추가 */
+        post: operations["create_profile_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 가족 프로필 삭제(본인 프로필은 409 SELF_REQUIRED) */
+        delete: operations["delete_profile_profiles__profile_id__delete"];
+        options?: never;
+        head?: never;
+        /** 프로필 수정(보낸 칸만, 약은 목록 전체 교체) */
+        patch: operations["update_profile_profiles__profile_id__patch"];
         trace?: never;
     };
 }
@@ -209,6 +300,51 @@ export interface components {
             item_seq?: string | null;
             /** Name */
             name: string;
+        };
+        /** ConsentItem */
+        ConsentItem: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "agree" | "withdraw";
+            /**
+             * Doc Type
+             * @enum {string}
+             */
+            doc_type: "terms" | "privacy_consent" | "sensitive_consent";
+            /** Version */
+            version: number;
+        };
+        /** ConsentRequest */
+        ConsentRequest: {
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "onboarding" | "settings" | "reconsent";
+            /** Items */
+            items: components["schemas"]["ConsentItem"][];
+        };
+        /** ConsentState */
+        ConsentState: {
+            /** Acted At */
+            acted_at: string | null;
+            /** Agreed Version */
+            agreed_version: number | null;
+            /** Current Version */
+            current_version: number;
+            /**
+             * Doc Type
+             * @enum {string}
+             */
+            doc_type: "terms" | "privacy_consent" | "sensitive_consent";
+            /** Needs Consent */
+            needs_consent: boolean;
+            /** Needs Reconsent */
+            needs_reconsent: boolean;
+            /** Required */
+            required: boolean;
         };
         /**
          * ConversationContext
@@ -481,6 +617,86 @@ export interface components {
             state_labels?: string[];
         };
         /**
+         * LegalDocumentOut
+         * @description `GET /legal/{doc_type}`. `legal_review="not_reviewed"`이면 프런트가 "초안·법률 검토 전" 표지를 그린다.
+         */
+        LegalDocumentOut: {
+            /** Body Md */
+            body_md: string;
+            /** Body Sha256 */
+            body_sha256: string;
+            /**
+             * Doc Type
+             * @enum {string}
+             */
+            doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent";
+            /**
+             * Effective At
+             * Format: date-time
+             */
+            effective_at: string;
+            /**
+             * Legal Review
+             * @enum {string}
+             */
+            legal_review: "not_reviewed" | "reviewed";
+            /** Required */
+            required: boolean;
+            /** Requires Reconsent */
+            requires_reconsent: boolean;
+            /** Title */
+            title: string;
+            /** Version */
+            version: number;
+        };
+        /**
+         * MeResponse
+         * @description `GET /me`·`POST /consents` 응답. 이메일 등 로그인 정보는 싣지 않는다(설계 9.3절).
+         */
+        MeResponse: {
+            /** Consents */
+            consents: components["schemas"]["ConsentState"][];
+            /** Health Consent Active */
+            health_consent_active: boolean;
+            /**
+             * Is Guest
+             * @default false
+             */
+            is_guest: boolean;
+            /** Onboarding Completed At */
+            onboarding_completed_at: string | null;
+            /**
+             * Onboarding Step
+             * @enum {string}
+             */
+            onboarding_step: "consent" | "profile_self" | "family" | "done";
+            /**
+             * Profile Limit
+             * @default 4
+             */
+            profile_limit: number;
+            /** User Id */
+            user_id: string;
+        };
+        /** MedicationIn */
+        MedicationIn: {
+            /** Input Text */
+            input_text: string;
+            /** Item Seq */
+            item_seq?: string | null;
+        };
+        /** MedicationOut */
+        MedicationOut: {
+            /** Confirmed At */
+            confirmed_at: string | null;
+            /** Input Text */
+            input_text: string;
+            /** Item Seq */
+            item_seq: string | null;
+            /** Medication Id */
+            medication_id: string;
+        };
+        /**
          * NameCorrection
          * @description 오탈자 보정 고지 한 줄(AG-10-02 A). 질문에 적힌 이름 조각(`input`)을 비슷한 사전 이름(`name`) 하나로 보고 확인했다는 표시다.
          *
@@ -493,6 +709,58 @@ export interface components {
             name: string;
             /** Text */
             text: string;
+        };
+        /** ProfileCreate */
+        ProfileCreate: {
+            /** Age Band */
+            age_band?: ("m0_2" | "m3_5" | "m6_11" | "y1" | "y2" | "y3_5" | "y6_11" | "y12_14" | "y15_18" | "y19_64" | "y65_plus") | null;
+            /** Label */
+            label?: string | null;
+            /** Medications */
+            medications?: components["schemas"]["MedicationIn"][];
+            /** Pregnancy Status */
+            pregnancy_status?: ("pregnant" | "not_pregnant" | "unknown") | null;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "self" | "child" | "parent" | "spouse" | "other";
+        };
+        /** ProfileOut */
+        ProfileOut: {
+            /** Age Band */
+            age_band: ("m0_2" | "m3_5" | "m6_11" | "y1" | "y2" | "y3_5" | "y6_11" | "y12_14" | "y15_18" | "y19_64" | "y65_plus") | null;
+            /** Label */
+            label: string | null;
+            /** Medications */
+            medications: components["schemas"]["MedicationOut"][];
+            /** Pregnancy Status */
+            pregnancy_status: ("pregnant" | "not_pregnant" | "unknown") | null;
+            /** Profile Id */
+            profile_id: string;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "self" | "child" | "parent" | "spouse" | "other";
+            /** Sort Order */
+            sort_order: number;
+        };
+        /**
+         * ProfileUpdate
+         * @description 보낸 칸만 바꾼다. `null`은 지움. `medications`를 보내면 목록 전체 교체.
+         */
+        ProfileUpdate: {
+            /** Age Band */
+            age_band?: ("m0_2" | "m3_5" | "m6_11" | "y1" | "y2" | "y3_5" | "y6_11" | "y12_14" | "y15_18" | "y19_64" | "y65_plus") | null;
+            /** Label */
+            label?: string | null;
+            /** Medications */
+            medications?: components["schemas"]["MedicationIn"][] | null;
+            /** Pregnancy Status */
+            pregnancy_status?: ("pregnant" | "not_pregnant" | "unknown") | null;
+            /** Relation */
+            relation?: ("self" | "child" | "parent" | "spouse" | "other") | null;
         };
         /** ProgressEvent */
         ProgressEvent: {
@@ -598,6 +866,93 @@ export interface operations {
             };
         };
     };
+    post_consents_consents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description AUTH_REQUIRED·AUTH_INVALID(계정 행 없음 포함). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description CONSENT_REQUIRED·RECONSENT_REQUIRED(fields=문서 종류). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 현재본 없는 문서. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description VERSION_MISMATCH·USE_ACCOUNT_DELETE(fields=문서 종류). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description INVALID_REQUEST 등 형식·상한·건강 정보 동의 오류. 입력 값은 되돌려 주지 않는다. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     health_health_get: {
         parameters: {
             query?: never;
@@ -616,6 +971,473 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    get_legal_legal__doc_type__get: {
+        parameters: {
+            query?: {
+                version?: number | null;
+            };
+            header?: never;
+            path: {
+                doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegalDocumentOut"];
+                };
+            };
+            /** @description 게시된 문서 없음. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description INVALID_REQUEST 등 형식·상한·건강 정보 동의 오류. 입력 값은 되돌려 주지 않는다. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    me_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description AUTH_REQUIRED·AUTH_INVALID(계정 행 없음 포함). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_me_me_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description AUTH_REQUIRED·AUTH_INVALID(계정 행 없음 포함). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_profiles_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileOut"][];
+                };
+            };
+            /** @description AUTH_REQUIRED·AUTH_INVALID(계정 행 없음 포함). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description CONSENT_REQUIRED·RECONSENT_REQUIRED(fields=문서 종류). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description INVALID_REQUEST 등 형식·상한·건강 정보 동의 오류. 입력 값은 되돌려 주지 않는다. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_profile_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileOut"];
+                };
+            };
+            /** @description AUTH_REQUIRED·AUTH_INVALID(계정 행 없음 포함). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description CONSENT_REQUIRED·RECONSENT_REQUIRED(fields=문서 종류). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description SELF_EXISTS(본인 프로필은 1개). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description INVALID_REQUEST 등 형식·상한·건강 정보 동의 오류. 입력 값은 되돌려 주지 않는다. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_profile_profiles__profile_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description AUTH_REQUIRED·AUTH_INVALID(계정 행 없음 포함). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description CONSENT_REQUIRED·RECONSENT_REQUIRED(fields=문서 종류). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 없는 프로필(남의 것 포함). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description SELF_REQUIRED. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description INVALID_REQUEST 등 형식·상한·건강 정보 동의 오류. 입력 값은 되돌려 주지 않는다. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_profile_profiles__profile_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileOut"];
+                };
+            };
+            /** @description AUTH_REQUIRED·AUTH_INVALID(계정 행 없음 포함). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description CONSENT_REQUIRED·RECONSENT_REQUIRED(fields=문서 종류). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 없는 프로필(남의 것 포함). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description SELF_EXISTS·SELF_FIXED(본인 관계는 바꾸지 않는다). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description INVALID_REQUEST 등 형식·상한·건강 정보 동의 오류. 입력 값은 되돌려 주지 않는다. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };

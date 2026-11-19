@@ -7,12 +7,25 @@ import { accountStore } from "@/stores/account";
 import type { AccountFailure, AccountStore } from "@/stores/account";
 import {
   CANCEL_LABEL,
+  ERROR_ACCOUNT_UNAVAILABLE,
+  ERROR_AUTH_REQUIRED,
+  ERROR_AUTH_UNAVAILABLE,
   ERROR_EMAIL_TAKEN,
   ERROR_GENERIC,
   ERROR_INVALID_CREDENTIALS,
+  ERROR_INVALID_REQUEST,
+  ERROR_MEDICATION_LIMIT,
   ERROR_NETWORK,
+  ERROR_NOT_FOUND,
+  ERROR_NOT_IMPLEMENTED,
   ERROR_PROFILE_LIMIT,
+  ERROR_RECONSENT_REQUIRED,
   ERROR_REQUIRED_CONSENT,
+  ERROR_SELF_EXISTS,
+  ERROR_SELF_FIXED,
+  ERROR_SELF_REQUIRED,
+  ERROR_USE_ACCOUNT_DELETE,
+  ERROR_VERSION_MISMATCH,
   HEALTH_CONSENT_REQUIRED_FALLBACK,
 } from "./copy";
 
@@ -51,23 +64,47 @@ export function EmergencyEntrySlot({ className }: { className?: string }) {
   return emergencyEntry ? <div className={cn("flex", className)}>{emergencyEntry}</div> : null;
 }
 
-/** 실패를 화면 글자로 바꾼다. 서버가 준 코드만 보고 입력 값은 쓰지 않는다 */
+/** 서버 오류 코드 → 화면 글자(코드 목록은 `backend/app/api/account.py`·`backend/app/security/auth.py`). 문구는 화면 상수다(서버는 문구를 주지 않는다) */
+const CODE_MESSAGES: Readonly<Record<string, string>> = {
+  // 백엔드 없음(목 로그인)
+  INVALID_CREDENTIALS: ERROR_INVALID_CREDENTIALS,
+  EMAIL_TAKEN: ERROR_EMAIL_TAKEN,
+  // 401
+  AUTH_REQUIRED: ERROR_AUTH_REQUIRED,
+  AUTH_INVALID: ERROR_AUTH_REQUIRED,
+  // 403
+  CONSENT_REQUIRED: ERROR_REQUIRED_CONSENT,
+  RECONSENT_REQUIRED: ERROR_RECONSENT_REQUIRED,
+  // 404
+  NOT_FOUND: ERROR_NOT_FOUND,
+  // 409
+  VERSION_MISMATCH: ERROR_VERSION_MISMATCH,
+  USE_ACCOUNT_DELETE: ERROR_USE_ACCOUNT_DELETE,
+  SELF_REQUIRED: ERROR_SELF_REQUIRED,
+  SELF_EXISTS: ERROR_SELF_EXISTS,
+  SELF_FIXED: ERROR_SELF_FIXED,
+  // 422
+  HEALTH_CONSENT_REQUIRED: HEALTH_CONSENT_REQUIRED_FALLBACK,
+  PROFILE_LIMIT: ERROR_PROFILE_LIMIT,
+  MEDICATION_LIMIT: ERROR_MEDICATION_LIMIT,
+  INVALID_REQUEST: ERROR_INVALID_REQUEST,
+  // 501·503
+  NOT_IMPLEMENTED: ERROR_NOT_IMPLEMENTED,
+  AUTH_UNAVAILABLE: ERROR_AUTH_UNAVAILABLE,
+  ACCOUNT_UNAVAILABLE: ERROR_ACCOUNT_UNAVAILABLE,
+};
+
+/** 코드가 없거나 모르는 코드일 때 상태 코드로 고르는 글자 */
+const STATUS_MESSAGES: Readonly<Record<number, string>> = {
+  401: ERROR_AUTH_REQUIRED,
+  501: ERROR_NOT_IMPLEMENTED,
+  503: ERROR_ACCOUNT_UNAVAILABLE,
+};
+
+/** 실패를 화면 글자로 바꾼다. 서버가 준 코드(없으면 상태 코드)만 보고 입력 값은 쓰지 않는다 */
 export function failureMessage(failure: AccountFailure): string {
   if (failure.kind === "network") return ERROR_NETWORK;
-  switch (failure.code) {
-    case "INVALID_CREDENTIALS":
-      return ERROR_INVALID_CREDENTIALS;
-    case "EMAIL_TAKEN":
-      return ERROR_EMAIL_TAKEN;
-    case "PROFILE_LIMIT":
-      return ERROR_PROFILE_LIMIT;
-    case "HEALTH_CONSENT_REQUIRED":
-      return HEALTH_CONSENT_REQUIRED_FALLBACK;
-    case "REQUIRED_CONSENT_MISSING":
-      return ERROR_REQUIRED_CONSENT;
-    default:
-      return failure.status === 401 ? ERROR_INVALID_CREDENTIALS : ERROR_GENERIC;
-  }
+  return (failure.code !== null ? CODE_MESSAGES[failure.code] : undefined) ?? STATUS_MESSAGES[failure.status] ?? ERROR_GENERIC;
 }
 
 /** 실패 한 줄(보조기기가 바로 읽는다) */

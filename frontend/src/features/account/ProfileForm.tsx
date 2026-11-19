@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { XIcon } from "lucide-react";
 import { AGE_BANDS, MEDICATIONS_MAX, MEDICATION_NAME_MAX_CHARS, PREGNANCY_STATUSES, PROFILE_LABEL_MAX_CHARS, RELATIONS } from "@/lib/api/account";
-import type { AgeBand, Medication, PregnancyStatus, ProfileDraft, Relation } from "@/lib/api/account";
+import type { AgeBand, MedicationInput, PregnancyStatus, ProfileDraft, Relation } from "@/lib/api/account";
 import { hasHealthConsent, useAccountStore } from "@/stores/account";
 import {
   AGE_BAND_LABEL,
@@ -34,12 +34,13 @@ const LABEL_CLASS = "text-xs font-bold text-ink-2";
 /**
  * 프로필 추가·수정 폼. 관계·연령대·임신 여부·복용 중인 약(선택, 적은 글자 그대로).
  * 건강 정보(임신 여부·복용 약)는 건강 정보 동의가 있을 때만 입력·저장할 수 있다: 동의가 없으면 두 칸이 비활성이고 이유 한 줄이 보이며,
- * 저장할 때도 건강 정보를 보내지 않는다. 적은 값은 이 부품의 메모리에만 있다(브라우저 저장소에 두지 않는다).
+ * 저장할 때도 건강 정보 칸을 요청에 싣지 않는다(실으면 서버가 422 `HEALTH_CONSENT_REQUIRED`로 막는다).
+ * 약은 적은 글자 그대로(`input_text`) 보내고 품목 번호는 붙이지 않는다. 적은 값은 이 부품의 메모리에만 있다(브라우저 저장소에 두지 않는다).
  */
 export function ProfileForm() {
   const { store } = useAccountModal();
   const target = useAccountStore((state) => state.form, store);
-  const existing = useAccountStore((state) => state.profiles.find((profile) => profile.id === state.form?.profileId) ?? null, store);
+  const existing = useAccountStore((state) => state.profiles.find((profile) => profile.profile_id === state.form?.profileId) ?? null, store);
   const me = useAccountStore((state) => state.me, store);
   const pending = useAccountStore((state) => state.pending, store);
   const failure = useAccountStore((state) => state.failure, store);
@@ -52,14 +53,14 @@ export function ProfileForm() {
   const [relation, setRelation] = useState<Relation>(existing?.relation ?? (self ? "self" : "child"));
   const [ageBand, setAgeBand] = useState<AgeBand | "">(existing?.age_band ?? "");
   const [pregnancy, setPregnancy] = useState<PregnancyStatus>(existing?.pregnancy_status ?? "unknown");
-  const [medications, setMedications] = useState<Medication[]>(existing?.medications ?? []);
+  const [medications, setMedications] = useState<MedicationInput[]>(() => (existing?.medications ?? []).map((item) => ({ input_text: item.input_text, item_seq: item.item_seq })));
   const [medicationInput, setMedicationInput] = useState("");
   const [nameMissing, setNameMissing] = useState(false);
 
   const addMedication = () => {
     const name = medicationInput.trim();
     if (!name || medications.length >= MEDICATIONS_MAX) return;
-    if (!medications.some((item) => item.drug_name === name)) setMedications([...medications, { drug_name: name, item_seq: null }]);
+    if (!medications.some((item) => item.input_text === name)) setMedications([...medications, { input_text: name, item_seq: null }]);
     setMedicationInput("");
   };
 
@@ -71,9 +72,8 @@ export function ProfileForm() {
       relation: self ? "self" : relation,
       label: name,
       age_band: ageBand === "" ? null : ageBand,
-      // 건강 정보 동의가 없으면 건강 정보를 보내지 않는다
-      pregnancy_status: healthConsent ? pregnancy : "unknown",
-      medications: healthConsent ? medications : [],
+      // 건강 정보 동의가 없으면 건강 정보 칸을 보내지 않는다
+      health: healthConsent ? { pregnancy_status: pregnancy, medications } : null,
     };
     void store.getState().saveProfile(draft);
   };
@@ -182,12 +182,12 @@ export function ProfileForm() {
           {healthConsent && medications.length > 0 && (
             <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
               {medications.map((item) => (
-                <li key={item.drug_name} data-testid="medication" className="flex max-w-full items-center rounded-full border border-line bg-bg-softer pl-3 text-sm">
-                  <span className="min-w-0 [overflow-wrap:anywhere]">{item.drug_name}</span>
+                <li key={item.input_text} data-testid="medication" className="flex max-w-full items-center rounded-full border border-line bg-bg-softer pl-3 text-sm">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{item.input_text}</span>
                   <button
                     type="button"
-                    aria-label={removeMedicationLabel(item.drug_name)}
-                    onClick={() => setMedications(medications.filter((other) => other.drug_name !== item.drug_name))}
+                    aria-label={removeMedicationLabel(item.input_text)}
+                    onClick={() => setMedications(medications.filter((other) => other.input_text !== item.input_text))}
                     className="grid size-11 flex-none place-items-center rounded-full"
                   >
                     <XIcon className="size-4" aria-hidden="true" />

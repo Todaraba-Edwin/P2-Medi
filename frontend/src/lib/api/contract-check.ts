@@ -6,6 +6,7 @@
 // 2. 모델마다 칸 이름 집합이 같다(백엔드가 칸을 더하거나 빼면 여기서 걸린다. zod가 `.strict()`라 모르는 칸은 런타임에도 오류다).
 import type { z } from "zod";
 import type { components } from "./generated";
+import type * as A from "./account";
 import type * as S from "./schemas";
 
 type Gen = components["schemas"];
@@ -55,4 +56,17 @@ export type ContractChecks = [
   Expect<Extends<NonNullable<Gen["AgeInput"]["unit"]>, z.infer<typeof S.AgeUnitSchema>>>,
   Expect<Extends<Gen["ChatResponse"]["schema_version"], typeof S.CHAT_RESPONSE_SCHEMA_VERSION | undefined>>,
   Expect<Extends<Gen["DoneEvent"]["schema_version"], typeof S.CHAT_EVENT_SCHEMA_VERSION | undefined>>,
+  // ---- 계정 API(BE-11, `account.ts`): 응답 모양과 값 목록
+  Expect<Conforms<typeof A.LegalDocSchema, Gen["LegalDocumentOut"]>>,
+  Expect<Conforms<typeof A.ConsentStateSchema, Gen["ConsentState"]>>,
+  Expect<Conforms<typeof A.MeSchema, Gen["MeResponse"]>>,
+  Expect<Conforms<typeof A.MedicationSchema, Gen["MedicationOut"]>>,
+  Expect<Conforms<typeof A.ProfileSchema, Gen["ProfileOut"]>>,
+  Expect<Extends<Gen["LegalDocumentOut"]["doc_type"], A.LegalDocType>>,
+  Expect<Extends<Gen["LegalDocumentOut"]["legal_review"], z.infer<typeof A.LegalReviewSchema>>>,
+  Expect<Extends<Gen["ConsentState"]["doc_type"], A.ConsentDocType>>,
+  Expect<Extends<Gen["MeResponse"]["onboarding_step"], A.OnboardingStep>>,
+  Expect<Extends<Gen["ProfileOut"]["relation"], A.Relation>>,
+  Expect<Extends<NonNullable<Gen["ProfileOut"]["age_band"]>, A.AgeBand>>,
+  Expect<Extends<NonNullable<Gen["ProfileOut"]["pregnancy_status"]>, A.PregnancyStatus>>,
 ];
