@@ -783,19 +783,28 @@ def _group_finding(members: list[dict[str, Any]], detail_by_id: dict[str, Detail
 
 
 def _candidates(clarify: dict[str, Any] | None) -> list[Candidate]:
+    """되묻기 묶음 → 후보 목록. 묶음마다 그 묶음의 이름을 `input_name`으로 찍어 묶음 순서대로 펼친다(FE-09-01 A, 계약 불변).
+
+    `groups`가 없거나 비면(FE-09 이전 모양) `target_raw`·`options` 한 묶음으로 본다. 묶음이 1개면 FE-09 이전과 같은 목록이다."""
     if not isinstance(clarify, dict):
         return []
-    target = clarify.get("target_raw") or ""
-    return [Candidate(input_name=target, name=o["name"], item_seq=o.get("item_seq"), entp_name=o.get("entp_name"),
-                      prescription=o.get("prescription"), matched_by=o.get("matched_by"))
-            for o in clarify.get("options") or [] if isinstance(o, dict) and o.get("name") and target]
+    groups = [g for g in clarify.get("groups") or [] if isinstance(g, dict)]
+    if not groups:
+        groups = [{"target_raw": clarify.get("target_raw"), "options": clarify.get("options")}]
+    out: list[Candidate] = []
+    for g in groups:
+        target = g.get("target_raw") or ""
+        out.extend(Candidate(input_name=target, name=o["name"], item_seq=o.get("item_seq"), entp_name=o.get("entp_name"),
+                             prescription=o.get("prescription"), matched_by=o.get("matched_by"))
+                   for o in g.get("options") or [] if isinstance(o, dict) and o.get("name") and target)
+    return out
 
 
 def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, clarify: dict[str, Any] | None = None,
                      entities: Sequence[Any] | None = None) -> ChatResponse:
     """`finalize()` 출력 딕셔너리 → `ChatResponse`. 값을 지어내지 않고 옮기며, 출처 표·날짜 줄·줄별 배지 배치만 코드로 만든다.
 
-    `clarify`(라우터의 되묻기 묶음 `{target_raw, options[]}`)는 `end_reason == CLARIFY`일 때만 `candidates[]`로 옮긴다.
+    `clarify`(라우터의 되묻기 `{target_raw, options[], groups[]}`)는 `end_reason == CLARIFY`일 때만 `candidates[]`로 옮긴다(묶음별 `input_name`).
     `entities`(router가 정리한 약 엔티티)는 품목기준코드 → 사전 확정 이름 표(`display_names`)에만 쓴다(이슈 F3). 응답에 옮기지 않는다.
     """
     display = display_names(resp, entities)

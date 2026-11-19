@@ -177,9 +177,12 @@ class TestPrefixClarify:
         assert re.search(r"[\d]+\s*(mg|밀리|정|알)", q) is None  # 용량 숫자 없음
 
     def test_only_one_question_for_multiple_ambiguous(self, dd):
+        """모호한 이름이 둘이어도 질문은 하나이고, 두 이름의 후보를 한 응답에 묶는다(FE-09-01·02 A. 이전에는 하나만 묻고 나머지를 미뤘다)."""
         r = route_input("타이레놀이랑 동명약 같이 먹어도 되나요", dd)
-        assert r.clarify is not None and len(r.clarify.pending_raws) == 1
-        assert r.clarify.question.count("?") <= 1
+        assert r.clarify is not None and r.clarify.pending_raws == []
+        assert [g.target_raw for g in r.clarify.groups] == ["타이레놀", "동명약"]
+        assert all(1 <= len(g.options) <= MAX_CLARIFY_OPTIONS for g in r.clarify.groups)
+        assert r.clarify.question.count("?") == 1
 
 
 # --------------------------------------------------------------------------- 성분명만 (5)

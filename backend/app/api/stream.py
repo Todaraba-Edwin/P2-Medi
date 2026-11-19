@@ -26,7 +26,7 @@ from typing import Any, Protocol
 
 from app.agent.graph.trace import harness_events
 from app.api.events import AnswerEvent, AnyEvent, ErrorEvent, EventSequence
-from app.api.runner import ChatRunner
+from app.api.runner import ChatRunner, ConfirmedInput
 from app.api.schemas import response_from_state
 from app.api.service import REQUEST_USAGE, RequestUsage
 
@@ -74,7 +74,7 @@ def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reaso
         logger.error("chat metrics failed: %s", type(exc).__name__)
 
 
-def _run_in_thread(runner: ChatRunner, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Sequence[str],
+def _run_in_thread(runner: ChatRunner, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Sequence[ConfirmedInput],
                    loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[Any], stop: threading.Event,
                    usage: RequestUsage | None = None) -> None:
     if usage is not None:
@@ -107,7 +107,7 @@ def _tool_stages(update: dict[str, Any]) -> list[str]:
 
 
 async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any] | None,
-                      metrics: MetricsSink | None = None, *, confirmed_item_seqs: Sequence[str] = ()) -> AsyncIterator[AnyEvent]:
+                      metrics: MetricsSink | None = None, *, confirmed_item_seqs: Sequence[ConfirmedInput] = ()) -> AsyncIterator[AnyEvent]:
     """질문 하나의 이벤트 스트림. 항상 `done`으로 끝난다(정상이면 `answer` 뒤, 실패면 `error` 뒤).
 
     `confirmed_item_seqs`(되묻기에서 고른 약의 품목기준코드, AG-05-03 A)는 실행기로만 넘기고 지표·로그에 싣지 않는다."""

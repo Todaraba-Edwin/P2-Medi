@@ -23,7 +23,7 @@ from pydantic import PrivateAttr
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "e2e"))
 
-from golden_synth import Q_P3, SEQ_AZI, SEQ_COLD, SEQ_KID, FakeDur, golden_conn, golden_dict  # noqa: E402
+from golden_synth import Q_P3, SEQ_AZI, SEQ_COLD, SEQ_KID, SEQ_T500, FakeDur, golden_conn, golden_dict  # noqa: E402
 
 from app.agent import fixed_phrases as fp  # noqa: E402
 from app.agent.graph.build import build_graph, run_question  # noqa: E402
@@ -110,6 +110,11 @@ def _answer(events: list[ev.ChatEvent]) -> Any:
     return next(e.root.response for e in events if e.root.type == "answer")
 
 
+def _groups(answer: Any) -> list[str]:
+    """되묻기 후보의 묶음 이름(`input_name`)을 나온 순서대로 한 번씩."""
+    return list(dict.fromkeys(c.input_name for c in answer.candidates))
+
+
 # --------------------------------------------------------------------------- ①② 정상 병용 질문
 def test_normal_pair_stream_is_ordered_ndjson_ending_normal(dd):
     _, events = _stream(dd, Q_PAIR, _script(AZI, COLD), [PAIR_DRAFT])
@@ -158,6 +163,19 @@ def test_ambiguous_name_ends_with_clarify_candidates(dd):
     assert _types(events) == ["answer", "done"] and events[-1].root.end_reason == "CLARIFY"
     a = _answer(events)
     assert a.candidates and a.candidates_line == fp.CLARIFY_PICK_LINE and not a.findings
+
+
+def test_two_ambiguous_names_stream_one_answer_with_two_candidate_groups(dd):
+    """FE-09-01·02 A: 두 이름이 모두 모호하면 한 `answer` 이벤트에 두 묶음 후보(`input_name`별)와 승인 문구 질문 하나를 싣는다."""
+    r, events = _stream(dd, "타이레놀이랑 이지렉트 같이 먹어도 되나요?", [], [])
+    assert _types(events) == ["answer", "done"] and events_end(events) == "CLARIFY"
+    a = _answer(events)
+    assert _groups(a) == ["타이레놀", "이지렉트"] and a.summary.count("?") == 1
+    assert a.summary == "'타이레놀', '이지렉트'에 해당하는 약이 여러 개예요. 약마다 하나씩 골라 주시겠어요?"
+    assert {c.item_seq for c in a.candidates if c.input_name == "타이레놀"} == {SEQ_T500, SEQ_COLD}
+    assert [c.item_seq for c in a.candidates if c.input_name == "이지렉트"] == [SEQ_AZI]
+    raw = next(json.loads(x) for x in r.content.split(b"\n") if x and json.loads(x)["type"] == "answer")
+    assert [c["input_name"] for c in raw["response"]["candidates"]] == ["타이레놀", "타이레놀", "이지렉트"]  # 전송 바이트도 묶음 순서
 
 
 def test_call_limit_ends_with_limit_notice(dd):
@@ -285,13 +303,15 @@ def test_second_turn_with_confirmed_drugs_skips_clarify_and_runs_lookup(dd):
     assert [(d["status"], d["item_seq"]) for d in note["drug_candidates"]] == [("RESOLVED", SEQ_AZI), ("RESOLVED", SEQ_COLD)]
 
 
-def test_one_confirmed_drug_moves_clarify_to_the_next_ambiguous_name(dd):
-    """고른 약이 하나면 그 약만 확정하고, 남은 모호한 이름을 다음으로 되묻는다(한 번에 하나)."""
+def test_one_confirmed_drug_keeps_only_the_remaining_ambiguous_names(dd):
+    """턴 1은 모호한 이름 전부를 묶음으로 한 번에 보인다(FE-09-01 A). 고른 약이 하나면 그 약만 확정하고 남은 묶음만 다시 묻는다."""
     _, first = _stream(dd, Q_P3, [], [])
     _, second = _stream(dd, Q_P3, [], [], context={"confirmed_drugs": [{"name": AZI, "item_seq": SEQ_AZI}]})
     assert events_end(first) == events_end(second) == "CLARIFY"
-    assert {c.name for c in _answer(first).candidates} == {AZI}
-    assert AZI not in {c.name for c in _answer(second).candidates} and COLD in {c.name for c in _answer(second).candidates}
+    assert _groups(_answer(first)) == ["이지렉트정", "타이레놀", "콜드-에스"]
+    assert _answer(first).summary == fp.CLARIFY_MANY_DRUGS.format(drugs="'이지렉트정', '타이레놀', '콜드-에스'")
+    assert _groups(_answer(second)) == ["타이레놀", "콜드-에스"] and AZI not in {c.name for c in _answer(second).candidates}
+    assert COLD in {c.name for c in _answer(second).candidates}
 
 
 @pytest.mark.parametrize("picked", [
@@ -335,6 +355,50 @@ def test_confirmed_from_context_keeps_only_item_seqs_in_order():
                                                ConfirmedDrug(name="다", item_seq=SEQ_AZI), ConfirmedDrug(name="라", item_seq=SEQ_COLD)])
     assert confirmed_from_context(ctx) == [SEQ_COLD, SEQ_AZI]
     assert confirmed_from_context(ConversationContext()) == []
+
+
+def test_confirmed_from_context_carries_input_name_when_given():
+    """FE-09-05 A: `input_name`이 있으면 `{item_seq, input_name}`로, 없으면 이전처럼 코드 문자열로 넘긴다. 표시용 `name`은 넘기지 않는다.
+    같은 코드라도 묶음 이름이 다르면 따로 남긴다(겹친 묶음에서 같은 약을 골라도 두 이름 모두 확정)."""
+    ctx = ConversationContext(confirmed_drugs=[
+        ConfirmedDrug(name="가", item_seq=SEQ_AZI, input_name="이지렉트정"), ConfirmedDrug(name="나", item_seq=SEQ_COLD, input_name="타이레놀"),
+        ConfirmedDrug(name="다", item_seq=SEQ_COLD, input_name="콜드-에스"), ConfirmedDrug(name="라", item_seq=SEQ_COLD, input_name="타이레놀"),
+        ConfirmedDrug(name="마", item_seq=SEQ_T500), ConfirmedDrug(name="바", input_name="타이레놀")])
+    assert confirmed_from_context(ctx) == [{"item_seq": SEQ_AZI, "input_name": "이지렉트정"}, {"item_seq": SEQ_COLD, "input_name": "타이레놀"},
+                                           {"item_seq": SEQ_COLD, "input_name": "콜드-에스"}, SEQ_T500]
+
+
+@pytest.mark.parametrize("order", [(0, 1, 2), (0, 2, 1)])
+def test_named_picks_from_overlapping_groups_all_reach_lookup(dd, order):
+    """FE-09-05 A: 턴 1의 세 묶음(`이지렉트정`·`타이레놀`·`콜드-에스`, 뒤 둘의 후보가 겹침)에서 각각 고른 약을 `input_name`과 함께 보내면
+    보낸 순서와 상관없이 세 약이 모두 확정돼 조회로 간다(이름 없이 묶음 순서로 보내면 정500이 빠지던 경우)."""
+    _, first = _stream(dd, Q_P3, [], [])
+    cands = {(c.input_name, c.item_seq) for c in _answer(first).candidates}
+    picks = [("이지렉트정", SEQ_AZI, AZI), ("타이레놀", SEQ_T500, T500), ("콜드-에스", SEQ_COLD, COLD)]
+    assert {(n, s) for n, s, _ in picks} <= cands  # 화면이 보낼 값은 턴 1 응답의 후보 그대로다
+    body = [{"name": name, "item_seq": seq, "input_name": n} for n, seq, name in (picks[i] for i in order)]
+    tm = RecordingToolModel(script=[AIMessage("조회를 마쳤다")])
+    _, second = _stream(dd, Q_P3, [], [{"sentences": [_guide()]}], context={"confirmed_drugs": body}, tool_model=tm)
+    assert events_end(second) == "NORMAL" and not _answer(second).candidates
+    note = json.loads(re.search(r"<<<ROUTER_NOTE\n(.*)\nROUTER_NOTE>>>", tm._seen[0], re.S).group(1))
+    assert [(d["raw"], d["status"], d["item_seq"]) for d in note["drug_candidates"]] == [
+        ("이지렉트정", "RESOLVED", SEQ_AZI), ("타이레놀", "RESOLVED", SEQ_T500), ("콜드-에스", "RESOLVED", SEQ_COLD)]
+
+
+def test_confirmed_input_name_is_not_logged_or_measured(dd, caplog):
+    """`input_name`도 고른 약 값이라 로그·서비스 지표에 남기지 않는다."""
+    caplog.set_level(logging.DEBUG)
+    metrics = ListSink()
+    app = FastAPI()
+    chat_api.register(app)
+    chat_api.set_runner(app, GraphRunner.from_deps(_deps(dd, _script(AZI, COLD), [PAIR_DRAFT])), metrics=metrics)
+    body = {"question": Q_P3, "context": {"confirmed_drugs": [{"name": AZI, "item_seq": SEQ_AZI, "input_name": f"{MARKER}정"}]}}
+    r = TestClient(app).post("/chat", json=body)
+    assert r.status_code == 200 and MARKER not in r.text
+    logged = "\n".join(f"{x.getMessage()} {x.args!r}" for x in caplog.records)
+    assert MARKER not in logged and SEQ_AZI not in logged
+    measured = json.dumps(metrics.records, ensure_ascii=False, default=str)
+    assert metrics.records and MARKER not in measured
 
 
 def events_end(events: list[ev.ChatEvent]) -> str | None:

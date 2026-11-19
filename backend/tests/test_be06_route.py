@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.request import CONFIRMED_DRUGS_MAX, QUESTION_MAX_CHARS
+from app.api.request import CONFIRMED_DRUGS_MAX, DRUG_NAME_MAX_CHARS, QUESTION_MAX_CHARS
 from app.main import app
 
 client = TestClient(app)
@@ -36,6 +36,16 @@ def test_full_request_with_context_is_accepted_shape():
     assert client.post("/chat", json={"question": "가" * QUESTION_MAX_CHARS}).status_code == 501  # 상한 그대로는 통과
 
 
+@pytest.mark.parametrize("drug", [
+    {"name": "타이레놀정500밀리그람", "item_seq": "202106092"},  # input_name 없음(이전 요청 그대로)
+    {"name": "타이레놀정500밀리그람", "item_seq": "202106092", "input_name": "타이레놀"},  # FE-09-05 A
+    {"name": "타이레놀정500밀리그람", "item_seq": "202106092", "input_name": None},
+    {"name": "타이레놀정500밀리그람", "item_seq": "202106092", "input_name": "가" * DRUG_NAME_MAX_CHARS},  # 상한 그대로는 통과
+])
+def test_confirmed_drug_input_name_is_optional(drug):
+    assert client.post("/chat", json={"question": "x", "context": {"confirmed_drugs": [drug]}}).status_code == 501  # 형식 통과
+
+
 @pytest.mark.parametrize("body,field", [
     ({"question": ""}, "question"),
     ({"question": "   \n "}, "question"),
@@ -46,13 +56,19 @@ def test_full_request_with_context_is_accepted_shape():
     ({"question": "x", "context": {"age": {"lower": 1, "upper": 2, "unit": "년"}}}, "context.age.unit"),
     ({"question": "x", "context": {"confirmed_drugs": [{"name": MARKER, "item_seq": "12"}]}}, "context.confirmed_drugs.0.item_seq"),
     ({"question": "x", "context": {"confirmed_drugs": [{"name": "a"}] * (CONFIRMED_DRUGS_MAX + 1)}}, "context.confirmed_drugs"),
+    ({"question": "x", "context": {"confirmed_drugs": [{"name": "a", "input_name": MARKER * (DRUG_NAME_MAX_CHARS // len(MARKER) + 1)}]}},
+     "context.confirmed_drugs.0.input_name"),  # 길이 초과(FE-09-05 A, `name`과 같은 상한)
+    ({"question": "x", "context": {"confirmed_drugs": [{"name": "a", "input_name": "   "}]}}, "context.confirmed_drugs.0.input_name"),
+    ({"question": "x", "context": {"confirmed_drugs": [{"name": "a", "input_name": ""}]}}, "context.confirmed_drugs.0.input_name"),
 ])
 def test_bad_requests_are_422_without_echoing_input(body, field):
     r = client.post("/chat", json=body)
     assert r.status_code == 422
     js = r.json()
     assert js["code"] == "INVALID_REQUEST" and field in js["fields"]
-    assert set(js) == {"code", "fields"} and MARKER not in r.text and "input" not in r.text
+    # pydantic 오류 항목의 `"input"` 키(입력 값 되돌림)가 없다. 칸 이름 `input_name`(FE-09-05 A)은 `fields`에 나올 수 있어 키 모양으로 본다
+    assert set(js) == {"code", "fields"} and MARKER not in r.text and '"input"' not in r.text
+    assert all("input" not in f or f.endswith(".input_name") for f in js["fields"])
 
 
 def test_malformed_json_is_422():

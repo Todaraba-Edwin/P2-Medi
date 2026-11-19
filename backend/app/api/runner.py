@@ -19,13 +19,14 @@ from app.agent.graph.nodes import GraphDeps
 from app.api.request import _YEARS_PER_UNIT, ConversationContext
 
 NodeUpdate = dict[str, Any]  # {노드 이름: 그 노드가 쓴 상태 갱신}
+ConfirmedInput = str | dict[str, str]  # 그래프 입력 `confirmed_item_seqs`의 원소(`router.confirmed_picks`가 읽는 두 모양)
 
 
 class ChatRunner(Protocol):
     """질문 하나를 끝까지 돌리며 노드 갱신을 차례로 내는 실행기(동기, 라우트가 스레드에서 돌린다)."""
 
     def updates(self, question: str, profile: dict[str, Any] | None,
-                confirmed_item_seqs: Sequence[str] = ()) -> Iterable[NodeUpdate]: ...
+                confirmed_item_seqs: Sequence[ConfirmedInput] = ()) -> Iterable[NodeUpdate]: ...
 
 
 class GraphRunner:
@@ -41,7 +42,7 @@ class GraphRunner:
         return cls(lambda: graph)
 
     def updates(self, question: str, profile: dict[str, Any] | None,
-                confirmed_item_seqs: Sequence[str] = ()) -> Iterator[NodeUpdate]:
+                confirmed_item_seqs: Sequence[ConfirmedInput] = ()) -> Iterator[NodeUpdate]:
         state = initial_state(question, profile, confirmed_item_seqs)
         for chunk in self._graph_factory().stream(state, stream_mode="updates"):
             if isinstance(chunk, dict):
@@ -62,16 +63,21 @@ def profile_from_context(context: ConversationContext) -> dict[str, Any] | None:
     return {"age_years": age_years, "pregnant": context.pregnant}
 
 
-def confirmed_from_context(context: ConversationContext) -> list[str]:
-    """요청 묶음의 고른 약 → 그래프 입력 `confirmed_item_seqs`(AG-05-03 A). 품목기준코드가 있는 것만, 보낸 순서대로(중복 제거).
+def confirmed_from_context(context: ConversationContext) -> list[ConfirmedInput]:
+    """요청 묶음의 고른 약 → 그래프 입력 `confirmed_item_seqs`(AG-05-03 A, FE-09-05 A). 품목기준코드가 있는 것만, 보낸 순서대로(중복 제거).
 
-    약 이름은 그래프로 넘기지 않는다(확정은 코드로만 하고, 이름은 화면 표시용이다). 코드가 없는 항목은 지금처럼 쓰지 않는다.
+    - `input_name`이 없으면 품목기준코드 문자열(이전과 같은 값).
+    - `input_name`이 있으면 `{"item_seq": ..., "input_name": ...}`(묶음 이름으로 매칭). 같은 코드라도 묶음 이름이 다르면 따로 남긴다.
+    표시용 약 이름(`name`)은 그래프로 넘기지 않는다(확정은 코드로만 한다). 코드가 없는 항목은 지금처럼 쓰지 않는다.
     """
-    out: list[str] = []
+    out: list[ConfirmedInput] = []
     for drug in context.confirmed_drugs:
-        if drug.item_seq and drug.item_seq not in out:
-            out.append(drug.item_seq)
+        if not drug.item_seq:
+            continue
+        v: ConfirmedInput = {"item_seq": drug.item_seq, "input_name": drug.input_name} if drug.input_name else drug.item_seq
+        if v not in out:
+            out.append(v)
     return out
 
 
-__all__ = ["ChatRunner", "GraphRunner", "NodeUpdate", "confirmed_from_context", "profile_from_context"]
+__all__ = ["ChatRunner", "ConfirmedInput", "GraphRunner", "NodeUpdate", "confirmed_from_context", "profile_from_context"]
