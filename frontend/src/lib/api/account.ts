@@ -20,15 +20,15 @@
 //   422 `INVALID_REQUEST`·`PROFILE_LIMIT`·`MEDICATION_LIMIT`·`HEALTH_CONSENT_REQUIRED`(BE-11-25 A, fields=건강 정보 칸) /
 //   501 `NOT_IMPLEMENTED`(검증기·저장소 미설정, 원격 스키마 적용 전. BE-11-23 A) / 503 `AUTH_UNAVAILABLE`(BE-11-20 A)·`ACCOUNT_UNAVAILABLE`
 //
-// 백엔드에 **없는** 것(MSW 목으로만 있다. `src/mocks/account-handlers.ts`)
-// - 백엔드 없음: `POST /api/auth/email/login`·`POST /api/auth/email/signup`·`POST /api/auth/logout`·`GET /api/auth/{provider}/start`.
-//   로그인은 Supabase Auth가 맡을 자리이고(`@supabase/ssr` 전환은 별도 지시, 지시서 할 일 5) 그때 이 네 함수만 바꾼다
-// - 백엔드 없음: 인증 전달. 실제 계약은 `Authorization: Bearer <Supabase access token>`인데 이 모듈은 아직 토큰을 붙이지 않는다.
-//   그래서 실제 백엔드 모드에서는 `GET /api/me`가 늘 401이고(게스트), 계정 진입점은 목 모드에서만 보인다(FE-04-02 A, `isAccountEntryEnabled`).
-//   목은 핸들러 메모리의 세션으로 로그인 여부를 흉내 낸다
-// `NEXT_PUBLIC_*`에는 어떤 키도 더하지 않았다(Supabase JS를 브라우저에 직접 붙이지 않는다).
+// 로그인(백엔드에 엔드포인트가 없다: Supabase Auth가 맡는다. PRD-01-09 A′·BE-11-18 A, `./auth.ts`)
+// - Supabase 설정(`NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`)이 있으면 `@supabase/ssr`로 로그인한다:
+//   이메일(가입·로그인), Google·Kakao(`signInWithOAuth` → `/auth/callback`), 로그아웃. Naver는 준비 중이다
+// - 인증 전달: 세션이 있으면 모든 계정 호출에 `Authorization: Bearer <access token>`을 붙인다(`call`). 토큰은 머리에만 쓰고 남기지 않는다
+// - MSW 목 모드에서는 Supabase를 쓰지 않는다: `POST /api/auth/email/login`·`signup`·`POST /api/auth/logout`·`GET /api/auth/{provider}/start`
+//   (`src/mocks/account-handlers.ts`, 핸들러 메모리의 세션)로 로그인 여부를 흉내 낸다. 이 주소들은 실제 백엔드에 없다
+// - 계정 진입점은 목 모드이거나 Supabase 설정이 있을 때만 보인다(FE-04-02 A·FE-04-05 A, `isAccountEntryEnabled`)
 import { z } from "zod";
-import { isApiMockingEnabled } from "@/mocks";
+import { AuthError, authMode, getAccessToken, hasAuthSession, signInWithEmail, signInWithProvider, signOut, signUpWithEmail } from "./auth";
 import { apiClient, resolveApiBase } from "./client";
 import type { components } from "./generated";
 import { ErrorBodySchema } from "./schemas";
@@ -180,9 +180,13 @@ export class AccountApiError extends Error {
 type Method = "get" | "post" | "patch" | "delete";
 
 async function call(method: Method, path: string, json?: unknown): Promise<Response> {
+  // 로그인해 있으면 토큰을 붙인다(백엔드 `security/auth.py`가 JWKS로 검증한다). 게스트·목 모드는 붙이지 않는다
+  const token = await getAccessToken();
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
   let response: Response;
   try {
-    response = await apiClient(path, { method, prefix: resolveApiBase(), json, headers: { Accept: "application/json" } });
+    response = await apiClient(path, { method, prefix: resolveApiBase(), json, headers });
   } catch {
     throw new AccountApiError("network", 0, null);
   }
@@ -209,8 +213,10 @@ async function done(response: Response): Promise<void> {
 /**
  * 로그인한 사용자. 비로그인(401)이면 null이다.
  * 501(검증기·저장소 미설정)·503(`AUTH_UNAVAILABLE`·`ACCOUNT_UNAVAILABLE`)은 로그아웃이 아니므로 null로 바꾸지 않고 던진다(BE-11-20 A).
+ * Supabase 로그인 방식에서 세션이 없으면 게스트가 확실하므로 서버를 부르지 않는다(토큰 없는 호출은 늘 401이다).
  */
 export async function fetchMe(): Promise<Me | null> {
+  if (authMode() === "supabase" && !(await hasAuthSession())) return null;
   const response = await call("get", "me");
   if (response.status === 401) return null;
   return read(response, MeSchema);
@@ -252,52 +258,83 @@ export async function deleteProfile(profileId: string): Promise<void> {
   await done(await call("delete", `profiles/${encodeURIComponent(profileId)}`));
 }
 
-/** 탈퇴 */
+/** 탈퇴. 서버가 프로필·복용 약·동의 기록을 지운 뒤 이 브라우저의 로그인 세션도 끝낸다 */
 export async function deleteMe(): Promise<void> {
   await done(await call("delete", "me"));
+  if (authMode() === "supabase") await signOut();
 }
 
-// ---------------------------------------------------------------- 호출(백엔드 없음: MSW 목 전용. 로그인 전환 때 이 묶음만 바꾼다)
-/** 백엔드 없음(목) */
+// ---------------------------------------------------------------- 로그인(Supabase Auth. 목 모드에서는 MSW 목 주소)
+/** 로그인 방식이 없다(목도 아니고 Supabase 설정도 없다). 계정 진입점이 숨어 있어 닿지 않는 길이다 */
+const noAuth = () => new AccountApiError("http", 501, "NOT_IMPLEMENTED");
+
+/** Supabase 로그인 실패를 계정 오류로 바꾼다: 코드만 싣고 입력 값은 싣지 않는다. 연결 실패(`status` 0)는 `network`다 */
+async function viaSupabase<T>(task: () => Promise<T>): Promise<T> {
+  try {
+    return await task();
+  } catch (error) {
+    if (!(error instanceof AuthError)) throw new AccountApiError("network", 0, null);
+    throw error.status === 0 && error.code === "AUTH_FAILED" ? new AccountApiError("network", 0, null) : new AccountApiError("http", error.status, error.code);
+  }
+}
+
 export async function loginWithEmail(email: string, password: string): Promise<void> {
+  const mode = authMode();
+  if (mode === "supabase") return viaSupabase(() => signInWithEmail(email, password));
+  if (mode === "none") throw noAuth();
   await done(await call("post", "auth/email/login", { email, password }));
 }
 
-/** 백엔드 없음(목) */
-export async function signupWithEmail(email: string, password: string): Promise<void> {
+/**
+ * 이메일 가입. `confirm_email`이면 아직 로그인되지 않았다: 확인 메일의 링크를 눌러야 한다(Supabase 프로젝트가 이메일 확인을 요구할 때).
+ * 목은 늘 바로 로그인된다.
+ */
+export async function signupWithEmail(email: string, password: string): Promise<"signed_in" | "confirm_email"> {
+  const mode = authMode();
+  if (mode === "supabase") return viaSupabase(() => signUpWithEmail(email, password));
+  if (mode === "none") throw noAuth();
   await done(await call("post", "auth/email/signup", { email, password }));
+  return "signed_in";
 }
 
-/** 백엔드 없음(목) */
 export async function logout(): Promise<void> {
+  if (authMode() === "supabase") return signOut();
   await done(await call("post", "auth/logout"));
 }
 
-/** 백엔드 없음(목): 소셜 로그인 시작 주소 */
+/** 목 전용: 소셜 로그인 시작 주소(실제 백엔드에는 없다) */
 export function socialLoginUrl(provider: SocialProvider): string {
   return `${resolveApiBase().replace(/\/+$/, "")}/auth/${provider}/start`;
 }
 
 /**
- * 백엔드 없음(목): 소셜 로그인을 시작한다.
- * - MSW 목: 워커는 페이지 이동(navigate)을 가로채지 않으므로 같은 주소를 fetch로 불러 목 세션만 만든다(`completed`).
- * - 그 밖: 시작 주소로 페이지를 옮긴다(`redirected`). 실제 백엔드에는 이 주소가 없고, 계정 진입점이 목 모드에서만 보이므로 닿지 않는 길이다.
+ * 소셜 로그인(Google·Kakao)을 시작한다.
+ * - Supabase: 공급자 동의 화면으로 페이지를 옮긴다(`redirected`). 동의가 끝나면 `/auth/callback`이 세션을 만들고 첫 화면으로 돌려보낸다
+ * - MSW 목: 워커는 페이지 이동(navigate)을 가로채지 않으므로 목 주소를 fetch로 불러 목 세션만 만든다(`completed`)
  */
 export async function startSocialLogin(provider: SocialProvider): Promise<"redirected" | "completed"> {
-  if (isApiMockingEnabled()) {
-    await done(await call("get", `auth/${provider}/start`));
-    return "completed";
+  const mode = authMode();
+  if (mode === "supabase") {
+    await viaSupabase(() => signInWithProvider(provider));
+    return "redirected";
   }
-  window.location.assign(socialLoginUrl(provider));
-  return "redirected";
+  if (mode === "none") throw noAuth();
+  await done(await call("get", `auth/${provider}/start`));
+  return "completed";
+}
+
+/** 로그인 세션(Supabase)이 있는가. `GET /api/me`가 501·503이어도 로그인 여부는 이 값으로 안다. 목은 늘 false다 */
+export async function hasSession(): Promise<boolean> {
+  return hasAuthSession();
 }
 
 /**
- * 계정 진입점(`로그인/가입`·사이드바 계정 자리·`GET /api/me` 부트스트랩)을 켤지(FE-04-02 A, 사용자 결정 2026-11-19).
- * 목 모드(`NEXT_PUBLIC_API_MOCKING=enabled`)에서만 켠다: 실제 백엔드에는 아직 로그인 길이 없어 눌러도 로그인할 수 없기 때문이다.
+ * 계정 진입점(`로그인/가입`·사이드바 계정 자리·시작 화면 진입 선택·`GET /api/me` 부트스트랩)을 켤지(FE-04-02 A·FE-04-05 A).
+ * 로그인할 길이 있을 때만 켠다: 목 모드(`NEXT_PUBLIC_API_MOCKING=enabled`)이거나 Supabase 설정 두 값이 모두 있을 때다.
+ * 둘 다 아니면 눌러도 로그인할 수 없으므로 숨긴다(질문은 입력창으로 바로 할 수 있다).
  */
 export function isAccountEntryEnabled(): boolean {
-  return isApiMockingEnabled();
+  return authMode() !== "none";
 }
 
 /** 스토어가 받는 API 묶음(시험에서 바꿔 끼운다) */
@@ -314,6 +351,7 @@ export interface AccountApi {
   signupWithEmail: typeof signupWithEmail;
   logout: typeof logout;
   startSocialLogin: typeof startSocialLogin;
+  hasSession: typeof hasSession;
 }
 
 export const accountApi: AccountApi = {
@@ -329,4 +367,5 @@ export const accountApi: AccountApi = {
   signupWithEmail,
   logout,
   startSocialLogin,
+  hasSession,
 };

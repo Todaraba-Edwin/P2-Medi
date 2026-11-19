@@ -90,9 +90,15 @@ describe("계약 값은 백엔드 코드와 같다(읽기만)", () => {
     const api = readFileSync(path.resolve(__dirname, "../../../backend/app/api/account.py"), "utf8") + readFileSync(path.resolve(__dirname, "../../../backend/app/security/auth.py"), "utf8");
     const parts = readFileSync(path.resolve(__dirname, "../features/account/parts.tsx"), "utf8");
     const mapped = [...(/const CODE_MESSAGES[^{]*\{([\s\S]*?)\n\};/.exec(parts)?.[1] ?? "").matchAll(/^\s+([A-Z_]+):/gm)].map((match) => match[1]);
-    const mockOnly = ["INVALID_CREDENTIALS", "EMAIL_TAKEN"]; // 백엔드 없음(목 로그인)
+    // 로그인·가입·소셜 콜백 코드는 백엔드가 아니라 로그인 모듈이 만든다(`lib/api/auth.ts`·`lib/supabase/callback.ts`, 목 로그인 포함)
+    const authOnly = ["INVALID_CREDENTIALS", "EMAIL_TAKEN", "EMAIL_NOT_CONFIRMED", "WEAK_PASSWORD", "EMAIL_SEND_FAILED", "AUTH_RATE_LIMITED", "AUTH_FAILED", "OAUTH_EMAIL_REQUIRED", "OAUTH_FAILED"];
+    const authSources = readFileSync(path.resolve(__dirname, "../lib/api/auth.ts"), "utf8") + readFileSync(path.resolve(__dirname, "../lib/supabase/callback.ts"), "utf8");
+    for (const code of authOnly) {
+      expect(mapped, code).toContain(code);
+      expect(authSources, code).toContain(`"${code}"`);
+    }
     expect(mapped).toEqual(expect.arrayContaining(["HEALTH_CONSENT_REQUIRED", "PROFILE_LIMIT", "MEDICATION_LIMIT", "SELF_REQUIRED", "NOT_IMPLEMENTED", "AUTH_UNAVAILABLE"]));
-    for (const code of mapped.filter((name) => !mockOnly.includes(name))) expect(api, code).toContain(`"${code}"`);
+    for (const code of mapped.filter((name) => !authOnly.includes(name))) expect(api, code).toContain(`"${code}"`);
   });
 });
 
@@ -450,13 +456,27 @@ describe("프로필: 본인 1 + 가족 최대 3", () => {
   });
 });
 
-describe("계정 진입점 스위치(FE-04-02 A)", () => {
-  it("목 모드(NEXT_PUBLIC_API_MOCKING=enabled)에서만 켜진다. 실제 백엔드 모드에서는 꺼진다", () => {
+describe("계정 진입점 스위치(FE-04-02 A·FE-04-05 A)", () => {
+  it("목 모드(NEXT_PUBLIC_API_MOCKING=enabled)이면 켜진다. 실제 백엔드 모드에서는 Supabase 설정 두 값이 다 있을 때만 켜진다", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "");
     expect(isAccountEntryEnabled()).toBe(true);
     vi.stubEnv("NEXT_PUBLIC_API_MOCKING", "");
-    expect(isAccountEntryEnabled()).toBe(false);
+    expect(isAccountEntryEnabled()).toBe(false); // 로그인할 길이 없으면 숨긴다
     vi.stubEnv("NEXT_PUBLIC_API_MOCKING", "true"); // "enabled"만 켠다
     expect(isAccountEntryEnabled()).toBe(false);
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:54399"); // 합성 값
+    expect(isAccountEntryEnabled()).toBe(false); // 하나만 있으면 설정된 것이 아니다
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "synthetic-publishable-key");
+    expect(isAccountEntryEnabled()).toBe(true);
+  });
+
+  it("로그인 콜백 실패(failLogin)는 로그인 화면을 열고 실패 코드만 남긴다. 닫으면 지워진다", () => {
+    const store = createAccountStore();
+    store.getState().failLogin("OAUTH_EMAIL_REQUIRED");
+    expect(store.getState()).toMatchObject({ status: "guest", flow: ["login"], failure: { kind: "http", code: "OAUTH_EMAIL_REQUIRED", fields: [] } });
+    store.getState().close();
+    expect(store.getState()).toMatchObject({ flow: [], failure: null });
   });
 });
 

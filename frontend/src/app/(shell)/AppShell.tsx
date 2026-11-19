@@ -9,6 +9,7 @@ import { ChatInput, ExampleChips, HomeHero } from "@/features/chat";
 import { EmergencyBanner, ExternalAiNotice, FixedNoticeBox, LegalFooter, StartEmergencyLink } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
 import { DISCLAIMER, START_EMERGENCY_119, START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
+import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation } from "@/lib/supabase/callback";
 import { cn } from "@/lib/utils";
 import { accountStore, hasHealthConsent, selectTargetProfile, useAccountStore } from "@/stores/account";
 import type { AccountStore } from "@/stores/account";
@@ -36,7 +37,7 @@ import { useViewportWidth } from "./useViewportWidth";
 export function AppShell({ store = chatStore, account = accountStore }: { store?: ChatStore; account?: AccountStore }) {
   const width = useViewportWidth();
   const member = useAccountStore((state) => state.status === "member", account);
-  // 계정 진입점 스위치(FE-04-02 A): 목 모드에서만 켠다. 꺼져 있으면 로그인/가입·계정 자리를 그리지 않고 `/api/me`도 부르지 않는다
+  // 계정 진입점 스위치(FE-04-02 A·FE-04-05 A): 로그인할 길(목 모드이거나 Supabase 설정)이 있을 때만 켠다. 꺼져 있으면 로그인/가입·계정 자리를 그리지 않고 `/api/me`도 부르지 않는다
   const accountEnabled = isAccountEntryEnabled();
   const profiles = useAccountStore((state) => state.profiles, account);
   const targetProfileId = useAccountStore((state) => state.targetProfileId, account);
@@ -53,9 +54,13 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   // 화면을 떠나면 진행 중인 요청을 끊는다
   useEffect(() => () => store.getState().abort(), [store]);
 
-  // 서버 세션이 있으면(소셜 로그인에서 돌아온 경우 등) 로그인 상태를 읽는다. 없거나 실패하면 게스트 그대로다
+  // 로그인 세션이 있으면(소셜 로그인에서 돌아온 경우·새로고침) 로그인 상태를 읽는다. 없거나 실패하면 게스트 그대로다.
+  // 로그인 콜백이 실패해 돌아왔으면(`?auth_error=`: 이메일 없는 카카오계정 등) 주소에서 표시를 지우고 로그인 화면에 안내를 보인다
   useEffect(() => {
-    if (accountEnabled) void account.getState().bootstrap();
+    if (!accountEnabled) return;
+    const authError = takeAuthErrorFromLocation();
+    if (authError) account.getState().failLogin(AUTH_CALLBACK_ERROR_CODES[authError]);
+    else void account.getState().bootstrap();
   }, [account, accountEnabled]);
 
   // 넓은 폭에서는 판정 줄이 있는 답이 도착하면 근거 상세를 연다(디자인 반영본). 여는 동작 안에서 사이드바 판정도 같이 한다

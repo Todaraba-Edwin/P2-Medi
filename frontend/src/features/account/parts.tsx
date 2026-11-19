@@ -8,8 +8,12 @@ import type { AccountFailure, AccountStore } from "@/stores/account";
 import {
   CANCEL_LABEL,
   ERROR_ACCOUNT_UNAVAILABLE,
+  ERROR_AUTH_FAILED,
+  ERROR_AUTH_RATE_LIMITED,
   ERROR_AUTH_REQUIRED,
   ERROR_AUTH_UNAVAILABLE,
+  ERROR_EMAIL_NOT_CONFIRMED,
+  ERROR_EMAIL_SEND_FAILED,
   ERROR_EMAIL_TAKEN,
   ERROR_GENERIC,
   ERROR_INVALID_CREDENTIALS,
@@ -18,6 +22,8 @@ import {
   ERROR_NETWORK,
   ERROR_NOT_FOUND,
   ERROR_NOT_IMPLEMENTED,
+  ERROR_OAUTH_EMAIL_REQUIRED,
+  ERROR_OAUTH_FAILED,
   ERROR_PROFILE_LIMIT,
   ERROR_RECONSENT_REQUIRED,
   ERROR_REQUIRED_CONSENT,
@@ -26,6 +32,7 @@ import {
   ERROR_SELF_REQUIRED,
   ERROR_USE_ACCOUNT_DELETE,
   ERROR_VERSION_MISMATCH,
+  ERROR_WEAK_PASSWORD,
   HEALTH_CONSENT_REQUIRED_FALLBACK,
 } from "./copy";
 
@@ -64,11 +71,22 @@ export function EmergencyEntrySlot({ className }: { className?: string }) {
   return emergencyEntry ? <div className={cn("flex", className)}>{emergencyEntry}</div> : null;
 }
 
-/** 서버 오류 코드 → 화면 글자(코드 목록은 `backend/app/api/account.py`·`backend/app/security/auth.py`). 문구는 화면 상수다(서버는 문구를 주지 않는다) */
+/**
+ * 오류 코드 → 화면 글자. 문구는 화면 상수다(서버는 문구를 주지 않는다).
+ * 백엔드 코드 목록은 `backend/app/api/account.py`·`backend/app/security/auth.py`, 로그인 코드는 `lib/api/auth.ts`·`lib/supabase/callback.ts`
+ */
 const CODE_MESSAGES: Readonly<Record<string, string>> = {
-  // 백엔드 없음(목 로그인)
+  // 로그인·가입(Supabase Auth·목 로그인. 백엔드 코드가 아니다)
   INVALID_CREDENTIALS: ERROR_INVALID_CREDENTIALS,
   EMAIL_TAKEN: ERROR_EMAIL_TAKEN,
+  EMAIL_NOT_CONFIRMED: ERROR_EMAIL_NOT_CONFIRMED,
+  WEAK_PASSWORD: ERROR_WEAK_PASSWORD,
+  EMAIL_SEND_FAILED: ERROR_EMAIL_SEND_FAILED,
+  AUTH_RATE_LIMITED: ERROR_AUTH_RATE_LIMITED,
+  AUTH_FAILED: ERROR_AUTH_FAILED,
+  // 소셜 로그인 콜백(`/auth/callback`)
+  OAUTH_EMAIL_REQUIRED: ERROR_OAUTH_EMAIL_REQUIRED,
+  OAUTH_FAILED: ERROR_OAUTH_FAILED,
   // 401
   AUTH_REQUIRED: ERROR_AUTH_REQUIRED,
   AUTH_INVALID: ERROR_AUTH_REQUIRED,
@@ -132,7 +150,7 @@ export interface ConfirmDialogProps {
   pending?: boolean;
 }
 
-/** 확인 모달(삭제·탈퇴). 버튼만 담는 header가 없고 취소가 먼저다. 계정 모달과 같은 자리(119 배너 아래)에 그린다 */
+/** 확인 모달(삭제·탈퇴·건강 정보 동의 철회). 버튼만 담는 header가 없고 취소가 먼저다. 계정 모달과 같은 자리(119 배너 아래)에 그린다 */
 export function ConfirmDialog({ open, onOpenChange, title, body, confirmLabel, onConfirm, pending = false }: ConfirmDialogProps) {
   const { container } = useAccountModal();
   return (

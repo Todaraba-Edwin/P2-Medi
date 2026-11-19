@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Mascot } from "@/components/Mascot";
 import { FAMILY_PROFILE_MAX } from "@/lib/api/account";
 import type { Profile } from "@/lib/api/account";
-import { canAddFamily, canAddSelf, familyProfiles, hasHealthConsent, useAccountStore } from "@/stores/account";
+import { accountUnavailable, canAddFamily, canAddSelf, familyProfiles, hasHealthConsent, useAccountStore } from "@/stores/account";
 import {
   ADD_SELF_LABEL,
   AGE_BAND_LABELS,
   DELETE_LABEL,
   DELETE_PROFILE_BODY,
   EDIT_LABEL,
+  ERROR_NOT_IMPLEMENTED,
   FAMILY_FULL_NOTE,
   HEALTH_CONSENT_REQUIRED_FALLBACK,
   LOGOUT_LABEL,
@@ -43,7 +44,7 @@ export function profileSummary(profile: Profile, healthConsent: boolean): string
   return parts.join(" · ");
 }
 
-/** 건강 정보 동의가 없을 때의 이유 한 줄. 서버는 이 문구를 주지 않으므로(계약에 없다) 화면 글자(초안)를 쓴다 */
+/** 건강 정보 동의가 없을 때의 이유 한 줄. 서버는 이 문구를 주지 않으므로(계약에 없다) 화면 글자를 쓴다 */
 export function useHealthConsentNotice(): string {
   return HEALTH_CONSENT_REQUIRED_FALLBACK;
 }
@@ -51,6 +52,8 @@ export function useHealthConsentNotice(): string {
 /**
  * 프로필 목록(S10 3·5단계): 본인 + 가족 최대 3명의 추가·수정·삭제, 동의 다시 보기, 로그아웃, 탈퇴.
  * 가족이 3명이면 추가 버튼이 비활성이다(4번째 추가 불가). 본인 프로필에는 삭제 버튼이 없다(서버가 409 `SELF_REQUIRED`로 막는다. 계정을 지우려면 탈퇴).
+ * 로그인은 했지만 계정 서버가 아직 답하지 못하면(501 미설정·503 장애, `me`가 null) 준비 중 안내와 로그아웃만 보인다:
+ * 눌러도 실패할 추가·동의·탈퇴 버튼은 그리지 않는다(BE-11-23 A).
  */
 export function ProfileList() {
   const { store, hideMascot } = useAccountModal();
@@ -59,6 +62,7 @@ export function ProfileList() {
   const pending = useAccountStore((state) => state.pending, store);
   const failure = useAccountStore((state) => state.failure, store);
   const healthConsent = hasHealthConsent(me);
+  const unavailable = useAccountStore(accountUnavailable, store);
   const healthNotice = useHealthConsentNotice();
   const [deleting, setDeleting] = useState<Profile | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
@@ -69,12 +73,17 @@ export function ProfileList() {
     <StepBody data-testid="profile-list">
       <StepTitle>{PROFILES_TITLE}</StepTitle>
       <p className="m-0 text-sm leading-5 text-ink-2">{PROFILES_DESCRIPTION}</p>
-      {!healthConsent && (
+      {unavailable && !failure && (
+        <p role="status" data-testid="account-unavailable" className="m-0 rounded-xl bg-bg-softer px-3 py-2 text-sm leading-5 text-ink-2 [word-break:keep-all]">
+          {ERROR_NOT_IMPLEMENTED}
+        </p>
+      )}
+      {!unavailable && !healthConsent && (
         <p data-testid="health-consent-notice" className="m-0 rounded-xl bg-bg-softer px-3 py-2 text-xs leading-[17px] text-ink-2">
           {healthNotice}
         </p>
       )}
-      {profiles.length === 0 ? (
+      {unavailable ? null : profiles.length === 0 ? (
         <p className="m-0 text-sm text-mute">{PROFILES_EMPTY}</p>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
@@ -101,31 +110,37 @@ export function ProfileList() {
         </ul>
       )}
       <FailureLine failure={failure} />
-      <div className="flex flex-wrap gap-2">
-        {canAddSelf(profiles) && (
-          <button type="button" data-testid="add-self" onClick={() => editProfile({ profileId: null, self: true })} className={PRIMARY_BUTTON}>
-            {ADD_SELF_LABEL}
+      {!unavailable && (
+        <div className="flex flex-wrap gap-2">
+          {canAddSelf(profiles) && (
+            <button type="button" data-testid="add-self" onClick={() => editProfile({ profileId: null, self: true })} className={PRIMARY_BUTTON}>
+              {ADD_SELF_LABEL}
+            </button>
+          )}
+          <button type="button" data-testid="add-family" disabled={!canAddFamily(profiles)} onClick={() => editProfile({ profileId: null, self: false })} className={SECONDARY_BUTTON}>
+            {addFamilyLabel(familyCount, FAMILY_PROFILE_MAX)}
           </button>
-        )}
-        <button type="button" data-testid="add-family" disabled={!canAddFamily(profiles)} onClick={() => editProfile({ profileId: null, self: false })} className={SECONDARY_BUTTON}>
-          {addFamilyLabel(familyCount, FAMILY_PROFILE_MAX)}
-        </button>
-      </div>
-      {!canAddFamily(profiles) && (
+        </div>
+      )}
+      {!unavailable && !canAddFamily(profiles) && (
         <p data-testid="family-full" className="m-0 text-xs leading-[17px] text-mute">
           {FAMILY_FULL_NOTE}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-x-1">
-        <button type="button" onClick={() => go("consent")} className={TEXT_BUTTON}>
-          {REVIEW_CONSENT_LABEL}
-        </button>
+        {!unavailable && (
+          <button type="button" onClick={() => go("consent")} className={TEXT_BUTTON}>
+            {REVIEW_CONSENT_LABEL}
+          </button>
+        )}
         <button type="button" disabled={pending} onClick={() => void logout()} className={TEXT_BUTTON}>
           {LOGOUT_LABEL}
         </button>
-        <button type="button" data-testid="withdraw" onClick={() => setWithdrawing(true)} className="min-h-11 rounded-full px-3 text-sm font-bold text-red-ink">
-          {WITHDRAW_LABEL}
-        </button>
+        {!unavailable && (
+          <button type="button" data-testid="withdraw" onClick={() => setWithdrawing(true)} className="min-h-11 rounded-full px-3 text-sm font-bold text-red-ink">
+            {WITHDRAW_LABEL}
+          </button>
+        )}
       </div>
       <EmergencyEntrySlot />
       <ConfirmDialog

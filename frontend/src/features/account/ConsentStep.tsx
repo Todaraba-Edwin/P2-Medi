@@ -9,6 +9,9 @@ import {
   CONSENT_REQUIRED_HINT,
   CONSENT_SUBMIT_LABEL,
   CONSENT_TITLE,
+  HEALTH_WITHDRAW_CONFIRM_BODY,
+  HEALTH_WITHDRAW_CONFIRM_LABEL,
+  HEALTH_WITHDRAW_CONFIRM_TITLE,
   HEALTH_WITHDRAW_WARNING,
   LEGAL_LOADING,
   LEGAL_LOAD_FAILED,
@@ -21,7 +24,7 @@ import {
   docVersionLine,
 } from "./copy";
 import { Markdown } from "./Markdown";
-import { EmergencyEntrySlot, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
+import { ConfirmDialog, EmergencyEntrySlot, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
 
 type Agreed = ConsentChoices;
 
@@ -30,6 +33,7 @@ type Agreed = ConsentChoices;
  * 필수 문서(이용약관·개인정보 수집·이용)에 모두 동의해야 다음으로 갈 수 있다. 선택 문서(건강 정보)는 동의하지 않아도 된다.
  * 고지 문서(`privacy_policy` 처리방침: 외부 AI 전송 안내가 여기 있다)는 **체크 없는 고지**로만 보이고 동의 항목에 들어가지 않는다(FE-04-03 A).
  * 법률 검토 전 문서(`legal_review: "not_reviewed"`)에는 "초안·법률 검토 전" 표지를 붙인다.
+ * 동의해 둔 건강 정보 동의를 끄고 보내려 하면 확인 모달을 먼저 띄운다(FE-04-06 A): 철회하면 서버가 건강 정보를 즉시 지우고 되돌릴 수 없다.
  */
 export function ConsentStep() {
   const { store } = useAccountModal();
@@ -41,6 +45,8 @@ export function ConsentStep() {
   const id = useId();
   /** 사용자가 이 화면에서 바꾼 값. 건드리지 않은 문서는 지금 유효한 동의 상태(`GET /me`의 `consents[]`)를 따른다 */
   const [touched, setTouched] = useState<Agreed>({});
+  /** 건강 정보 동의 철회 확인 모달이 열려 있는가 */
+  const [confirmingWithdraw, setConfirmingWithdraw] = useState(false);
 
   useEffect(() => {
     void store.getState().loadLegalDocs();
@@ -132,12 +138,26 @@ export function ConsentStep() {
         data-testid="consent-submit"
         disabled={!canSubmit}
         aria-describedby={ready && !requiredAgreed(docs, agreed) ? `${id}-hint` : undefined}
-        onClick={() => void store.getState().submitConsents(agreed)}
+        // 건강 정보 동의 철회가 섞여 있으면 바로 보내지 않고 확인을 받는다
+        onClick={() => (withdrawingHealth ? setConfirmingWithdraw(true) : void store.getState().submitConsents(agreed))}
         className={PRIMARY_BUTTON}
       >
         {CONSENT_SUBMIT_LABEL}
       </button>
       <EmergencyEntrySlot />
+      <ConfirmDialog
+        open={confirmingWithdraw}
+        onOpenChange={setConfirmingWithdraw}
+        title={HEALTH_WITHDRAW_CONFIRM_TITLE}
+        body={HEALTH_WITHDRAW_CONFIRM_BODY}
+        confirmLabel={HEALTH_WITHDRAW_CONFIRM_LABEL}
+        pending={pending}
+        onConfirm={() => {
+          // 확인 모달은 닫고 보낸다: 성공하면 프로필로 넘어가고, 실패하면 동의 화면에 오류 한 줄이 보인다
+          setConfirmingWithdraw(false);
+          void store.getState().submitConsents(agreed);
+        }}
+      />
     </StepBody>
   );
 }
