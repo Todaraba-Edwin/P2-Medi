@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +44,12 @@ from app.db.account_repo import (
 DB_DIR = Path(__file__).resolve().parent
 SCHEMA_FILE = DB_DIR / "schema_account.sql"
 SEED_FILE = DB_DIR / "seed_legal_v1.sql"
+SEED_V2_FILE = DB_DIR / "seed_legal_v2.sql"  # PRD-17-05 A: v2 행 추가(v1 유지)
+SEED_FILES = {1: SEED_FILE, 2: SEED_V2_FILE}
 _EFFECTIVE_PLACEHOLDER = "{{EFFECTIVE_AT}}"
+# 값이 아직 없는 자리표시({{PRIVACY_CONTACT}}, {{확인 필요: …}} 등). 승인 원문 머리의 안내 문구 `{{…}}`(말줄임표 한 글자)는
+# 자리표시가 아니라 본문 문장이므로 제외한다. 주석 줄(--)은 보지 않는다
+_PLACEHOLDER_RE = re.compile(r"\{\{(?!…\}\})[^{}\n]+\}\}")
 _RULE_CODES = ("PROFILE_LIMIT", "MEDICATION_LIMIT", "USE_ACCOUNT_DELETE", "CONSENT_REQUIRED:sensitive_consent",
                "PROFILE_OWNER_MISMATCH", "AUTH_REQUIRED", "DOCUMENT_FROZEN")
 
@@ -54,11 +60,29 @@ def schema_sql() -> str:
     return SCHEMA_FILE.read_text(encoding="utf-8")
 
 
-def seed_sql(effective_at: datetime) -> str:
-    """시드 SQL. 시행 시각은 시간대가 있는 datetime만 받는다(자리표시자에 임의 문자열을 끼우지 않는다)."""
+def seed_sql(effective_at: datetime, version: int = 1) -> str:
+    """약관 시드 SQL(`version` = 1 또는 2). 시행 시각은 시간대가 있는 datetime만 받는다(자리표시자에 임의 문자열을 끼우지 않는다).
+
+    `{{EFFECTIVE_AT}}`만 채운다. 그 밖의 자리표시는 그대로 남으므로 원격 게시 전에는 `assert_publishable()`을 거친다.
+    """
     if effective_at.tzinfo is None:
         raise ValueError("effective_at에는 시간대가 있어야 한다")
-    return SEED_FILE.read_text(encoding="utf-8").replace(_EFFECTIVE_PLACEHOLDER, effective_at.isoformat())
+    if version not in SEED_FILES:
+        raise ValueError(f"없는 시드 버전: {version}")
+    return SEED_FILES[version].read_text(encoding="utf-8").replace(_EFFECTIVE_PLACEHOLDER, effective_at.isoformat())
+
+
+def unfilled_placeholders(sql: str) -> list[str]:
+    """SQL(주석 줄 제외)에 남은 `{{…}}` 자리표시를 나온 순서대로(중복 제거) 돌려준다. `{{EFFECTIVE_AT}}`도 남아 있으면 포함한다."""
+    body = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
+    return list(dict.fromkeys(_PLACEHOLDER_RE.findall(body)))
+
+
+def assert_publishable(sql: str) -> None:
+    """자리표시가 남은 문서는 원격에 게시하지 않는다(PRD-17 ③). 원격 적용 스크립트가 실행 직전에 부른다. 로컬 시험은 부르지 않는다."""
+    left = unfilled_placeholders(sql)
+    if left:
+        raise ValueError(f"자리표시가 남아 원격 게시 불가: {', '.join(left)}")
 
 
 def _claims(user_id: str) -> str:
@@ -301,4 +325,5 @@ class PostgresAccountRepo:
         return await self._run("authenticated", user_id, q)
 
 
-__all__ = ["SCHEMA_FILE", "SEED_FILE", "PostgresAccountRepo", "schema_sql", "seed_sql"]
+__all__ = ["SCHEMA_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "PostgresAccountRepo", "assert_publishable", "schema_sql",
+           "seed_sql", "unfilled_placeholders"]
