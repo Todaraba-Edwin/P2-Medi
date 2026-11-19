@@ -26,7 +26,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.agent.fixed_phrases import CLARIFY_MANY_CANDIDATES, CLARIFY_MANY_DRUGS, CLARIFY_MANY_DRUGS_SEP, CLARIFY_ONE_CANDIDATE
+from app.agent.fixed_phrases import (
+    CLARIFY_MANY_CANDIDATES,
+    CLARIFY_MANY_DRUGS,
+    CLARIFY_MANY_DRUGS_SEP,
+    CLARIFY_ONE_CANDIDATE,
+    CLARIFY_PRIOR_PICK,
+)
 from app.tools.drug_dict import (
     MATCH_BM25,
     MATCH_CONTAINS,
@@ -245,6 +251,9 @@ _NUM_UNIT_RE = re.compile(
     r"등급|개|가지|명)$", re.IGNORECASE  # 숫자+분류사("3등급", "2개")는 약 이름이 아니다(AG-05 후속 2026-11-12)
 )
 _UNIT_ONLY_RE = re.compile(r"^(밀리그램|밀리그람|밀리리터|mg|mcg|μg|ug|ml|g|l)$", re.IGNORECASE)  # 용량 단위만 떨어져 나온 토큰
+# 시각 표현("15시", "3시반", "30분", "오후3시", "15:30")은 약 이름이 아니다(AG-21 ③, 2026-11-19: "15시에"가 NOT_FOUND 엔티티로 잡힌 사례).
+# 숫자로 시작하거나 오전·오후 같은 때 낱말 + 숫자인 꼴만 본다(숫자로 시작하는 약 이름 조각은 없다. 조사는 `_variants`가 뗀다).
+_TIME_RE = re.compile(r"^(?:오전|오후|새벽|아침|저녁|밤|낮)?\d{1,2}\s*(?:시반|시|분|초)$|^\d{1,2}:\d{2}(?::\d{2})?$")
 _AGE_YEAR_RE = re.compile(r"(\d{1,3})\s*(?:살|세)")
 _AGE_MONTH_RE = re.compile(r"(\d{1,3})\s*개월")
 _PREG_NEG_RE = re.compile(r"임신\s*(?:은\s*)?(?:하지\s*않|안\s*했|안\s*한|아니|중이\s*아니|가능성\s*없)")
@@ -284,7 +293,7 @@ _SYMPTOM_END_RE = re.compile(r"(염|통|증|감기|병|질환|장애)$")  # 증�
 
 def _is_noise(tok: str, dd: DrugDict | None = None) -> bool:
     vs = _variants(tok)
-    if len(tok) < 2 or any(_NUM_UNIT_RE.match(v) or _UNIT_ONLY_RE.match(v) or v in _STOP_WORDS for v in vs):
+    if len(tok) < 2 or any(_NUM_UNIT_RE.match(v) or _UNIT_ONLY_RE.match(v) or _TIME_RE.match(v) or v in _STOP_WORDS for v in vs):
         return True
     if re.fullmatch(r"[\d.,%/\-]+", tok):
         return True
@@ -692,7 +701,9 @@ def _entity(raw: str, r: LookupResult, strength: str | None = None) -> Entity:
 
 
 def _single_question(t: Entity) -> str:
-    """묶음이 1개일 때의 질문(FE-09 이전과 같은 글자)."""
+    """묶음이 1개일 때의 질문(FE-09 이전과 같은 글자). 첫 후보가 이전 차례 선택이면 확인 질문(AG-21-04 A)."""
+    if FLAG_PRIOR_PICK in t.flags and t.options:
+        return CLARIFY_PRIOR_PICK.format(drug=t.options[0].name)
     if t.status == ST_NOT_FOUND:  # 후보를 보여 주는 근거 없음(AG-05-02 A): "찾지 못했다"고 먼저 말하고 비슷한 이름만 묻는다(없다는 말이 안전하다는 뜻이 아니다)
         return f"'{t.raw}'은(는) 목록에서 찾지 못했어요. 혹시 아래 중에 찾으시는 약이 있나요? 없으면 약 이름을 다시 알려 주세요."
     if t.status == ST_TYPO:
@@ -792,6 +803,65 @@ def apply_confirmed(dd: DrugDict, e: Entity, seqs: list[str] | list[ConfirmedPic
         flags.append(FLAG_CODE_NOT_LINKED)
     return e.model_copy(update=dict(status=ST_RESOLVED, branch=BRANCH_NORMAL, matched_by=MATCHED_BY_PRODUCT, resolved=True,
                                     needs_clarification=False, code_status=c.code_status, item_seq=c.item_seq, flags=flags, options=[]))
+
+
+# --------------------------------------------------------------------------- 이전 차례에서 고른 약(AG-21-01 A·02 A·04 A)
+# `confirmed_drugs`(이번 질문의 되묻기 답)는 위 `apply_confirmed`로 바로 확정한다. 이전 차례에서 고른 약(`prior_drugs`)은 **확정에 쓰지 않고**,
+# 같은 이름이 다시 나오면 그 약을 첫 후보로 둔 확인 되묻기만 낸다(엔티티 상태는 그대로라 RESOLVED가 되지 않는다). 사용자가 고르면 다음 요청의
+# `confirmed_drugs`로 확정된다(기존 재전송 흐름). 매칭 규칙은 `apply_confirmed`와 같다(이름 있으면 `input_name`, 없으면 후보 집합).
+# 입력이 비어 있으면 이 절의 코드는 돌지 않는다(평가 경로·첫 차례 결과가 바이트 단위로 같다).
+
+FLAG_PRIOR_PICK = "PRIOR_PICK_ASKED"  # 이전 차례 선택을 첫 후보로 둔 확인 되묻기(엔티티는 확정하지 않음). 이벤트에는 개수만(`n_prior_asked`)
+
+_NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+# 이름 바로 뒤에 떨어져 온 숫자 중 개수·시각·나이를 세는 단위가 붙은 것("2정", "15시")은 함량 단서가 아니다(단위 없는 "500"은 단서다)
+_BARE_NUM_TAIL = (r"\s*(\d+(?:\.\d+)?)(?![\d.])"
+                  r"(?!\s*(?:정|알|포|캡슐|개|번|회|시|분|초|살|세|개월|일|주|병|방울|봉|스푼|숟가락|kg|키로))")
+
+
+def prior_picks(values: Any) -> list[ConfirmedPick]:
+    """이전 차례 선택 입력(`{"name", "item_seq", "input_name"}` 목록)을 `(input_name, item_seq)`로 정리한다(`confirmed_picks`와 같은 규칙).
+
+    `name`(표시 이름)은 읽지 않는다: 확인 질문의 약 이름은 사전이 돌려준 제품명을 쓴다(요청 글자를 화면 문구에 넣지 않는다)."""
+    return confirmed_picks(values)
+
+
+def strength_hint(text: str, token: str, e: Entity) -> tuple[str, ...]:
+    """질문에서 이 약 이름에 붙은 함량 숫자(조회 문자열·함량 표기 속 숫자, 없으면 이름 바로 뒤의 단위 없는 숫자 "타이레놀 500"). 판정에 쓰지 않는다."""
+    nums = [*_NUM_RE.findall(e.raw), *_NUM_RE.findall(e.strength or "")]
+    if not nums and token:
+        m = re.search(re.escape(token) + _BARE_NUM_TAIL, text or "")
+        if m:
+            nums.append(m.group(1))
+    return tuple(dict.fromkeys(nums))
+
+
+def _has_numbers(name: str, nums: tuple[str, ...]) -> bool:
+    have = set(_NUM_RE.findall(name))
+    return all(n in have for n in nums)
+
+
+def apply_prior(dd: DrugDict, e: Entity, picks: list[ConfirmedPick], hint: tuple[str, ...] = ()) -> Entity:
+    """확정되지 않은 엔티티의 후보에 이전 차례 선택이 있으면 그 약을 첫 후보로 올리고 `FLAG_PRIOR_PICK`을 붙인다(상태·후보 수는 그대로).
+
+    - 확정(RESOLVED)·후보 없는 엔티티, 이 엔티티의 후보가 아닌 코드, 다른 이름으로 고른 코드는 무시한다(`_seqs_for`).
+    - 함량 단서(`hint`)가 이전 선택 제품명의 숫자와 맞지 않으면 첫 후보로 올리지 않는다: 함량이 맞는 후보를 앞으로, 이전 선택을 뒤로 옮기고
+      꼬리표를 붙이지 않는다(일반 되묻기 문구). 후보 집합은 바꾸지 않는다(ctx-rca §4.3 끝)."""
+    if not picks or e.status == ST_RESOLVED or e.n_candidates == 0:
+        return e
+    mine = _seqs_for(e, picks)
+    if not mine:
+        return e
+    top_k = min(max(MAX_CLARIFY_OPTIONS, e.n_candidates), CONFIRM_LOOKUP_MAX)
+    by_seq = {c.item_seq: c for c in dd.lookup_name(e.raw, top_k=top_k).candidates if c.item_seq and c.matched_by == MATCHED_BY_PRODUCT}
+    c = next((by_seq[s] for s in reversed(mine) if s in by_seq), None)
+    if c is None:
+        return e
+    if hint and not _has_numbers(c.name, hint):
+        opts = sorted(e.options, key=lambda o: (o.item_seq == c.item_seq, not _has_numbers(o.name, hint)))  # 안정 정렬
+        return e.model_copy(update={"options": opts})
+    rest = [o for o in e.options if o.item_seq != c.item_seq]
+    return e.model_copy(update={"options": [_option(c), *rest][:MAX_CLARIFY_OPTIONS], "flags": [*e.flags, FLAG_PRIOR_PICK]})
 
 
 # --------------------------------------------------------------------------- 오탈자 보정(AG-10, FR-07, RFP-26-09 A)
@@ -938,7 +1008,7 @@ def note_entities(entities: list[Entity] | list[dict[str, Any]] | None) -> list[
 
 def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] | None = None, *,
                 emergency: bool = False, guardrail_route: str | None = None, confirmed_item_seqs: Any = None,
-                typo_correct: bool = False) -> RouterResult:
+                typo_correct: bool = False, prior_drugs: Any = None) -> RouterResult:
     """질문 하나를 정리한다. `emergency`·`guardrail_route`는 AG-08이 쓴 값을 읽어 그대로 돌려줄 뿐 결과에 영향이 없다.
 
     `typo_correct=True`이면 오탈자 의심 엔티티를 `correct_typo`로 보정해 본다(AG-10). 기본값 False는 지금까지와 같은 결과(되묻기)다.
@@ -946,8 +1016,12 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
 
     `confirmed_item_seqs`는 같은 대화의 되묻기에서 사용자가 고른 약이다(AG-05-03 A, `apply_confirmed`). 원소는 품목기준코드 문자열(이름 없음) 또는
     `{"item_seq", "input_name"}`(묶음 이름으로 매칭, FE-09-05 A)이다(`confirmed_picks`). 비어 있으면 지금과 같다
-    (평가 경로는 늘 비어 있다). 값은 상태·이벤트·로그에 그대로 옮기지 않는다(확정된 엔티티의 `item_seq`는 일반 확정과 같은 자리에 들어간다)."""
+    (평가 경로는 늘 비어 있다). 값은 상태·이벤트·로그에 그대로 옮기지 않는다(확정된 엔티티의 `item_seq`는 일반 확정과 같은 자리에 들어간다).
+
+    `prior_drugs`는 같은 대화의 **이전 차례**에서 고른 약(`{"name", "item_seq", "input_name"}` 목록, AG-21-02 A)이다. 확정에 쓰지 않고
+    같은 이름이 다시 나오면 확인 되묻기만 낸다(`apply_prior`). 비어 있으면 지금과 같다(평가 경로는 늘 비어 있다)."""
     seqs = confirmed_picks(confirmed_item_seqs)
+    priors = prior_picks(prior_drugs)
     mentions = extract_mention_details(text, dd)
     truncated = len(mentions) > MAX_DRUGS
     mentions = mentions[:MAX_DRUGS]
@@ -959,6 +1033,8 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
         e = apply_confirmed(dd, _entity(used, r, strength), seqs)
         if typo_correct:
             e = correct_typo(dd, e)
+        if priors:
+            e = apply_prior(dd, e, priors, strength_hint(text, m.token, e))
         if e.item_seq and e.status == ST_RESOLVED:  # 같은 제품을 두 번 말한 경우(예: 약어와 정식명)는 한 번만
             if e.item_seq in seen_seq:
                 continue

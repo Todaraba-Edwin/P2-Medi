@@ -59,6 +59,9 @@ class AgentState(TypedDict, total=False):
     # AG-05-03 A: 되묻기에서 고른 약(요청 묶음에서 옴, 표시용 약 이름은 싣지 않는다). 어느 노드도 쓰지 않는다. 원소는 품목기준코드 문자열 또는
     # `{"item_seq", "input_name"}`(되묻기 묶음 이름으로 매칭, FE-09-05 A, `router.confirmed_picks`)
     confirmed_item_seqs: list[str | dict[str, str]]
+    # AG-21-02 A: 같은 대화의 이전 차례에서 고른 약(`{"name", "item_seq", "input_name"}`). 확정에 쓰지 않고 확인 되묻기에만 쓴다
+    # (`router.apply_prior`). 어느 노드도 쓰지 않는 입력 전용 키다
+    prior_drugs: list[dict[str, str]]
     # guardrail_in(AG-08)
     emergency: Annotated[bool, _or]
     route: Annotated[str, _sticky_route]

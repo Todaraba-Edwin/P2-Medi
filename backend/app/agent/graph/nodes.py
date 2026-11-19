@@ -30,7 +30,7 @@ from app.agent.graph.state import (
     AgentState,
     restrict_update,
 )
-from app.agent.router import FLAG_USER_CONFIRMED, corrections_of, note_entities, route_input
+from app.agent.router import FLAG_PRIOR_PICK, FLAG_USER_CONFIRMED, corrections_of, note_entities, route_input
 from app.agent.sentence_filter import filter_sentences
 from app.agent.tools.context import ToolContext
 from app.agent.tools.registry import REGISTRY, ToolSpec, invoke
@@ -173,13 +173,16 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
 
     def router(state: AgentState) -> dict[str, Any]:
         confirmed = state.get("confirmed_item_seqs")  # AG-05-03 A: 되묻기에서 고른 약(입력 전용, 평가 경로에는 없다)
+        prior = state.get("prior_drugs")  # AG-21-02 A: 이전 차례에서 고른 약(입력 전용, 확인 되묻기에만 쓴다. 평가 경로에는 없다)
         res = route_input(_question_of(state), deps.drug_dict, state.get("profile"),
                           emergency=bool(state.get("emergency")), guardrail_route=state.get("route"), confirmed_item_seqs=confirmed,
-                          typo_correct=deps.typo_correct)
+                          typo_correct=deps.typo_correct, prior_drugs=prior)
         upd = res.state_update()
         ev: dict[str, Any] = {"rule": "H11", "event": "ROUTER", "branch": res.branch_label, "ambiguous": res.ambiguous, "n_entities": len(res.entities)}
         if confirmed:  # 개수만 남긴다(코드·이름 없음)
             ev["n_confirmed"] = sum(FLAG_USER_CONFIRMED in e.flags for e in res.entities)
+        if prior:  # 개수만 남긴다(코드·이름 없음). 입력이 비면 이 키가 없다(이벤트 모양 그대로)
+            ev["n_prior_asked"] = sum(FLAG_PRIOR_PICK in e.flags for e in res.entities)
         n_corrected = sum(1 for e in res.entities if e.corrected_from)
         if n_corrected:  # 개수만 남긴다(이름 없음). 보정 기능이 꺼져 있으면 이 키가 없다
             ev["n_corrected"] = n_corrected
