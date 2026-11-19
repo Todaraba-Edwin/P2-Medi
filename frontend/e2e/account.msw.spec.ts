@@ -117,26 +117,40 @@ for (const width of [360, 1280]) {
       await expect(modal(page).locator("input")).toHaveCount(0);
       await expect(modal(page).getByRole("button", { name: "이메일로 가입하기" })).toHaveCount(0);
       await expect(modal(page).getByRole("button", { name: "로그인", exact: true })).toHaveCount(0);
-      await expect(modal(page).getByRole("button")).toHaveText(["닫기", "", "", "로그인 없이 계속하기"]);
-      const social = modal(page).getByRole("group", { name: "간편 로그인" });
-      const google = social.getByRole("button", { name: "Google로 로그인" });
-      const kakao = social.getByRole("button", { name: "카카오로 로그인" });
-      // 공식 로고 그림이 떴고, 누르는 영역 48px 이상·간격 16px 이상·가로 가운데다
+      await expect(modal(page).getByRole("button")).toHaveText(["닫기", "Google로 계속하기", "카카오 로그인", "로그인 없이 계속하기"]);
+      await expect(modal(page)).not.toContainText("간편 로그인");
+      const social = modal(page).getByRole("group", { name: "다른 방법으로 로그인" });
+      const google = social.getByRole("button", { name: "Google로 계속하기" });
+      const kakao = social.getByRole("button", { name: "카카오 로그인" });
+      // 사양 변경(사용자 지시 2026-11-19 FE-04e): 가로로 꽉 찬 "공식 로고 + 글자" 버튼이 세로로 놓인다
+      const groupBox = (await social.boundingBox())!;
       for (const button of [google, kakao]) {
-        await expect.poll(() => button.locator("img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+        const logo = button.locator("img");
+        await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+        await expect(logo).toHaveAttribute("alt", "");
         const box = (await button.boundingBox())!;
-        expect(box.width).toBeGreaterThanOrEqual(48);
-        expect(box.height).toBeGreaterThanOrEqual(48);
+        expect(box.height).toBeGreaterThanOrEqual(MIN_TOUCH);
+        expect(Math.abs(box.width - groupBox.width)).toBeLessThanOrEqual(1); // 가로로 꽉 찬다
         expect(await button.evaluate((el) => getComputedStyle(el).cursor)).toBe("pointer");
+        // 로고 18~20px·비율 1:1(바꾸지 않는다), 글자 왼쪽에 8px 이상 떨어져 있다
+        const logoBox = (await logo.boundingBox())!;
+        expect(logoBox.width).toBeGreaterThanOrEqual(18);
+        expect(logoBox.width).toBeLessThanOrEqual(20);
+        expect(logoBox.width / logoBox.height).toBeCloseTo(1, 2);
+        const textLeft = await button.evaluate((el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el.lastChild!);
+          return range.getBoundingClientRect().left;
+        });
+        expect(textLeft - (logoBox.x + logoBox.width)).toBeGreaterThanOrEqual(8 - 0.5);
       }
       const googleBox = (await google.boundingBox())!;
       const kakaoBox = (await kakao.boundingBox())!;
-      const groupBox = (await social.boundingBox())!;
-      expect(kakaoBox.x - (googleBox.x + googleBox.width)).toBeGreaterThanOrEqual(16);
-      expect(Math.abs((googleBox.x + kakaoBox.x + kakaoBox.width) / 2 - (groupBox.x + groupBox.width / 2))).toBeLessThanOrEqual(1);
-      // 로고 비율을 바꾸지 않는다(Google 1:1, 카카오 축약형 112:46)
-      expect(await google.locator("img").evaluate((image: HTMLImageElement) => image.clientWidth / image.clientHeight)).toBeCloseTo(1, 2);
-      expect(await kakao.locator("img").evaluate((image: HTMLImageElement) => image.clientWidth / image.clientHeight)).toBeCloseTo(112 / 46, 2);
+      expect(kakaoBox.y).toBeGreaterThanOrEqual(googleBox.y + googleBox.height); // 세로 목록
+      // 회사 가이드 색: Google 흰 바탕, Kakao 노랑 #FEE500 컨테이너·모서리 12px
+      expect(await google.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 255, 255)");
+      expect(await kakao.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(254, 229, 0)");
+      expect(await kakao.evaluate((el) => getComputedStyle(el).borderRadius)).toBe("12px");
       await expectHoverChanges(page, google, "boxShadow");
       // 키보드로 가면 초점 윤곽선이 보인다(포커스 링 유지)
       await closeButton(page).focus();

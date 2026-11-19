@@ -20,7 +20,7 @@ export const HOVER_TEXT_DANGER = "transition-colors enabled:hover:bg-combo-bg en
 export const HOVER_DANGER = "transition-colors enabled:hover:bg-red-ink enabled:active:bg-red-ink";
 /** 칩(예시 질문·동작 칩) */
 export const HOVER_CHIP = "transition-colors enabled:hover:border-line-2 enabled:hover:bg-bg-soft enabled:active:bg-tint";
-/** 회사 로고 그림이 곧 버튼 면인 소셜 로그인 버튼: 로고 색은 바꾸지 않고 그림자·밝기만 조금 바뀐다 */
+/** 회사가 바탕색을 정한 소셜 로그인 버튼: 바탕·글자·로고 색은 바꾸지 않고 그림자·밝기만 조금 바뀐다 */
 export const HOVER_SOCIAL = "transition-[box-shadow,filter] enabled:hover:shadow-md enabled:hover:brightness-95 enabled:active:brightness-90";
 /** 누르는 영역(버튼)보다 보이는 면(안쪽 요소)이 작은 버튼: 버튼에 `group`을 주고 안쪽 요소에 붙인다 */
 export const HOVER_INNER_PRIMARY = "transition-[filter] group-enabled:group-hover:brightness-95 group-enabled:group-active:brightness-90";
@@ -33,5 +33,5 @@ export const DANGER_TEXT_BUTTON = `min-h-11 rounded-full px-3 text-sm font-bold 
 export const DANGER_BUTTON = `min-h-11 rounded-full bg-red px-3 text-sm font-bold text-bg disabled:opacity-60 ${HOVER_DANGER}`;
 /** 아이콘만 있는 둥근 버튼(닫기·지우기). 누르는 영역 44×44 */
 export const ICON_BUTTON = `grid size-11 flex-none place-items-center rounded-full ${HOVER_ROW}`;
-/** 소셜 로그인 버튼: 누르는 영역 48×48 이상, 면은 안의 공식 로고 그림이다. 처리 중에는 흐려진다 */
-export const SOCIAL_BUTTON = `grid min-h-12 min-w-12 flex-none place-items-center disabled:opacity-50 ${HOVER_SOCIAL}`;
+/** 소셜 로그인 버튼: 가로로 꽉 찬 "로고 + 글자" 버튼(높이 48px, 모서리 12px). 바탕·테두리·글자 색은 회사 가이드 값이라 쓰는 곳이 준다. 처리 중에는 흐려진다 */
+export const SOCIAL_BUTTON = `flex min-h-12 w-full items-center justify-center rounded-xl px-4 text-sm font-bold disabled:opacity-50 ${HOVER_SOCIAL}`;
