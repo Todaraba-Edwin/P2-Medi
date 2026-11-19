@@ -1,5 +1,6 @@
 // 계정 스토어(Zustand, 메모리 전용. persist를 쓰지 않는다: FE-01-08 A, FE-04 할 일 6).
-// 로그인 상태·동의·프로필(건강 정보 포함)은 이 메모리에만 있고 새로고침하면 사라진다. 브라우저 저장소·쿠키·콘솔에 남기지 않는다.
+// 동의·프로필(건강 정보 포함)은 이 메모리에만 있고 새로고침하면 사라진다. 이 스토어는 브라우저 저장소·쿠키·콘솔에 아무것도 남기지 않는다.
+// 로그인 세션만 로그인 모듈(`@/lib/api/auth`)의 기본 동작(쿠키)으로 남고, 새로고침하면 `bootstrap()`이 그 세션으로 서버 값을 다시 읽는다.
 // 서버 호출은 `@/lib/api/account`(BE-11 계약) 한 곳을 거친다.
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
@@ -30,9 +31,16 @@ export interface ProfileFormTarget {
 
 export type LegalDocsStatus = "idle" | "loading" | "ready" | "failed";
 
+/** `signup-confirm`: 가입 확인 메일을 보냈고 아직 로그인되지 않았다 */
+export type AccountNotice = "signup-confirm";
+
 export interface AccountState {
   /** 로그인 여부. 게스트가 기본이고 게스트는 아무것도 저장하지 않는다 */
   status: "guest" | "member";
+  /**
+   * 서버가 아는 계정 상태. 로그인했어도 계정 서버가 아직 답하지 못하면(501 미설정·503 장애) null이다:
+   * 그때는 로그인 표시·로그아웃만 되고 동의·프로필은 서버가 답한 뒤에 쓸 수 있다(BE-11-20 A·BE-11-23 A)
+   */
   me: Me | null;
   profiles: Profile[];
   legalDocs: LegalDoc[];
@@ -44,11 +52,15 @@ export interface AccountState {
   form: ProfileFormTarget | null;
   pending: boolean;
   failure: AccountFailure | null;
+  /** 오류가 아닌 안내 한 줄(가입 확인 메일을 보냈다). 단계를 옮기거나 닫으면 지운다 */
+  notice: AccountNotice | null;
   /** 시작 화면에서 "게스트로 시작"을 눌렀다(진입 선택을 접는다) */
   entryDismissed: boolean;
 
-  /** 화면이 뜰 때 한 번: 서버 세션이 있으면 로그인 상태로 만든다. 실패는 조용히 게스트로 둔다 */
+  /** 화면이 뜰 때 한 번: 로그인 세션이 있으면 로그인 상태로 만든다. 실패해도 오류를 띄우지 않고 지금 상태를 지킨다 */
   bootstrap: () => Promise<void>;
+  /** 로그인 콜백이 실패해 돌아왔다: 로그인 화면을 열고 실패 코드에 맞는 안내를 보인다 */
+  failLogin: (code: string) => void;
   startGuest: () => void;
   /** 계정 모달을 연다: 게스트 → 로그인, 동의 전 → 동의, 그 밖 → 프로필 */
   open: () => void;
@@ -79,6 +91,12 @@ function toFailure(error: unknown): AccountFailure {
   if (error instanceof AccountApiError) return { kind: error.kind, status: error.status, code: error.code, fields: error.fields };
   return { kind: "unknown", status: 0, code: null, fields: [] };
 }
+
+/** 계정 서버가 아직 답하지 못한다(501 미설정·503 장애). 로그아웃이 아니다(BE-11-20 A) */
+const isServiceDown = (error: unknown) => error instanceof AccountApiError && error.kind === "http" && (error.status === 501 || error.status === 503);
+
+/** 로그인은 했지만 계정 서버가 답하지 못해 동의·프로필을 아직 쓸 수 없는가 */
+export const accountUnavailable = (state: Pick<AccountState, "status" | "me">) => state.status === "member" && state.me === null;
 
 // ---------------------------------------------------------------- 상태에서 읽는 값(순수 함수)
 /** 건강 정보(임신 여부·복용 약)를 지금 저장할 수 있는가(서버 값 `health_consent_active`: 동의 + 재동의 대기 아님) */
@@ -170,9 +188,26 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
       }
     };
 
+    /**
+     * 로그인 세션은 있는데 계정 서버가 답하지 못했을 때(501·503): 로그인 상태만 보인다(`me`는 null).
+     * 이미 로그인 상태면 그대로 두고, 세션이 없으면 아무것도 바꾸지 않는다. 로그인 상태가 됐으면 true
+     */
+    const keepSignedIn = async (): Promise<boolean> => {
+      if (get().status === "member") return true;
+      if (!(await api.hasSession().catch(() => false))) return false;
+      set({ ...guest, status: "member" });
+      return true;
+    };
+
     /** 로그인에 성공한 뒤: `/api/me`를 반영하고 다음 단계로 간다 */
     const afterLogin = async () => {
-      if (!(await refreshSession())) throw new AccountApiError("http", 401, null);
+      try {
+        if (!(await refreshSession())) throw new AccountApiError("http", 401, null);
+      } catch (error) {
+        // 로그인은 됐는데 계정 서버가 준비 전이면 로그인 화면에 붙잡아 두지 않는다: 프로필 화면에서 준비 중 안내를 보인다
+        if (isServiceDown(error) && (await keepSignedIn())) set({ flow: ["profiles"] });
+        throw error;
+      }
       const consentFirst = needsConsentStep(get().me);
       set((state) => ({ flow: consentFirst ? [...state.flow, "consent"] : ["profiles"] }));
     };
@@ -184,27 +219,34 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
       flow: [],
       pending: false,
       failure: null,
+      notice: null,
       entryDismissed: false,
 
       bootstrap: async () => {
         try {
           await refreshSession();
-        } catch {
-          /* 서버가 없거나 501(미설정)·503(검증 서버 장애)이면 지금 상태 그대로 둔다: 오류를 띄우지도, 로그아웃시키지도 않는다(BE-11-20 A) */
+        } catch (error) {
+          // 서버가 없거나 501(미설정)·503(검증 서버 장애)이면 오류를 띄우지도, 로그아웃시키지도 않는다(BE-11-20 A).
+          // 로그인 세션이 있으면 로그인 상태만 보인다(계정 표시·로그아웃은 되고 동의·프로필은 서버가 답한 뒤에)
+          if (isServiceDown(error)) await keepSignedIn();
         }
       },
+
+      failLogin: (code) => set({ flow: ["login"], form: null, notice: null, failure: { kind: "http", status: 400, code, fields: [] } }),
 
       startGuest: () => set({ entryDismissed: true }),
 
       open: () => {
         const { status, me } = get();
         const first: AccountStep = status !== "member" ? "login" : needsConsentStep(me) ? "consent" : "profiles";
-        set({ flow: [first], failure: null, form: null });
+        set({ flow: [first], failure: null, notice: null, form: null });
+        // 로그인했는데 계정 서버 값이 아직 없으면 다시 읽어 본다(그 사이 서버가 준비됐을 수 있다)
+        if (accountUnavailable(get())) void get().bootstrap();
       },
-      close: () => set({ flow: [], failure: null, form: null }),
-      back: () => set((state) => (state.flow.length > 1 ? { flow: state.flow.slice(0, -1), failure: null } : state)),
-      go: (step) => set((state) => ({ flow: [...state.flow, step], failure: null })),
-      editProfile: (target) => set((state) => ({ form: target, flow: [...state.flow, "profile-form"], failure: null })),
+      close: () => set({ flow: [], failure: null, notice: null, form: null }),
+      back: () => set((state) => (state.flow.length > 1 ? { flow: state.flow.slice(0, -1), failure: null, notice: null } : state)),
+      go: (step) => set((state) => ({ flow: [...state.flow, step], failure: null, notice: null })),
+      editProfile: (target) => set((state) => ({ form: target, flow: [...state.flow, "profile-form"], failure: null, notice: null })),
 
       loginEmail: (email, password) =>
         run(async () => {
@@ -214,13 +256,15 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
 
       signupEmail: (email, password) =>
         run(async () => {
-          await api.signupWithEmail(email, password);
-          await afterLogin();
+          set({ notice: null });
+          // 이메일 확인이 필요하면 아직 로그인되지 않았다: 가입 화면에 남아 안내만 보인다
+          if ((await api.signupWithEmail(email, password)) === "confirm_email") set({ notice: "signup-confirm" });
+          else await afterLogin();
         }),
 
       loginSocial: (provider) =>
         run(async () => {
-          // `redirected`면 페이지가 옮겨 간다. 돌아온 뒤 `bootstrap()`이 상태를 읽는다
+          // `redirected`면 공급자 동의 화면으로 페이지가 옮겨 간다. `/auth/callback`을 거쳐 돌아온 뒤 `bootstrap()`이 상태를 읽는다
           if ((await api.startSocialLogin(provider)) === "completed") await afterLogin();
         }),
 

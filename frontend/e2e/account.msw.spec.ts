@@ -5,7 +5,8 @@ import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, e
 
 // 계정 흐름(FE-04) e2e. Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다.
 // 서버는 브라우저 워커의 목(src/mocks/account-handlers.ts, BE-11 계약과 같은 모양)이고 실제 백엔드·원격 호출은 0이다.
-// 계정 진입점은 이 목 모드에서만 보인다(FE-04-02 A). 실제 백엔드 모드에서 숨는 것은 `account-switch.spec.ts`(app 프로젝트)가 본다.
+// 계정 진입점은 목 모드이거나 Supabase 설정이 있을 때 보인다(FE-04-02 A·FE-04-05 A). 설정이 없는 실제 백엔드 모드에서 숨는 것은 `account-switch.spec.ts`(app 프로젝트)가 본다.
+// 실제 OAuth 왕복(Google·Kakao 동의 화면)은 e2e에서 하지 않는다: 소셜 로그인은 목 세션으로, 콜백 실패는 `/auth/callback`에 오류 값을 붙여 들어가 본다.
 // 캡처: `FE04_SHOT_DIR`을 주면 그 폴더에 `*-fe04.png`를 남긴다(로컬 전용 `data/mock/fe-issue-shots`. 주지 않으면 찍지 않는다).
 const SHOT_DIR = process.env.FE04_SHOT_DIR;
 const shot = async (page: Page, name: string) => {
@@ -211,6 +212,101 @@ for (const width of [360, 1280]) {
         for (const secret of ["user@example.com", "pw-1234", "가나다정", "첫째", "합성 질문", "y19_64", "pregnan", "00000000-0000-4000"]) expect(text).not.toContain(secret);
       }
       expect(stored.indexed).toEqual([]);
+    });
+  });
+}
+
+for (const width of [360, 1280]) {
+  test.describe(`소셜 로그인(목)·콜백 실패 안내·건강 정보 동의 철회 확인 ${width}px`, () => {
+    test.use({ viewport: { width, height: HEIGHT } });
+
+    test("카카오 로그인(목) → 동의 → 건강 정보 저장 → 철회는 확인 모달을 거친다 → 로그아웃", async ({ page }) => {
+      const consentPosts: unknown[] = [];
+      page.on("request", (request) => {
+        if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/api/consents")) consentPosts.push(request.postDataJSON());
+      });
+      await openApp(page);
+      await page.getByTestId("login-entry").click();
+      await expect(modal(page).getByTestId("social-google")).toBeEnabled();
+      await modal(page).getByTestId("social-kakao").click(); // 목: 페이지를 옮기지 않고 목 세션만 만든다
+      await expect(modal(page)).toHaveAttribute("data-step", "consent");
+      const agree = (docType: string) => modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox");
+      for (const docType of ["terms", "privacy_consent", "sensitive_consent"]) await agree(docType).check();
+      await modal(page).getByTestId("consent-submit").click();
+      await expect(modal(page)).toHaveAttribute("data-step", "profiles");
+      await expect(page.getByTestId("confirm-dialog")).toHaveCount(0); // 새로 동의할 때는 확인 모달이 없다
+      await modal(page).getByTestId("add-self").click();
+      await modal(page).getByLabel("이름(별명)").fill("나");
+      await modal(page).getByRole("radio", { name: "예" }).check();
+      await modal(page).getByTestId("profile-save").click();
+      await expect(modal(page).getByTestId("profile-item")).toContainText("임신 여부 예");
+
+      // ---- 건강 정보 동의 철회: 확인 모달(FE-04-06 A)
+      await modal(page).getByRole("button", { name: "동의 내용 보기" }).click();
+      await expect(modal(page)).toHaveAttribute("data-step", "consent");
+      await agree("sensitive_consent").uncheck();
+      await expect(modal(page).getByTestId("health-withdraw-warning")).toBeVisible();
+      await modal(page).getByTestId("consent-submit").click();
+      const confirm = page.getByTestId("confirm-dialog");
+      await expect(confirm).toBeVisible();
+      await expect(confirm).toHaveAttribute("role", "alertdialog");
+      await expect(confirm).toContainText("건강 정보 동의를 철회할까요?");
+      await expect(confirm).toContainText("되돌릴 수 없어요");
+      await expect(confirm.getByRole("button")).toHaveText(["취소", "철회하기"]);
+      for (const button of await confirm.getByRole("button").all()) await expectTouchTarget(button);
+      const box = (await confirm.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width + 0.5);
+      await expectNoHorizontalScroll(page);
+      await shot(page, "health-withdraw-confirm");
+      // 취소: 보내지 않고 동의 화면에 남는다
+      await confirm.getByRole("button", { name: "취소" }).click();
+      await expect(confirm).toHaveCount(0);
+      await expect(modal(page)).toHaveAttribute("data-step", "consent");
+      expect(consentPosts).toHaveLength(1);
+      // 확인: 철회되고 건강 정보가 사라진다
+      await modal(page).getByTestId("consent-submit").click();
+      await page.getByTestId("confirm-dialog").getByRole("button", { name: "철회하기" }).click();
+      await expect(modal(page)).toHaveAttribute("data-step", "profiles");
+      await expect(page.getByTestId("confirm-dialog")).toHaveCount(0);
+      expect(consentPosts).toHaveLength(2);
+      expect(consentPosts[1]).toEqual({ channel: "settings", items: [{ doc_type: "sensitive_consent", version: 1, action: "withdraw" }] });
+      await expect(modal(page).getByTestId("profile-item")).not.toContainText("임신 여부");
+      await expect(modal(page).getByTestId("health-consent-notice")).toBeVisible();
+
+      // ---- 로그아웃: 게스트로 돌아가고 모달이 닫힌다
+      await modal(page).getByRole("button", { name: "로그아웃" }).click();
+      await expect(modal(page)).toHaveCount(0);
+      await expect(page.getByTestId("target-picker")).toHaveCount(0);
+      await expect(page.getByTestId("login-entry")).toBeVisible();
+    });
+
+    test("이메일 없는 카카오계정으로 콜백이 돌아오면 로그인 화면에 고정 문구로 안내하고, 주소에서 표시를 지운다. 질문은 그대로 된다", async ({ page }) => {
+      // Supabase가 콜백에 붙여 주는 오류 모양(값은 합성). 라우트가 짧은 표시(`auth_error`)로 줄여 첫 화면으로 돌려보낸다
+      await page.goto("/auth/callback?error=server_error&error_code=unexpected_failure&error_description=Error+getting+user+email+from+external+provider");
+      await expect(page.getByTestId("app-shell")).toHaveAttribute("data-ready", "true");
+      await expect(modal(page)).toHaveAttribute("data-step", "login");
+      await expect(modal(page).getByTestId("account-error")).toHaveText("카카오계정에 이메일이 없거나 동의하지 않으면 로그인할 수 없어요. 다른 방법으로 로그인하거나 로그인 없이 쓰세요.");
+      await expect.poll(() => page.url()).not.toContain("auth_error");
+      expect(new URL(page.url()).pathname).toBe("/");
+      await expectModalFits(page);
+      await shot(page, "login-kakao-email-required");
+      // 다른 방법이 열려 있다
+      await expect(modal(page).getByTestId("social-google")).toBeEnabled();
+      await modal(page).getByRole("button", { name: "로그인 없이 계속하기" }).click();
+      await expect(modal(page)).toHaveCount(0);
+      await ask(page, "합성 질문");
+      await expect(page.getByTestId("result-card")).toBeVisible();
+      // 새로고침해도 안내가 다시 뜨지 않는다
+      await page.reload();
+      await expect(page.getByTestId("app-shell")).toHaveAttribute("data-ready", "true");
+      await expect(modal(page)).toHaveCount(0);
+    });
+
+    test("그 밖의 콜백 실패(동의 취소 등)는 일반 안내다", async ({ page }) => {
+      await page.goto("/auth/callback?error=access_denied&error_description=synthetic+denied");
+      await expect(modal(page)).toHaveAttribute("data-step", "login");
+      await expect(modal(page).getByTestId("account-error")).toHaveText("로그인을 마치지 못했어요. 다시 시도하거나 로그인 없이 쓰세요.");
     });
   });
 }

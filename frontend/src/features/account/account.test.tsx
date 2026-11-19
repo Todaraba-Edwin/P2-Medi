@@ -9,6 +9,7 @@ import { START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
 import type { Profile } from "@/lib/api/account";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { MOCK_LEGAL_DOCS } from "@/mocks/fixtures/account";
+import { accountApi } from "@/lib/api/account";
 import { createAccountStore } from "@/stores/account";
 import type { AccountStore } from "@/stores/account";
 import { AccountModal, openAccountModal } from "./AccountModal";
@@ -39,9 +40,8 @@ const step = () => modal().getAttribute("data-step");
 const docItem = (docType: string) => modal().querySelector<HTMLElement>(`[data-doc-type="${docType}"]`)!;
 const check = (docType: string) => within(docItem(docType)).getByRole("checkbox");
 
-function setup() {
+function setup(store: AccountStore = createAccountStore()) {
   const user = userEvent.setup();
-  const store: AccountStore = createAccountStore();
   render(
     <>
       <button type="button" onClick={() => openAccountModal(store)}>
@@ -159,6 +159,35 @@ describe("로그인 화면", () => {
     expect(store.getState()).toMatchObject({ status: "member", me: { onboarding_step: "consent" } });
   });
 
+  it("소셜 로그인 콜백이 실패해 돌아오면 로그인 화면에 고정 문구로 안내한다(이메일 없는 카카오계정, BE-11-16 B)", async () => {
+    const { store } = setup();
+    store.getState().failLogin("OAUTH_EMAIL_REQUIRED");
+    await screen.findByTestId("account-modal");
+    expect(step()).toBe("login");
+    expect(screen.getByTestId("account-error")).toHaveTextContent("카카오계정에 이메일이 없거나 동의하지 않으면 로그인할 수 없어요. 다른 방법으로 로그인하거나 로그인 없이 쓰세요.");
+    expect(screen.getByTestId("account-error")).toHaveTextContent(copy.ERROR_OAUTH_EMAIL_REQUIRED);
+    // 다른 길이 그대로 열려 있다: 이메일·Google·로그인 없이 계속하기
+    expect(screen.getByRole("button", { name: "Google로 계속하기" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "로그인 없이 계속하기" })).toBeEnabled();
+    store.getState().failLogin("OAUTH_FAILED");
+    await waitFor(() => expect(screen.getByTestId("account-error")).toHaveTextContent(copy.ERROR_OAUTH_FAILED));
+  });
+
+  it("가입 뒤 이메일 확인이 필요하면 가입 화면에 안내 한 줄이 보이고 로그인 상태가 되지 않는다", async () => {
+    const { user, store } = setup(createAccountStore({ api: { ...accountApi, signupWithEmail: async () => "confirm_email" } }));
+    await user.click(screen.getByRole("button", { name: "프로필 저장" }));
+    await user.click(screen.getByRole("button", { name: "이메일로 가입하기" }));
+    await user.type(screen.getByLabelText("이메일"), "user@example.com");
+    await user.type(screen.getByLabelText("비밀번호"), "pw-1234");
+    await user.click(screen.getByRole("button", { name: "가입하기" }));
+    expect(await screen.findByTestId("signup-confirm-notice")).toHaveTextContent(copy.SIGNUP_CONFIRM_NOTICE);
+    expect(screen.getByTestId("signup-confirm-notice")).toHaveAttribute("role", "status");
+    expect(step()).toBe("signup");
+    expect(store.getState().status).toBe("guest");
+    await user.click(screen.getByRole("button", { name: "뒤로" }));
+    expect(screen.queryByTestId("signup-confirm-notice")).toBeNull();
+  });
+
   it("'로그인 없이 계속하기'는 모달을 닫고 게스트로 둔다", async () => {
     const { user, store } = setup();
     await user.click(screen.getByRole("button", { name: "프로필 저장" }));
@@ -237,7 +266,7 @@ describe("약관 동의 화면", () => {
     expect(submit).toBeDisabled();
   });
 
-  it("동의해 둔 건강 정보 동의를 끄면 삭제 경고가 보이고, 보내면 철회되어 건강 정보가 지워진다", async () => {
+  it("동의해 둔 건강 정보 동의를 끄면 삭제 경고가 보이고, 확인 모달을 거쳐야 철회되어 건강 정보가 지워진다(FE-04-06 A)", async () => {
     const { user, store } = setup();
     await login(user);
     await consent(user, { health: true });
@@ -252,11 +281,46 @@ describe("약관 동의 화면", () => {
     expect(screen.queryByTestId("health-withdraw-warning")).toBeNull();
     await user.click(check("sensitive_consent"));
     expect(screen.getByTestId("health-withdraw-warning")).toHaveTextContent(copy.HEALTH_WITHDRAW_WARNING);
+    const requests: string[] = [];
+    server.events.on("request:start", ({ request }) => {
+      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/api/consents")) requests.push(request.url);
+    });
+    // 누르면 바로 보내지 않고 확인 모달이 뜬다(삭제·탈퇴와 같은 패턴: alertdialog, 취소가 먼저, 되돌릴 수 없음 명시)
     await user.click(screen.getByTestId("consent-submit"));
+    const dialog = screen.getByTestId("confirm-dialog");
+    expect(dialog).toHaveAttribute("role", "alertdialog");
+    expect(dialog).toHaveAccessibleName("건강 정보 동의를 철회할까요?");
+    expect(dialog).toHaveTextContent("저장해 둔 임신 여부와 복용 중인 약이 바로 삭제되고 되돌릴 수 없어요.");
+    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["취소", "철회하기"]);
+    // 취소하면 아무것도 보내지 않고 동의 화면에 그대로 있다(건강 정보도 그대로)
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).toBeNull());
+    expect(step()).toBe("consent");
+    expect(requests).toEqual([]);
+    expect(store.getState().me?.health_consent_active).toBe(true);
+    expect(store.getState().profiles[0]).toMatchObject({ pregnancy_status: "pregnant" });
+    // 확인하면 철회된다
+    await user.click(screen.getByTestId("consent-submit"));
+    await user.click(within(screen.getByTestId("confirm-dialog")).getByRole("button", { name: "철회하기" }));
     await waitFor(() => expect(step()).toBe("profiles"));
+    server.events.removeAllListeners();
+    expect(requests).toHaveLength(1);
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
     expect(store.getState().me?.health_consent_active).toBe(false);
     expect(store.getState().profiles[0]).toMatchObject({ label: "나", pregnancy_status: null, medications: [] });
     expect(screen.getByTestId("health-consent-notice")).toBeVisible();
+  });
+
+  it("철회가 섞이지 않은 동의(새로 동의·그대로)는 확인 모달 없이 보낸다", async () => {
+    const { user } = setup();
+    await login(user);
+    await consent(user, { health: false });
+    await user.click(screen.getByRole("button", { name: "동의 내용 보기" }));
+    await waitFor(() => expect(step()).toBe("consent"));
+    await user.click(check("sensitive_consent")); // 새로 동의
+    await user.click(screen.getByTestId("consent-submit"));
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
+    await waitFor(() => expect(step()).toBe("profiles"));
   });
 
   it("동의 화면의 `<`는 로그인으로 돌아간다", async () => {
@@ -372,6 +436,22 @@ describe("프로필 화면", () => {
     expect(store.getState().profiles).toEqual([]);
   });
 
+  it("로그인은 했지만 계정 서버가 준비 전(501)이면 준비 중 안내와 로그아웃만 보인다(추가·동의·탈퇴 버튼 없음)", async () => {
+    server.use(http.get("*/api/me", () => HttpResponse.json({ code: "NOT_IMPLEMENTED", fields: [] }, { status: 501 })));
+    const store = createAccountStore({ api: { ...accountApi, hasSession: async () => true } });
+    const { user } = setup(store);
+    await store.getState().bootstrap();
+    expect(store.getState()).toMatchObject({ status: "member", me: null });
+    await user.click(screen.getByRole("button", { name: "프로필 저장" }));
+    expect(step()).toBe("profiles");
+    expect(screen.getByTestId("account-unavailable")).toHaveTextContent(copy.ERROR_NOT_IMPLEMENTED);
+    for (const testId of ["add-self", "add-family", "withdraw", "health-consent-notice", "account-error"]) expect(screen.queryByTestId(testId), testId).toBeNull();
+    expect(screen.queryByRole("button", { name: "동의 내용 보기" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "로그아웃" }));
+    await waitFor(() => expect(store.getState().status).toBe("guest"));
+    await waitFor(() => expect(screen.queryByTestId("account-modal")).toBeNull());
+  });
+
   it("탈퇴는 확인 모달을 거치고, 끝나면 게스트로 돌아가 모달이 닫힌다", async () => {
     const { user, store } = setup();
     await login(user);
@@ -411,6 +491,16 @@ describe("오류 코드 → 화면 문구(서버는 문구를 주지 않는다: 
     [501, "NOT_IMPLEMENTED", copy.ERROR_NOT_IMPLEMENTED],
     [503, "AUTH_UNAVAILABLE", copy.ERROR_AUTH_UNAVAILABLE],
     [503, "ACCOUNT_UNAVAILABLE", copy.ERROR_ACCOUNT_UNAVAILABLE],
+    // 로그인·가입·소셜 콜백(백엔드 코드가 아니다)
+    [400, "INVALID_CREDENTIALS", copy.ERROR_INVALID_CREDENTIALS],
+    [400, "EMAIL_NOT_CONFIRMED", copy.ERROR_EMAIL_NOT_CONFIRMED],
+    [422, "EMAIL_TAKEN", copy.ERROR_EMAIL_TAKEN],
+    [422, "WEAK_PASSWORD", copy.ERROR_WEAK_PASSWORD],
+    [429, "EMAIL_SEND_FAILED", copy.ERROR_EMAIL_SEND_FAILED],
+    [429, "AUTH_RATE_LIMITED", copy.ERROR_AUTH_RATE_LIMITED],
+    [500, "AUTH_FAILED", copy.ERROR_AUTH_FAILED],
+    [400, "OAUTH_EMAIL_REQUIRED", copy.ERROR_OAUTH_EMAIL_REQUIRED],
+    [400, "OAUTH_FAILED", copy.ERROR_OAUTH_FAILED],
   ])("%i %s", (status, code, text) => {
     expect(failureMessage(failure(status, code))).toBe(text);
     expect(text.length).toBeGreaterThan(0);
@@ -451,19 +541,28 @@ describe("브라우저 저장소 미사용(FE-01-08 A)", () => {
     expect(document.cookie).toBe("");
   });
 
-  it("계정 코드(화면·스토어·API 모듈)는 브라우저 저장소·쿠키·persist·Supabase 클라이언트를 쓰지 않는다", () => {
+  it("계정 코드(화면·스토어·API·로그인 모듈)는 브라우저 저장소·쿠키·persist를 직접 쓰지 않고, 화면·스토어는 Supabase 클라이언트를 직접 쓰지 않는다", () => {
     const src = path.resolve(__dirname, "../..");
-    const files = [
+    const strip = (file: string) => readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""); // 주석 제외
+    // 화면·스토어: 로그인은 `lib/api/account.ts`의 함수로만 한다
+    const screens = [
       ...readdirSync(__dirname).filter((name) => /\.tsx?$/.test(name) && !name.includes(".test.")).map((name) => path.join(__dirname, name)),
       path.join(src, "stores/account.ts"),
       path.join(src, "stores/profile-context.ts"),
-      path.join(src, "lib/api/account.ts"),
     ];
-    expect(files.length).toBeGreaterThanOrEqual(12);
-    for (const file of files) {
-      const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""); // 주석 제외
-      expect(code, file).not.toMatch(/localStorage|sessionStorage|indexedDB|document\.cookie|zustand\/middleware|supabase|readUiSetting|writeUiSetting/i);
-    }
+    expect(screens.length).toBeGreaterThanOrEqual(11);
+    for (const file of screens) expect(strip(file), file).not.toMatch(/supabase/i);
+    // 로그인 연결 모듈까지: 세션 쿠키는 `@supabase/ssr`의 기본 동작에만 맡기고 프런트 코드가 저장소·쿠키·콘솔에 직접 쓰지 않는다
+    const supabaseDir = path.join(src, "lib/supabase");
+    const all = [
+      ...screens,
+      path.join(src, "lib/api/account.ts"),
+      path.join(src, "lib/api/auth.ts"),
+      path.join(src, "app/auth/callback/route.ts"),
+      ...readdirSync(supabaseDir).filter((name) => !name.includes(".test.")).map((name) => path.join(supabaseDir, name)),
+    ];
+    expect(all.length).toBeGreaterThanOrEqual(18);
+    for (const file of all) expect(strip(file), file).not.toMatch(/localStorage|sessionStorage|indexedDB|document\.cookie|zustand\/middleware|console\.|readUiSetting|writeUiSetting/i);
   });
 });
 

@@ -29,8 +29,8 @@ export default defineConfig({
     {
       command: `pnpm exec next dev -p ${APP_PORT}`,
       url: `http://localhost:${APP_PORT}`,
-      // MSW는 끈다(빈 값). 프록시 대상만 준다
-      env: { MEDIAGENT_BACKEND_ORIGIN: `http://127.0.0.1:${FAKE_PORT}`, NEXT_PUBLIC_API_MOCKING: "" },
+      // MSW는 끈다(빈 값). 프록시 대상만 준다. Supabase 로그인 설정도 비운다(가짜 서버에는 계정 API가 없고 실제 Supabase를 부르지 않는다)
+      env: { MEDIAGENT_BACKEND_ORIGIN: `http://127.0.0.1:${FAKE_PORT}`, NEXT_PUBLIC_API_MOCKING: "", NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" },
       reuseExistingServer: false,
       timeout: 120_000,
     },

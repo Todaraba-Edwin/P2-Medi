@@ -19,6 +19,7 @@ import {
   NAVER_LABEL,
   NAVER_PENDING,
   PASSWORD_LABEL,
+  SIGNUP_CONFIRM_NOTICE,
   SIGNUP_ENTRY_LABEL,
   SIGNUP_SUBMIT_LABEL,
   SIGNUP_TITLE,
@@ -33,11 +34,14 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
  * 로그인·이메일 가입(S10 1단계). 넓으면 2열(왼쪽 소개, 오른쪽 폼), 모달 폭이 좁으면 1열로 쌓인다(PRD-13 §4.3, 가로 스크롤 없음).
  * 적은 이메일·비밀번호는 이 부품의 메모리에만 있고 어디에도 저장하지 않는다.
  * 소셜 로그인은 Google·Kakao이고 Naver는 버튼만 두고 비활성("준비 중")이다. Apple은 없다(사용자 결정 2026-11-18).
+ * Google·Kakao를 누르면 공급자 동의 화면으로 페이지가 옮겨 가고 `/auth/callback`을 거쳐 첫 화면으로 돌아온다(목 모드는 옮기지 않고 목 세션만 만든다).
+ * 콜백이 실패해 돌아오면(이메일 없는 카카오계정 등) 이 화면이 열리고 실패 안내가 보인다.
  */
 export function LoginStep({ mode }: { mode: "login" | "signup" }) {
   const { store, hideMascot } = useAccountModal();
   const pending = useAccountStore((state) => state.pending, store);
   const failure = useAccountStore((state) => state.failure, store);
+  const notice = useAccountStore((state) => state.notice, store);
   const id = useId();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -114,6 +118,11 @@ export function LoginStep({ mode }: { mode: "login" | "signup" }) {
             </p>
           )}
           <FailureLine failure={failure} />
+          {notice === "signup-confirm" && (
+            <p role="status" data-testid="signup-confirm-notice" className="m-0 rounded-xl bg-bg-softer px-3 py-2 text-sm leading-5 text-ink-2 [word-break:keep-all]">
+              {SIGNUP_CONFIRM_NOTICE}
+            </p>
+          )}
           <button type="submit" disabled={pending} className={PRIMARY_BUTTON}>
             {mode === "login" ? LOGIN_SUBMIT_LABEL : SIGNUP_SUBMIT_LABEL}
           </button>
