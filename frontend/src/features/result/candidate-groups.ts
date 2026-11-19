@@ -20,6 +20,9 @@ export function groupCandidates(candidates: readonly Candidate[]): CandidateGrou
   return groups;
 }
 
+/** 묶음 표지 글자(FE-10): 받은 순서대로 A·B·C… 색과 함께 쓰여 색만으로 구분하지 않게 한다 */
+export const groupLetter = (index: number) => String.fromCharCode(65 + index);
+
 /**
  * 다른 묶음에서 이미 고른 제품인가(FE-09-03 A). 품목기준코드(`item_seq`)가 같을 때만 같은 제품으로 본다(코드가 없는 후보는 막지 않는다).
  * 서버는 고른 코드가 어느 이름에서 왔는지 모르므로, 같은 코드를 두 묶음에서 고르지 못하게 화면이 막는다.

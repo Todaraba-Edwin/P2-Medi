@@ -15,6 +15,8 @@ export interface ResultViewProps {
   selectedCandidates?: CandidatePicks;
   /** 주면 약을 찾지 못한 줄(`input_name`이 있는 줄)이 있는 결과 카드 아래에 `이름 다시 입력` 칩을 둔다(PRD-14-03) */
   onRetryName?: () => void;
+  /** 되묻기 안내(`candidates_line`)를 조립하는 쪽이 다른 자리(여러 약 확인 줄의 첫 행, FE-10)에 그릴 때 `true`: 여기서는 그리지 않는다(두 번 보이지 않게) */
+  hideCandidatesLine?: boolean;
 }
 
 /**
@@ -23,7 +25,7 @@ export interface ResultViewProps {
  * 배너·고지·요약은 받은 글자를 가공 없이 그린다(요약에 용량 숫자를 만들거나 표로 쪼개지 않고, 고지 문장을 다시 조립하지 않는다, S8).
  * 고정 안내·고지·119·근거 상세는 FE-IMPL-05, 화면 조립은 FE-IMPL-06이 한다.
  */
-export function ResultView({ response, basis, footer, onPickCandidate, onOtherCandidate, selectedCandidates, onRetryName }: ResultViewProps) {
+export function ResultView({ response, basis, footer, onPickCandidate, onOtherCandidate, selectedCandidates, onRetryName, hideCandidatesLine = false }: ResultViewProps) {
   const showCandidates = response.end_reason === "CLARIFY" && response.candidates.length > 0 && onPickCandidate;
   // 약을 찾지 못한 줄: 서버가 사용자가 적은 이름(`input_name`)을 실어 보낸 줄(backend schemas.py의 미식별 판별과 같은 칸)
   const showRetry = onRetryName !== undefined && response.findings.some((finding) => finding.input_name !== null);
@@ -65,7 +67,7 @@ export function ResultView({ response, basis, footer, onPickCandidate, onOtherCa
         )}
         {showCandidates ? <CandidateCard candidates={response.candidates} onPick={onPickCandidate} onOther={onOtherCandidate} selected={selectedCandidates} /> : null}
         {/* 되묻기 카드 안내(서버 상수). 후보가 있을 때만 온다 */}
-        {response.candidates_line !== null && (
+        {response.candidates_line !== null && !hideCandidatesLine && (
           <p data-testid="candidates-line" className="m-0 px-1 text-xs leading-[17px] break-words text-mute">
             {response.candidates_line}
           </p>

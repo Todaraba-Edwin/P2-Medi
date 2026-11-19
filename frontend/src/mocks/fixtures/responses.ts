@@ -37,6 +37,7 @@ const DRUG_B = "라마바캡슐";
 const DRUG_C = "사아자시럽";
 const DRUG_AMBIGUOUS = "가나다";
 const DRUG_AMBIGUOUS_2 = "가나다시럽";
+const DRUG_AMBIGUOUS_3 = "라마바";
 const DRUG_UNKNOWN = "차카타파정";
 // 원인·중복 칸은 지금 서버처럼 `[]`·`false`(원인·중복 아님)를 분명히 싣는다. 칸이 없으면 "모름"이다(BE-06-40 A)
 const INGR_A = { code: "100001ATB", name: "가나성분", contra_kinds: [] as string[], dup: false };
@@ -928,6 +929,21 @@ export const clarifyMultiResponse = make({
     { input_name: DRUG_AMBIGUOUS_2, name: "가나다시럽", item_seq: "200000003", entp_name: "가상약품(주)", prescription: "일반의약품", matched_by: "product_name" },
     { input_name: DRUG_AMBIGUOUS_2, name: "가나다시럽 키즈", item_seq: "200000004", entp_name: "가상약품(주)", prescription: "일반의약품", matched_by: "product_name" },
     { input_name: DRUG_AMBIGUOUS_2, name: "가나다시럽 플러스", item_seq: "200000005", entp_name: "합성제약(주)", prescription: "전문의약품", matched_by: "product_name" },
+  ],
+});
+
+/**
+ * 되묻기(이름 셋이 모두 모호, FE-10): 묶음 셋(A·B·C). 2열 줄바꿈과 캡슐 3칸(흰|파|흰)을 보는 화면 시험용이다.
+ * 앞의 두 묶음은 `clarifyMultiResponse`와 같고, 셋째 묶음은 다른 제품 둘이다
+ */
+export const clarifyTripleResponse = make({
+  route: "AGENT",
+  end_reason: "CLARIFY",
+  summary: clarifyMultiQuestion([DRUG_AMBIGUOUS, DRUG_AMBIGUOUS_2, DRUG_AMBIGUOUS_3]),
+  candidates: [
+    ...clarifyMultiResponse.candidates,
+    { input_name: DRUG_AMBIGUOUS_3, name: "라마바캡슐 10밀리그램", item_seq: "200000006", entp_name: "합성제약(주)", prescription: "일반의약품", matched_by: "product_name" },
+    { input_name: DRUG_AMBIGUOUS_3, name: "라마바캡슐 20밀리그램", item_seq: "200000007", entp_name: "가상약품(주)", prescription: "전문의약품", matched_by: "product_name" },
   ],
 });
 
