@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .api import chat as chat_api
+from .api import drugs as drugs_api
 from .api import me as me_api
 from .api import service
 from .config import Settings, get_settings
@@ -41,6 +42,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if runner is not None:
         chat_api.set_runner(app, runner)
         service.start_warmup(runner, settings_now)  # BE-17-01 A: 백그라운드 스레드만 띄우고 기다리지 않는다(스위치 끔이면 안 띄움)
+    # FE-04-13 A: 프로필 약 검색은 채팅 자원의 사전을 공유한다(DB 추가 조회 0). 실행기가 없으면 공급자 없음 → 501
+    drugs_api.set_provider(app, runner.drug_dict if isinstance(runner, service.LazyGraphRunner) else None)
     auth.set_verifier(app, auth.build_verifier(settings_now))  # 접속 0. 설정이 모자라면 None → 토큰이 온 /me는 501
     yield
 
@@ -49,6 +52,7 @@ app = FastAPI(title="MediAgent", lifespan=lifespan)
 settings = get_settings()
 chat_api.register(app)  # POST /chat(BE-06, 설정이 갖춰지지 않으면 501), 요청 형식 오류 422. 게스트 허용, 토큰을 읽지 않는다
 me_api.register(app)  # BE-11 계정 API(chat 뒤에 등록: 요청 형식 오류 처리기를 계정 경로 분기로 바꾼다), 인증 오류 401·501·503
+drugs_api.register(app)  # POST /drugs/search 프로필 약 사전 검색(FE-04-13 A, 로그인 필요, 계정 오류 처리기 공유)
 
 
 @app.get("/health")

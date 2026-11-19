@@ -70,6 +70,16 @@ SERVICE_FIELDS = frozenset(
 PROMPT_SET_RE = re.compile(r"^prompt_set@v[0-9]{1,4}$")
 
 LABEL_MISSING_REASONS = ("ABSENT", "FETCH_FAIL", "SEARCH_MISS", "OUT_OF_SCOPE")  # PRD-11-04
+# BE-17-10 A: H2 검증 폴백(`VALIDATION_FALLBACK`) 사유 코드. validator 노드가 내는 코드 이름뿐이다(문장·질문 없음).
+# 목록에 없는 값은 이름을 남기지 않고 `OTHER`로 센다(새 코드가 생겨도 자유 문자열이 집계에 섞이지 않게). 목록은 시험이 validator와 맞춘다.
+H2_FALLBACK_REASONS = frozenset({
+    "SCHEMA_INVALID", "ALL_SENTENCES_FILTERED", "ALL_SENTENCES_DROPPED",
+    "SAFE_ASSERTION", "DOSE_CHANGE_OR_BYPASS", "GRADE_VALUE_INVALID", "M_NO_DETAIL", "M_CONVERTED", "FILE_API_CLAIM",
+    "MISSING_ADVICE_ABSENT", "MISSING_IMPLIES_NONE", "BAD_CLAIM_TYPE", "NUMBER_NOT_IN_EVIDENCE", "QUOTE_MISMATCH",
+    "GRADE_EXCEPTION_MISUSE", "UNCONFIRMED_AS_FACT", "REFERENCE_AS_VERDICT", "SOURCE_KIND_MISSING",
+    "CLAIM_LAYER_NOT_ALLOWED", "INGREDIENT_NOT_IN_EVIDENCE", "CLAIM_OMITTED",
+})  # fmt: skip
+H2_FALLBACK_OTHER = "OTHER"
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,127}$")  # 경로 이탈 방지
 
 
@@ -149,6 +159,13 @@ class Aggregator:
         with self._lock:
             self._roll()
             self._inc(f"label_missing.{reason}")
+
+    def h2_fallback(self, reason: object) -> None:
+        """BE-17-10 A: H2 폴백 사유 코드별 개수(`counts["h2_fallback.<코드>"]`). 목록 밖 값은 `OTHER`로만 센다(값을 남기지 않음)."""
+        code = reason if isinstance(reason, str) and reason in H2_FALLBACK_REASONS else H2_FALLBACK_OTHER
+        with self._lock:
+            self._roll()
+            self._inc(f"h2_fallback.{code}")
 
     def flush(self) -> dict[str, Any] | None:
         with self._lock:

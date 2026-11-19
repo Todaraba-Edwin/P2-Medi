@@ -528,10 +528,10 @@ async def account_error_handler(_: Request, exc: Exception) -> JSONResponse:
 
 
 # 요청 형식 오류: 계정 경로는 계정 요청 모델의 칸 이름만 `fields`에 싣는다(사용자가 보낸 임의 키·값은 싣지 않는다)
-ACCOUNT_PATH_PREFIXES = ("/me", "/legal", "/consents", "/profiles")
+ACCOUNT_PATH_PREFIXES = ("/me", "/legal", "/consents", "/profiles", "/drugs")  # `/drugs`: 프로필 약 사전 검색(`app.api.drugs`)
 _ACCOUNT_FIELDS = frozenset(
     {name for m in (ConsentRequest, ConsentItem, ProfileCreate, ProfileUpdate, MedicationIn) for name in m.model_fields}
-    | {"profile_id", "doc_type", "version"}
+    | {"profile_id", "doc_type", "version", "q"}
 )
 
 
