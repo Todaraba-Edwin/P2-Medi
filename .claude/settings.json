@@ -37,7 +37,8 @@
       "Bash(pnpm --dir /Users/edwin/develop/P2-Medi*/frontend gen:api*)",
       "Bash(pnpm --dir /Users/edwin/develop/P2-Medi*/frontend install --frozen-lockfile*)",
       "Bash(/Users/edwin/develop/P2-Medi-wt-*/backend/.venv/bin/ruff check *)",
-      "Bash(ruff check /Users/edwin/develop/P2-Medi*)"
+      "Bash(ruff check /Users/edwin/develop/P2-Medi*)",
+      "Bash(PYTHONPATH=* /Users/edwin/develop/P2-Medi/backend/.venv/bin/python /Users/edwin/develop/P2-Medi*/backend/scripts/export_openapi.py *)"
     ],
     "deny": [
       "Read(./.env)",
