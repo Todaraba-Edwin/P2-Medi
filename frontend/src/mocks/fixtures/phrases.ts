@@ -92,7 +92,7 @@ export const FIXED_NOTICE = `${PHRASES.NOT_SAFE_NOTICE} ${PHRASES.PHARMACIST_CHE
 
 // REFUSE_MESSAGES["DOSAGE"], SOURCE_KIND_TEXT["FILE"]
 export const REFUSE_DOSAGE =
-  "복용량은 정해 드릴 수 없어요. 약사·의사에게 확인하세요. 허가사항의 용법·용량은 근거 상세에서 원문으로 볼 수 있어요.";
+  "복용량은 정해 드릴 수 없어요. 개인의 나이·몸 상태에 맞는 양을 고르는 것은 진단·처방에 해당해 이 서비스가 하지 않아요. 약사·의사에게 확인하세요. 허가사항의 용법·용량은 근거 상세에서 원문으로 볼 수 있어요.";
 export const SOURCE_KIND_FILE = "공식 파일 기준이에요";
 // provenance.SOURCE_KIND_PREFIX[FILE]. 판정 줄의 `source_label`은 `badge(source_kind, dataset_key)` = `{종류} · {자료 약칭}`이다
 // (finalize._source_label: dataset_key가 있으면 이 표지, 없을 때만 SOURCE_KIND_TEXT)
