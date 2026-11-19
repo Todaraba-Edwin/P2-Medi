@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 ROOT = Path(__file__).resolve().parents[2]
 for p in (ROOT / "evaluation", Path(__file__).resolve().parent / "e2e", Path(__file__).resolve().parent / "contract"):
@@ -293,9 +293,10 @@ def _rewind_text(upd: dict[str, Any]) -> str:
     return str(msg.content)
 
 
-def test_c3_version_is_v2():
-    assert C3_VERSION == "c3-layer-check@v2"
-    assert harness_profile("C3")["c3_version"] == "c3-layer-check@v2"
+def test_c3_version_is_v3():
+    assert C3_VERSION == "c3-layer-check@v3"
+    assert harness_profile("C3")["c3_version"] == "c3-layer-check@v3"
+    assert C3_IMPROVEMENTS == ("AG07_LAYER_CHECK",)            # 장치 이름은 그대로, 판 번호로만 구분(AG-13-25 A)
 
 
 def test_c3_claim_omitted_rewind_message_quotes_found_verdict():
@@ -347,6 +348,101 @@ def test_c3_v2_hint_not_in_span_or_events():
     assert N.CLAIM_OMIT_HINT_HEAD in _rewind_text(upd)
     blob = json.dumps([*sink.records, upd["events"], upd["validation"]], ensure_ascii=False)
     assert "합성성분A" not in blob and "빠진 주장 유형" not in blob and PREG not in blob
+
+
+# --------------------------------------------------------------------------- AG-13-23 A: 되감기 메시지를 요약 호출에도 전달(c3-layer-check@v3)
+SYS = "합성 시스템 프롬프트"
+TOOL_BLOCK = "<<<EVIDENCE 합성 근거 블록 EVIDENCE>>>"
+
+
+def _baseline_summary_text(question: str, blocks: str, instruction: str) -> str:
+    """변경 전(v2까지) `_summary_messages` 사용자 메시지 본문 그대로(C1·C1+·C2 바이트 고정 기준)."""
+    return f"질문: {question}\n\n근거 데이터:\n{blocks}\n\n{instruction}"
+
+
+def _summary_state(*rewinds: str) -> dict[str, Any]:
+    msgs: list[Any] = [AIMessage("", tool_calls=[{"name": "check_contraindications", "args": {}, "id": "t1"}]),
+                       ToolMessage(content=TOOL_BLOCK, tool_call_id="t1", name="check_contraindications"), AIMessage("조회를 마쳤다")]
+    msgs.extend(HumanMessage(r) for r in rewinds)
+    return {"question": Q_PAIR, "messages": msgs}
+
+
+def _summary_body(deps: GraphDeps, state: dict[str, Any]) -> str:
+    sysm, human = N._summary_messages(state, deps)  # noqa: SLF001
+    assert sysm.content == SYS
+    return str(human.content)
+
+
+@pytest.mark.parametrize("instruction", [None, "합성 요약 지시"])
+def test_c3_v3_summary_appends_last_rewind_after_instruction(instruction):
+    first = N.REWIND_MESSAGE.format(reasons="ALL_SENTENCES_DROPPED")
+    last = N.REWIND_MESSAGE.format(reasons=CLAIM_OMITTED) + "\n" + N.CLAIM_OMIT_HINT_HEAD
+    st = _summary_state(first, last)
+    instr = instruction or N.SUMMARY_INSTRUCTION
+    body = _summary_body(replace(_bare_deps(layer_check=True, summary_instruction=instruction), system_prompt=SYS), st)
+    assert body == _baseline_summary_text(Q_PAIR, TOOL_BLOCK, instr) + "\n\n" + last   # 지시 뒤에 마지막 되감기 하나만
+    assert first not in body
+
+
+@pytest.mark.parametrize("instruction", [None, "합성 요약 지시"])
+def test_c2_summary_input_byte_identical_even_with_rewind(instruction):
+    """C2(계층 검사 꺼짐)는 되감기 메시지가 상태에 있어도 요약 입력이 변경 전과 바이트 단위로 같다."""
+    st = _summary_state(N.REWIND_MESSAGE.format(reasons=CLAIM_OMITTED))
+    deps = replace(_bare_deps(summary_instruction=instruction), system_prompt=SYS)
+    body = _summary_body(deps, st)
+    assert body.encode("utf-8") == _baseline_summary_text(Q_PAIR, TOOL_BLOCK, instruction or N.SUMMARY_INSTRUCTION).encode("utf-8")
+    assert "[HARNESS]" not in body
+
+
+def test_c3_v3_summary_unchanged_without_rewind():
+    """되감기가 없으면 C3 요약 입력도 C2와 같다(첫 요약 호출 불변). 되감기가 아닌 사람 메시지는 붙이지 않는다."""
+    st = _summary_state()
+    st["messages"].append(HumanMessage("되감기가 아닌 합성 메시지"))
+    c2 = _summary_body(replace(_bare_deps(), system_prompt=SYS), st)
+    c3 = _summary_body(replace(_bare_deps(layer_check=True), system_prompt=SYS), st)
+    assert c3.encode("utf-8") == c2.encode("utf-8") == _baseline_summary_text(Q_PAIR, TOOL_BLOCK, N.SUMMARY_INSTRUCTION).encode("utf-8")
+
+
+class RecordingSummary(ScriptedSummary):
+    """시험 전용: 요약 호출 입력(`_summary_messages`의 사용자 메시지 본문과 그 뒤 메시지 수)을 기록한다."""
+
+    def __init__(self, drafts: list[dict[str, Any]]) -> None:
+        super().__init__(drafts, repeat_last=True)
+        self.bodies: list[str] = []
+        self.tails: list[int] = []
+
+    def invoke(self, messages: Any, **kwargs: Any) -> Any:
+        self.bodies.append(str(messages[1].content))
+        self.tails.append(len(messages) - 2)
+        return super().invoke(messages, **kwargs)
+
+
+def _graph_summaries(condition: str, layer_check: bool = False) -> RecordingSummary:
+    """첫 요약이 전부 걸러지는 문장(되감기 1회)이고 둘째가 안내 문장인 합성 실행. 요약 호출 입력 기록."""
+    dd = golden_dict()
+    ctx = build_tool_context(dd, mode="eval", conn_factory=golden_conn)
+    bad = {"sentences": [S("근거 없는 사실 문장이에요.", []).model_dump()]}
+    rec = RecordingSummary([bad, {"sentences": [GUIDE]}])
+    deps = build_deps(dd, ctx, tool_model=ScriptedToolModel(script=[AIMessage("조회를 마쳤다")], repeat_last=True), summary_model=rec,
+                      prompt_set="prompt_set@v3", layer_check=layer_check)
+    run_question(build_for_condition(deps, condition), Q_PAIR)
+    return rec
+
+
+def test_graph_c3_v3_second_summary_sees_rewind_and_c2_does_not():
+    c2, c3 = _graph_summaries("C2", layer_check=True).bodies, _graph_summaries("C3").bodies   # C2는 주입값이 켜져 있어도 끈다
+    assert len(c2) == len(c3) == 2                                  # 되감기 1회 → 요약 호출 2회
+    assert c3[0] == c2[0] and "[HARNESS]" not in c3[0]              # 첫 요약은 같다
+    assert c2[1] == c2[0] and "[HARNESS]" not in c2[1]              # C2 둘째 요약은 되감기를 보지 못한다(기준선 그대로)
+    assert c3[1] == c2[1] + "\n\n" + N.REWIND_MESSAGE.format(reasons="ALL_SENTENCES_FILTERED")
+
+
+@pytest.mark.parametrize("cond", ["C1", "C1+"])
+def test_pipeline_summary_input_unchanged_by_v3(cond):
+    """C1·C1+ 고정 파이프라인: 요약 본문에 되감기를 붙이지 않고(계층 검사 강제 꺼짐), 되감기는 기존대로 뒤에 별도 메시지 1개다."""
+    rec = _graph_summaries(cond, layer_check=True)
+    assert len(rec.bodies) == 2 and rec.bodies[1] == rec.bodies[0] and "[HARNESS]" not in rec.bodies[1]
+    assert rec.tails == [0, 1]
 
 
 def test_check_counts_keeps_only_code_shaped_positive_int_counts():

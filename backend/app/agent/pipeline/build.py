@@ -39,7 +39,8 @@ CONDITION_C1, CONDITION_C1_PLUS, CONDITION_C2 = "C1", "C1+", "C2"
 # 누락 검사(⑭~⑯, AG-13-08 A) 하나다. 장치를 더하거나 바꾸면 `C3_VERSION`을 올리고 이전 C3 결과와 섞지 않는다
 CONDITION_C3 = "C3"
 # v1(2026-11-18): ⑭~⑯ 검사. v2(2026-11-19, AG-13-17 B): ⑯ 되감기 메시지에 빠진 주장 유형·FOUND 판정(금기 종류·성분명·근거 ID) 인용 지시를 더함
-C3_VERSION = "c3-layer-check@v2"
+# v3(2026-11-19, AG-13-23 A): 마지막 되감기 메시지(⑥·⑧·⑯ 등 모든 사유)를 요약 호출 지시 뒤에도 붙임(C3만, C1·C1+·C2 요약 입력 불변)
+C3_VERSION = "c3-layer-check@v3"
 C3_IMPROVEMENTS = ("AG07_LAYER_CHECK",)
 HARNESS_VERSION = "harness@v1"
 # 조건별 하네스 적용표(RFP-33-03 A, PJ2-Agent-Harness.md 7.2절). 기준선 장치는 공통, 개선 단계 선택 제한 장치는 C3에서만 ablation으로 더한다
