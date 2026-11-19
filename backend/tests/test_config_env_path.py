@@ -62,6 +62,23 @@ def test_environ_still_beats_env_files(fake_repo: Path, monkeypatch: pytest.Monk
     assert get_settings().supabase_url == "http://environ.example"
 
 
+def test_local_pg_dsn_line_in_env_does_not_break_settings(fake_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # BE-11-14 A·18 A: 사용자가 루트 `.env`에 LOCAL_PG_DSN·프런트용 NEXT_PUBLIC_SUPABASE_*를 넣어도 기동이 깨지지 않는다
+    # (선언 전에는 extra_forbidden). 값은 모두 가짜다
+    for name in ("LOCAL_PG_DSN", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    with (fake_repo / ".env").open("a", encoding="utf-8") as f:
+        f.write("LOCAL_PG_DSN=postgresql://fake@localhost:5432/fake_db\n"
+                "NEXT_PUBLIC_SUPABASE_URL=http://front.example\n"
+                "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_fakefront\n")
+    monkeypatch.chdir(fake_repo)
+    s = get_settings()
+    assert reveal(s.local_pg_dsn) == "postgresql://fake@localhost:5432/fake_db"
+    assert s.next_public_supabase_url == "http://front.example"
+    assert reveal(s.next_public_supabase_publishable_key) == "sb_publishable_fakefront"
+    assert "fake_db" not in repr(s) and "fakefront" not in repr(s)
+
+
 def test_no_env_files_anywhere(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for name in FIELDS:
         monkeypatch.delenv(name, raising=False)

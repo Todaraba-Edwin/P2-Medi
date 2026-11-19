@@ -2,16 +2,18 @@
 
 1. 정적 검사(항상): `schema_account.sql`·`seed_legal_v1.sql`이 결정(06·07·08·09·12·22 A)과 맞는지 문자열로 본다.
 2. 가짜 연결(항상): `PostgresAccountRepo`가 트랜잭션마다 `SET LOCAL ROLE`·`request.jwt.claims`를 먼저 실행하는지, 오류를 어떻게 옮기는지.
-3. 로컬 Postgres RLS 시험(설계 13장 T1~T3, BE-11-14 A): **로컬 DSN이 없으면 skip**한다. DSN을 읽을 환경변수 이름은 아직 정하지 않았다
-   (보고서 결정 후보). 정해지면 `LOCAL_PG_DSN`을 그 값으로 읽게 한 줄만 바꾼다. 로컬 주소(localhost·127.0.0.1·소켓)가 아니면 돌지 않는다.
+3. 로컬 Postgres RLS 시험(설계 13장 T1~T3, BE-11-14 A): 환경변수 `LOCAL_PG_DSN`이 **없으면 skip**한다(`.env`는 읽지 않음).
+   로컬 주소(localhost·127.0.0.1·소켓)가 아니면 돌지 않는다.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -26,6 +28,7 @@ from app.db.account_repo import (
     MedicationInput,
     ProfileInput,
     RepoUnavailable,
+    body_sha256,
 )
 from app.db.account_repo_pg import PostgresAccountRepo, schema_sql, seed_sql
 
@@ -205,7 +208,8 @@ def test_repr_hides_dsn():
 
 
 # --------------------------------------------------------------------------- 3. 로컬 Postgres RLS(DSN 없으면 skip)
-LOCAL_PG_DSN: str | None = None  # 환경변수 이름 미정(결정 후보). 이름을 정하면 os.environ.get(<이름>)으로 바꾼다
+# BE-11-14 A(Recap 40): 변수 이름 LOCAL_PG_DSN. 환경변수에서만 읽는다(.env·SUPABASE_DB_URL 폴백 없음 — 원격 DB를 타지 않게)
+LOCAL_PG_DSN: str | None = os.environ.get("LOCAL_PG_DSN") or None
 _LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1", "/")
 
 AUTH_STUB = """
@@ -222,26 +226,39 @@ GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
 """
 
 
+_CREATED_AUTH_USERS: list[str] = []  # 시험이 auth.users 스텁에 넣은 행. 끝나면 이것만 지운다
+
+
 @pytest.fixture(scope="module")
-def pg_dsn() -> str:
+def pg_dsn() -> Iterator[str]:
     if not LOCAL_PG_DSN:
-        pytest.skip("로컬 Postgres DSN 없음(환경변수 이름 미정, BE-11-14 A 로컬 시험)")
+        pytest.skip("환경변수 LOCAL_PG_DSN 없음(BE-11-14 A 로컬 RLS 시험)")
     info = psycopg.conninfo.conninfo_to_dict(LOCAL_PG_DSN)
     host = str(info.get("host") or "/")
     if not host.startswith(_LOCAL_HOSTS):
         pytest.skip("로컬 주소가 아니면 돌지 않는다(원격 쓰기 금지)")
+    effective = datetime.now(UTC) - timedelta(minutes=1)
     with psycopg.connect(LOCAL_PG_DSN, autocommit=True) as conn:
-        conn.execute("DROP SCHEMA IF EXISTS account CASCADE")  # 로컬 시험 DB에서만
+        conn.execute("DROP SCHEMA IF EXISTS account CASCADE")  # 로컬 시험 DB에서만(앞선 실행이 중단돼 남은 것 정리)
         conn.execute(AUTH_STUB)
-        conn.execute(schema_sql())
-        conn.execute(seed_sql(datetime.now(UTC) - timedelta(minutes=1)))
-    return LOCAL_PG_DSN
+        for _ in range(2):  # 스키마·시드가 멱등인지(두 번 적용해도 오류 없음)도 함께 본다
+            conn.execute(schema_sql())
+            conn.execute(seed_sql(effective))
+    try:
+        yield LOCAL_PG_DSN
+    finally:  # 같은 DB에서 다시 돌려도 통과하도록 시험이 만든 것을 지운다(역할·auth 스텁 구조는 남겨도 멱등)
+        with psycopg.connect(LOCAL_PG_DSN, autocommit=True) as conn:
+            conn.execute("DROP SCHEMA IF EXISTS account CASCADE")
+            if _CREATED_AUTH_USERS:
+                conn.execute("DELETE FROM auth.users WHERE id = ANY(%s::uuid[])", (_CREATED_AUTH_USERS,))
+        _CREATED_AUTH_USERS.clear()
 
 
 def _new_user(dsn: str) -> str:
     uid = str(uuid.uuid4())
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute("INSERT INTO auth.users (id) VALUES (%s)", (uid,))
+    _CREATED_AUTH_USERS.append(uid)
     return uid
 
 
@@ -302,11 +319,25 @@ def test_pg_limits_health_withdraw_and_delete(pg_dsn):
     assert info.value.code == "USE_ACCOUNT_DELETE"
     asyncio.run(repo.add_consents(a, [ConsentInput("privacy_consent", 1, "withdraw")], "settings"))
     assert asyncio.run(repo.list_profiles(a)) == [] and asyncio.run(repo.get_user(a)) is not None  # 12 A
+    # 동의 기록 = 온보딩 agree 2 + privacy_consent withdraw 1. 거부된 terms 철회는 트랜잭션째 롤백되어 남지 않는다
+    # (메모리 저장소도 기록 전에 거부, account_repo.py add_consents)
+    with psycopg.connect(pg_dsn) as conn:
+        rows = conn.execute("SELECT doc_type::text, action::text FROM account.user_consents WHERE user_id = %s ORDER BY consent_id",
+                            (a,)).fetchall()
+    assert rows == [("terms", "agree"), ("privacy_consent", "agree"), ("privacy_consent", "withdraw")]
     summary = asyncio.run(repo.delete_account(a))
-    assert (summary.profiles, summary.consents) == (0, 4)
+    assert (summary.profiles, summary.consents) == (0, 3)
     assert asyncio.run(repo.get_user(a)) is None
     with psycopg.connect(pg_dsn) as conn:
         assert conn.execute("SELECT count(*) FROM account.user_consents WHERE user_id = %s", (a,)).fetchone()[0] == 0
         row = conn.execute("SELECT accounts, consents FROM account.deletion_log WHERE deleted_on = (now() AT TIME ZONE 'UTC')::date"
                            ).fetchone()
-        assert row is not None and row[0] >= 1 and row[1] >= 4
+        assert row is not None and row[0] >= 1 and row[1] >= 3
+
+
+def test_pg_legal_body_sha256_matches_python(pg_dsn):
+    # 생성 열 body_sha256(account.utf8_sha256_hex)이 API가 쓰는 Python 해시와 같다. anon으로 게시 문서를 읽는다
+    repo = PostgresAccountRepo.from_dsn(pg_dsn)
+    doc = asyncio.run(repo.legal_current("terms"))
+    assert doc is not None and doc.version == 1
+    assert doc.body_sha256 == body_sha256(doc.body_md) and len(doc.body_sha256) == 64

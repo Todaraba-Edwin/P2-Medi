@@ -47,6 +47,16 @@ BEGIN
 END
 $$;
 
+-- 문서 본문 해시(생성 열 body_sha256용). convert_to()가 STABLE이라 생성 열에 바로 쓰면 "generation expression is not immutable"로
+-- CREATE TABLE이 실패한다(2026-11-19 로컬 PG 17 재현). 결과는 입력 문자열의 UTF-8 바이트에만 달려 IMMUTABLE로 선언한다.
+-- plpgsql인 이유: SQL 함수는 인라인된 뒤 가변성 검사를 다시 받아(PG 16+) 같은 오류가 난다. 값은 Python account_repo.body_sha256과 같다
+CREATE OR REPLACE FUNCTION account.utf8_sha256_hex(p_body text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE SET search_path = '' AS $$
+BEGIN
+    RETURN pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p_body, 'UTF8')), 'hex');
+END
+$$;
+
 -- 2. 테이블 -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS account.app_users (
     user_id                 uuid PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
@@ -96,7 +106,7 @@ CREATE TABLE IF NOT EXISTS account.legal_documents (
     status             account.doc_status NOT NULL DEFAULT 'draft',
     effective_at       timestamptz NOT NULL,
     legal_review       text NOT NULL DEFAULT 'not_reviewed' CHECK (legal_review IN ('not_reviewed', 'reviewed')),
-    body_sha256        text GENERATED ALWAYS AS (encode(sha256(convert_to(body_md, 'UTF8')), 'hex')) STORED,
+    body_sha256        text GENERATED ALWAYS AS (account.utf8_sha256_hex(body_md)) STORED,
     created_at         timestamptz NOT NULL DEFAULT now(),
     UNIQUE (doc_type, version)
 );
