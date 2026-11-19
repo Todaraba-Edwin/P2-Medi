@@ -1,20 +1,25 @@
 "use client";
 
 import { useEffect, useReducer, useRef, useState } from "react";
+import { UserIcon } from "lucide-react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
+import { AccountMenu, AccountModal, EntryChoice, LOGIN_ENTRY_LABEL, MANAGE_PROFILES_LABEL, TargetPicker, openAccountModal } from "@/features/account";
 import { ChatInput, ExampleChips, HomeHero } from "@/features/chat";
 import { EmergencyBanner, ExternalAiNotice, FixedNoticeBox, LegalFooter, StartEmergencyLink } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
 import { DISCLAIMER, START_EMERGENCY_119, START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
 import { cn } from "@/lib/utils";
+import { accountStore, hasHealthConsent, selectTargetProfile, useAccountStore } from "@/stores/account";
+import type { AccountStore } from "@/stores/account";
 import { chatStore, useChatStore } from "@/stores/chat";
 import type { ChatStore } from "@/stores/chat";
+import { profileToContext } from "@/stores/profile-context";
 import { Conversation } from "./Conversation";
 import { EmergencyEntry } from "./EmergencyEntry";
 import { NOT_SAVED_SHORT } from "./copy";
 import { computeLayout, initialShellState, isDesktopWidth, shellReducer } from "./layout-rules";
-import { MenuButton, MenuDrawer, SidebarColumn, SidebarOverlay } from "./Sidebar";
+import { IconButton, MenuButton, MenuDrawer, SidebarColumn, SidebarOverlay } from "./Sidebar";
 import { useViewportWidth } from "./useViewportWidth";
 
 /**
@@ -25,9 +30,16 @@ import { useViewportWidth } from "./useViewportWidth";
  * - 배너가 없을 때 119 진입점은 머리줄에 있고, 머리줄을 덮는 층(드로어·오버레이·시트) 안에도 같은 진입점을 둔다(G-3).
  * - 고정 안내·고지는 근거 상세 틀 밖의 접히지 않는 영역(입력창 위)에 응답 값 그대로 둔다.
  * - 사이드바 상태는 사용자 토글이 원천이다. 근거 상세가 새로 열리는 순간의 판정만 예외다(`layout-rules.ts`).
+ * - 계정(FE-04): 시작 화면의 진입 선택(게스트로 시작 / 로그인·가입), 사이드바의 계정 자리, 계정 모달, 입력창 위의 대상 선택.
+ *   게스트는 지금처럼 바로 질문한다. 계정 모달도 배너 아래 영역에만 그린다(119 배너를 덮지 않는다).
  */
-export function AppShell({ store = chatStore }: { store?: ChatStore }) {
+export function AppShell({ store = chatStore, account = accountStore }: { store?: ChatStore; account?: AccountStore }) {
   const width = useViewportWidth();
+  const member = useAccountStore((state) => state.status === "member", account);
+  const displayName = useAccountStore((state) => state.me?.display_name ?? null, account);
+  const profiles = useAccountStore((state) => state.profiles, account);
+  const targetProfileId = useAccountStore((state) => state.targetProfileId, account);
+  const entryDismissed = useAccountStore((state) => state.entryDismissed, account);
   const turns = useChatStore((state) => state.turns, store);
   const emergency = useChatStore((state) => state.emergency, store);
   const [shell, dispatch] = useReducer(shellReducer, initialShellState);
@@ -39,6 +51,9 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
 
   // 화면을 떠나면 진행 중인 요청을 끊는다
   useEffect(() => () => store.getState().abort(), [store]);
+
+  // 서버 세션이 있으면(소셜 로그인에서 돌아온 경우 등) 로그인 상태를 읽는다. 없거나 실패하면 게스트 그대로다
+  useEffect(() => void account.getState().bootstrap(), [account]);
 
   // 넓은 폭에서는 판정 줄이 있는 답이 도착하면 근거 상세를 연다(디자인 반영본). 여는 동작 안에서 사이드바 판정도 같이 한다
   useEffect(
@@ -90,7 +105,12 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
 
   if (layout === null || width === null) return <div data-testid="app-shell" data-ready="false" className="h-dvh" />;
 
-  const send = (question: string) => void store.getState().send(question);
+  const send = (question: string) => {
+    // 고른 대상("누가 먹나요")의 연령대·임신 여부를 묶음에 싣는다. 게스트이거나 고르지 않았으면 두 칸은 비어 있다(값 전달만, 대화는 저장하지 않는다)
+    const state = account.getState();
+    store.getState().setContext(profileToContext(selectTargetProfile(state), hasHealthConsent(state.me)));
+    void store.getState().send(question);
+  };
   const newChat = () => {
     store.getState().reset();
     setPicked({});
@@ -106,6 +126,17 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
     send(turn.question);
   };
   const focusInput = () => main.current?.querySelector("textarea")?.focus();
+  // 계정 모달을 열 때 드로어·사이드바 오버레이는 닫는다(층을 겹치지 않는다)
+  const openAccount = () => {
+    dispatch({ type: "closeDrawer" });
+    if (layout.sidebarOverlay) dispatch({ type: "collapseSidebar" });
+    openAccountModal(account);
+  };
+  const startGuest = () => {
+    account.getState().startGuest();
+    focusInput();
+  };
+  const accountMenu = <AccountMenu displayName={member ? (displayName ?? "") : null} onOpen={openAccount} onLogout={() => void account.getState().logout()} />;
 
   const first = turns[0];
   const last = turns[turns.length - 1];
@@ -113,7 +144,7 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
   // 아래 고정 영역이 보일 고정 안내: 가장 최근에 받은 답의 값. 마지막 차례가 응답 없는 오류면 오류 부품이 고정 안내·고지를 보인다
   const dockTurn = lastFailed ? undefined : [...turns].reverse().find((turn) => turn.stream.response);
   const dockResponse = dockTurn?.stream.response ?? null;
-  const sidebar = { firstQuestion: first?.question ?? null, onNewChat: newChat };
+  const sidebar = { firstQuestion: first?.question ?? null, onNewChat: newChat, account: accountMenu };
 
   return (
     <div data-testid="app-shell" data-ready="true" className="flex h-dvh flex-col overflow-hidden">
@@ -127,7 +158,16 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
       <div ref={setLayer} data-testid="shell-body" className="relative flex min-h-0 flex-1">
         {layout.sidebarColumn !== "none" && (
           <div inert={layout.sidebarOverlay} className="h-full flex-none">
-            <SidebarColumn mode={layout.sidebarColumn} {...sidebar} onToggle={() => dispatch({ type: "toggleSidebar" })} />
+            <SidebarColumn
+              mode={layout.sidebarColumn}
+              {...sidebar}
+              onToggle={() => dispatch({ type: "toggleSidebar" })}
+              railAccount={
+                <IconButton label={member ? MANAGE_PROFILES_LABEL : LOGIN_ENTRY_LABEL} data-testid="account-entry" className="mt-auto" onClick={openAccount}>
+                  <UserIcon className="size-5" aria-hidden="true" />
+                </IconButton>
+              }
+            />
           </div>
         )}
         <main ref={main} inert={layout.sidebarOverlay} data-testid="main" className="flex min-w-0 flex-1 flex-col bg-bg">
@@ -145,6 +185,8 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
             {turns.length === 0 ? (
               <div data-testid="home" className="flex min-h-0 flex-1 flex-col justify-center gap-4 overflow-y-auto py-2">
                 <HomeHero />
+                {/* 진입 선택: 게스트로 시작(주) / 로그인·가입(보조). 누르지 않아도 아래 입력창으로 바로 질문할 수 있다 */}
+                {!member && !entryDismissed && <EntryChoice onGuest={startGuest} onLogin={openAccount} />}
                 <ExampleChips onPick={send} />
               </div>
             ) : (
@@ -174,6 +216,8 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
               )}
               {/* 응답을 받기 전(시작 화면·첫 답을 기다리는 중)의 상시 고지는 백엔드 상수에서 생성한 값이다(FE-01-19 A) */}
               {!lastFailed && <LegalFooter disclaimer={dockResponse ? dockResponse.disclaimer : DISCLAIMER} />}
+              {/* 대상 선택 "누가 먹나요": 로그인하고 프로필이 있을 때만(게스트는 숨김) */}
+              {member && profiles.length > 0 && <TargetPicker profiles={profiles} value={targetProfileId} onChange={(id) => account.getState().setTarget(id)} />}
               <ChatInput onSend={send} />
             </div>
           </div>
@@ -197,6 +241,7 @@ export function AppShell({ store = chatStore }: { store?: ChatStore }) {
             {evidenceResponse && <EvidenceDetail response={evidenceResponse} />}
           </EvidencePanel>
         )}
+        <AccountModal store={account} container={layer} hasEmergency={emergency !== null} emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />} />
         <SidebarOverlay open={layout.sidebarOverlay} onClose={() => dispatch({ type: "collapseSidebar" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
         <MenuDrawer open={!layout.desktop && shell.drawerOpen} onClose={() => dispatch({ type: "closeDrawer" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
       </div>

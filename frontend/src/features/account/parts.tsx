@@ -1,0 +1,127 @@
+"use client";
+
+import { createContext, useContext } from "react";
+import { AlertDialog, Dialog } from "radix-ui";
+import { cn } from "@/lib/utils";
+import { accountStore } from "@/stores/account";
+import type { AccountFailure, AccountStore } from "@/stores/account";
+import {
+  CANCEL_LABEL,
+  ERROR_EMAIL_TAKEN,
+  ERROR_GENERIC,
+  ERROR_INVALID_CREDENTIALS,
+  ERROR_NETWORK,
+  ERROR_PROFILE_LIMIT,
+  ERROR_REQUIRED_CONSENT,
+  HEALTH_CONSENT_REQUIRED_FALLBACK,
+} from "./copy";
+
+/** 모달 안 부품이 함께 쓰는 값: 스토어, 층을 그릴 자리, 마스코트를 숨길지, 119 진입점 */
+export interface AccountModalContextValue {
+  store: AccountStore;
+  container: HTMLElement | null;
+  hideMascot: boolean;
+  emergencyEntry: React.ReactNode;
+}
+
+export const AccountModalContext = createContext<AccountModalContextValue>({ store: accountStore, container: null, hideMascot: false, emergencyEntry: null });
+export const useAccountModal = () => useContext(AccountModalContext);
+
+/** 단계 제목. 모달이 열리거나 단계가 바뀌면 초점이 여기로 온다(PRD-13 §4.5: 입력창이 아니라 제목) */
+export function StepTitle({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <Dialog.Title data-account-title tabIndex={-1} className={cn("m-0 text-xl leading-7 font-extrabold outline-none [word-break:keep-all]", className)}>
+      {children}
+    </Dialog.Title>
+  );
+}
+
+/** 단계 본문 틀(1열). 위 여백(`padding-top`)만으로 코너 버튼 자리를 비운다: header 띠·구분선이 없다 */
+export function StepBody({ children, className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div className={cn("flex flex-col gap-3.5 px-5 pt-14 pb-5", className)} {...props}>
+      {children}
+    </div>
+  );
+}
+
+/** 모달이 머리줄의 119 진입점을 덮는 동안의 진입점 자리(조립이 넘긴 것을 그대로 둔다. 배너가 떠 있으면 비어 있다) */
+export function EmergencyEntrySlot({ className }: { className?: string }) {
+  const { emergencyEntry } = useAccountModal();
+  return emergencyEntry ? <div className={cn("flex", className)}>{emergencyEntry}</div> : null;
+}
+
+/** 실패를 화면 글자로 바꾼다. 서버가 준 코드만 보고 입력 값은 쓰지 않는다 */
+export function failureMessage(failure: AccountFailure): string {
+  if (failure.kind === "network") return ERROR_NETWORK;
+  switch (failure.code) {
+    case "INVALID_CREDENTIALS":
+      return ERROR_INVALID_CREDENTIALS;
+    case "EMAIL_TAKEN":
+      return ERROR_EMAIL_TAKEN;
+    case "PROFILE_LIMIT":
+      return ERROR_PROFILE_LIMIT;
+    case "HEALTH_CONSENT_REQUIRED":
+      return HEALTH_CONSENT_REQUIRED_FALLBACK;
+    case "REQUIRED_CONSENT_MISSING":
+      return ERROR_REQUIRED_CONSENT;
+    default:
+      return failure.status === 401 ? ERROR_INVALID_CREDENTIALS : ERROR_GENERIC;
+  }
+}
+
+/** 실패 한 줄(보조기기가 바로 읽는다) */
+export function FailureLine({ failure }: { failure: AccountFailure | null }) {
+  if (!failure) return null;
+  return (
+    <p role="alert" data-testid="account-error" className="m-0 text-sm leading-5 font-semibold text-red-ink">
+      {failureMessage(failure)}
+    </p>
+  );
+}
+
+export const PRIMARY_BUTTON = "min-h-11 rounded-full bg-yellow px-4 text-sm font-bold text-ink disabled:bg-line disabled:text-faint";
+export const SECONDARY_BUTTON = "min-h-11 rounded-full border border-line-2 bg-bg px-4 text-sm font-bold text-ink-2 disabled:text-faint";
+export const TEXT_BUTTON = "min-h-11 rounded-full px-3 text-sm font-bold text-link disabled:text-faint";
+export const FIELD_CLASS = "min-h-11 w-full min-w-0 rounded-xl border border-line-2 bg-bg px-3 text-base outline-none focus:border-link disabled:bg-bg-softer disabled:text-faint";
+
+export interface ConfirmDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  body: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  pending?: boolean;
+}
+
+/** 확인 모달(삭제·탈퇴). 버튼만 담는 header가 없고 취소가 먼저다. 계정 모달과 같은 자리(119 배너 아래)에 그린다 */
+export function ConfirmDialog({ open, onOpenChange, title, body, confirmLabel, onConfirm, pending = false }: ConfirmDialogProps) {
+  const { container } = useAccountModal();
+  return (
+    <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
+      <AlertDialog.Portal container={container}>
+        <AlertDialog.Overlay className="absolute inset-0 z-50 bg-ink/50" />
+        <AlertDialog.Content
+          data-testid="confirm-dialog"
+          className="absolute top-1/2 left-1/2 z-50 flex w-[calc(100%-48px)] max-w-[360px] -translate-x-1/2 -translate-y-1/2 flex-col gap-2 rounded-3xl bg-bg p-5 shadow-lg outline-none"
+        >
+          <AlertDialog.Title className="m-0 text-lg leading-6 font-extrabold [word-break:keep-all]">{title}</AlertDialog.Title>
+          <AlertDialog.Description className="m-0 text-sm leading-5 text-ink-2">{body}</AlertDialog.Description>
+          <div className="mt-2 flex gap-2">
+            <AlertDialog.Cancel className="min-h-11 flex-1 rounded-full border border-line-2 bg-bg px-3 text-sm font-bold text-ink-2">{CANCEL_LABEL}</AlertDialog.Cancel>
+            <button
+              type="button"
+              data-testid="confirm-action"
+              disabled={pending}
+              onClick={onConfirm}
+              className="min-h-11 flex-1 rounded-full bg-red px-3 text-sm font-bold text-bg disabled:opacity-60"
+            >
+              {confirmLabel}
+            </button>
+          </div>
+        </AlertDialog.Content>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
+  );
+}
