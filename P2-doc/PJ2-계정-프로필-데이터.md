@@ -66,7 +66,7 @@ RFP-30-08 A의 2일 스프린트에 맞춘 데이터·API 범위다.
 
 | 스프린트 | 화면·인증 | 이 문서의 데이터·API 범위 |
 |---|---|---|
-| S1 인증 | 이메일·Google·Kakao 로그인, 게스트 유지 | `app_users`, `legal_documents`(시드), `user_consents`, `GET /legal/*`, `GET /me`, `POST /consents`, `DELETE /me`, 백엔드 JWT 검증 |
+| S1 인증 | Google·Kakao 로그인(이메일은 메일 인증을 갖춘 뒤 재검토, PRD-01-10 A 2026-11-19), 게스트 유지 | `app_users`, `legal_documents`(시드), `user_consents`, `GET /legal/*`, `GET /me`, `POST /consents`, `DELETE /me`, 백엔드 JWT 검증 |
 | S2 프로필·온보딩 + Naver | 온보딩 단계, 프로필 CRUD, Naver 연동(Supabase Custom OIDC, BE-11-15 A. 반나절 상한을 넘으면 Naver 제외, BE-11-19 A) | `profiles`, `profile_medications`, 프로필 CRUD API, 건강 정보 동의·철회 트리거, `provider='naver'` |
 | S3 chat 연동 | "누가 먹나요" 대상 선택 | 프로필 → `context` 변환(프런트), `/chat` 무변경 확인 |
 
@@ -74,7 +74,7 @@ RFP-30-08 A의 2일 스프린트에 맞춘 데이터·API 범위다.
 | 번호 | 내용 | 이 문서의 반영 |
 |---|---|---|
 | PRD-01-05 B | 계정(Supabase Auth)으로 서버 저장 | 4장 전체 |
-| PRD-01-09 A′(2026-11-18) | 소셜 로그인 Google·Kakao S1, Naver S2, Apple 제외, 이메일 포함 | 4.1절 `provider` enum |
+| PRD-01-09 A′(2026-11-18) | 소셜 로그인 Google·Kakao S1, Naver S2, Apple 제외, 이메일 포함(2026-11-19 PRD-01-10 A로 화면의 이메일 로그인은 숨김, 재검토 전까지 enum 값만 유지) | 4.1절 `provider` enum |
 | AG-10-06 A | 프로필·온보딩을 축소 순서에서 빼고 W2~W3 | 1.2절 |
 | BE-11-01 B | 본인 + 가족 최대 3명, 관계 칸 | 4.3절 행 수 제한·`relation` |
 | BE-11-02 A | `legal_documents` + `user_consents`, 프런트는 API로 받아 표시 | 4.5·4.6·8·9장 |
@@ -198,7 +198,7 @@ erDiagram
 ### 4.1 enum
 | enum | 값 | 근거·메모 |
 |---|---|---|
-| `provider` | `email`, `google`, `kakao`, `naver` | 이메일 포함, Apple 제외(PRD-01-09 A′). 값은 가입 경로 기록용이며 공급자 연결 목록의 원본은 `auth.identities`다 |
+| `provider` | `email`, `google`, `kakao`, `naver` | Apple 제외(PRD-01-09 A′). `email`은 값만 남기고 화면의 이메일 로그인은 숨겼다(PRD-01-10 A, 2026-11-19). 값은 가입 경로 기록용이며 공급자 연결 목록의 원본은 `auth.identities`다 |
 | `relation` | `self`, `child`, `parent`, `spouse`, `other` | BE-11-01 B "관계 칸: 자녀·부모 등". `spouse`·`other`는 "등"에 해당하며 BE-11-08 A로 확정 |
 | `pregnancy_status` | `pregnant`, `not_pregnant`, `unknown` | NULL = 입력 안 함 또는 건강 동의 없음. `unknown`은 사용자가 "모름"을 고른 것(판정 입력은 `pregnant=None`과 같다, 11장) |
 | `age_band` | 4.8절 표의 11개 | 연령대(PRD-01-03 A). 11구간은 BE-11-07 A로 정해졌고, 경계는 연령금기 기준값에서 흔한 값으로 둔 것이라 원격 분포 확인이 남았다(4.8절) |
@@ -541,7 +541,7 @@ PJ2-PRD.md 15.3절 (10) S10의 단계에 맞춘다. 모달 코너 규칙은 PRD-
 | S10 단계 | 화면 | API | 테이블 쓰기 | `onboarding_step` |
 |---|---|---|---|---|
 | 0 | 게스트로 바로 질문 | 없음(`/chat`만) | **없음** | — |
-| 1 | 로그인·가입(이메일·Google·Kakao, S2에 Naver) | Supabase Auth SDK → `GET /me` | `auth.users`(Supabase), `app_users` 1행 | `consent` |
+| 1 | 로그인·가입(Google·Kakao, S2에 Naver, 이메일은 재검토 전까지 숨김, PRD-01-10 A 2026-11-19) | Supabase Auth SDK → `GET /me` | `auth.users`(Supabase), `app_users` 1행 | `consent` |
 | 2 | 약관·동의(필수 2 + 선택 1, 처리방침 링크) | `GET /legal` → `GET /legal/{t}` → `POST /consents` | `user_consents` 2~3행 | `profile_self` |
 | 3a | 본인 프로필(관계 `self` 고정, 연령대, 건강 동의 시 임신 여부·복용 약) | `POST /profiles`(`medications` 포함 가능, 2026-11-19: 별도 `PUT …/medications` 없음) | `profiles` 1행, `profile_medications` 0~10행 | `family` |
 | 3b | (선택) 가족 추가 최대 3명 | `POST /profiles` 반복 | `profiles` ≤3행 | `done`(건너뛰기 포함) |
@@ -1053,7 +1053,7 @@ $md$, true, 'published', {{EFFECTIVE_AT}}),
 > 초안·법률 검토 전입니다. 실제 공개·상용 전에 법률 검토가 필요합니다.
 
 ## 1. 처리하는 항목
-- 로그인 정보: 이메일 또는 소셜 로그인 공급자(Google·Kakao·Naver)의 계정 식별자. 공급자가 넘기는 그 밖의 항목은 확인 후 이 문서에 적습니다(확정 전).
+- 로그인 정보: 소셜 로그인 공급자(Google·Kakao·Naver)의 계정 식별자(PRD-01-10 A, 2026-11-19: 이메일 가입은 메일 인증을 갖춘 뒤 재검토). 공급자가 넘기는 그 밖의 항목은 확인 후 이 문서에 적습니다(확정 전).
 - 프로필(동의한 경우): 관계, 표시 이름(선택), 연령대.
 - 건강 정보(별도 동의한 경우): 임신 여부, 복용 중인 약.
 - 동의 기록: 동의·철회한 문서와 버전, 시각(계정을 삭제하면 함께 지웁니다).

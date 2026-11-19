@@ -123,6 +123,8 @@ flowchart LR
 - 제품·성분 사전: `db/drug_dict_store.py:1`(서비스는 `DrugDict.from_db`로 읽고 파일은 개발·평가용).
 - 원격 쓰기 스크립트는 `--yes`와 승인 flag가 있어야 돈다(`CLAUDE.md` 7장). 이 문서 작성에서는 실행하지 않았다.
 - 원본 파일과 PDF는 라이선스(공공저작물 제2유형)와 용량 때문에 저장소에 올리지 않고 `data/`(로컬 전용)에만 둔다(`CLAUDE.md` 4장).
+- 코퍼스 정의·적재·준비 절차는 `P2-doc/PJ2-코퍼스-적재와-준비.md`에 있다(2026-11-19).
+- 런타임 준비는 서버 시작 시 백그라운드로 하고(BE-17-01 A), 검색은 BM25 단독이다(BE-06-26 A·BE-17-07 A).
 
 ### (2) 질문 한 건이 지나는 길
 1. 프런트가 `POST /chat`으로 질문과 `context`(프로필·확정한 약의 품목기준코드)를 보낸다. 서버는 질문·요청 묶음을 저장·로그하지 않는다(`api/chat.py:79`~`:84`).
@@ -144,7 +146,7 @@ flowchart LR
 | 프런트 | Next.js + TypeScript, Zustand, ky, Tailwind CSS, MSW(목) | FE-01(2026-11-12), RFP-15-07 대체. `P2-doc/PJ2-RFP.md:357`, `frontend/package.json:18`·`:26`·`:42` |
 | 배포 | 프런트 Vercel, 백엔드 FastAPI는 AWS 무료 인스턴스 1대 방향(고려 중) | RFP-15-06. `P2-doc/PJ2-RFP.md:357` |
 | DB·벡터 저장소 | Supabase Pro(Postgres + pgvector + Auth) | 배포 요건 RFP-15-03(2026-11-02), 코퍼스 약 970MB가 무료 한도 500MB를 넘어 Pro로 변경 BE-05-03 D(2026-11-11). `P2-doc/PJ2-RFP.md:358`~`:359` |
-| 인증 | Supabase Auth 이메일 계정(확장) + 소셜 로그인 Google·Kakao(S1 진행), Naver(S2 추후, 연동 방식 확인 뒤), Apple 제외 | PRD-01-05 B(계정 서버 저장), 소셜 로그인은 PRD-01-09 A′(2026-11-18; 2026-11-03 "소셜 로그인 제외"를 대체). `CLAUDE.md` 1장, `P2-doc/PJ2-RFP.md:362` |
+| 인증 | Supabase Auth 소셜 로그인 Google·Kakao(S1 진행), Naver(S2 추후, 연동 방식 확인 뒤), Apple 제외, 이메일은 메일 인증을 갖춘 뒤 재검토(PRD-01-10 A, 2026-11-19) | PRD-01-05 B(계정 서버 저장), 소셜 로그인은 PRD-01-09 A′(2026-11-18; 2026-11-03 "소셜 로그인 제외"를 대체). `CLAUDE.md` 1장, `P2-doc/PJ2-RFP.md:362` |
 | 검색 | BM25(글자 2-gram) + pgvector 코사인, 강한 필터일 때만 SQL `WHERE`, RRF 결합 | BE-10-07, BE-05 §5. `agent/tools/corpus_remote.py:7`~`:10` |
 | PDF 파싱 | 시험 후 결정(후보 pdfplumber, LlamaParse) | RFP-15-04. `P2-doc/PJ2-RFP.md:360` |
 | 평가 | 자체 러너(코드 채점) + Claude judge + Ragas 3지표 | RFP-26. `evaluation/eval_runner.py:1`~`:9`, `P2-doc/PJ2-RFP.md:361` |
