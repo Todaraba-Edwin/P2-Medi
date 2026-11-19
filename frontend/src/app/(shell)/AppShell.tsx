@@ -8,6 +8,7 @@ import { AccountMenu, AccountModal, EntryChoice, LOGIN_ENTRY_LABEL, MANAGE_PROFI
 import { ChatInput, ExampleChips, HomeHero } from "@/features/chat";
 import { EmergencyBanner, ExternalAiNotice, FixedNoticeBox, LegalFooter, StartEmergencyLink } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
+import { groupCandidates } from "@/features/result";
 import { DISCLAIMER, START_EMERGENCY_119, START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
 import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation } from "@/lib/supabase/callback";
 import { cn } from "@/lib/utils";
@@ -18,7 +19,7 @@ import type { ChatStore } from "@/stores/chat";
 import { profileToContext } from "@/stores/profile-context";
 import { Conversation } from "./Conversation";
 import { EmergencyEntry } from "./EmergencyEntry";
-import { NOT_SAVED_SHORT } from "./copy";
+import { NOT_SAVED_SHORT, resendBubbleText } from "./copy";
 import { computeLayout, initialShellState, isDesktopWidth, shellReducer } from "./layout-rules";
 import { IconButton, MenuButton, MenuDrawer, SidebarColumn, SidebarOverlay } from "./Sidebar";
 import { useViewportWidth } from "./useViewportWidth";
@@ -45,8 +46,8 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const turns = useChatStore((state) => state.turns, store);
   const emergency = useChatStore((state) => state.emergency, store);
   const [shell, dispatch] = useReducer(shellReducer, initialShellState);
-  /** 되묻기에서 고른 후보(차례별, 메모리) */
-  const [picked, setPicked] = useState<Record<string, Candidate>>({});
+  /** 되묻기에서 고른 후보(차례별 → 묶음 `input_name`별, 메모리) */
+  const [picked, setPicked] = useState<Record<string, Record<string, Candidate>>>({});
   /** 사이드바 오버레이·드로어를 그릴 자리(119 배너 아래 영역) */
   const [layer, setLayer] = useState<HTMLElement | null>(null);
   const main = useRef<HTMLElement>(null);
@@ -113,11 +114,11 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
 
   if (layout === null || width === null) return <div data-testid="app-shell" data-ready="false" className="h-dvh" />;
 
-  const send = (question: string) => {
+  const send = (question: string, display?: string) => {
     // 고른 대상("누가 먹나요")의 연령대·임신 여부를 묶음에 싣는다. 게스트이거나 고르지 않았으면 두 칸은 비어 있다(값 전달만, 대화는 저장하지 않는다)
     const state = account.getState();
     store.getState().setContext(profileToContext(selectTargetProfile(state), hasHealthConsent(state.me)));
-    void store.getState().send(question);
+    void store.getState().send(question, display);
   };
   const newChat = () => {
     store.getState().reset();
@@ -127,11 +128,18 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const resend = (turnId: string) => {
     const { context, setContext, turns: current } = store.getState();
     const turn = current.find((item) => item.id === turnId);
-    const pick = picked[turnId];
-    if (!turn || !pick) return;
-    // 고른 후보를 묶음에 붙이고 같은 질문을 다시 보낸다(PRD 15.3 (4))
-    setContext({ confirmedDrugs: [...context.confirmedDrugs.filter((drug) => drug.name !== pick.name), { name: pick.name, itemSeq: pick.item_seq }] });
-    send(turn.question);
+    const picks = picked[turnId] ?? {};
+    const groups = groupCandidates(turn?.stream.response?.candidates ?? []);
+    const chosen = groups.flatMap((group) => (picks[group.inputName] ? [picks[group.inputName]] : []));
+    // 모든 묶음(되묻는 이름)을 골랐을 때만 보낸다(FE-09-01 A)
+    if (!turn || groups.length === 0 || chosen.length !== groups.length) return;
+    // 고른 후보 전부를 묶음에 한 번에 붙이고 같은 질문을 한 번 다시 보낸다(PRD 15.3 (4), 요청 1회)
+    const names = chosen.map((candidate) => candidate.name);
+    setContext({
+      confirmedDrugs: [...context.confirmedDrugs.filter((drug) => !names.includes(drug.name)), ...chosen.map((candidate) => ({ name: candidate.name, itemSeq: candidate.item_seq }))],
+    });
+    // 말풍선에는 무엇을 골랐는지 보이고(FE-09-04 A), 서버로는 원 질문을 보낸다
+    send(turn.question, resendBubbleText(names));
   };
   const focusInput = () => main.current?.querySelector("textarea")?.focus();
   // 계정 모달을 열 때 드로어·사이드바 오버레이는 닫는다(층을 겹치지 않는다)
@@ -197,7 +205,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
                 <HomeHero />
                 {/* 진입 선택: 게스트로 시작(주) / 로그인·가입(보조). 누르지 않아도 아래 입력창으로 바로 질문할 수 있다 */}
                 {accountEnabled && !member && !entryDismissed && <EntryChoice onGuest={startGuest} onLogin={openAccount} />}
-                <ExampleChips onPick={send} />
+                <ExampleChips onPick={(question) => send(question)} />
               </div>
             ) : (
               <Conversation
@@ -209,7 +217,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
                 picked={picked}
                 onOpenEvidence={(turnId) => dispatch({ type: "openEvidence", turnId, width })}
                 onRetry={(turnId) => void store.getState().retry(turnId)}
-                onPick={(turnId, candidate) => setPicked((prev) => ({ ...prev, [turnId]: candidate }))}
+                onPick={(turnId, candidate) => setPicked((prev) => ({ ...prev, [turnId]: { ...prev[turnId], [candidate.input_name]: candidate } }))}
                 onOther={focusInput}
                 onResend={resend}
               />
@@ -228,7 +236,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               {!lastFailed && <LegalFooter disclaimer={dockResponse ? dockResponse.disclaimer : DISCLAIMER} />}
               {/* 대상 선택 "누가 먹나요": 로그인하고 프로필이 있을 때만(게스트는 숨김) */}
               {member && profiles.length > 0 && <TargetPicker profiles={profiles} value={targetProfileId} onChange={(id) => account.getState().setTarget(id)} />}
-              <ChatInput onSend={send} />
+              <ChatInput onSend={(question) => send(question)} />
             </div>
           </div>
         </main>

@@ -45,6 +45,10 @@ describe("되묻기 뒤 재전송(FE-IMPL-06b)", () => {
     expect(pickScenario("mock:되묻기 합성 질문")).toBe("clarify");
     expect(pickScenario("mock:되묻기 합성 질문", 0)).toBe("clarify");
     expect(pickScenario("mock:되묻기 합성 질문", 1)).toBe("found");
+    // 이름 둘을 되묻는 시나리오(FE-09): 더 긴 표시 글자가 먼저 걸리고, 고른 약이 둘 이상이어야 결과로 답한다
+    expect(pickScenario("mock:되묻기여러 합성 질문")).toBe("clarifyMulti");
+    expect(pickScenario("mock:되묻기여러 합성 질문", 1)).toBe("clarifyMulti");
+    expect(pickScenario("mock:되묻기여러 합성 질문", 2)).toBe("found");
     // 되묻기가 아닌 시나리오는 고른 약이 있어도 그대로다
     expect(pickScenario("mock:응급", 1)).toBe("emergency");
   });

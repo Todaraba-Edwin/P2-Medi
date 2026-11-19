@@ -42,6 +42,23 @@ describe("대화 스토어", () => {
     expect(requests).toBe(1);
   });
 
+  it("표시용 글자를 주면 차례에 따로 두고, 서버로는 원 질문을 보낸다(FE-09-04 A)", async () => {
+    const seen: unknown[] = [];
+    const store = createChatStore({
+      run: async (request, options) => {
+        seen.push(request);
+        return options?.previous ?? initialStreamState;
+      },
+    });
+    await store.getState().send(QUESTION);
+    await store.getState().send(QUESTION, "고른 약: 가나다정, 가나다시럽으로 다시 확인");
+    const [first, second] = store.getState().turns;
+    expect("display" in first).toBe(false);
+    expect(second).toMatchObject({ question: QUESTION, display: "고른 약: 가나다정, 가나다시럽으로 다시 확인" });
+    expect(seen.map((request) => (request as { question: string }).question)).toEqual([QUESTION, QUESTION]);
+    expect(JSON.stringify(seen)).not.toContain("고른 약");
+  });
+
   it("빈 질문은 보내지 않는다", async () => {
     const store = createChatStore();
     await store.getState().send("   ");

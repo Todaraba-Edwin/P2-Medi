@@ -16,5 +16,14 @@ export const CANDIDATES_LABEL = "후보";
 /** 후보에 찾는 약이 없을 때의 동작 버튼(디자인 반영본 되묻기 보드) */
 export const CANDIDATE_OTHER_LABEL = "목록에 없어요 · 직접 입력";
 
+/** 고른 묶음을 한 줄로 접었을 때 다시 펼치는 버튼(FE-09-01 A "타이레놀 → 타이레놀정500밀리그람 · 바꾸기") */
+export const CANDIDATE_CHANGE_LABEL = "바꾸기";
+
+/** 접힌 한 줄에서 입력한 이름과 고른 제품 사이의 표시(FE-09-01 A). 보조기기에는 읽히지 않게 그린다 */
+export const CANDIDATE_PICKED_ARROW = "→";
+
+/** 다른 묶음에서 이미 고른 제품이라 이 묶음에서 고를 수 없는 이유(FE-09-03 A). **초안이다(승인 필요)** */
+export const CANDIDATE_TAKEN_NOTE = "다른 약으로 이미 골랐어요";
+
 /** 약을 찾지 못한 결과 카드 아래의 동작 칩(tickets/doc/PRD-14.md §5.4 PRD-14-03 A "이름 다시 입력", 1차). 누르면 입력창으로 간다 */
 export const RETRY_NAME_LABEL = "이름 다시 입력";

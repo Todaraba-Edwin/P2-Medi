@@ -25,6 +25,7 @@ import {
   SOURCE_KIND_PREFIX,
   SOURCE_PREFIX_FILE,
   fillCorrection,
+  clarifyMultiQuestion,
   fillJosa,
   ingredientStateLabels,
 } from "./phrases";
@@ -35,6 +36,7 @@ const DRUG_A_TYPO = "가나다졍"; // `DRUG_A`에서 모음 하나만 다른 �
 const DRUG_B = "라마바캡슐";
 const DRUG_C = "사아자시럽";
 const DRUG_AMBIGUOUS = "가나다";
+const DRUG_AMBIGUOUS_2 = "가나다시럽";
 const DRUG_UNKNOWN = "차카타파정";
 // 원인·중복 칸은 지금 서버처럼 `[]`·`false`(원인·중복 아님)를 분명히 싣는다. 칸이 없으면 "모름"이다(BE-06-40 A)
 const INGR_A = { code: "100001ATB", name: "가나성분", contra_kinds: [] as string[], dup: false };
@@ -910,6 +912,22 @@ export const clarifyResponse = make({
     { input_name: DRUG_AMBIGUOUS, name: "가나다정 100밀리그램", item_seq: "200000001", entp_name: "합성제약(주)", prescription: "일반의약품", matched_by: "product_name" },
     { input_name: DRUG_AMBIGUOUS, name: "가나다정 500밀리그램", item_seq: "200000002", entp_name: "합성제약(주)", prescription: "전문의약품", matched_by: "product_name" },
     { input_name: DRUG_AMBIGUOUS, name: "가나다시럽", item_seq: "200000003", entp_name: "가상약품(주)", prescription: "일반의약품", matched_by: "product_name" },
+  ],
+});
+
+/**
+ * 되묻기(이름 둘이 모두 모호, FE-09): 질문 한 개와 이름별 후보 묶음 둘. `가나다시럽`(200000003)은 두 묶음에 모두 든다(겹치는 제품).
+ * 질문은 FE-09-02 A 승인 원문이다(물음표 1개)
+ */
+export const clarifyMultiResponse = make({
+  route: "AGENT",
+  end_reason: "CLARIFY",
+  summary: clarifyMultiQuestion([DRUG_AMBIGUOUS, DRUG_AMBIGUOUS_2]),
+  candidates: [
+    ...clarifyResponse.candidates,
+    { input_name: DRUG_AMBIGUOUS_2, name: "가나다시럽", item_seq: "200000003", entp_name: "가상약품(주)", prescription: "일반의약품", matched_by: "product_name" },
+    { input_name: DRUG_AMBIGUOUS_2, name: "가나다시럽 키즈", item_seq: "200000004", entp_name: "가상약품(주)", prescription: "일반의약품", matched_by: "product_name" },
+    { input_name: DRUG_AMBIGUOUS_2, name: "가나다시럽 플러스", item_seq: "200000005", entp_name: "합성제약(주)", prescription: "전문의약품", matched_by: "product_name" },
   ],
 });
 

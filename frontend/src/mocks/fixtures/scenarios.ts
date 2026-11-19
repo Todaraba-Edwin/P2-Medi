@@ -6,6 +6,7 @@ import {
   ageFoundResponse,
   ageInfoResponse,
   apiFailResponse,
+  clarifyMultiResponse,
   clarifyResponse,
   codeNotLinkedResponse,
   emergencyResponse,
@@ -90,6 +91,8 @@ export const scenarios = {
   emergencyCut: { kind: "stream", ending: "cut", events: events(emergency, progress("drug_lookup")) },
   /** 되묻기(후보 목록) */
   clarify: { kind: "stream", ending: "close", events: events(progress("drug_lookup"), answer(clarifyResponse), done(clarifyResponse)) },
+  /** 되묻기(이름 둘이 모두 모호: 이름별 후보 묶음 둘, 겹치는 제품 1개. FE-09) */
+  clarifyMulti: { kind: "stream", ending: "close", events: events(progress("drug_lookup"), answer(clarifyMultiResponse), done(clarifyMultiResponse)) },
   /** 거절(진행 없이 바로 답) */
   refuse: { kind: "stream", ending: "close", events: events(answer(refuseResponse), done(refuseResponse)) },
   /** 서버 오류 이벤트. `message`는 오류 문구 상수(`ERROR_MESSAGES[code]`)이고 항상 온다(2026-11-12 승인 뒤). 화면은 받은 글자를 그대로 보인다 */

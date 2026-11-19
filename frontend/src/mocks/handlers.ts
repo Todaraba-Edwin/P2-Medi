@@ -9,6 +9,8 @@ export const SCENARIO_KEYWORDS: ReadonlyArray<readonly [string, ScenarioName]> =
   ["mock:응급끊김", "emergencyCut"],
   ["mock:응급", "emergency"],
   ["mock:없음", "notListed"],
+  // 더 긴 표시 글자를 먼저 둔다(`mock:되묻기여러`가 `mock:되묻기`보다 앞)
+  ["mock:되묻기여러", "clarifyMulti"],
   ["mock:되묻기", "clarify"],
   ["mock:거절", "refuse"],
   ["mock:오류이벤트", "serverError"],
@@ -55,10 +57,13 @@ export const CONFIRMED_SCENARIO: ScenarioName = "found";
 /**
  * 질문의 표시 글자로 시나리오를 고른다. 되묻기(`mock:되묻기`)라도 고른 약이 실려 오면(`confirmedDrugs` > 0) 다시 묻지 않고
  * 결과로 답한다(FE-IMPL-06b: 재전송 흐름을 워커로 끝까지 볼 수 있게. 실제 서버의 되묻기 판정과는 무관한 합성 규칙).
+ * 이름 둘을 되묻는 시나리오(`mock:되묻기여러`, FE-09)는 고른 약이 둘 이상 실려 와야 결과로 답한다.
  */
 export function pickScenario(question: string, confirmedDrugs = 0): ScenarioName {
   const picked = SCENARIO_KEYWORDS.find(([keyword]) => question.includes(keyword))?.[1] ?? "found";
-  return picked === "clarify" && confirmedDrugs > 0 ? CONFIRMED_SCENARIO : picked;
+  if (picked === "clarify" && confirmedDrugs > 0) return CONFIRMED_SCENARIO;
+  if (picked === "clarifyMulti" && confirmedDrugs >= 2) return CONFIRMED_SCENARIO;
+  return picked;
 }
 
 /** 시나리오를 NDJSON 응답으로 바꾼다. 이벤트 사이에 `delayMs`만큼 쉰다. */

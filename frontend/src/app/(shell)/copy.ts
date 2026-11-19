@@ -29,3 +29,33 @@ export const NOT_SAVED_SHORT = "대화는 저장하지 않아요";
  * 근거: PJ2-PRD.md 15.3 (4) 3행 "선택값으로 같은 질문을 다시 보냄", 지시서 G-4 "재전송은 별도 조작".
  */
 export const RESEND_WITH_PICK_LABEL = "이 약으로 다시 묻기";
+
+/**
+ * 되묻는 약 이름이 둘 이상일 때의 확인 버튼(FE-09-01 A "모두 고르면 '이 약들로 확인하기' 활성화"). 묶음이 하나면 위 글자를 그대로 쓴다.
+ */
+export const RESEND_WITH_PICKS_LABEL = "이 약들로 확인하기";
+
+/**
+ * 아직 고르지 않은 묶음 수 안내(FE-09-01 A, 확인 버튼이 비활성일 때). **초안이다(승인 필요)**: 지시서의 예 "1개 더 골라 주세요"를 따랐다.
+ */
+export const remainingPicksHint = (count: number) => `${count}개 더 골라 주세요`;
+
+/** 마지막 한글 글자에 받침이 있고 ㄹ이 아니면 "으로", 아니면 "로"(한글이 없으면 "로") */
+function directionJosa(word: string): string {
+  for (let index = word.length - 1; index >= 0; index -= 1) {
+    const code = word.charCodeAt(index);
+    if (code < 0xac00 || code > 0xd7a3) continue;
+    const batchim = (code - 0xac00) % 28;
+    return batchim !== 0 && batchim !== 8 ? "으로" : "로";
+  }
+  return "로";
+}
+
+/**
+ * 고른 약으로 다시 물을 때 내 말풍선에 보일 표시용 글자(FE-09-04 A "고른 약: A, B로 다시 확인"). 약 이름은 고른 제품명(응답 값) 그대로다.
+ * 서버로는 이 글자가 아니라 원 질문을 보낸다.
+ */
+export const resendBubbleText = (names: readonly string[]) => {
+  const joined = names.join(", ");
+  return `고른 약: ${joined}${directionJosa(joined)} 다시 확인`;
+};
