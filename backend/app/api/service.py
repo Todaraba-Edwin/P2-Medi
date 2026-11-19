@@ -22,6 +22,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -80,17 +81,67 @@ def default_resources(settings: Any) -> GraphDeps:
 
     dsn = reveal(settings.supabase_db_url)
 
-    def conn_factory() -> Any:
+    def connect() -> Any:
         conn = psycopg.connect(dsn)
         conn.read_only = True  # 이 연결의 트랜잭션은 읽기 전용
         return conn
 
-    drug_dict = DrugDict.from_db(conn_factory, paramstyle="format")
-    corpus = CorpusIndex.from_db(conn_factory)
-    ctx = build_tool_context(drug_dict, settings=settings, mode="service", dur_client=DurClient.from_settings(settings),
-                             conn_factory=conn_factory, paramstyle="format", corpus=corpus, vector_search_fn=None, label_provider=None)
-    return build_deps(drug_dict, ctx, settings=settings, tracer=None, ledger=None, grade_def_fn=corpus_grade_def_fn(corpus),
-                      service=True)
+    label = BUILD_LABEL.get()
+    with build_step(label, "db connection"):
+        conn_factory = PrimedConnFactory(connect, connect())  # 첫 연결을 여기서 열어 사전 읽기에 넘긴다(추가 연결 0)
+    with build_step(label, "drug dictionary") as step:
+        drug_dict = DrugDict.from_db(conn_factory, paramstyle="format")
+        step.detail = f"{len(drug_dict.products)} products, {len(drug_dict.ingredients)} ingredients"
+    # 코퍼스: 로더(`CorpusIndex.from_db`, 평가 공용)를 그대로 부르고 밖에서 감싼다. 읽기와 BM25 색인 구성이 한 단계 안에 있다.
+    with build_step(label, "corpus (fetch + bm25 index)") as step:
+        corpus = CorpusIndex.from_db(conn_factory)
+        step.detail = f"{len(corpus)} chunks"
+    with build_step(label, "agent wiring"):
+        ctx = build_tool_context(drug_dict, settings=settings, mode="service", dur_client=DurClient.from_settings(settings),
+                                 conn_factory=conn_factory, paramstyle="format", corpus=corpus, vector_search_fn=None, label_provider=None)
+        return build_deps(drug_dict, ctx, settings=settings, tracer=None, ledger=None, grade_def_fn=corpus_grade_def_fn(corpus),
+                          service=True)
+
+
+# --------------------------------------------------------------------------- 자원 준비 단계 로그(BE-17 후속, 2026-11-19)
+# 준비 스레드는 접두 `warmup`, 스위치를 끄고 첫 요청에서 만들 때는 `resources`. 줄에는 단계 이름·소요 초·개수만 남긴다
+# (값·연결 문자열·키·질문은 남기지 않는다. 실패는 예외 **종류 이름**만).
+BUILD_LABEL: ContextVar[str] = ContextVar("mediagent_build_label", default="resources")
+
+
+class _Step:
+    detail: str | None = None
+
+
+@contextmanager
+def build_step(label: str, name: str) -> Iterator[_Step]:
+    """`{label}: {name} starting` → `... done in N.NNs (detail)` 또는 `... failed: Type after N.NNs`(예외는 그대로 올린다)."""
+    step = _Step()
+    started = time.monotonic()
+    logger.info("%s: %s starting", label, name)
+    try:
+        yield step
+    except BaseException as exc:
+        logger.warning("%s: %s failed: %s after %.2fs", label, name, type(exc).__name__, time.monotonic() - started)
+        raise
+    suffix = f" ({step.detail})" if step.detail else ""
+    logger.info("%s: %s done in %.2fs%s", label, name, time.monotonic() - started, suffix)
+
+
+class PrimedConnFactory:
+    """첫 호출에는 미리 연 연결을 돌려주고, 그다음부터는 호출마다 새 연결을 연다(받은 쪽이 닫는다).
+
+    준비 단계에서 접속 시간을 따로 재되 연결을 하나 더 열지 않으려는 것이다. 동시 호출에도 미리 연 연결은 한 번만 건넨다."""
+
+    def __init__(self, connect: Callable[[], Any], first: Any) -> None:
+        self._connect = connect
+        self._first = first
+        self._lock = threading.Lock()
+
+    def __call__(self) -> Any:
+        with self._lock:
+            conn, self._first = self._first, None
+        return conn if conn is not None else self._connect()
 
 
 # --------------------------------------------------------------------------- L4 요청 단위 사용량(BE-06-36 A)
@@ -193,8 +244,21 @@ class LazyGraphRunner:
         if self._base is None:
             with self._lock:
                 if self._base is None:  # 만들다 예외가 나면 저장되지 않는다 → 다음 요청이 다시 시도한다
-                    self._base = self._factory(self._settings)
+                    self._base = self._build()
         return self._base
+
+    def _build(self) -> GraphDeps:
+        """자원을 만들며 전체 시작·완료 줄을 남긴다(접두는 `BUILD_LABEL`: 준비 스레드 `warmup`, 첫 요청 `resources`)."""
+        label = BUILD_LABEL.get()
+        started = time.monotonic()
+        logger.info("%s starting", label)
+        try:
+            base = self._factory(self._settings)
+        except Exception as exc:
+            logger.warning("%s failed: %s after %.1fs", label, type(exc).__name__, time.monotonic() - started)
+            raise
+        logger.info("%s done in %.1fs", label, time.monotonic() - started)
+        return base
 
     @property
     def ready(self) -> bool:
@@ -205,15 +269,15 @@ class LazyGraphRunner:
         """자원을 미리 한 번 만든다(BE-17-01·02 A: 자원 전체). 성공하면 True.
 
         `_resources()`와 같은 잠금을 쓰므로 그동안 들어온 요청은 잠금에서 기다렸다가 같은 자원을 쓴다(생성 1회).
-        실패하면 저장하지 않고(→ 다음 요청이 다시 시도) 예외를 삼킨다. 로그에는 예외 **종류 이름**과 소요 초만 남긴다."""
-        started = time.monotonic()
-        logger.info("chat resources warmup started")
+        실패하면 저장하지 않고(→ 다음 요청이 다시 시도) 예외를 삼킨다. 로그에는 예외 **종류 이름**과 소요 초만 남긴다
+        (`warmup starting` … `warmup done in N.Ns` / `warmup failed: Type after N.Ns`, `_build`가 남긴다). 이미 만들었으면 줄 없이 True."""
+        token = BUILD_LABEL.set("warmup")
         try:
             self._resources()
-        except Exception as exc:  # noqa: BLE001 — 백그라운드 스레드: 종류 이름만 남기고 다음 요청의 재시도에 맡긴다
-            logger.warning("chat resources warmup failed: %s after %.1fs", type(exc).__name__, time.monotonic() - started)
+        except Exception:  # noqa: BLE001 — 백그라운드 스레드: `_build`가 종류 이름을 남겼다. 다음 요청의 재시도에 맡긴다
             return False
-        logger.info("chat resources warmup done in %.1fs", time.monotonic() - started)
+        finally:
+            BUILD_LABEL.reset(token)
         return True
 
     def start_warmup(self) -> threading.Thread:
@@ -250,5 +314,5 @@ def make_service_runner(settings: Any, *, resources_factory: ResourcesFactory | 
     return LazyGraphRunner(settings, resources_factory or default_resources)
 
 
-__all__ = ["REQUEST_USAGE", "REQUIRED_ENV", "LazyGraphRunner", "RequestUsage", "UsageMeter", "default_resources", "make_service_runner",
-           "missing_settings", "request_deps", "start_warmup"]
+__all__ = ["BUILD_LABEL", "REQUEST_USAGE", "REQUIRED_ENV", "LazyGraphRunner", "PrimedConnFactory", "RequestUsage", "UsageMeter",
+           "build_step", "default_resources", "make_service_runner", "missing_settings", "request_deps", "start_warmup"]

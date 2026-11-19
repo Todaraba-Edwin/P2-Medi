@@ -165,8 +165,8 @@ def test_warmup_logs_start_and_done_with_seconds_only(caplog):
     runner = service.make_service_runner(_settings(), resources_factory=fake)
     assert runner.warm() is True
     msgs = [r.getMessage() for r in caplog.records if r.name == service.logger.name]
-    assert "chat resources warmup started" in msgs
-    assert any(m.startswith("chat resources warmup done in ") and m.endswith("s") for m in msgs)
+    assert "warmup starting" in msgs
+    assert any(m.startswith("warmup done in ") and m.endswith("s") for m in msgs)
     assert SECRET not in "\n".join(msgs)
     assert runner.warm() is True and fake.calls == 1  # 이미 만들었으면 다시 만들지 않는다
 
