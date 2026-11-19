@@ -22,7 +22,7 @@ export const CANDIDATE_CHANGE_LABEL = "바꾸기";
 /** 접힌 한 줄에서 입력한 이름과 고른 제품 사이의 표시(FE-09-01 A). 보조기기에는 읽히지 않게 그린다 */
 export const CANDIDATE_PICKED_ARROW = "→";
 
-/** 다른 묶음에서 이미 고른 제품이라 이 묶음에서 고를 수 없는 이유(FE-09-03 A). **초안이다(승인 필요)** */
+/** 다른 묶음에서 이미 고른 제품이라 이 묶음에서 고를 수 없는 이유(FE-09-03 A). 원문 승인(FE-09-10 A, 2026-11-19) */
 export const CANDIDATE_TAKEN_NOTE = "다른 약으로 이미 골랐어요";
 
 /** 약을 찾지 못한 결과 카드 아래의 동작 칩(tickets/doc/PRD-14.md §5.4 PRD-14-03 A "이름 다시 입력", 1차). 누르면 입력창으로 간다 */

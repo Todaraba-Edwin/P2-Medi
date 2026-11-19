@@ -57,17 +57,25 @@ describe("되묻기 뒤 재전송(FE-IMPL-06b)", () => {
     const server = setupServer(createChatHandler());
     server.listen({ onUnhandledFrame: "error" });
     try {
-      const post = async (context: unknown) => {
+      const post = async (context: unknown, question = "mock:되묻기 합성 질문") => {
         const res = await fetch("http://localhost/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: "mock:되묻기 합성 질문", context }),
+          body: JSON.stringify({ question, context }),
         });
         const events = (await res.text()).split("\n").filter(Boolean).map((line) => JSON.parse(line) as { type: string; response?: { end_reason: string } });
         return events.find((event) => event.type === "answer")?.response?.end_reason;
       };
       expect(await post({})).toBe("CLARIFY");
       expect(await post({ confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001" }] })).toBe("NORMAL");
+      // 고른 묶음의 이름(input_name, FE-09-05 A)이 실려 와도 같은 규칙으로 답한다
+      expect(await post({ confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }] })).toBe("NORMAL");
+      const multi = [
+        { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" },
+        { name: "가나다시럽 키즈", item_seq: "200000004", input_name: "가나다시럽" },
+      ];
+      expect(await post({ confirmed_drugs: multi.slice(0, 1) }, "mock:되묻기여러 합성 질문")).toBe("CLARIFY");
+      expect(await post({ confirmed_drugs: multi }, "mock:되묻기여러 합성 질문")).toBe("NORMAL");
     } finally {
       server.close();
     }

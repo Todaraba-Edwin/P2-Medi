@@ -269,6 +269,8 @@ export const ConfirmedDrugSchema = z.strictObject({
     .regex(/^\d{9}$/)
     .nullable()
     .default(null),
+  // 그 약을 고른 되묻기 묶음의 이름(응답 `candidates[].input_name` 그대로, 선택 칸, FE-09-05 A). 있으면 서버가 질문 속 그 이름의 약에만 확정한다
+  input_name: z.string().min(1).max(DRUG_NAME_MAX_CHARS).refine(notBlank, "입력 이름이 비어 있다").nullable().default(null),
 });
 
 /** 같은 대화 안에서 이미 말한 값(한 입력 묶음). 서버는 저장·로그하지 않는다 */

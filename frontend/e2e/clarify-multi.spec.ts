@@ -90,8 +90,8 @@ for (const width of [393, 1280]) {
           age: null,
           pregnant: null,
           confirmed_drugs: [
-            { name: "가나다정 100밀리그램", item_seq: "200000001" },
-            { name: "가나다시럽 키즈", item_seq: "200000004" },
+            { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" },
+            { name: "가나다시럽 키즈", item_seq: "200000004", input_name: "가나다시럽" },
           ],
         },
       });
@@ -132,8 +132,8 @@ for (const width of [393, 1280]) {
       expect((await requests(page))[1]).toMatchObject({
         context: {
           confirmed_drugs: [
-            { name: "가나다정 100밀리그램", item_seq: "200000001" },
-            { name: "가나다시럽 플러스", item_seq: "200000005" },
+            { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" },
+            { name: "가나다시럽 플러스", item_seq: "200000005", input_name: "가나다시럽" },
           ],
         },
       });
@@ -173,7 +173,26 @@ test.describe("단일 묶음 되묻기 회귀(FE-09)", () => {
     await expect(page.locator('[data-turn="turn-2"]').getByTestId("result-card")).toBeVisible();
     const sent = await requests(page);
     expect(sent).toHaveLength(2);
-    expect(sent[1]).toEqual({ question: QUESTION, context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003" }] } });
+    expect(sent[1]).toEqual({ question: QUESTION, context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }] } });
     await expect(bubble(page, 2)).toHaveText("고른 약: 가나다시럽으로 다시 확인");
+  });
+
+  test("같은 이름을 다시 되물으면 그 이름으로 앞서 고른 약은 새로 고른 약으로 바뀐다(input_name당 하나, FE-09-05 A)", async ({ page }) => {
+    await mockChat(page, "clarify", "clarify", "found");
+    await openApp(page);
+    await ask(page);
+    await page.getByTestId("candidate").nth(0).click();
+    await resendButton(page).click();
+    const turn2 = page.locator('[data-turn="turn-2"]');
+    await expect(turn2.getByTestId("candidate-card")).toBeVisible();
+    await turn2.getByTestId("candidate").nth(1).click();
+    await turn2.getByRole("button", { name: "이 약으로 다시 묻기" }).click();
+    await expect(page.locator('[data-turn="turn-3"]').getByTestId("result-card")).toBeVisible();
+    const sent = await requests(page);
+    expect(sent).toHaveLength(3);
+    expect(sent[2]).toEqual({
+      question: QUESTION,
+      context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 500밀리그램", item_seq: "200000002", input_name: "가나다" }] },
+    });
   });
 });

@@ -40,7 +40,7 @@ test("되묻기 → 후보 선택 → 다시 묻기: 워커가 confirmed_drugs�
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toEqual({
     question,
-    context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001" }] },
+    context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }] },
   });
 });
 
@@ -72,8 +72,8 @@ test("여러 약 되묻기(FE-09): 워커가 이름별 묶음 둘을 주고, 둘
       age: null,
       pregnant: null,
       confirmed_drugs: [
-        { name: "가나다정 100밀리그램", item_seq: "200000001" },
-        { name: "가나다시럽 키즈", item_seq: "200000004" },
+        { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" },
+        { name: "가나다시럽 키즈", item_seq: "200000004", input_name: "가나다시럽" },
       ],
     },
   });

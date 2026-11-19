@@ -207,8 +207,23 @@ describe("ChatRequest·ErrorBody zod", () => {
     [{ question: "질문", context: { confirmed_drugs: [{ name: " " }] } }, false],
     [{ question: "질문", context: { confirmed_drugs: [{ name: "가".repeat(101) }] } }, false],
     [{ question: "질문", context: { confirmedDrugs: [] } }, false], // 칸 이름은 snake_case
+    // input_name은 선택 칸이다(FE-09-05 A): 없거나 null이어도 되고, 있으면 비어 있지 않은 100자 이하
+    [{ question: "질문", context: { confirmed_drugs: [{ name: "가나다정", input_name: "가나다" }] } }, true],
+    [{ question: "질문", context: { confirmed_drugs: [{ name: "가나다정", input_name: null }] } }, true],
+    [{ question: "질문", context: { confirmed_drugs: [{ name: "가나다정", input_name: "" }] } }, false],
+    [{ question: "질문", context: { confirmed_drugs: [{ name: "가나다정", input_name: " " }] } }, false],
+    [{ question: "질문", context: { confirmed_drugs: [{ name: "가나다정", input_name: "가".repeat(101) }] } }, false],
+    [{ question: "질문", context: { confirmed_drugs: [{ name: "가나다정", inputName: "가나다" }] } }, false],
   ])("%j → %s", (request, ok) => {
     expect(ChatRequestSchema.safeParse(request).success).toBe(ok);
+  });
+
+  it("고른 약의 input_name은 없으면 null로 채워지고, 있으면 그대로 실린다(FE-09-05 A)", () => {
+    const parsed = ChatRequestSchema.parse({ question: "질문", context: { confirmed_drugs: [{ name: "가나다정" }, { name: "가나다시럽", item_seq: "200000003", input_name: "가나다시럽" }] } });
+    expect(parsed.context.confirmed_drugs).toEqual([
+      { name: "가나다정", item_seq: null, input_name: null },
+      { name: "가나다시럽", item_seq: "200000003", input_name: "가나다시럽" },
+    ]);
   });
 
   it("오류 본문은 code와 fields뿐이다", () => {

@@ -135,8 +135,14 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     if (!turn || groups.length === 0 || chosen.length !== groups.length) return;
     // 고른 후보 전부를 묶음에 한 번에 붙이고 같은 질문을 한 번 다시 보낸다(PRD 15.3 (4), 요청 1회)
     const names = chosen.map((candidate) => candidate.name);
+    const inputNames = chosen.map((candidate) => candidate.input_name);
     setContext({
-      confirmedDrugs: [...context.confirmedDrugs.filter((drug) => !names.includes(drug.name)), ...chosen.map((candidate) => ({ name: candidate.name, itemSeq: candidate.item_seq }))],
+      confirmedDrugs: [
+        // 이전에 확정한 약 가운데 같은 제품이거나 같은 입력 이름으로 고른 것은 지금 고른 것으로 바꾼다
+        ...context.confirmedDrugs.filter((drug) => !names.includes(drug.name) && !(drug.inputName && inputNames.includes(drug.inputName))),
+        // 어느 묶음에서 골랐는지(`input_name`)를 함께 싣는다(FE-09-05 A). 묶음이 하나여도 싣는다
+        ...chosen.map((candidate) => ({ name: candidate.name, itemSeq: candidate.item_seq, inputName: candidate.input_name })),
+      ],
     });
     // 말풍선에는 무엇을 골랐는지 보이고(FE-09-04 A), 서버로는 원 질문을 보낸다
     send(turn.question, resendBubbleText(names));

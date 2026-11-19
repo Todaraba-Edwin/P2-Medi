@@ -36,7 +36,7 @@ export const RESEND_WITH_PICK_LABEL = "이 약으로 다시 묻기";
 export const RESEND_WITH_PICKS_LABEL = "이 약들로 확인하기";
 
 /**
- * 아직 고르지 않은 묶음 수 안내(FE-09-01 A, 확인 버튼이 비활성일 때). **초안이다(승인 필요)**: 지시서의 예 "1개 더 골라 주세요"를 따랐다.
+ * 아직 고르지 않은 묶음 수 안내(FE-09-01 A, 확인 버튼이 비활성일 때). 원문 승인(FE-09-10 A, 2026-11-19).
  */
 export const remainingPicksHint = (count: number) => `${count}개 더 골라 주세요`;
 
