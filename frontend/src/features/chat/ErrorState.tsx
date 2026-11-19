@@ -1,5 +1,6 @@
 import { canRetry } from "@/lib/api";
 import type { StreamState } from "@/lib/api";
+import { PRIMARY_BUTTON } from "@/components/button";
 import { Mascot } from "@/components/Mascot";
 import { NoMascotZone } from "@/components/NoMascotZone";
 import { DISCLAIMER, FIXED_NOTICE } from "@/lib/fixed/phrases.generated";
@@ -38,7 +39,7 @@ export function ErrorState({ stream, onRetry, allowRetry = true, hideMascot = fa
             <button
               type="button"
               onClick={onRetry}
-              className="min-h-11 rounded-full bg-yellow px-4 text-sm font-bold text-ink"
+              className={PRIMARY_BUTTON}
             >
               {RETRY_LABEL}
             </button>

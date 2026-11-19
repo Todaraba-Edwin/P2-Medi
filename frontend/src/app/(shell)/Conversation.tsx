@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { Candidate } from "@/lib/api";
+import { PRIMARY_BUTTON } from "@/components/button";
 import { NoMascotZone } from "@/components/NoMascotZone";
 import { ErrorState, MessageBubble, ProgressSteps } from "@/features/chat";
 import { FixedNoticeBox } from "@/features/emergency";
@@ -73,7 +74,7 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
               <b data-testid="picked-name" className="min-w-0 flex-1 basis-40 text-sm font-semibold [overflow-wrap:break-word] [word-break:keep-all]">
                 {pick.name}
               </b>
-              <button type="button" onClick={() => onResend(turn.id)} className="min-h-11 flex-none rounded-full bg-yellow px-4 text-sm font-bold text-ink">
+              <button type="button" onClick={() => onResend(turn.id)} className={`${PRIMARY_BUTTON} flex-none`}>
                 {RESEND_WITH_PICK_LABEL}
               </button>
             </div>

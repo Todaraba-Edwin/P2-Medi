@@ -1,4 +1,6 @@
 import { UserIcon } from "lucide-react";
+import { HOVER_ROW, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/button";
+import { cn } from "@/lib/utils";
 import { ACCOUNT_LABEL, ACCOUNT_SIGNED_IN, ENTRY_GROUP_LABEL, GUEST_START_LABEL, LOGIN_ENTRY_LABEL, LOGOUT_LABEL, MANAGE_PROFILES_LABEL } from "./copy";
 
 /**
@@ -8,10 +10,10 @@ import { ACCOUNT_LABEL, ACCOUNT_SIGNED_IN, ENTRY_GROUP_LABEL, GUEST_START_LABEL,
 export function EntryChoice({ onGuest, onLogin }: { onGuest: () => void; onLogin: () => void }) {
   return (
     <div role="group" aria-label={ENTRY_GROUP_LABEL} data-testid="entry-choice" className="mx-auto flex w-full max-w-[360px] gap-2">
-      <button type="button" data-testid="guest-start" onClick={onGuest} className="min-h-11 min-w-0 flex-1 rounded-full bg-yellow px-3 text-sm font-bold text-ink">
+      <button type="button" data-testid="guest-start" onClick={onGuest} className={cn(PRIMARY_BUTTON, "min-w-0 flex-1 px-3")}>
         {GUEST_START_LABEL}
       </button>
-      <button type="button" data-testid="login-entry" onClick={onLogin} className="min-h-11 min-w-0 flex-1 rounded-full border border-line-2 bg-bg px-3 text-sm font-bold text-ink-2">
+      <button type="button" data-testid="login-entry" onClick={onLogin} className={cn(SECONDARY_BUTTON, "min-w-0 flex-1 px-3")}>
         {LOGIN_ENTRY_LABEL}
       </button>
     </div>
@@ -26,7 +28,7 @@ export interface AccountMenuProps {
   onLogout: () => void;
 }
 
-const ROW_CLASS = "flex min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 text-left text-sm font-semibold hover:bg-tint";
+const ROW_CLASS = `flex min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 text-left text-sm font-semibold ${HOVER_ROW}`;
 
 /** 사이드바·드로어 아래쪽의 계정 자리. 게스트는 "로그인/가입", 로그인하면 상태 글자·프로필 관리·로그아웃 */
 export function AccountMenu({ member, onOpen, onLogout }: AccountMenuProps) {

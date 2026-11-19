@@ -3,6 +3,7 @@
 import { Dialog } from "radix-ui";
 import { MenuIcon, PanelLeftIcon, SquarePenIcon, XIcon } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
+import { HOVER_ROW } from "@/components/button";
 import { cn } from "@/lib/utils";
 import {
   CURRENT_CHAT_EMPTY,
@@ -25,7 +26,7 @@ export function IconButton({ label, className, children, ...props }: { label: st
     <button
       type="button"
       aria-label={label}
-      className={cn("grid size-11 flex-none place-items-center rounded-xl text-ink-2 hover:bg-tint", className)}
+      className={cn("grid size-11 flex-none place-items-center rounded-xl text-ink-2", HOVER_ROW, className)}
       {...props}
     >
       {children}
@@ -68,7 +69,7 @@ function SidebarBody({ firstQuestion, onNewChat, action, emergencyEntry, account
         type="button"
         data-testid="new-chat"
         onClick={onNewChat}
-        className="flex min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 text-left text-sm font-semibold hover:bg-tint"
+        className={`flex min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 text-left text-sm font-semibold ${HOVER_ROW}`}
       >
         <SquarePenIcon className="size-[18px]" aria-hidden="true" />
         {NEW_CHAT_LABEL}

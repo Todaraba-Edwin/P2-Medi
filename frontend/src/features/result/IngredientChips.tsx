@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Ingredient } from "@/lib/api";
+import { HOVER_INNER_TEXT } from "@/components/button";
 import { cn } from "@/lib/utils";
 import { INGREDIENTS_LABEL, moreIngredientsLabel } from "./copy";
 
@@ -82,8 +83,8 @@ export function IngredientChips({ ingredients }: { ingredients: readonly Ingredi
       ))}
       {collapsed && hidden > 0 && (
         // 보이는 칩은 작지만 누르는 영역은 44px이다
-        <button type="button" onClick={() => setExpanded(true)} className="-my-2.5 inline-flex min-h-11 min-w-11 items-center justify-center">
-          <span className="inline-flex items-center rounded-lg border border-dashed border-line-2 px-2 py-0.5 text-xs leading-[17px] font-semibold whitespace-nowrap text-link">
+        <button type="button" onClick={() => setExpanded(true)} className="group -my-2.5 inline-flex min-h-11 min-w-11 items-center justify-center">
+          <span className={`inline-flex items-center rounded-lg border border-dashed border-line-2 px-2 py-0.5 text-xs leading-[17px] font-semibold whitespace-nowrap text-link ${HOVER_INNER_TEXT}`}>
             {moreIngredientsLabel(hidden)}
           </span>
         </button>

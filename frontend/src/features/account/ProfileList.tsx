@@ -33,7 +33,7 @@ import {
   medicationCount,
   profileName,
 } from "./copy";
-import { ConfirmDialog, EmergencyEntrySlot, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, TEXT_BUTTON, useAccountModal } from "./parts";
+import { ConfirmDialog, DANGER_TEXT_BUTTON, EmergencyEntrySlot, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, TEXT_BUTTON, useAccountModal } from "./parts";
 
 /** 프로필 한 줄 요약. 건강 정보(임신 여부·복용 약)는 건강 정보 동의가 있을 때만 보인다 */
 export function profileSummary(profile: Profile, healthConsent: boolean): string {
@@ -137,7 +137,7 @@ export function ProfileList() {
           {LOGOUT_LABEL}
         </button>
         {!unavailable && (
-          <button type="button" data-testid="withdraw" onClick={() => setWithdrawing(true)} className="min-h-11 rounded-full px-3 text-sm font-bold text-red-ink">
+          <button type="button" data-testid="withdraw" onClick={() => setWithdrawing(true)} className={DANGER_TEXT_BUTTON}>
             {WITHDRAW_LABEL}
           </button>
         )}
