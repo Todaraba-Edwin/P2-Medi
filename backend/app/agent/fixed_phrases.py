@@ -83,6 +83,10 @@ CLARIFY_MANY_CANDIDATES = "'{drug}'에 해당하는 약이 여러 개예요. 어
 # `router._clarify`가 되묻기 묶음이 2개 이상일 때만 쓴다(1개면 위 문구 그대로). 가부·안전·용량 표현 없음, 물음표 1개(`ONE_QUESTION`).
 CLARIFY_MANY_DRUGS = "{drugs}에 해당하는 약이 여러 개예요. 약마다 하나씩 골라 주시겠어요?"
 CLARIFY_MANY_DRUGS_SEP = ", "
+# 이전 차례에서 고른 약과 같은 이름이 다시 나왔을 때의 확인 질문. **원문 승인(AG-21-04 A, 2026-11-19 사용자 "X-01~05 권장대로")**.
+# `router._single_question`이 되묻기 묶음이 1개이고 그 묶음의 첫 후보가 이전 선택(`router.FLAG_PRIOR_PICK`)일 때만 쓴다(묶음 2개 이상이면
+# `CLARIFY_MANY_DRUGS`). `{drug}`는 사전의 제품명(요청의 표시 이름이 아님). 가부·안전·용량 표현 없음, 물음표 1개(`ONE_QUESTION`).
+CLARIFY_PRIOR_PICK = "앞에서 고른 '{drug}'을(를) 말씀하시는 건가요? 다른 약이면 아래에서 골라 주세요."
 
 # 성분코드 없음·참고 전용·이름 모호·조회 실패·잘림: 판정 문구가 아니다
 CODE_NOT_LINKED = FLAG_NOTES["CODE_NOT_LINKED"]

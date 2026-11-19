@@ -43,20 +43,25 @@ def build_graph(deps: GraphDeps) -> Any:
 
 
 def initial_state(question: str, profile: dict[str, Any] | None = None,
-                  confirmed_item_seqs: Sequence[str | dict[str, str]] | None = None) -> dict[str, Any]:
+                  confirmed_item_seqs: Sequence[str | dict[str, str]] | None = None, *,
+                  prior_drugs: Sequence[dict[str, str]] | None = None) -> dict[str, Any]:
     """그래프 시작 상태. `run_question`과 `/chat` 스트림 실행기가 같은 값을 쓴다.
 
     `confirmed_item_seqs`(AG-05-03 A, 되묻기에서 고른 약: 품목기준코드 문자열 또는 `{"item_seq", "input_name"}`, FE-09-05 A)가 비어 있으면
-    키를 두지 않는다(평가 경로와 같은 시작 상태)."""
+    키를 두지 않는다(평가 경로와 같은 시작 상태). `prior_drugs`(AG-21-02 A, 이전 차례에서 고른 약 `{"name", "item_seq", "input_name"}`)도
+    비어 있으면 키를 두지 않는다."""
     init: dict[str, Any] = {"question": question, "call_count": 0, "rewind_count": 0}
     if profile:
         init["profile"] = profile
     if confirmed_item_seqs:
         init["confirmed_item_seqs"] = list(confirmed_item_seqs)
+    if prior_drugs:
+        init["prior_drugs"] = list(prior_drugs)  # 형식 검사는 `router.prior_picks`가 한다(틀린 값은 조용히 버림)
     return init
 
 
 def run_question(graph: Any, question: str, profile: dict[str, Any] | None = None,
-                 confirmed_item_seqs: Sequence[str | dict[str, str]] | None = None) -> dict[str, Any]:
+                 confirmed_item_seqs: Sequence[str | dict[str, str]] | None = None, *,
+                 prior_drugs: Sequence[dict[str, str]] | None = None) -> dict[str, Any]:
     """한 줄 호출. 질문 한 개를 끝까지 흘려 최종 상태를 돌려준다."""
-    return graph.invoke(initial_state(question, profile, confirmed_item_seqs))  # type: ignore[no-any-return]
+    return graph.invoke(initial_state(question, profile, confirmed_item_seqs, prior_drugs=prior_drugs))  # type: ignore[no-any-return]
