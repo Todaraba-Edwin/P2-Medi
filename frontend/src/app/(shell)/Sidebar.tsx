@@ -12,7 +12,6 @@ import {
   MENU_LABEL,
   MENU_OPEN_LABEL,
   NEW_CHAT_LABEL,
-  NOT_SAVED_NOTE,
   RAIL_LABEL,
   SIDEBAR_COLLAPSE_LABEL,
   SIDEBAR_EXPAND_LABEL,
@@ -82,7 +81,7 @@ function SidebarBody({ firstQuestion, onNewChat, action, emergencyEntry, account
       ) : (
         <span className="px-2.5 text-xs text-mute">{CURRENT_CHAT_EMPTY}</span>
       )}
-      <p className="mx-2.5 mt-1.5 mb-0 text-xs leading-[17px] text-mute">{NOT_SAVED_NOTE}</p>
+      {/* 저장 안내는 여기 두지 않는다(PRD-17-08 A): 입력창 아래 고지 한 곳에서만 말한다 */}
       {account}
     </>
   );

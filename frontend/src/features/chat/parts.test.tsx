@@ -119,6 +119,19 @@ describe("ChatInput", () => {
     expect(screen.getByRole("textbox")).toHaveValue("");
   });
 
+  it("입력창 아래 고지(PRD-17-07 A): 승인 원문 그대로, 입력창에 연결되고, 체크·버튼·마스코트가 없다", () => {
+    render(<ChatInput onSend={() => {}} />);
+    const notice = screen.getByTestId("input-notice");
+    expect(notice.textContent).toBe(copy.INPUT_NOTICE);
+    expect(notice.textContent).toBe("질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문은 외부 AI(OpenAI)로 전송돼요.");
+    expect(notice).toHaveAttribute("role", "note");
+    expect(screen.getByRole("textbox")).toHaveAccessibleDescription(copy.INPUT_NOTICE);
+    // 입력창(form) 바로 아래에 있다
+    expect(notice.compareDocumentPosition(screen.getByRole("textbox")) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(notice.querySelector("button, a, input")).toBeNull();
+    expect(screen.queryByTestId("mascot")).toBeNull();
+  });
+
   it("Enter로 보내고 Shift+Enter·한글 조합 중 Enter·빈 글자는 보내지 않는다", async () => {
     const onSend = vi.fn();
     render(<ChatInput onSend={onSend} />);
