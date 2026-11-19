@@ -65,6 +65,15 @@ class Settings(BaseSettings):
     supabase_secret_key: SecretStr | None = None
     supabase_jwks_url: str | None = None
 
+    # 로컬 Postgres RLS 시험 전용 DSN(BE-11-14 A). 런타임 코드는 쓰지 않는다. 선언만 해 두는 이유: `.env`에 이 줄이 있을 때
+    # 선언이 없으면 기본 extra="forbid"로 `get_settings()`가 실패한다(2026-11-19 재현). 시험은 환경변수에서만 읽는다.
+    local_pg_dsn: SecretStr | None = None
+
+    # 프런트(@supabase/ssr 로그인)용 공개 변수(BE-11-18 A). 백엔드 런타임은 쓰지 않는다. 루트 `.env`에 함께 있어
+    # 선언이 없으면 extra="forbid"로 `get_settings()`가 실패한다(2026-11-19 메인 재현). publishable 키도 원문 비노출로 SecretStr
+    next_public_supabase_url: str | None = None
+    next_public_supabase_publishable_key: SecretStr | None = None
+
     # hide_input_in_errors: 검증 오류(ValidationError)에 .env 입력 값(input_value=…)을 담지 않는다(sec-guard)
     model_config = SettingsConfigDict(env_file=default_env_files(), case_sensitive=False, hide_input_in_errors=True)
 

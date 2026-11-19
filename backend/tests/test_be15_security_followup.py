@@ -159,11 +159,13 @@ def test_s03_env_values_not_cached_in_dotenv_cache(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------- S-04 SecretStr
-SECRET_FIELDS = [n for n in Settings.model_fields if n.endswith(("_api_key", "_secret_key", "_publishable_key")) or n == "supabase_db_url"]
+SECRET_FIELDS = [n for n in Settings.model_fields
+                 if n.endswith(("_api_key", "_secret_key", "_publishable_key")) or n in ("supabase_db_url", "local_pg_dsn")]
 
 
 def test_s04_secret_fields_are_secretstr_and_hidden():
-    assert len(SECRET_FIELDS) == 10
+    # 10 + local_pg_dsn(BE-11-14 A) + next_public_supabase_publishable_key(BE-11-18 A), 2026-11-19
+    assert len(SECRET_FIELDS) == 12
     fakes = {n: f"QQQQ-{n}-QQQQQQQQ" for n in SECRET_FIELDS}
     s = Settings(_env_file=None, **fakes)
     dumped = s.model_dump()
