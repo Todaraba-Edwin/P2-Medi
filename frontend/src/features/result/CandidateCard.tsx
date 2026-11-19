@@ -1,4 +1,5 @@
 import type { Candidate } from "@/lib/api";
+import { HOVER_TEXT } from "@/components/button";
 import { NoMascotZone } from "@/components/NoMascotZone";
 import { CANDIDATES_LABEL, CANDIDATE_OTHER_LABEL } from "./copy";
 
@@ -43,7 +44,7 @@ export function CandidateCard({ candidates, onPick, onOther, selected }: Candida
                     data-testid="candidate"
                     aria-pressed={selected === undefined ? undefined : selected === candidate}
                     onClick={() => onPick(candidate)}
-                    className="flex min-h-[54px] w-full flex-col items-start justify-center gap-0.5 px-3.5 py-2 text-left hover:bg-bg-softer aria-pressed:bg-bg-soft aria-pressed:shadow-[inset_3px_0_0_var(--color-yellow)]"
+                    className={`flex min-h-[54px] w-full flex-col items-start justify-center gap-0.5 px-3.5 py-2 text-left aria-pressed:bg-bg-soft aria-pressed:shadow-[inset_3px_0_0_var(--color-yellow)] ${HOVER_TEXT}`}
                   >
                     <b className="max-w-full text-[15px] leading-[21px] font-semibold [overflow-wrap:break-word] [word-break:keep-all]">{candidate.name}</b>
                     {(candidate.prescription || candidate.entp_name) && (
@@ -62,7 +63,7 @@ export function CandidateCard({ candidates, onPick, onOther, selected }: Candida
           <button
             type="button"
             onClick={onOther}
-            className="flex min-h-11 w-full items-center border-t border-line px-3.5 py-2.5 text-left text-sm font-semibold text-link"
+            className={`flex min-h-11 w-full items-center border-t border-line px-3.5 py-2.5 text-left text-sm font-semibold text-link ${HOVER_TEXT}`}
           >
             {CANDIDATE_OTHER_LABEL}
           </button>

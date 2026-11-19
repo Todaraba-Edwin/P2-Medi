@@ -30,6 +30,19 @@
   --font-sans: -apple-system, "SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
 }
 
+/* 누를 수 있는 것은 손가락 커서, 비활성은 금지 커서(Tailwind 4 preflight는 button 커서를 default로 둔다). 호버 반응은 src/components/button.ts */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href] {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-ink);

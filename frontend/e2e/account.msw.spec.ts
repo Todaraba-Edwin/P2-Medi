@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openApp } from "./helpers";
 
 // 계정 흐름(FE-04) e2e. Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다.
@@ -39,6 +39,23 @@ async function expectModalFits(page: Page) {
   const body = page.getByTestId("account-body");
   expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await expectNoHorizontalScroll(page);
+}
+
+/** 모달 상자의 크기(단계가 바뀌어도 같아야 한다) */
+async function modalSize(page: Page) {
+  const box = (await modal(page).boundingBox())!;
+  return { width: Math.round(box.width), height: Math.round(box.height) };
+}
+
+/** 마우스를 올리면 계산된 값이 바뀐다(전환이 끝난 뒤의 값) */
+async function expectHoverChanges(page: Page, target: Locator, property: "backgroundColor" | "filter" | "boxShadow") {
+  const read = () => target.evaluate((el, name) => getComputedStyle(el)[name], property);
+  await page.mouse.move(0, 0);
+  const before = await read();
+  await target.hover();
+  await expect.poll(read).not.toBe(before);
+  await page.mouse.move(0, 0);
+  await expect.poll(read).toBe(before);
 }
 
 test.describe("게스트 시작 360px", () => {
@@ -80,6 +97,11 @@ for (const width of [360, 1280]) {
       const bodies = watchChat(page);
       await openApp(page);
       const opener = page.getByTestId("login-entry");
+      // ---- 버튼 호버 반응(사용자 지시 2026-11-19): 손가락 커서, 올리면 바탕이 바뀐다
+      expect(await opener.evaluate((el) => getComputedStyle(el).cursor)).toBe("pointer");
+      expect(await page.getByTestId("guest-start").evaluate((el) => getComputedStyle(el).cursor)).toBe("pointer");
+      await expectHoverChanges(page, opener, "backgroundColor");
+      await expectHoverChanges(page, page.getByTestId("guest-start"), "filter");
       await opener.click();
 
       // ---- 로그인 첫 화면
@@ -90,11 +112,41 @@ for (const width of [360, 1280]) {
       await expectTouchTarget(closeButton(page)); // ③
       expect(await closeButton(page).evaluate((el) => getComputedStyle(el).position)).toBe("absolute"); // ②
       await expectOnTop(closeButton(page));
-      await expect(modal(page).getByTestId("social-naver")).toBeDisabled();
-      await expect(modal(page).getByTestId("social-naver")).toContainText("준비 중");
-      // 2열(넓은 폭) / 1열(360): 소개와 폼의 배치
+      // 사양 변경(사용자 지시 2026-11-19·PRD-01-10 A): Naver와 이메일 로그인·가입은 화면에 없다. 소셜 로고 버튼 2개만 남는다
+      await expect(modal(page).getByTestId("social-naver")).toHaveCount(0);
+      await expect(modal(page).locator("input")).toHaveCount(0);
+      await expect(modal(page).getByRole("button", { name: "이메일로 가입하기" })).toHaveCount(0);
+      await expect(modal(page).getByRole("button", { name: "로그인", exact: true })).toHaveCount(0);
+      await expect(modal(page).getByRole("button")).toHaveText(["닫기", "", "", "로그인 없이 계속하기"]);
+      const social = modal(page).getByRole("group", { name: "간편 로그인" });
+      const google = social.getByRole("button", { name: "Google로 로그인" });
+      const kakao = social.getByRole("button", { name: "카카오로 로그인" });
+      // 공식 로고 그림이 떴고, 누르는 영역 48px 이상·간격 16px 이상·가로 가운데다
+      for (const button of [google, kakao]) {
+        await expect.poll(() => button.locator("img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+        const box = (await button.boundingBox())!;
+        expect(box.width).toBeGreaterThanOrEqual(48);
+        expect(box.height).toBeGreaterThanOrEqual(48);
+        expect(await button.evaluate((el) => getComputedStyle(el).cursor)).toBe("pointer");
+      }
+      const googleBox = (await google.boundingBox())!;
+      const kakaoBox = (await kakao.boundingBox())!;
+      const groupBox = (await social.boundingBox())!;
+      expect(kakaoBox.x - (googleBox.x + googleBox.width)).toBeGreaterThanOrEqual(16);
+      expect(Math.abs((googleBox.x + kakaoBox.x + kakaoBox.width) / 2 - (groupBox.x + groupBox.width / 2))).toBeLessThanOrEqual(1);
+      // 로고 비율을 바꾸지 않는다(Google 1:1, 카카오 축약형 112:46)
+      expect(await google.locator("img").evaluate((image: HTMLImageElement) => image.clientWidth / image.clientHeight)).toBeCloseTo(1, 2);
+      expect(await kakao.locator("img").evaluate((image: HTMLImageElement) => image.clientWidth / image.clientHeight)).toBeCloseTo(112 / 46, 2);
+      await expectHoverChanges(page, google, "boxShadow");
+      // 키보드로 가면 초점 윤곽선이 보인다(포커스 링 유지)
+      await closeButton(page).focus();
+      for (let presses = 0; presses < 4 && !(await google.evaluate((el) => el === document.activeElement)); presses++) await page.keyboard.press("Tab");
+      await expect(google).toBeFocused();
+      expect(await google.evaluate((el) => el.matches(":focus-visible") && getComputedStyle(el).outlineStyle !== "none" && parseFloat(getComputedStyle(el).outlineWidth) > 0)).toBe(true);
+      // 2열(넓은 폭) / 1열(360): 소개와 로그인 방법의 배치
       const title = (await modal(page).getByRole("heading", { level: 2 }).boundingBox())!;
-      const form = (await modal(page).getByTestId("login-form").boundingBox())!;
+      const form = groupBox;
+      const size = await modalSize(page); // 이 크기가 모든 단계에서 같아야 한다
       if (width >= 1024) expect(form.x).toBeGreaterThan(title.x + title.width - 1);
       else expect(form.y).toBeGreaterThan(title.y + title.height - 1);
       // ⑦ 코너 버튼이 제목·마스코트와 겹치지 않는다(본문 첫 요소는 버튼 아래에서 시작한다)
@@ -114,24 +166,21 @@ for (const width of [360, 1280]) {
       await expect(opener).toBeFocused();
       await opener.click();
 
-      // ---- 가입 화면: `<`가 생기고 같은 높이로 마주 본다
-      await modal(page).getByRole("button", { name: "이메일로 가입하기" }).click();
-      await expect(modal(page)).toHaveAttribute("data-step", "signup");
+      // ---- 소셜 로그인(목) → 동의: `<`가 생기고 같은 높이로 마주 본다(사양 변경: 가입 화면이 빠져 `<`가 생기는 첫 단계는 동의다)
+      await kakao.click();
+      await expect(modal(page)).toHaveAttribute("data-step", "consent");
       const back = (await backButton(page).boundingBox())!;
       const closeNow = (await closeButton(page).boundingBox())!;
       expect(back.y).toBeCloseTo(closeNow.y, 0);
       expect(back.height).toBeGreaterThanOrEqual(MIN_TOUCH);
       expect(back.width).toBeGreaterThanOrEqual(MIN_TOUCH);
       expect(back.x).toBeLessThan(closeNow.x);
-      await backButton(page).click();
-      await expect(modal(page)).toHaveAttribute("data-step", "login");
-
-      // ---- 이메일 로그인(목) → 동의
-      await modal(page).getByLabel("이메일").fill("user@example.com");
-      await modal(page).getByLabel("비밀번호").fill("pw-1234");
-      await modal(page).getByRole("button", { name: "로그인", exact: true }).click();
-      await expect(modal(page)).toHaveAttribute("data-step", "consent");
+      await expectHoverChanges(page, backButton(page), "backgroundColor");
+      await expectHoverChanges(page, closeButton(page), "backgroundColor");
       await expect(modal(page).getByTestId("legal-doc")).toHaveCount(4);
+      expect(await modalSize(page)).toEqual(size); // 단계가 바뀌어도 상자 크기가 같다
+      // 넘치는 내용은 본문 안에서만 스크롤한다
+      expect(await page.getByTestId("account-body").evaluate((el) => el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY === "auto")).toBe(true);
       await expect(modal(page).getByTestId("legal-doc").first()).toContainText("이용약관 (합성 목 문서)"); // 서버(목) 값 그대로
       const submit = modal(page).getByTestId("consent-submit");
       await expect(submit).toBeDisabled(); // 필수 미동의면 다음 불가
@@ -151,8 +200,10 @@ for (const width of [360, 1280]) {
 
       // ---- 프로필: 본인 추가(연령대·임신 여부·복용 약)
       await expect(modal(page)).toHaveAttribute("data-step", "profiles");
+      expect(await modalSize(page)).toEqual(size);
       await modal(page).getByTestId("add-self").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
+      expect(await modalSize(page)).toEqual(size);
       await modal(page).getByLabel("이름(별명)").fill("나");
       await modal(page).getByLabel("연령대").selectOption("y19_64");
       await modal(page).getByRole("radio", { name: "예" }).check();
@@ -170,6 +221,7 @@ for (const width of [360, 1280]) {
       await modal(page).getByLabel("연령대").selectOption("y6_11");
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
+      expect(await modalSize(page)).toEqual(size);
       await expectModalFits(page);
       await shot(page, "profiles");
       await closeButton(page).click();
@@ -209,7 +261,7 @@ for (const width of [360, 1280]) {
         return { local: dump(window.localStorage), session: dump(window.sessionStorage), indexed: names };
       });
       for (const text of [stored.local, stored.session, JSON.stringify(await context.cookies())]) {
-        for (const secret of ["user@example.com", "pw-1234", "가나다정", "첫째", "합성 질문", "y19_64", "pregnan", "00000000-0000-4000"]) expect(text).not.toContain(secret);
+        for (const secret of ["가나다정", "첫째", "합성 질문", "y19_64", "pregnan", "00000000-0000-4000"]) expect(text).not.toContain(secret);
       }
       expect(stored.indexed).toEqual([]);
     });
@@ -333,10 +385,25 @@ test.describe("금기 결과 위에서 여는 계정 모달 360px(ISSUE-006 상�
     await expectModalFits(page);
     await shot(page, "login-over-result");
 
-    // 이미 동의를 마친 사용자(목): 프로필이 첫 화면이라 `<`가 없다
-    await modal(page).getByLabel("이메일").fill("mock-onboarded@example.com");
-    await modal(page).getByLabel("비밀번호").fill("pw-1234");
-    await modal(page).getByRole("button", { name: "로그인", exact: true }).click();
+    // 사양 변경(PRD-01-10 A): 이메일 로그인이 화면에서 빠져 목의 "이미 동의를 마친 사용자"(이메일로만 고를 수 있다)로는 들어갈 수 없다.
+    // 대신 소셜 로그인(목)으로 동의·프로필을 마친 뒤 모달을 다시 열어, 동의를 마친 사용자는 프로필이 첫 화면이라 `<`가 없음을 본다
+    // (목의 미리 만든 사용자로 바로 들어오는 경로는 스토어 단위 시험 `stores/account.test.ts`가 본다)
+    await modal(page).getByTestId("social-google").click();
+    await expect(modal(page)).toHaveAttribute("data-step", "consent");
+    for (const docType of ["terms", "privacy_consent"]) await modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox").check();
+    await modal(page).getByTestId("consent-submit").click();
+    await expect(modal(page)).toHaveAttribute("data-step", "profiles");
+    await modal(page).getByTestId("add-self").click();
+    await modal(page).getByLabel("이름(별명)").fill("나");
+    await modal(page).getByTestId("profile-save").click();
+    await modal(page).getByTestId("add-family").click();
+    await modal(page).getByLabel("이름(별명)").fill("첫째");
+    await modal(page).getByTestId("profile-save").click();
+    await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
+    await closeButton(page).click();
+    await expect(modal(page)).toHaveCount(0);
+    await page.getByRole("button", { name: "메뉴 열기" }).click();
+    await page.getByTestId("menu-drawer").getByTestId("account-entry").click();
     await expect(modal(page)).toHaveAttribute("data-step", "profiles");
     await expect(backButton(page)).toHaveCount(0);
     await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);

@@ -55,9 +55,8 @@ function setup(store: AccountStore = createAccountStore()) {
 
 async function login(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-  await user.type(screen.getByLabelText("이메일"), "user@example.com");
-  await user.type(screen.getByLabelText("비밀번호"), "pw-1234");
-  await user.click(screen.getByRole("button", { name: "로그인" }));
+  // S1 로그인은 소셜만이다(PRD-01-10 A). 목은 페이지를 옮기지 않고 목 세션만 만든다
+  await user.click(screen.getByRole("button", { name: "카카오로 로그인" }));
   await waitFor(() => expect(step()).toBe("consent"));
   await waitFor(() => expect(modal().querySelectorAll('[data-testid="legal-doc"]')).toHaveLength(4));
 }
@@ -88,11 +87,10 @@ describe("모달 배치(PRD-13)", () => {
     expect(within(modal()).getByRole("link", { name: "119 전화" })).toHaveAttribute("href", "tel:119");
   });
 
-  it("가입 화면에서는 `<`가 생기고 누르면 로그인으로 돌아간다. 코너 버튼은 같은 높이의 absolute다", async () => {
+  // 사양 변경(PRD-01-10 A): 가입 화면이 화면에서 빠져, `<`가 생기는 첫 단계인 동의 화면에서 같은 배치를 본다
+  it("동의 화면에서는 `<`가 생기고 누르면 로그인으로 돌아간다. 코너 버튼은 같은 높이의 absolute다", async () => {
     const { user } = setup();
-    await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-    await user.click(screen.getByRole("button", { name: "이메일로 가입하기" }));
-    expect(step()).toBe("signup");
+    await login(user);
     const back = screen.getByRole("button", { name: "뒤로" });
     const close = screen.getByRole("button", { name: "닫기" });
     for (const button of [back, close]) for (const name of ["absolute", "top-2", "min-h-11", "min-w-11"]) expect(button.className).toContain(name);
@@ -128,33 +126,75 @@ describe("모달 배치(PRD-13)", () => {
 });
 
 describe("로그인 화면", () => {
-  it("이메일 + Google·Kakao, Naver는 '준비 중' 비활성, Apple은 없다", async () => {
+  // 사양 변경(사용자 지시 2026-11-19): 글자 버튼 → 회사 공식 로고 버튼, Naver는 화면에서 뺀다(S2에서 다시)
+  it("Google·Kakao는 공식 로고 그림 버튼이고 이름은 aria-label이 준다. Naver·Apple은 없다", async () => {
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-    expect(screen.getByRole("button", { name: "Google로 계속하기" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "카카오로 계속하기" })).toBeEnabled();
-    const naver = screen.getByTestId("social-naver");
-    expect(naver).toBeDisabled();
-    expect(naver).toHaveTextContent("준비 중");
-    expect(naver).not.toHaveAttribute("title"); // 이유 툴팁 없이 글자만
-    expect(modal().textContent).not.toMatch(/apple|애플/i);
+    const group = screen.getByRole("group", { name: "간편 로그인" });
+    const buttons = within(group).getAllByRole("button");
+    expect(buttons.map((button) => button.getAttribute("data-testid"))).toEqual(["social-google", "social-kakao"]);
+    expect(screen.getByRole("button", { name: "Google로 로그인" })).toBe(screen.getByTestId("social-google"));
+    expect(screen.getByRole("button", { name: "카카오로 로그인" })).toBe(screen.getByTestId("social-kakao"));
+    for (const [button, file] of [
+      [buttons[0], "/social/google-signin-icon.svg"],
+      [buttons[1], "/social/kakao-login-simple-ko.svg"],
+    ] as const) {
+      expect(button).toBeEnabled();
+      expect(button).toHaveTextContent(""); // 글자가 아니라 그림이다
+      expect(button.className).toContain("min-h-12"); // 누르는 영역 48px 이상
+      expect(button.className).toContain("min-w-12");
+      const image = button.querySelector("img")!;
+      expect(image).toHaveAttribute("alt", ""); // 장식: 이름이 두 번 읽히지 않는다
+      expect(image.getAttribute("src")).toContain(file);
+    }
+    expect(buttons[0].parentElement!.className).toContain("gap-4"); // 간격 16px
+    expect(buttons[0].parentElement!.className).toContain("justify-center");
+    expect(screen.queryByTestId("social-naver")).toBeNull();
+    expect(modal().textContent).not.toMatch(/네이버|naver|준비 중|apple|애플/i);
+    expect(within(group).queryByTestId("mascot")).toBeNull(); // 마스코트는 이 영역에 쓰지 않는다
   });
 
-  it("이메일 형식·빈 비밀번호는 보내지 않고 알린다", async () => {
+  // 사양 변경(PRD-01-10 A, 2026-11-19): 이메일 로그인·가입은 메일 인증을 갖출 때까지 화면에서 닿지 않는다
+  it("이메일 로그인·가입은 보이지 않는다. `signup` 단계로 들어와도 로그인 화면이다", async () => {
     const { user, store } = setup();
     await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-    await user.click(screen.getByRole("button", { name: "로그인" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("이메일 주소를 확인해 주세요.");
-    await user.type(screen.getByLabelText("이메일"), "user@example.com");
-    await user.click(screen.getByRole("button", { name: "로그인" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("비밀번호를 입력해 주세요.");
-    expect(store.getState().status).toBe("guest");
+    const hidden = () => {
+      expect(screen.queryByTestId("login-form")).toBeNull();
+      expect(screen.queryByTestId("signup-form")).toBeNull();
+      expect(screen.queryByLabelText("이메일")).toBeNull();
+      expect(screen.queryByLabelText("비밀번호")).toBeNull();
+      expect(modal().querySelector("input")).toBeNull();
+      expect(screen.queryByRole("button", { name: "로그인" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "이메일로 가입하기" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "가입하기" })).toBeNull();
+      expect(modal().textContent).not.toMatch(/이메일로 로그인|이메일로 가입/);
+    };
+    hidden();
+    // 남는 것: 제목·설명·소셜 2개·로그인 없이 계속하기
+    expect(within(modal()).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["닫기", "Google로 로그인", "카카오로 로그인", "로그인 없이 계속하기"]);
+    store.getState().go("signup");
+    await waitFor(() => expect(step()).toBe("signup"));
+    hidden();
+    expect(screen.getByRole("heading", { name: "프로필을 저장하려면 로그인하세요" })).toBeInTheDocument();
+    expect(screen.getByTestId("social-google")).toBeEnabled();
+  });
+
+  it("처리 중이면 소셜 버튼 두 개가 모두 비활성이다", async () => {
+    let finish = () => {};
+    const gate = new Promise<void>((resolve) => (finish = resolve));
+    const { user } = setup(createAccountStore({ api: { ...accountApi, startSocialLogin: async (provider) => (await gate, accountApi.startSocialLogin(provider)) } }));
+    await user.click(screen.getByRole("button", { name: "프로필 저장" }));
+    await user.click(screen.getByTestId("social-google"));
+    await waitFor(() => expect(screen.getByTestId("social-google")).toBeDisabled());
+    expect(screen.getByTestId("social-kakao")).toBeDisabled();
+    finish();
+    await waitFor(() => expect(step()).toBe("consent"));
   });
 
   it("소셜 로그인 목 → 로그인 상태가 되고 동의 화면으로 간다", async () => {
     const { user, store } = setup();
     await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-    await user.click(screen.getByRole("button", { name: "카카오로 계속하기" }));
+    await user.click(screen.getByRole("button", { name: "카카오로 로그인" }));
     await waitFor(() => expect(step()).toBe("consent"));
     expect(store.getState()).toMatchObject({ status: "member", me: { onboarding_step: "consent" } });
   });
@@ -166,26 +206,11 @@ describe("로그인 화면", () => {
     expect(step()).toBe("login");
     expect(screen.getByTestId("account-error")).toHaveTextContent("카카오계정에 이메일이 없거나 동의하지 않으면 로그인할 수 없어요. 다른 방법으로 로그인하거나 로그인 없이 쓰세요.");
     expect(screen.getByTestId("account-error")).toHaveTextContent(copy.ERROR_OAUTH_EMAIL_REQUIRED);
-    // 다른 길이 그대로 열려 있다: 이메일·Google·로그인 없이 계속하기
-    expect(screen.getByRole("button", { name: "Google로 계속하기" })).toBeEnabled();
+    // 다른 길이 그대로 열려 있다: Google·로그인 없이 계속하기
+    expect(screen.getByRole("button", { name: "Google로 로그인" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "로그인 없이 계속하기" })).toBeEnabled();
     store.getState().failLogin("OAUTH_FAILED");
     await waitFor(() => expect(screen.getByTestId("account-error")).toHaveTextContent(copy.ERROR_OAUTH_FAILED));
-  });
-
-  it("가입 뒤 이메일 확인이 필요하면 가입 화면에 안내 한 줄이 보이고 로그인 상태가 되지 않는다", async () => {
-    const { user, store } = setup(createAccountStore({ api: { ...accountApi, signupWithEmail: async () => "confirm_email" } }));
-    await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-    await user.click(screen.getByRole("button", { name: "이메일로 가입하기" }));
-    await user.type(screen.getByLabelText("이메일"), "user@example.com");
-    await user.type(screen.getByLabelText("비밀번호"), "pw-1234");
-    await user.click(screen.getByRole("button", { name: "가입하기" }));
-    expect(await screen.findByTestId("signup-confirm-notice")).toHaveTextContent(copy.SIGNUP_CONFIRM_NOTICE);
-    expect(screen.getByTestId("signup-confirm-notice")).toHaveAttribute("role", "status");
-    expect(step()).toBe("signup");
-    expect(store.getState().status).toBe("guest");
-    await user.click(screen.getByRole("button", { name: "뒤로" }));
-    expect(screen.queryByTestId("signup-confirm-notice")).toBeNull();
   });
 
   it("'로그인 없이 계속하기'는 모달을 닫고 게스트로 둔다", async () => {

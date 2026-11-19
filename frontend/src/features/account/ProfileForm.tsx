@@ -25,7 +25,7 @@ import {
   SAVE_LABEL,
   removeMedicationLabel,
 } from "./copy";
-import { EmergencyEntrySlot, FIELD_CLASS, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
+import { EmergencyEntrySlot, FIELD_CLASS, FailureLine, ICON_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
 import { useHealthConsentNotice } from "./ProfileList";
 
 const FAMILY_RELATIONS = RELATIONS.filter((relation) => relation !== "self");
@@ -188,7 +188,7 @@ export function ProfileForm() {
                     type="button"
                     aria-label={removeMedicationLabel(item.input_text)}
                     onClick={() => setMedications(medications.filter((other) => other.input_text !== item.input_text))}
-                    className="grid size-11 flex-none place-items-center rounded-full"
+                    className={ICON_BUTTON}
                   >
                     <XIcon className="size-4" aria-hidden="true" />
                   </button>

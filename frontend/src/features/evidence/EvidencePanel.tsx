@@ -1,6 +1,7 @@
 "use client";
 
 import { XIcon } from "lucide-react";
+import { HOVER_TEXT, ICON_BUTTON } from "@/components/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { CLOSE_LABEL, ENTRY_HINT_LOOKUP, ENTRY_LABELS, EVIDENCE_TITLE } from "./copy";
@@ -57,7 +58,7 @@ export function EvidencePanel({ mode, open, onOpenChange, children, container, h
     <aside aria-label={EVIDENCE_TITLE} data-testid="evidence-panel" data-mode="panel" className="flex h-full min-h-0 flex-col overflow-y-auto border-l border-line bg-bg-softer">
       <header className="sticky top-0 z-10 flex min-h-14 items-center justify-between border-b border-line bg-bg-softer pr-1.5 pl-5">
         <h2 className="m-0 text-base font-bold">{EVIDENCE_TITLE}</h2>
-        <button type="button" aria-label={CLOSE_LABEL} onClick={() => onOpenChange(false)} className="grid size-11 place-items-center rounded-full">
+        <button type="button" aria-label={CLOSE_LABEL} onClick={() => onOpenChange(false)} className={ICON_BUTTON}>
           <XIcon className="size-4" aria-hidden="true" />
         </button>
       </header>
@@ -89,7 +90,7 @@ export function EvidenceEntryButton({
       data-testid="evidence-entry"
       aria-expanded={expanded}
       onClick={onClick}
-      className="flex min-h-11 w-full items-center justify-between px-3.5 py-2.5 text-left text-sm font-semibold text-link"
+      className={`flex min-h-11 w-full items-center justify-between px-3.5 py-2.5 text-left text-sm font-semibold text-link ${HOVER_TEXT}`}
     >
       <span>
         {ENTRY_LABELS[mode]}

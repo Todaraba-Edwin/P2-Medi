@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from "react";
 import { AlertDialog, Dialog } from "radix-ui";
+import { DANGER_BUTTON, SECONDARY_BUTTON } from "@/components/button";
 import { cn } from "@/lib/utils";
 import { accountStore } from "@/stores/account";
 import type { AccountFailure, AccountStore } from "@/stores/account";
@@ -56,10 +57,10 @@ export function StepTitle({ children, className }: { children: React.ReactNode; 
   );
 }
 
-/** 단계 본문 틀(1열). 위 여백(`padding-top`)만으로 코너 버튼 자리를 비운다: header 띠·구분선이 없다 */
+/** 단계 본문 틀(1열, 상자가 넓어도 520px 폭 가운데). 위 여백(`padding-top`)만으로 코너 버튼 자리를 비운다: header 띠·구분선이 없다 */
 export function StepBody({ children, className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div className={cn("flex flex-col gap-3.5 px-5 pt-14 pb-5", className)} {...props}>
+    <div className={cn("mx-auto flex w-full max-w-[520px] flex-col gap-3.5 px-5 pt-14 pb-5", className)} {...props}>
       {children}
     </div>
   );
@@ -135,9 +136,8 @@ export function FailureLine({ failure }: { failure: AccountFailure | null }) {
   );
 }
 
-export const PRIMARY_BUTTON = "min-h-11 rounded-full bg-yellow px-4 text-sm font-bold text-ink disabled:bg-line disabled:text-faint";
-export const SECONDARY_BUTTON = "min-h-11 rounded-full border border-line-2 bg-bg px-4 text-sm font-bold text-ink-2 disabled:text-faint";
-export const TEXT_BUTTON = "min-h-11 rounded-full px-3 text-sm font-bold text-link disabled:text-faint";
+/** 버튼 모양·호버 반응의 원본은 `components/button.ts`다(계정 화면은 여기서 가져다 쓴다) */
+export { DANGER_TEXT_BUTTON, ICON_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON, SOCIAL_BUTTON, TEXT_BUTTON } from "@/components/button";
 export const FIELD_CLASS = "min-h-11 w-full min-w-0 rounded-xl border border-line-2 bg-bg px-3 text-base outline-none focus:border-link disabled:bg-bg-softer disabled:text-faint";
 
 export interface ConfirmDialogProps {
@@ -164,13 +164,13 @@ export function ConfirmDialog({ open, onOpenChange, title, body, confirmLabel, o
           <AlertDialog.Title className="m-0 text-lg leading-6 font-extrabold [word-break:keep-all]">{title}</AlertDialog.Title>
           <AlertDialog.Description className="m-0 text-sm leading-5 text-ink-2">{body}</AlertDialog.Description>
           <div className="mt-2 flex gap-2">
-            <AlertDialog.Cancel className="min-h-11 flex-1 rounded-full border border-line-2 bg-bg px-3 text-sm font-bold text-ink-2">{CANCEL_LABEL}</AlertDialog.Cancel>
+            <AlertDialog.Cancel className={cn(SECONDARY_BUTTON, "flex-1 px-3")}>{CANCEL_LABEL}</AlertDialog.Cancel>
             <button
               type="button"
               data-testid="confirm-action"
               disabled={pending}
               onClick={onConfirm}
-              className="min-h-11 flex-1 rounded-full bg-red px-3 text-sm font-bold text-bg disabled:opacity-60"
+              className={cn(DANGER_BUTTON, "flex-1")}
             >
               {confirmLabel}
             </button>

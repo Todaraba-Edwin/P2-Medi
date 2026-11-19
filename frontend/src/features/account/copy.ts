@@ -22,6 +22,7 @@ export const BACK_LABEL = "뒤로";
 /** 모달 제목·설명(tickets/doc/PRD-13.md §1 ISSUE-006 화면 글자) */
 export const LOGIN_TITLE = "프로필을 저장하려면 로그인하세요";
 export const LOGIN_DESCRIPTION = "나이·임신 여부·먹는 약을 저장해 두면 질문할 때 다시 적지 않아도 돼요. 로그인하지 않아도 모든 질문은 할 수 있어요.";
+// PRD-01-10 A(2026-11-19): 이메일 로그인·가입은 화면에서 숨겼다. 아래 이메일 글자는 메일 인증을 갖춘 뒤 재검토할 때 다시 쓴다(지우지 않는다)
 /** 폼 머리(ISSUE-006 "이메일로 로그인") */
 export const EMAIL_LOGIN_HEADING = "이메일로 로그인";
 export const EMAIL_LABEL = "이메일";
@@ -33,16 +34,17 @@ export const CONTINUE_AS_GUEST_LABEL = "로그인 없이 계속하기";
 /** 가입 화면 제목·버튼 */
 export const SIGNUP_TITLE = "이메일로 가입";
 export const SIGNUP_SUBMIT_LABEL = "가입하기";
-/** 소셜 로그인 묶음 이름 */
-export const SOCIAL_HEADING = "다른 방법으로 로그인";
-/** 소셜 로그인 버튼(사용자 결정 2026-11-18: Google·Kakao, Apple 없음) */
+/** 소셜 로그인 묶음 이름(S1은 소셜만 남는다, PRD-01-10 A). 승인 전(FE-04d) */
+export const SOCIAL_HEADING = "간편 로그인";
+/**
+ * 소셜 로그인 버튼의 접근 가능한 이름(사용자 결정 2026-11-18: Google·Kakao, Apple 없음).
+ * 버튼 면은 회사 공식 로고 그림이라 이 글자는 화면에 보이지 않고 보조기기만 읽는다. 승인 전(FE-04d)
+ */
 export const SOCIAL_LABELS: Readonly<Record<SocialProvider, string>> = {
-  google: "Google로 계속하기",
-  kakao: "카카오로 계속하기",
+  google: "Google로 로그인",
+  kakao: "카카오로 로그인",
 };
-/** Naver는 S2라 버튼만 두고 비활성이다. 이유는 글자 "준비 중"만 보인다(지시서 할 일 2) */
-export const NAVER_LABEL = "네이버로 계속하기";
-export const NAVER_PENDING = "준비 중";
+// Naver 버튼은 S2(연동 방식 확인 뒤)에서 다시 넣는다. 그때까지 화면에 두지 않는다(사용자 지시 2026-11-19)
 /** MSW 목일 때만 보이는 줄(ISSUE-006 "프로토타입이라 실제로 가입되지 않아요.") */
 export const MOCK_NOTE = "프로토타입이라 실제로 가입되지 않아요.";
 /** 이메일 확인이 필요한 가입 뒤의 안내 한 줄(아직 로그인되지 않았다). 승인 전(FE-04c) */
