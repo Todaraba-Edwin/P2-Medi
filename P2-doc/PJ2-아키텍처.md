@@ -144,7 +144,7 @@ flowchart LR
 | 프런트 | Next.js + TypeScript, Zustand, ky, Tailwind CSS, MSW(목) | FE-01(2026-11-12), RFP-15-07 대체. `P2-doc/PJ2-RFP.md:357`, `frontend/package.json:18`·`:26`·`:42` |
 | 배포 | 프런트 Vercel, 백엔드 FastAPI는 AWS 무료 인스턴스 1대 방향(고려 중) | RFP-15-06. `P2-doc/PJ2-RFP.md:357` |
 | DB·벡터 저장소 | Supabase Pro(Postgres + pgvector + Auth) | 배포 요건 RFP-15-03(2026-11-02), 코퍼스 약 970MB가 무료 한도 500MB를 넘어 Pro로 변경 BE-05-03 D(2026-11-11). `P2-doc/PJ2-RFP.md:358`~`:359` |
-| 인증 | Supabase Auth 이메일 계정(확장), 소셜 로그인 없음 | PRD-01-05 B, 2026-11-03. `CLAUDE.md` 1장 |
+| 인증 | Supabase Auth 이메일 계정(확장) + 소셜 로그인 Google·Kakao(S1 진행), Naver(S2 추후, 연동 방식 확인 뒤), Apple 제외 | PRD-01-05 B(계정 서버 저장), 소셜 로그인은 PRD-01-09 A′(2026-11-18; 2026-11-03 "소셜 로그인 제외"를 대체). `CLAUDE.md` 1장, `P2-doc/PJ2-RFP.md:362` |
 | 검색 | BM25(글자 2-gram) + pgvector 코사인, 강한 필터일 때만 SQL `WHERE`, RRF 결합 | BE-10-07, BE-05 §5. `agent/tools/corpus_remote.py:7`~`:10` |
 | PDF 파싱 | 시험 후 결정(후보 pdfplumber, LlamaParse) | RFP-15-04. `P2-doc/PJ2-RFP.md:360` |
 | 평가 | 자체 러너(코드 채점) + Claude judge + Ragas 3지표 | RFP-26. `evaluation/eval_runner.py:1`~`:9`, `P2-doc/PJ2-RFP.md:361` |
