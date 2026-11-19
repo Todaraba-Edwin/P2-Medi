@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { XIcon } from "lucide-react";
-import { AGE_BANDS, MEDICATIONS_MAX, MEDICATION_NAME_MAX_CHARS, PREGNANCY_STATUSES, PROFILE_LABEL_MAX_CHARS, RELATIONS } from "@/lib/api/account";
+import { AGE_BANDS, MEDICATIONS_MAX, PREGNANCY_STATUSES, PROFILE_LABEL_MAX_CHARS, RELATIONS } from "@/lib/api/account";
 import type { AgeBand, MedicationInput, PregnancyStatus, ProfileDraft, Relation } from "@/lib/api/account";
 import { hasHealthConsent, useAccountStore } from "@/stores/account";
 import {
@@ -11,8 +11,8 @@ import {
   CANCEL_LABEL,
   ERROR_NAME_EMPTY,
   MEDICATIONS_LABEL,
-  MEDICATION_ADD_LABEL,
-  MEDICATION_HINT,
+  MEDICATION_UNCONFIRMED_NOTE,
+  MEDICATION_UNCONFIRMED_TAG,
   NOT_SELECTED,
   PREGNANCY_LABEL,
   PREGNANCY_LABELS,
@@ -25,17 +25,22 @@ import {
   SAVE_LABEL,
   removeMedicationLabel,
 } from "./copy";
+import { MedicationPicker } from "./MedicationPicker";
 import { EmergencyEntrySlot, FIELD_CLASS, FailureLine, ICON_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
 import { useHealthConsentNotice } from "./ProfileList";
 
 const FAMILY_RELATIONS = RELATIONS.filter((relation) => relation !== "self");
 const LABEL_CLASS = "text-xs font-bold text-ink-2";
 
+/** 같은 약인가: 품목 번호가 있으면 번호로, 없으면 적은 글자로 본다 */
+const sameMedication = (a: MedicationInput, b: MedicationInput) => (a.item_seq && b.item_seq ? a.item_seq === b.item_seq : a.input_text === b.input_text);
+
 /**
- * 프로필 추가·수정 폼. 관계·연령대·임신 여부·복용 중인 약(선택, 적은 글자 그대로).
+ * 프로필 추가·수정 폼. 관계·연령대·임신 여부·복용 중인 약(선택).
  * 건강 정보(임신 여부·복용 약)는 건강 정보 동의가 있을 때만 입력·저장할 수 있다: 동의가 없으면 두 칸이 비활성이고 이유 한 줄이 보이며,
  * 저장할 때도 건강 정보 칸을 요청에 싣지 않는다(실으면 서버가 422 `HEALTH_CONSENT_REQUIRED`로 막는다).
- * 약은 적은 글자 그대로(`input_text`) 보내고 품목 번호는 붙이지 않는다. 적은 값은 이 부품의 메모리에만 있다(브라우저 저장소에 두지 않는다).
+ * 약은 사전 검색 후보를 골라 `{input_text, item_seq}`로 보내고(FE-04-13 A), 사전에 없거나 고르지 않고 확정하면 `{input_text}`만 보낸다
+ * (`item_seq` null = 확인 안 된 약, FE-04-20 A. 목록에서 표지로 구분한다). 적은 값은 이 부품의 메모리에만 있다(브라우저 저장소에 두지 않는다).
  */
 export function ProfileForm() {
   const { store } = useAccountModal();
@@ -54,15 +59,13 @@ export function ProfileForm() {
   const [ageBand, setAgeBand] = useState<AgeBand | "">(existing?.age_band ?? "");
   const [pregnancy, setPregnancy] = useState<PregnancyStatus>(existing?.pregnancy_status ?? "unknown");
   const [medications, setMedications] = useState<MedicationInput[]>(() => (existing?.medications ?? []).map((item) => ({ input_text: item.input_text, item_seq: item.item_seq })));
-  const [medicationInput, setMedicationInput] = useState("");
   const [nameMissing, setNameMissing] = useState(false);
 
-  const addMedication = () => {
-    const name = medicationInput.trim();
-    if (!name || medications.length >= MEDICATIONS_MAX) return;
-    if (!medications.some((item) => item.input_text === name)) setMedications([...medications, { input_text: name, item_seq: null }]);
-    setMedicationInput("");
+  const addMedication = (item: MedicationInput) => {
+    if (medications.length >= MEDICATIONS_MAX) return;
+    if (!medications.some((other) => sameMedication(other, item))) setMedications([...medications, item]);
   };
+  const hasUnconfirmed = medications.some((item) => !item.item_seq);
 
   const save = () => {
     const name = label.trim();
@@ -154,47 +157,43 @@ export function ProfileForm() {
           <label htmlFor={`${id}-medication`} className={LABEL_CLASS}>
             {MEDICATIONS_LABEL}
           </label>
-          <div className="flex gap-2">
-            <input
-              id={`${id}-medication`}
-              type="text"
-              autoComplete="off"
-              aria-describedby={`${id}-medication-hint`}
-              maxLength={MEDICATION_NAME_MAX_CHARS}
-              value={medicationInput}
-              onChange={(event) => setMedicationInput(event.target.value)}
-              onKeyDown={(event) => {
-                // Enter는 폼을 저장하지 않고 약을 목록에 더한다. 한글 조합 중의 Enter는 넘긴다
-                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  addMedication();
-                }
-              }}
-              className={FIELD_CLASS}
-            />
-            <button type="button" data-testid="medication-add" onClick={addMedication} className={`${SECONDARY_BUTTON} flex-none`}>
-              {MEDICATION_ADD_LABEL}
-            </button>
-          </div>
-          <p id={`${id}-medication-hint`} className="m-0 text-xs text-mute">
-            {MEDICATION_HINT}
-          </p>
+          <MedicationPicker id={`${id}-medication`} count={medications.length} onAdd={addMedication} />
           {healthConsent && medications.length > 0 && (
-            <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
-              {medications.map((item) => (
-                <li key={item.input_text} data-testid="medication" className="flex max-w-full items-center rounded-full border border-line bg-bg-softer pl-3 text-sm">
-                  <span className="min-w-0 [overflow-wrap:anywhere]">{item.input_text}</span>
-                  <button
-                    type="button"
-                    aria-label={removeMedicationLabel(item.input_text)}
-                    onClick={() => setMedications(medications.filter((other) => other.input_text !== item.input_text))}
-                    className={ICON_BUTTON}
+            <>
+              <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+                {medications.map((item) => (
+                  <li
+                    key={`${item.item_seq ?? ""}:${item.input_text}`}
+                    data-testid="medication"
+                    data-confirmed={item.item_seq ? "true" : "false"}
+                    className={`flex max-w-full items-center rounded-full border pl-3 text-sm ${item.item_seq ? "border-line bg-bg-softer" : "border-warn-ink/30 bg-warn-bg"}`}
                   >
-                    <XIcon className="size-4" aria-hidden="true" />
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    <span data-testid="medication-name" className="min-w-0 [overflow-wrap:anywhere]">
+                      {item.input_text}
+                    </span>
+                    {/* 사전 후보 없이 글자만 저장하는 약(FE-04-20 A): 표지로 구분한다 */}
+                    {!item.item_seq && (
+                      <span data-testid="medication-unconfirmed" className="ml-1.5 flex-none rounded-full bg-bg px-1.5 py-0.5 text-[11px] leading-4 font-bold text-warn-ink">
+                        {MEDICATION_UNCONFIRMED_TAG}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={removeMedicationLabel(item.input_text)}
+                      onClick={() => setMedications(medications.filter((other) => !sameMedication(other, item)))}
+                      className={ICON_BUTTON}
+                    >
+                      <XIcon className="size-4" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {hasUnconfirmed && (
+                <p data-testid="medication-unconfirmed-note" className="m-0 rounded-xl bg-warn-bg px-3 py-2 text-xs leading-[17px] text-warn-ink">
+                  {MEDICATION_UNCONFIRMED_NOTE}
+                </p>
+              )}
+            </>
           )}
         </fieldset>
 

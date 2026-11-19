@@ -222,9 +222,11 @@ for (const width of [360, 1280]) {
       await modal(page).getByLabel("이름(별명)").fill("나");
       await modal(page).getByLabel("연령대").selectOption("y19_64");
       await modal(page).getByRole("radio", { name: "예" }).check();
+      // 약은 후보를 고르지 않고 `추가`로 글자 그대로 넣는다(확인 안 된 약 표지가 붙는다). 후보 고르기는 `fedrug.msw.spec.ts`가 본다
       await modal(page).getByLabel("복용 중인 약(선택)").fill("가나다정 100밀리그램");
       await modal(page).getByTestId("medication-add").click();
-      await expect(modal(page).getByTestId("medication")).toHaveText(["가나다정 100밀리그램"]);
+      await expect(modal(page).getByTestId("medication-name")).toHaveText(["가나다정 100밀리그램"]);
+      await expect(modal(page).getByTestId("medication-unconfirmed")).toHaveCount(1);
       await expectModalFits(page);
       await shot(page, "profile-form");
       await modal(page).getByTestId("profile-save").click();

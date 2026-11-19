@@ -14,6 +14,10 @@
 // - `GET /api/profiles` → `ProfileOut[]`, `POST /api/profiles`(201)·`PATCH /api/profiles/{profile_id}` → `ProfileOut`,
 //   `DELETE /api/profiles/{profile_id}` → 204(본인 프로필은 409 `SELF_REQUIRED`). PATCH는 보낸 칸만 바꾸고 `medications`는 목록 전체 교체
 // - `DELETE /api/me` → 204(탈퇴: 프로필·복용 약·동의 기록 즉시 파기)
+// - `POST /api/drugs/search` `{q}`(앞뒤 공백 제거 뒤 1~100자) → `DrugSearchOut`(FE-04-13 A·FE-04-21 A, 백엔드 `drugs.py`, 2026-11-20).
+//   로그인 필요. 후보는 제품 → 성분 순서로 최대 10개이고 질문 문자열은 되돌려 주지 않는다(`Cache-Control: no-store`).
+//   **POST인 이유**: 질문을 URL 쿼리에 두면 서버 access 로그·브라우저 기록·프록시 로그에 경로째 남는다(결정 FE-04-21 A).
+//   오류: 401 / 422 `INVALID_REQUEST`(fields=`q`) / 501 `NOT_IMPLEMENTED`(사전 공급자 없음) / 503 `DICT_UNAVAILABLE`·`AUTH_UNAVAILABLE`
 // - 오류 본문은 `/chat`과 같은 `{code, fields}`(BE-11-21 A). 입력 값은 실려 오지 않는다. 코드:
 //   401 `AUTH_REQUIRED`·`AUTH_INVALID` / 403 `CONSENT_REQUIRED`·`RECONSENT_REQUIRED`(fields=문서 종류) / 404 `NOT_FOUND` /
 //   409 `VERSION_MISMATCH`·`USE_ACCOUNT_DELETE`·`SELF_EXISTS`·`SELF_REQUIRED`·`SELF_FIXED` /
@@ -126,12 +130,43 @@ export const ProfileSchema = z.strictObject({
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
+/** 약 이름 검색 후보가 어느 사전에서 맞았는가(`drugs.py`): 제품 사전이면 `item_seq`가 있고, 성분 사전이면 없다 */
+export const DRUG_MATCHED_BY = ["product_name", "ingredient_name"] as const;
+export const DrugMatchedBySchema = z.enum(DRUG_MATCHED_BY);
+export type DrugMatchedBy = z.infer<typeof DrugMatchedBySchema>;
+/** 비슷한 이름(BM25)으로 찾은 후보의 `match_type`. 화면이 자동으로 확정하지 않는다(고르는 것은 늘 사용자다) */
+export const DRUG_MATCH_SIMILAR = "bm25";
+
+/**
+ * 약 이름 검색 후보 한 건(`DrugCandidateOut`). `item_seq`가 null인 후보(성분명 일치, 허가번호 없는 행)는 골라도 글자만 저장된다.
+ * `match_type`은 서버가 `exact`·`normalized`·`prefix`·`contains`·`bm25`를 쓰지만 목록이 늘 수 있어 문자열로 둔다
+ */
+export const DrugCandidateSchema = z.strictObject({
+  name: z.string().min(1),
+  item_seq: z.string().nullable(),
+  entp_name: z.string().nullable(),
+  prescription: z.string().nullable(),
+  matched_by: DrugMatchedBySchema,
+  match_type: z.string(),
+});
+export type DrugCandidate = z.infer<typeof DrugCandidateSchema>;
+
+/** `POST /drugs/search` 응답(`DrugSearchOut`). 질문 문자열은 실려 오지 않는다 */
+export const DrugSearchResultSchema = z.strictObject({
+  candidates: z.array(DrugCandidateSchema),
+  /** 후보가 여럿이거나 비슷한 이름일 때 true. 후보가 없으면 false */
+  needs_confirmation: z.boolean(),
+  dict_version: z.string(),
+});
+export type DrugSearchResult = z.infer<typeof DrugSearchResultSchema>;
+
 // ---------------------------------------------------------------- 요청(생성 타입 그대로)
 export type ConsentItem = Gen["ConsentItem"];
 export type ConsentChannel = Gen["ConsentRequest"]["channel"];
 export type MedicationInput = Gen["MedicationIn"];
 export type ProfileCreateBody = Gen["ProfileCreate"];
 export type ProfileUpdateBody = Gen["ProfileUpdate"];
+export type DrugSearchBody = Gen["DrugSearchIn"];
 
 /**
  * 화면이 만들거나 고칠 때 넘기는 값. `health`가 null이면 건강 정보 칸(임신 여부·복용 약)을 **요청에 싣지 않는다**
@@ -156,6 +191,9 @@ export const FAMILY_PROFILE_MAX = 3;
 export const PROFILE_LABEL_MAX_CHARS = 20;
 export const MEDICATION_NAME_MAX_CHARS = 100;
 export const MEDICATIONS_MAX = 10;
+/** 약 이름 검색(`DrugSearchIn.q`) 글자 상한·후보 상한(백엔드 `drugs.py`: 프로필 약 `input_text` 상한과 같다, 후보 최대 10) */
+export const DRUG_QUERY_MAX_CHARS = MEDICATION_NAME_MAX_CHARS;
+export const DRUG_CANDIDATES_MAX = 10;
 
 export const SOCIAL_PROVIDERS = ["google", "kakao"] as const;
 export type SocialProvider = (typeof SOCIAL_PROVIDERS)[number];
@@ -179,15 +217,17 @@ export class AccountApiError extends Error {
 
 type Method = "get" | "post" | "patch" | "delete";
 
-async function call(method: Method, path: string, json?: unknown): Promise<Response> {
+async function call(method: Method, path: string, json?: unknown, signal?: AbortSignal): Promise<Response> {
   // 로그인해 있으면 토큰을 붙인다(백엔드 `security/auth.py`가 JWKS로 검증한다). 게스트·목 모드는 붙이지 않는다
   const token = await getAccessToken();
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
   let response: Response;
   try {
-    response = await apiClient(path, { method, prefix: resolveApiBase(), json, headers });
-  } catch {
+    response = await apiClient(path, { method, prefix: resolveApiBase(), json, headers, signal });
+  } catch (error) {
+    // 부르는 쪽이 끊은 요청(검색어가 바뀌어 앞 검색을 버림)은 연결 실패가 아니다: 그대로 넘겨 호출자가 무시하게 한다
+    if (signal?.aborted) throw error;
     throw new AccountApiError("network", 0, null);
   }
   return response;
@@ -262,6 +302,16 @@ export async function deleteProfile(profileId: string): Promise<void> {
 export async function deleteMe(): Promise<void> {
   await done(await call("delete", "me"));
   if (authMode() === "supabase") await signOut();
+}
+
+/**
+ * 프로필 약 이름 검색(FE-04-13 A): 제품 → 성분 순서의 후보 최대 10개. 검색어는 본문(`{q}`)으로만 보내고(FE-04-21 A) 어디에도 남기지 않는다
+ * (로그·콘솔·오류 객체·URL). 앞뒤 공백을 지운 1~100자가 아니면 서버가 422로 막으므로 부르기 전에 화면이 거른다.
+ * `signal`로 끊으면(검색어가 바뀜) 끊김 오류가 그대로 던져진다(`AccountApiError`가 아니다): 호출자는 그 결과를 버린다.
+ */
+export async function searchDrugs(q: string, signal?: AbortSignal): Promise<DrugSearchResult> {
+  const body: DrugSearchBody = { q };
+  return read(await call("post", "drugs/search", body, signal), DrugSearchResultSchema);
 }
 
 // ---------------------------------------------------------------- 로그인(Supabase Auth. 목 모드에서는 MSW 목 주소)

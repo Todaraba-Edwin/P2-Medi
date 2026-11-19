@@ -8,8 +8,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
 import type { Profile } from "@/lib/api/account";
 import { createAccountHandlers } from "@/mocks/account-handlers";
-import { MOCK_LEGAL_DOCS } from "@/mocks/fixtures/account";
-import { accountApi } from "@/lib/api/account";
+import { MOCK_DRUG_DICT, MOCK_LEGAL_DOCS, searchMockDrugs } from "@/mocks/fixtures/account";
+import { AccountApiError, DRUG_CANDIDATES_MAX, MEDICATIONS_MAX, accountApi, searchDrugs } from "@/lib/api/account";
 import { createAccountStore } from "@/stores/account";
 import type { AccountStore } from "@/stores/account";
 import { AccountModal, openAccountModal } from "./AccountModal";
@@ -660,5 +660,255 @@ describe("법적 문서 본문 렌더", () => {
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("p")).toHaveTextContent("굵게 글자 <script>alert(1)</script>");
     expect(container.querySelectorAll("li")).toHaveLength(1);
+  });
+});
+
+describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21 A)", () => {
+  const medicationInput = () => screen.getByRole("combobox", { name: "복용 중인 약(선택)" });
+  const listbox = () => screen.getByTestId("medication-candidates");
+  const options = () => within(listbox()).getAllByRole("option");
+  const chips = () => screen.getAllByTestId("medication").map((chip) => ({ name: within(chip).getByTestId("medication-name").textContent, confirmed: chip.getAttribute("data-confirmed") }));
+
+  /** `POST /api/drugs/search` 요청을 모은다(주소·본문). 검색어가 URL에 실리지 않는지도 본다 */
+  function watchSearch() {
+    const requests: { url: string; method: string; body: unknown }[] = [];
+    server.events.on("request:start", async ({ request }) => {
+      if (!new URL(request.url).pathname.endsWith("/api/drugs/search")) return;
+      requests.push({ url: request.url, method: request.method, body: await request.clone().json().catch(() => null) });
+    });
+    return requests;
+  }
+
+  async function openForm(user: ReturnType<typeof userEvent.setup>) {
+    await login(user);
+    await consent(user, { health: true });
+    await user.click(screen.getByTestId("add-self"));
+    await user.type(screen.getByLabelText("이름(별명)"), "나");
+  }
+
+  afterEach(() => server.events.removeAllListeners());
+
+  it("입력이 멈춘 뒤 한 번만 POST 본문 `{q}`로 검색하고(URL에 검색어 없음), 후보는 제품명·성분명 표지와 함께 목록으로 보인다", async () => {
+    const requests = watchSearch();
+    const { user } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(input).toHaveAttribute("aria-autocomplete", "list");
+    expect(input).toHaveAttribute("aria-controls", listbox().id);
+    expect(listbox()).not.toBeVisible();
+    await user.type(input, "가나다");
+    expect(requests).toEqual([]); // 300ms 안에는 부르지 않는다
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    expect(requests).toHaveLength(1);
+    expect(requests[0].method).toBe("POST");
+    expect(requests[0].body).toEqual({ q: "가나다" });
+    expect(new URL(requests[0].url).search).toBe("");
+    expect(listbox()).toHaveAccessibleName("후보 6개");
+    expect(options().map((option) => option.getAttribute("data-matched-by"))).toEqual(["product_name", "product_name", "product_name", "product_name", "product_name", "ingredient_name"]); // 제품 → 성분
+    expect(options()[0]).toHaveAccessibleName("가나다정 100밀리그램, 제품명, 합성제약(주), 일반");
+    expect(options()[5]).toHaveAccessibleName("가나다마이신, 성분명");
+    expect(options()[5]).toHaveTextContent("성분명");
+    expect(screen.getByTestId("medication-status")).toHaveTextContent("후보 6개");
+    expect(screen.queryByTestId("medication-no-candidates")).toBeNull();
+  });
+
+  it("↑↓로 후보를 옮기고(aria-activedescendant) Enter로 고르면 `item_seq`와 함께 저장된다. 고른 뒤 입력은 비고 목록은 닫힌다", async () => {
+    const { user, store } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    await user.type(input, "가나다");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", options()[1].id);
+    expect(options()[1]).toHaveAttribute("aria-selected", "true");
+    expect(options()[0]).toHaveAttribute("aria-selected", "false");
+    await user.keyboard("{ArrowUp}");
+    expect(input).toHaveAttribute("aria-activedescendant", options()[0].id);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(step()).toBe("profile-form"); // Enter는 폼 저장이 아니다
+    expect(chips()).toEqual([{ name: "가나다정 500밀리그램", confirmed: "true" }]);
+    expect(screen.queryByTestId("medication-unconfirmed")).toBeNull();
+    expect(screen.queryByTestId("medication-unconfirmed-note")).toBeNull();
+    expect(input).toHaveValue("");
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(input).toHaveFocus();
+    // 저장: 고른 후보는 `{input_text, item_seq}`로 간다. 목(서버 규칙)은 사전에 있는 번호를 확인 시각과 함께 남긴다
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(store.getState().profiles[0].medications).toEqual([{ medication_id: expect.any(String), input_text: "가나다정 500밀리그램", item_seq: "200000002", confirmed_at: expect.any(String) }]);
+    // 수정 폼을 다시 열면 확인된 약으로 보인다
+    await user.click(screen.getByRole("button", { name: "나 수정" }));
+    expect(chips()).toEqual([{ name: "가나다정 500밀리그램", confirmed: "true" }]);
+  });
+
+  it("후보가 없으면 안내가 보이고, `추가`나 고르지 않은 Enter는 글자 그대로 확인 안 된 약(`item_seq` 없음)으로 넣는다. 성분명 후보도 번호가 없어 확인 안 된 약이다", async () => {
+    const requests = watchSearch();
+    const { user, store } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    await user.type(input, "없는약");
+    await waitFor(() => expect(screen.getByTestId("medication-no-candidates")).toHaveTextContent(copy.MEDICATION_NO_CANDIDATES));
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(input).toHaveValue("없는약"); // 입력은 그대로
+    await user.click(screen.getByTestId("medication-add"));
+    expect(chips()).toEqual([{ name: "없는약", confirmed: "false" }]);
+    expect(screen.getByTestId("medication-unconfirmed")).toHaveTextContent(copy.MEDICATION_UNCONFIRMED_TAG);
+    expect(screen.getByTestId("medication-unconfirmed-note")).toHaveTextContent(copy.MEDICATION_UNCONFIRMED_NOTE);
+    expect(screen.queryByTestId("medication-no-candidates")).toBeNull(); // 넣고 나면 안내도 지운다
+    // 후보가 있어도 고르지 않은 Enter는 글자 그대로(자동 확정 없음)
+    await user.type(input, "가나다정 100밀리그램");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    await user.keyboard("{Enter}");
+    expect(chips()).toEqual([
+      { name: "없는약", confirmed: "false" },
+      { name: "가나다정 100밀리그램", confirmed: "false" },
+    ]);
+    // 성분명 후보를 마우스로 고르면 이름은 후보 글자이고 번호는 없다
+    await user.type(input, "라마바펜");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    expect(options()).toHaveLength(1);
+    await user.click(options()[0]);
+    expect(chips()).toEqual([
+      { name: "없는약", confirmed: "false" },
+      { name: "가나다정 100밀리그램", confirmed: "false" },
+      { name: "라마바펜", confirmed: "false" },
+    ]);
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(store.getState().profiles[0].medications.map((item) => [item.input_text, item.item_seq, item.confirmed_at])).toEqual([
+      ["없는약", null, null],
+      ["가나다정 100밀리그램", null, null],
+      ["라마바펜", null, null],
+    ]);
+    expect(requests.every((request) => request.method === "POST" && new URL(request.url).search === "")).toBe(true);
+  });
+
+  it("후보는 최대 10개이고 비슷한 이름(`bm25`)에는 표지가 붙는다. 같은 약은 두 번 넣지 않는다", async () => {
+    const { user } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    await user.type(input, "다목");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    expect(options()).toHaveLength(DRUG_CANDIDATES_MAX);
+    expect(MOCK_DRUG_DICT.filter((entry) => entry.name.startsWith("다목")).length).toBeGreaterThan(DRUG_CANDIDATES_MAX);
+    await user.clear(input);
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    await user.type(input, "가나다졍");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    expect(options()).toHaveLength(1);
+    expect(options()[0]).toHaveTextContent(copy.MEDICATION_SIMILAR_TAG);
+    expect(options()[0]).toHaveAccessibleName("가나다정 100밀리그램, 제품명, 합성제약(주), 일반, 비슷한 이름");
+    await user.click(options()[0]);
+    await user.type(input, "가나다정 100밀리그램");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    await user.keyboard("{ArrowDown}{Enter}"); // 같은 번호
+    expect(chips()).toEqual([{ name: "가나다정 100밀리그램", confirmed: "true" }]);
+  });
+
+  it("Esc는 열린 목록만 닫고 모달은 남는다. 목록이 닫힌 뒤의 Esc는 모달을 닫는다", async () => {
+    const { user } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    await user.type(input, "가나다");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    await user.keyboard("{Escape}");
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(listbox()).not.toBeVisible();
+    expect(step()).toBe("profile-form");
+    expect(input).toHaveValue("가나다"); // 적은 글자는 남는다
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("account-modal")).toBeNull());
+  });
+
+  it("검색이 401·422·네트워크 오류로 실패해도 입력은 그대로 남고 글자 저장은 된다. 검색어는 콘솔에 찍히지 않는다", async () => {
+    const consoleSpy = ["log", "info", "warn", "error", "debug"].map((name) => vi.spyOn(console, name as "log").mockImplementation(() => {}));
+    const { user } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    for (const [text, respond, message] of [
+      ["mock-401", () => HttpResponse.json({ code: "AUTH_REQUIRED", fields: [] }, { status: 401 }), copy.MEDICATION_SEARCH_AUTH_EXPIRED],
+      ["mock-422", () => HttpResponse.json({ code: "INVALID_REQUEST", fields: ["q"] }, { status: 422 }), copy.MEDICATION_SEARCH_FAILED],
+      ["mock-net", () => HttpResponse.error(), copy.MEDICATION_SEARCH_FAILED],
+    ] as const) {
+      server.use(http.post("*/api/drugs/search", respond));
+      await user.type(input, text);
+      await waitFor(() => expect(screen.getByTestId("medication-search-error")).toHaveTextContent(message));
+      expect(input).toHaveValue(text);
+      expect(input).toHaveAttribute("aria-expanded", "false");
+      await user.click(screen.getByTestId("medication-add"));
+      expect(screen.queryByTestId("medication-search-error")).toBeNull();
+    }
+    expect(chips()).toEqual([
+      { name: "mock-401", confirmed: "false" },
+      { name: "mock-422", confirmed: "false" },
+      { name: "mock-net", confirmed: "false" },
+    ]);
+    // 다시 적으면 오류 줄이 사라진다
+    await user.type(input, "가");
+    expect(screen.queryByTestId("medication-search-error")).toBeNull();
+    const logged = consoleSpy.flatMap((spy) => spy.mock.calls.flat()).map((value) => (typeof value === "string" ? value : JSON.stringify(value) ?? ""));
+    for (const text of ["mock-401", "mock-422", "mock-net", "가나다"]) expect(logged.join("\n")).not.toContain(text);
+    consoleSpy.forEach((spy) => spy.mockRestore());
+  });
+
+  it("검색어가 바뀌면 앞 요청의 결과를 버린다(늦게 온 옛 후보가 새 입력을 덮지 않는다)", async () => {
+    let release: () => void = () => {};
+    const first = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post("*/api/drugs/search", async ({ request }) => {
+        const { q } = (await request.json()) as { q: string };
+        if (q === "가나다") await first; // 첫 검색은 붙잡아 둔다
+        return HttpResponse.json(searchMockDrugs(q));
+      }),
+    );
+    const { user } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    await user.type(input, "가나다");
+    await waitFor(() => expect(screen.getByTestId("medication-searching")).toBeVisible());
+    await user.type(input, "시럽"); // "가나다시럽": 새 검색
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    expect(options().map((option) => option.textContent)).toHaveLength(3);
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(options()).toHaveLength(3); // 옛 결과(6개)로 바뀌지 않는다
+  });
+
+  it("약이 10개면 입력·추가가 막히고 상한 글자가 보인다", async () => {
+    const { user } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    for (let index = 0; index < MEDICATIONS_MAX; index += 1) {
+      await user.type(input, `약${index}`);
+      await user.click(screen.getByTestId("medication-add"));
+    }
+    expect(screen.getAllByTestId("medication")).toHaveLength(MEDICATIONS_MAX);
+    expect(input).toBeDisabled();
+    expect(screen.getByTestId("medication-add")).toBeDisabled();
+    expect(screen.getByTestId("medication-limit")).toHaveTextContent(copy.ERROR_MEDICATION_LIMIT);
+    await user.click(screen.getByRole("button", { name: "약0 삭제" }));
+    expect(input).toBeEnabled();
+    expect(screen.queryByTestId("medication-limit")).toBeNull();
+  });
+
+  it("건강 정보 동의가 없으면 검색 칸도 비활성이다", async () => {
+    const { user } = setup();
+    await login(user);
+    await consent(user, { health: false });
+    await user.click(screen.getByTestId("add-family"));
+    expect(medicationInput()).toBeDisabled();
+    expect(screen.getByTestId("medication-add")).toBeDisabled();
+  });
+
+  it("searchDrugs: 끊은 요청은 연결 오류로 바꾸지 않고 그대로 던진다(호출자가 버린다)", async () => {
+    server.use(http.post("*/api/drugs/search", async () => HttpResponse.json(searchMockDrugs("가나다"))));
+    const controller = new AbortController();
+    controller.abort();
+    await expect(searchDrugs("가나다", controller.signal)).rejects.not.toBeInstanceOf(AccountApiError);
+    await expect(searchDrugs("가나다")).resolves.toMatchObject({ candidates: expect.any(Array), needs_confirmation: true });
   });
 });

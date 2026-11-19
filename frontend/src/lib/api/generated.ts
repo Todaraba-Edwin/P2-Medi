@@ -36,6 +36,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/drugs/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 프로필 약 이름 사전 검색(제품 → 성분, 최대 10개, LLM 0) */
+        post: operations["search_drugs_drugs_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -476,6 +493,47 @@ export interface components {
             options: string[];
             /** Question */
             question: string;
+        };
+        /**
+         * DrugCandidateOut
+         * @description 후보 하나. `item_seq`가 없는 후보(성분명 일치, 허가번호 없는 KIDS 제품 행)는 골라도 `item_seq` 없이 글자만 저장된다.
+         */
+        DrugCandidateOut: {
+            /** Entp Name */
+            entp_name: string | null;
+            /** Item Seq */
+            item_seq: string | null;
+            /** Match Type */
+            match_type: string;
+            /**
+             * Matched By
+             * @enum {string}
+             */
+            matched_by: "product_name" | "ingredient_name";
+            /** Name */
+            name: string;
+            /** Prescription */
+            prescription: string | null;
+        };
+        /**
+         * DrugSearchIn
+         * @description 검색 본문. 질문을 URL 쿼리에 두지 않는다(서버 access 로그·브라우저 기록·프록시 로그에 경로째 남기 때문).
+         */
+        DrugSearchIn: {
+            /** Q */
+            q: string;
+        };
+        /**
+         * DrugSearchOut
+         * @description `POST /drugs/search` 응답. 질문 문자열은 되돌려 주지 않는다.
+         */
+        DrugSearchOut: {
+            /** Candidates */
+            candidates: components["schemas"]["DrugCandidateOut"][];
+            /** Dict Version */
+            dict_version: string;
+            /** Needs Confirmation */
+            needs_confirmation: boolean;
         };
         /**
          * Emergency
@@ -1050,6 +1108,66 @@ export interface operations {
                 };
             };
             /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    search_drugs_drugs_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DrugSearchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrugSearchOut"];
+                };
+            };
+            /** @description AUTH_REQUIRED·AUTH_INVALID(계정 행 없음 포함). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description INVALID_REQUEST(fields=["q"]). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 사전 공급자 미설정. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE 또는 DICT_UNAVAILABLE(사전 적재 실패). */
             503: {
                 headers: {
                     [name: string]: unknown;
