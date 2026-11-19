@@ -49,10 +49,12 @@ interface SidebarBodyProps {
   action: React.ReactNode;
   /** 머리 아래에 둘 119 진입점(오버레이·드로어에서 배너가 없을 때만. 펼친 칸은 머리줄 진입점이 보이므로 넣지 않는다) */
   emergencyEntry?: React.ReactNode;
+  /** 맨 아래 계정 자리(FE-04: 게스트는 로그인/가입, 로그인하면 프로필 관리·로그아웃) */
+  account?: React.ReactNode;
 }
 
 /** 사이드바 안쪽. 칸·오버레이·드로어가 같은 내용을 쓴다. 대화는 저장하지 않으므로 지난 대화 목록이 없다 */
-function SidebarBody({ firstQuestion, onNewChat, action, emergencyEntry }: SidebarBodyProps) {
+function SidebarBody({ firstQuestion, onNewChat, action, emergencyEntry, account }: SidebarBodyProps) {
   return (
     <>
       <div className="flex min-h-11 items-center justify-between pb-2 pl-1.5">
@@ -80,6 +82,7 @@ function SidebarBody({ firstQuestion, onNewChat, action, emergencyEntry }: Sideb
         <span className="px-2.5 text-xs text-mute">{CURRENT_CHAT_EMPTY}</span>
       )}
       <p className="mx-2.5 mt-1.5 mb-0 text-xs leading-[17px] text-mute">{NOT_SAVED_NOTE}</p>
+      {account}
     </>
   );
 }
@@ -90,10 +93,14 @@ export interface SidebarProps {
   firstQuestion: string | null;
   onNewChat: () => void;
   onToggle: () => void;
+  /** 계정 자리(펼친 칸·오버레이·드로어) */
+  account?: React.ReactNode;
+  /** 접힌 레일의 계정 버튼 */
+  railAccount?: React.ReactNode;
 }
 
 /** 넓은 폭의 사이드바 칸: 펼친 모양(272) 또는 접힌 레일(60) */
-export function SidebarColumn({ mode, firstQuestion, onNewChat, onToggle }: SidebarProps & { mode: "rail" | "expanded" }) {
+export function SidebarColumn({ mode, firstQuestion, onNewChat, onToggle, account, railAccount }: SidebarProps & { mode: "rail" | "expanded" }) {
   if (mode === "rail") {
     return (
       <aside aria-label={RAIL_LABEL} data-testid="sidebar-rail" className="flex h-full w-[60px] flex-none flex-col items-center gap-1.5 border-r border-line bg-bg-soft py-3">
@@ -103,6 +110,7 @@ export function SidebarColumn({ mode, firstQuestion, onNewChat, onToggle }: Side
         <IconButton label={NEW_CHAT_LABEL} onClick={onNewChat}>
           <SquarePenIcon className="size-5" aria-hidden="true" />
         </IconButton>
+        {railAccount}
       </aside>
     );
   }
@@ -111,6 +119,7 @@ export function SidebarColumn({ mode, firstQuestion, onNewChat, onToggle }: Side
       <SidebarBody
         firstQuestion={firstQuestion}
         onNewChat={onNewChat}
+        account={account}
         action={
           <IconButton label={SIDEBAR_COLLAPSE_LABEL} data-testid="sidebar-toggle" onClick={onToggle}>
             <PanelLeftIcon className="size-5" aria-hidden="true" />
@@ -148,7 +157,7 @@ const SCRIM_CLASS = "absolute inset-0 z-40 bg-ink/30";
  * 본문 위 오버레이로 펼친 사이드바(지시서 §9): 스크림이 근거 상세 패널까지 덮고, 스크림 클릭·Esc로 사이드바만 닫힌다.
  * Radix Dialog(모달)라 Tab이 뒤 요소에 닿지 않고 닫히면 초점이 누른 버튼으로 돌아간다.
  */
-export function SidebarOverlay({ open, onClose, container, showEmergencyEntry, firstQuestion, onNewChat }: LayerProps & Omit<SidebarProps, "onToggle">) {
+export function SidebarOverlay({ open, onClose, container, showEmergencyEntry, firstQuestion, onNewChat, account }: LayerProps & Omit<SidebarProps, "onToggle">) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Dialog.Portal container={container}>
@@ -165,6 +174,7 @@ export function SidebarOverlay({ open, onClose, container, showEmergencyEntry, f
           <SidebarBody
             firstQuestion={firstQuestion}
             onNewChat={onNewChat}
+            account={account}
             action={
               <IconButton label={SIDEBAR_COLLAPSE_LABEL} data-testid="sidebar-toggle" onClick={onClose}>
                 <PanelLeftIcon className="size-5" aria-hidden="true" />
@@ -179,7 +189,7 @@ export function SidebarOverlay({ open, onClose, container, showEmergencyEntry, f
 }
 
 /** 좁은 폭의 ☰ 드로어. 폭은 디자인 반영본 `.drawer{width:min(320px,86%)}` */
-export function MenuDrawer({ open, onClose, container, showEmergencyEntry, firstQuestion, onNewChat }: LayerProps & Omit<SidebarProps, "onToggle">) {
+export function MenuDrawer({ open, onClose, container, showEmergencyEntry, firstQuestion, onNewChat, account }: LayerProps & Omit<SidebarProps, "onToggle">) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Dialog.Portal container={container}>
@@ -194,6 +204,7 @@ export function MenuDrawer({ open, onClose, container, showEmergencyEntry, first
           <SidebarBody
             firstQuestion={firstQuestion}
             onNewChat={onNewChat}
+            account={account}
             action={
               <IconButton label={MENU_CLOSE_LABEL} onClick={onClose}>
                 <XIcon className="size-5" aria-hidden="true" />
