@@ -33,6 +33,7 @@ from app.agent.fixed_phrases import (
     CLARIFY_ONE_CANDIDATE,
     CLARIFY_PRIOR_PICK,
 )
+from app.agent.intake import is_intake, is_redose
 from app.tools.drug_dict import (
     MATCH_BM25,
     MATCH_CONTAINS,
@@ -68,8 +69,9 @@ NOT_FOUND_SCORE_MAX = 0.0
 
 # Router가 상태에 쓸 수 있는 키(PostToolUse의 `POST_WRITABLE_KEYS`와 같은 방식의 제한). emergency·route·messages·evidence·answer는 못 쓴다.
 # `profile`·`drug_mentions`·`intent`는 RFP-23 §4.4 문서 필드, 나머지는 제안.
+# `intake_question`·`redose_question`은 AG-22(2026-11-19): 복용 관련·재복용 질문 신호(bool만, `intake.py`).
 ROUTER_WRITABLE_KEYS = frozenset({"profile", "drug_mentions", "intent", "entities", "branch_label", "ambiguous", "clarify", "truncated",
-                                  "required_claims"})
+                                  "required_claims", "intake_question", "redose_question"})
 
 # 분기 라벨(AG-04 평가 세트 composition 어휘와 같다: 정상·오탈자·모호·근거 없음)
 BRANCH_NORMAL = "정상"
@@ -212,6 +214,10 @@ class RouterResult(BaseModel):
     clarify: Clarify | None = None  # 제안
     truncated: bool = False  # 제안: 약이 MAX_DRUGS를 넘어 앞의 MAX_DRUGS개만 남김
     required_claims: list[str] = Field(default_factory=list)  # 제안: 필요한 주장 유형(코드 규칙 부분만, `CLAIM_TYPES` 순서)
+    # AG-22-06 A: 복용 관련 질문(재복용 ∪ "먹어도·복용해도·같이 먹" 일반형). 용량주의 조회·되묻기 조건(`intake.is_intake`)
+    intake_question: bool = False
+    # AG-22-01 A: 재복용·추가 복용 질문. 응답에 승인 고정 한 줄(`REDOSE_NOTICE`)이 붙는다(`intake.is_redose`)
+    redose_question: bool = False
     n_pairs: int = 0  # resolved 엔티티 기준 쌍 수(쌍 나누기는 코드, 조회는 model이 도구로)
     emergency: bool = False  # 입력 통과(AG-08이 쓴 값, Router는 읽기만)
     guardrail_route: str | None = None  # 입력 통과
@@ -229,6 +235,8 @@ class RouterResult(BaseModel):
             "clarify": self.clarify.model_dump() if self.clarify else None,
             "truncated": self.truncated,
             "required_claims": list(self.required_claims),
+            "intake_question": self.intake_question,
+            "redose_question": self.redose_question,
         }
         if not set(out) <= ROUTER_WRITABLE_KEYS:
             raise RuntimeError("Router가 쓸 수 없는 상태 키")
@@ -1071,4 +1079,5 @@ def assemble(text: str, ents: list[Entity], prof: ProfileState, *, truncated: bo
         drug_mentions=[e.raw for e in ents], entities=ents, intent=intent, required_claims=required_claims(intent, text),
         profile=prof, branch_label=branch_label_of(ents, clarify), ambiguous=clarify is not None, clarify=clarify, truncated=truncated,
         n_pairs=n_res * (n_res - 1) // 2, emergency=emergency, guardrail_route=guardrail_route, dict_version=dict_version,
+        intake_question=is_intake(text), redose_question=is_redose(text),
     )

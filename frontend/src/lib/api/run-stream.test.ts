@@ -134,7 +134,7 @@ describe("streamChat (MSW)", () => {
       }),
     );
     await collect();
-    expect(body).toEqual({ question: request.question, context: { age: null, pregnant: null, confirmed_drugs: [] } });
+    expect(body).toEqual({ question: request.question, context: { age: null, pregnant: null, confirmed_drugs: [], prior_drugs: [], took_today: null } });
     expect(accept).toBe("application/x-ndjson");
   });
 
@@ -146,7 +146,13 @@ describe("streamChat (MSW)", () => {
         return new HttpResponse("", { headers: { "Content-Type": "application/x-ndjson" } });
       }),
     );
-    const context = { age: { lower: 5, upper: 5 }, pregnant: false, confirmed_drugs: [{ name: "가나다정", item_seq: "200000001", input_name: "가나다" }, { name: "라마바캡슐" }] };
+    const context = {
+      age: { lower: 5, upper: 5 },
+      pregnant: false,
+      confirmed_drugs: [{ name: "가나다정", item_seq: "200000001", input_name: "가나다" }, { name: "라마바캡슐" }],
+      prior_drugs: [{ name: "사아자시럽", item_seq: "200000009" }],
+      took_today: true,
+    };
     for await (const event of streamChat({ question: "합성 질문", context })) void event;
     expect(body).toEqual({
       question: "합성 질문",
@@ -154,6 +160,8 @@ describe("streamChat (MSW)", () => {
         age: { lower: 5, upper: 5, unit: "세" },
         pregnant: false,
         confirmed_drugs: [{ name: "가나다정", item_seq: "200000001", input_name: "가나다" }, { name: "라마바캡슐", item_seq: null, input_name: null }],
+        prior_drugs: [{ name: "사아자시럽", item_seq: "200000009", input_name: null }],
+        took_today: true,
       },
     });
   });
@@ -164,6 +172,8 @@ describe("streamChat (MSW)", () => {
     ["거꾸로 된 나이 구간", { question: "질문", context: { age: { lower: 9, upper: 3 } } }],
     ["약 11개", { question: "질문", context: { confirmed_drugs: Array.from({ length: 11 }, (_, i) => ({ name: `약${i}` })) } }],
     ["9자리가 아닌 품목기준코드", { question: "질문", context: { confirmed_drugs: [{ name: "가나다정", item_seq: "123" }] } }],
+    ["이전 선택 11개", { question: "질문", context: { prior_drugs: Array.from({ length: 11 }, (_, i) => ({ name: `약${i}` })) } }],
+    ["용량 답이 불리언이 아님", { question: "질문", context: { took_today: "예" } }],
   ])("형식이 틀린 요청(%s)은 보내지 않는다", async (_name, bad) => {
     const state = await runChatStream(bad as never);
     expect(state.status).toBe("error");

@@ -190,7 +190,8 @@ def test_grade_mismatch_gives_three_ordered_badges_with_source_tail():
 def test_caution_kinds_do_not_use_bbi():
     it = {**_age(), "kind": "dose", "dataset_key": "dose"}
     resp = finalize([it], None, emergency=False)
-    assert resp["badges"][0]["text"] == "용량 주의" and "삐!" not in resp["badges"][0]["text"]
+    # 글자는 2026-11-19 승인(AG-22-02 B ③)으로 "용량 주의" → "하루 최대량 주의 성분 포함"
+    assert resp["badges"][0]["text"] == "하루 최대량 주의 성분 포함" == fp.CAUTION_LABELS["dose"] and "삐!" not in resp["badges"][0]["text"]
 
 
 def test_badges_not_made_for_identify_or_unconfirmed():

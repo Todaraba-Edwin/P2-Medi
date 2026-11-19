@@ -14,6 +14,7 @@ import type {
   DateLineSchema,
   DetailItemSchema,
   DoneEventSchema,
+  DoseCheckSchema,
   EmergencyEventSchema,
   EmergencySchema,
   GradeDefSchema,
@@ -24,10 +25,14 @@ import type {
   FindingSchema,
   IngredientSchema,
   NameCorrectionSchema,
+  PairRefSchema,
   ProgressEventSchema,
   ProgressStageSchema,
   RequestContextSchema,
+  RestFoldSchema,
+  ResultSummarySchema,
   SearchedSchema,
+  SectionSchema,
   SentenceRefSchema,
 } from "./schemas";
 
@@ -53,6 +58,12 @@ export type NameCorrection = z.infer<typeof NameCorrectionSchema>;
 export type SentenceRef = z.infer<typeof SentenceRefSchema>;
 export type Emergency = z.infer<typeof EmergencySchema>;
 export type GradeDef = z.infer<typeof GradeDefSchema>;
+// 결과 구역·요약·되묻기(GROUP-01 3단계). 구역별 그리기는 5단계 본 작업
+export type Section = z.infer<typeof SectionSchema>;
+export type PairRef = z.infer<typeof PairRefSchema>;
+export type ResultSummary = z.infer<typeof ResultSummarySchema>;
+export type RestFold = z.infer<typeof RestFoldSchema>;
+export type DoseCheck = z.infer<typeof DoseCheckSchema>;
 export type EndReason = z.infer<typeof EndReasonSchema>;
 export type ProgressStage = z.infer<typeof ProgressStageSchema>;
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;

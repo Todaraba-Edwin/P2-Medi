@@ -490,7 +490,7 @@ describe("대상 선택 → 요청 context", () => {
     const context = profileToContext(selectTargetProfile(store.getState()), hasHealthConsent(store.getState().me));
     expect(buildChatRequest("질문", { ...emptyConversationContext, ...context })).toEqual({
       question: "질문",
-      context: { age: { lower: 19, upper: 64, unit: "세" }, pregnant: true, confirmed_drugs: [] },
+      context: { age: { lower: 19, upper: 64, unit: "세" }, pregnant: true, confirmed_drugs: [], prior_drugs: [], took_today: null },
     });
   });
 

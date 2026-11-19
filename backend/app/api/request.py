@@ -61,11 +61,20 @@ class ConfirmedDrug(_Strict):
 
 
 class ConversationContext(_Strict):
-    """같은 대화 안에서 이미 말한 값(한 입력 묶음, PRD-07-01 A). 서버는 저장·로그하지 않는다."""
+    """같은 대화 안에서 이미 말한 값(한 입력 묶음, PRD-07-01 A). 서버는 저장·로그하지 않는다.
+
+    - `confirmed_drugs`: **이번 질문의 되묻기 답**(같은 질문을 다시 보낼 때만 채운다, AG-21-02 A로 의미 축소). 서버가 바로 확정한다.
+    - `prior_drugs`(AG-21-02 A): **이전 차례에서 고른 약**(모양은 `confirmed_drugs`와 같다). 확정에 쓰지 않고, 같은 이름이 다시 나오면
+      그 약을 첫 후보로 둔 확인 되묻기에만 쓴다. 이벤트·로그에는 개수만 남는다.
+    - `took_today`(AG-22-05 A): 용량주의 되묻기 답(예 `true` / 아니요 `false`, 답하지 않았으면 없음). 시각·양은 받지 않는다(RFP-21-03).
+      저장·로그·이벤트에 남기지 않는다.
+    """
 
     age: AgeInput | None = None
     pregnant: bool | None = None
     confirmed_drugs: list[ConfirmedDrug] = Field(default_factory=list, max_length=CONFIRMED_DRUGS_MAX)
+    prior_drugs: list[ConfirmedDrug] = Field(default_factory=list, max_length=CONFIRMED_DRUGS_MAX)
+    took_today: bool | None = Field(default=None, strict=True)  # JSON true/false만(문자열 "예"·숫자 1은 형식 오류 422)
 
 
 class ChatRequest(_Strict):

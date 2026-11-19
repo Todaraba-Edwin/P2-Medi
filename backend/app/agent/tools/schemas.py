@@ -111,7 +111,8 @@ class CheckContraArgs(BaseModel):
     drugs: list[DrugArg] = Field(min_length=1, max_length=MAX_DRUGS)
     age: AgeArg | None = None
     pregnancy: bool = False
-    include_cautions: bool = False
+    # 주의 3종(용량·수유부·노인)은 LLM 인자가 아니라 코드 규칙이 정한다(AG-22-04 A, `ToolContext.caution_kinds`). 옛 인자 `include_cautions`는
+    # 들어와도 `registry.invoke`가 검증 전에 버린다(C-1 A, `IGNORED_ARGS`)
 
 
 class GetLabelSectionArgs(BaseModel):

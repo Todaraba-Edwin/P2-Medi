@@ -5,7 +5,7 @@ import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 import { canRetry, initialStreamState, runChatStream } from "@/lib/api";
 import type { Emergency, StreamState } from "@/lib/api";
-import { buildChatRequest, createMemoryContextStorage } from "./conversation-context";
+import { buildChatRequest, commitConfirmedDrugs, createMemoryContextStorage } from "./conversation-context";
 import type { ContextStorage, ConversationContext } from "./conversation-context";
 
 export interface ChatTurn {
@@ -33,7 +33,7 @@ export interface ChatState {
   retry: (turnId: string) => Promise<void>;
   /** 진행 중인 요청을 끊는다(화면 이탈 등) */
   abort: () => void;
-  /** 새 대화: 목록·119·묶음을 비운다 */
+  /** 새 대화: 목록·119·묶음(이전 선택 포함)을 비운다 */
   reset: () => void;
   setContext: (patch: Partial<ConversationContext>) => void;
 }
@@ -63,11 +63,22 @@ export function createChatStore({ run = runChatStream, contextStorage = createMe
       controller = own;
       set({ activeTurnId: id });
       const previous = get().turns.find((turn) => turn.id === id)?.stream ?? initialStreamState;
+      // 답(`answer`)을 받는 즉시 이번 질문의 되묻기 답을 이전 선택으로 옮긴다(AG-21-03 A). 스트림이 끝나기를 기다리지 않는다:
+      // 사용자가 답을 보고 바로 다음 질문을 보내면 남은 스트림(done)이 끊기므로, 끝난 뒤에 옮기면 이전 선택을 잃는다.
+      // 답 없이 끝났으면(오류·끊김) 옮기지 않아 "다시 시도"가 같은 답을 다시 싣는다
+      let committed = false;
       await run(buildChatRequest(question, get().context), {
         signal: own.signal,
         previous,
         retry,
-        onState: (stream) => patchTurn(id, stream),
+        onState: (stream) => {
+          if (!committed && stream.response) {
+            committed = true;
+            contextStorage.write(commitConfirmedDrugs(contextStorage.read()));
+            set({ context: contextStorage.read() }); // 답을 반영하기 전에 옮겨 둔다: 답을 본 구독자는 옮겨진 묶음도 함께 본다
+          }
+          patchTurn(id, stream);
+        },
       });
       if (controller === own) {
         controller = null;

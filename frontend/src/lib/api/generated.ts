@@ -232,6 +232,9 @@ export interface components {
             detail?: components["schemas"]["DetailItem"][];
             /** Disclaimer */
             disclaimer: string;
+            dose_check?: components["schemas"]["DoseCheck"] | null;
+            /** Dose Notice */
+            dose_notice?: string | null;
             emergency?: components["schemas"]["Emergency"] | null;
             /** End Reason */
             end_reason?: ("NORMAL" | "CLARIFY" | "REFUSE" | "LIMIT" | "VALIDATION_FALLBACK") | null;
@@ -253,6 +256,10 @@ export interface components {
             pharmacist_advice?: string[];
             /** Pharmacist Advice Kinds */
             pharmacist_advice_kinds?: ("missing" | "grade_def")[];
+            /** Redose Notice */
+            redose_notice?: string | null;
+            rest_fold?: components["schemas"]["RestFold"] | null;
+            result_summary?: components["schemas"]["ResultSummary"] | null;
             /**
              * Route
              * @enum {string}
@@ -354,6 +361,12 @@ export interface components {
         /**
          * ConversationContext
          * @description 같은 대화 안에서 이미 말한 값(한 입력 묶음, PRD-07-01 A). 서버는 저장·로그하지 않는다.
+         *
+         *     - `confirmed_drugs`: **이번 질문의 되묻기 답**(같은 질문을 다시 보낼 때만 채운다, AG-21-02 A로 의미 축소). 서버가 바로 확정한다.
+         *     - `prior_drugs`(AG-21-02 A): **이전 차례에서 고른 약**(모양은 `confirmed_drugs`와 같다). 확정에 쓰지 않고, 같은 이름이 다시 나오면
+         *       그 약을 첫 후보로 둔 확인 되묻기에만 쓴다. 이벤트·로그에는 개수만 남는다.
+         *     - `took_today`(AG-22-05 A): 용량주의 되묻기 답(예 `true` / 아니요 `false`, 답하지 않았으면 없음). 시각·양은 받지 않는다(RFP-21-03).
+         *       저장·로그·이벤트에 남기지 않는다.
          */
         ConversationContext: {
             age?: components["schemas"]["AgeInput"] | null;
@@ -361,6 +374,10 @@ export interface components {
             confirmed_drugs?: components["schemas"]["ConfirmedDrug"][];
             /** Pregnant */
             pregnant?: boolean | null;
+            /** Prior Drugs */
+            prior_drugs?: components["schemas"]["ConfirmedDrug"][];
+            /** Took Today */
+            took_today?: boolean | null;
         };
         /**
          * DateLine
@@ -443,6 +460,22 @@ export interface components {
              * @enum {string}
              */
             type: "done";
+        };
+        /**
+         * DoseCheck
+         * @description 용량주의 되묻기(AG-22-02 B·05 A): 용량주의 성분 FOUND ∧ 복용 관련 질문 ∧ 아직 답 없음일 때 결과와 함께 온다.
+         *
+         *     화면은 `options` 중 하나를 고르면 같은 질문을 `context.took_today`(예 → true, 아니요 → false)와 함께 다시 보낸다. 시각·양은 묻지 않는다.
+         */
+        DoseCheck: {
+            /** Drugs */
+            drugs?: string[];
+            /** Evidence Ids */
+            evidence_ids?: string[];
+            /** Options */
+            options: string[];
+            /** Question */
+            question: string;
         };
         /**
          * Emergency
@@ -528,6 +561,8 @@ export interface components {
              * @enum {string}
              */
             bucket: "found" | "not_listed" | "identified" | "unconfirmed";
+            /** Caution Desc */
+            caution_desc?: string | null;
             /** Drug */
             drug: string;
             /** Drugs */
@@ -550,6 +585,7 @@ export interface components {
             notes?: string[];
             /** Notice Nos */
             notice_nos?: string[];
+            pair_ref?: components["schemas"]["PairRef"] | null;
             /** Reasons */
             reasons?: string[];
             /** Reference Line */
@@ -560,6 +596,8 @@ export interface components {
             retried_line?: string | null;
             /** Searched */
             searched?: components["schemas"]["Searched"][];
+            /** Section */
+            section?: ("core" | "caution" | "rest" | "unconfirmed") | null;
             /** Source Label */
             source_label?: string | null;
             /** Sub Line */
@@ -715,6 +753,30 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * PairFound
+         * @description 요약에 든 걸린 짝 하나: 두 약 표시 이름과 그 짝 줄의 근거 ID.
+         */
+        PairFound: {
+            /** Drugs */
+            drugs: string[];
+            /** Evidence Ids */
+            evidence_ids?: string[];
+        };
+        /**
+         * PairRef
+         * @description 제품 줄의 병용금기 짝 참조(FE-11-05 A, AG-08-29 A 대체). 제품 줄에는 "삐! 병용금기" 배지를 달지 않고 이 보조줄만 둔다.
+         *
+         *     `evidence_ids`는 그 약이 낀 병용금기 FOUND 짝 줄의 근거 ID(짝 줄 `evidence_id`와 같은 값), `text`는 상수 `PAIR_REF_LINE` 그대로.
+         */
+        PairRef: {
+            /** Count */
+            count: number;
+            /** Evidence Ids */
+            evidence_ids: string[];
+            /** Text */
+            text: string;
+        };
         /** ProfileCreate */
         ProfileCreate: {
             /** Age Band */
@@ -796,6 +858,46 @@ export interface components {
             end: number;
             /** Start */
             start: number;
+            /** Text */
+            text: string;
+        };
+        /**
+         * RestFold
+         * @description 나머지 구역 접힘 줄(문구 ⑥, AG-22-07 A). `count`는 `section == "rest"`인 판정 줄 수이고 응답이 스스로 센다(화면은 세지 않는다).
+         */
+        RestFold: {
+            /**
+             * Close Label
+             * @default 접기
+             */
+            close_label: string;
+            /** Count */
+            count: number;
+            /**
+             * Open Label
+             * @default 펼치기
+             */
+            open_label: string;
+            /** Text */
+            text: string;
+        };
+        /**
+         * ResultSummary
+         * @description 약 2개 이상 결과의 맨 위 요약(FE-11-04 A, 문구 ④⑤). LLM `summary`와 별개의 코드 칸이다. 화면은 `text`·`pair_only_notice`를 그대로 그린다.
+         *
+         *     `text`는 상수 틀에 수치·짝을 넣은 글자 그대로, `pair_only_notice`는 약 3개 이상일 때만 상수 `PAIR_ONLY_NOTICE`(FE-11-06 A).
+         */
+        ResultSummary: {
+            /** N Drugs */
+            n_drugs: number;
+            /** N Pairs */
+            n_pairs: number;
+            /** N Pairs Unchecked */
+            n_pairs_unchecked: number;
+            /** Pair Only Notice */
+            pair_only_notice?: string | null;
+            /** Pairs Found */
+            pairs_found?: components["schemas"]["PairFound"][];
             /** Text */
             text: string;
         };

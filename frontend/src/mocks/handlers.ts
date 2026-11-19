@@ -49,19 +49,28 @@ export const SCENARIO_KEYWORDS: ReadonlyArray<readonly [string, ScenarioName]> =
   ["mock:미식별", "unidentified"],
   ["mock:미확보", "missingEvidence"],
   ["mock:상한", "limit"],
+  // GROUP-01 3단계 새 칸(AG-22·FE-11)
+  ["mock:재복용", "redose"],
+  ["mock:요약", "resultSummary"],
+  ["mock:이전선택", "clarifyPrior"],
 ];
 
 /** 되묻기 뒤 재전송(고른 약이 `context.confirmed_drugs`에 실려 옴)에 돌려줄 결과 시나리오 */
 export const CONFIRMED_SCENARIO: ScenarioName = "found";
+/** 되묻기 이름이 이전 차례의 선택(`context.prior_drugs`)과 같을 때의 확인 되묻기(AG-21) */
+export const PRIOR_SCENARIO: ScenarioName = "clarifyPrior";
 
 /**
  * 질문의 표시 글자로 시나리오를 고른다. 되묻기(`mock:되묻기`)라도 고른 약이 실려 오면(`confirmedDrugs` > 0) 다시 묻지 않고
  * 결과로 답한다(FE-IMPL-06b: 재전송 흐름을 워커로 끝까지 볼 수 있게. 실제 서버의 되묻기 판정과는 무관한 합성 규칙).
  * 이름 둘을 되묻는 시나리오(`mock:되묻기여러`, FE-09)는 고른 약이 둘 이상 실려 와야 결과로 답한다.
+ * 고른 약은 없고 이전 차례의 선택만 실려 오면(`priorDrugs` > 0, AG-21-02 A) 그 선택을 첫 후보로 둔 확인 되묻기로 답한다(q1 → q2 → q3 흐름).
  */
-export function pickScenario(question: string, confirmedDrugs = 0): ScenarioName {
+export function pickScenario(question: string, confirmedDrugs = 0, priorDrugs = 0): ScenarioName {
   const picked = SCENARIO_KEYWORDS.find(([keyword]) => question.includes(keyword))?.[1] ?? "found";
   if (picked === "clarify" && confirmedDrugs > 0) return CONFIRMED_SCENARIO;
+  if (picked === "clarify" && priorDrugs > 0) return PRIOR_SCENARIO;
+  if (picked === "clarifyPrior" && confirmedDrugs > 0) return CONFIRMED_SCENARIO;
   if (picked === "clarifyMulti" && confirmedDrugs >= 2) return CONFIRMED_SCENARIO;
   return picked;
 }
@@ -116,7 +125,7 @@ export function createChatHandler({ delayMs = 0, scenario }: ChatHandlerOptions 
       const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.join(".")))];
       return HttpResponse.json({ code: "INVALID_REQUEST", fields }, { status: 422 });
     }
-    const name = scenario ?? pickScenario(parsed.data.question, parsed.data.context.confirmed_drugs.length);
+    const name = scenario ?? pickScenario(parsed.data.question, parsed.data.context.confirmed_drugs.length, parsed.data.context.prior_drugs.length);
     return scenarioResponse(scenarios[name], delayMs);
   });
 }

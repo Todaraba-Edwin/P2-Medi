@@ -132,6 +132,50 @@ export const SearchedSchema = z.strictObject({
   count: z.number().int().nonnegative().nullable().default(null),
 });
 
+// ---------------------------------------------------------------- 결과 구역·요약(GROUP-01 3단계, FE-11-04~08 A·AG-22-07 A)
+// 서버가 판정 줄마다 구역을 정하고 순서도 정한다(`schemas.py _section_sorted`). 화면은 받은 순서 그대로 그린다.
+// 칸이 없는 줄(`null`)은 검색 근거 줄이다(근거 상세에만, FE-11-07 B). 구역별 그리기·접기는 4단계 디자인 뒤 5단계 본 작업이다(지금은 타입만)
+export const SectionSchema = z.enum(["core", "caution", "rest", "unconfirmed"]);
+
+/** 제품 줄의 병용금기 짝 참조(FE-11-05 A). `text`는 서버 상수(`PAIR_REF_LINE`)에 건수를 넣은 글자 그대로 */
+export const PairRefSchema = z.strictObject({
+  count: z.number().int().min(1),
+  evidence_ids: z.array(z.string()).min(1),
+  text: z.string().min(1),
+});
+
+/** 요약에 든 걸린 짝 하나(두 약 표시 이름) */
+export const PairFoundSchema = z.strictObject({
+  drugs: z.array(z.string()).length(2),
+  evidence_ids: stringList,
+});
+
+/** 약 2개 이상 결과의 맨 위 요약(문구 ④⑤). LLM `summary`와 별개의 코드 칸. 화면은 `text`·`pair_only_notice`만 그대로 그린다 */
+export const ResultSummarySchema = z.strictObject({
+  n_drugs: z.number().int().min(2),
+  n_pairs: z.number().int().min(1),
+  pairs_found: z.array(PairFoundSchema).default([]),
+  n_pairs_unchecked: z.number().int().nonnegative(),
+  text: z.string().min(1),
+  pair_only_notice: optionalNullableString, // 약 3개 이상일 때만 온다(서버 상수)
+});
+
+/** 나머지 구역 접힘 줄(문구 ⑥). 건수·글자·버튼 글자 모두 서버 값이다(화면은 세지 않는다) */
+export const RestFoldSchema = z.strictObject({
+  count: z.number().int().min(1),
+  text: z.string().min(1),
+  open_label: z.string().min(1),
+  close_label: z.string().min(1),
+});
+
+/** 용량주의 되묻기(AG-22-02 B·05 A). 고르면 같은 질문을 `context.took_today`와 함께 다시 보낸다(카드는 4단계 디자인 뒤) */
+export const DoseCheckSchema = z.strictObject({
+  question: z.string().min(1),
+  options: z.array(z.string().min(1)).min(1),
+  drugs: stringList,
+  evidence_ids: stringList,
+});
+
 /** 판정 줄. 제품 줄(`product`) 또는 쌍 줄(`pair`, `drugs` 두 약). 배지는 그 줄에 붙고 순서는 서버가 정한다 */
 export const FindingSchema = z
   .strictObject({
@@ -165,10 +209,15 @@ export const FindingSchema = z
     // 병용금기 쌍 줄의 금기 사유 원문(FE-02-06 A, 서버 `Finding.reasons`). 원문 그대로·중복 제거, 용량 숫자가 걸리는 사유는 서버가 뺀다.
     // 서버가 칸을 주기 전에도 깨지지 않게 기본값은 빈 목록이다
     reasons: stringList,
+    // ---- 결과 구역(GROUP-01 3단계). 모두 선택 칸: 없으면 null(검색 근거 줄·이전 서버)
+    section: SectionSchema.nullable().default(null),
+    pair_ref: PairRefSchema.nullable().default(null), // 제품 줄에만. 병용 배지 대신 붙는 짝 참조
+    caution_desc: optionalNullableString, // 용량주의 줄 아래 설명(서버 상수 `DOSE_CAUTION_DESC`)
   })
   .superRefine((finding, ctx) => {
     if (finding.target === "pair" && finding.drugs.length !== 2) ctx.addIssue({ code: "custom", message: "쌍 줄은 drugs에 두 약을 담는다" });
     if (finding.badges.length > 0 && finding.bucket !== "found") ctx.addIssue({ code: "custom", message: "배지는 금기 발견 줄에만 붙는다" });
+    if (finding.pair_ref !== null && finding.target !== "product") ctx.addIssue({ code: "custom", message: "짝 참조는 제품 줄에만 붙는다" });
   });
 
 /** 되묻기 후보 하나(`end_reason == CLARIFY`일 때만) */
@@ -244,10 +293,18 @@ export const ChatResponseSchema = z
     // 줄 목록: 1줄 이상, 빈 줄 불가. 줄 순서는 서버가 준 그대로 그린다
     fixed_notice: z.array(z.string().refine((s) => s.trim().length > 0, "fixed_notice 줄은 비어 있을 수 없다")).min(1),
     disclaimer: z.string().min(1),
+    // ---- 결과 묶음 요약·되묻기·고지(GROUP-01 3단계, AG-22·FE-11). 모두 선택 칸: 값이 없으면 서버가 키를 싣지 않으므로 기본 null.
+    // 글자는 서버 상수이고 화면은 그대로 그린다. 구역별 접기·용량 되묻기 카드는 4단계 디자인 뒤(지금은 타입만)
+    result_summary: ResultSummarySchema.nullable().default(null),
+    rest_fold: RestFoldSchema.nullable().default(null),
+    dose_check: DoseCheckSchema.nullable().default(null),
+    dose_notice: optionalNullableString, // "예" 답일 때 맨 위 강조 고지(`notice`와 별개)
+    redose_notice: optionalNullableString, // 재복용 질문 고지(`summary` 밖)
   })
   .refine((response) => response.candidates.length === 0 || response.end_reason === "CLARIFY", "candidates는 되묻기 응답에만 온다")
   .refine((response) => response.candidates_line === null || response.candidates.length > 0, "candidates_line은 후보가 있을 때만 온다")
-  .refine((response) => response.name_corrections.length === 0 || response.end_reason !== "CLARIFY", "name_corrections는 조회 결과를 보이는 응답에만 온다(되묻기에는 없다)");
+  .refine((response) => response.name_corrections.length === 0 || response.end_reason !== "CLARIFY", "name_corrections는 조회 결과를 보이는 응답에만 온다(되묻기에는 없다)")
+  .refine((response) => response.dose_check === null || response.dose_notice === null, "dose_check와 dose_notice는 함께 오지 않는다");
 
 // ---------------------------------------------------------------- 요청(`ChatRequest`, request.py)
 export const QUESTION_MAX_CHARS = 1000;
@@ -273,11 +330,18 @@ export const ConfirmedDrugSchema = z.strictObject({
   input_name: z.string().min(1).max(DRUG_NAME_MAX_CHARS).refine(notBlank, "입력 이름이 비어 있다").nullable().default(null),
 });
 
-/** 같은 대화 안에서 이미 말한 값(한 입력 묶음). 서버는 저장·로그하지 않는다 */
+/**
+ * 같은 대화 안에서 이미 말한 값(한 입력 묶음). 서버는 저장·로그하지 않는다.
+ * - `confirmed_drugs`: **이번 질문의 되묻기 답**(같은 질문을 다시 보낼 때만 채운다, AG-21-02 A). 서버가 바로 확정한다
+ * - `prior_drugs`: **이전 차례에서 고른 약**(같은 모양, 상한 같음). 확정에 쓰지 않고 같은 이름이 다시 나오면 확인 되묻기에만 쓴다
+ * - `took_today`: 용량주의 되묻기 답(예 `true`/아니요 `false`, 답하지 않았으면 null). 서버는 엄격한 불리언만 받는다(AG-22-05 A)
+ */
 export const RequestContextSchema = z.strictObject({
   age: AgeInputSchema.nullable().default(null),
   pregnant: z.boolean().nullable().default(null),
   confirmed_drugs: z.array(ConfirmedDrugSchema).max(CONFIRMED_DRUGS_MAX).default([]),
+  prior_drugs: z.array(ConfirmedDrugSchema).max(CONFIRMED_DRUGS_MAX).default([]),
+  took_today: z.boolean().nullable().default(null),
 });
 
 export const ChatRequestSchema = z.strictObject({

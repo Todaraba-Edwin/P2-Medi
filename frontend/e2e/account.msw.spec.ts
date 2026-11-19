@@ -76,7 +76,7 @@ test.describe("게스트 시작 360px", () => {
     await expect(page.getByTestId("target-picker")).toHaveCount(0);
     await ask(page, "합성 질문");
     await expect(page.getByTestId("result-card")).toBeVisible();
-    expect(bodies).toEqual([{ question: "합성 질문", context: { age: null, pregnant: null, confirmed_drugs: [] } }]);
+    expect(bodies).toEqual([{ question: "합성 질문", context: { age: null, pregnant: null, confirmed_drugs: [], prior_drugs: [], took_today: null } }]);
     await expect(page.getByTestId("account-modal")).toHaveCount(0);
   });
 
@@ -255,15 +255,26 @@ for (const width of [360, 1280]) {
       await expect(page.getByTestId("result-card")).toBeVisible();
       await shot(page, "answer");
       await picker.getByText("첫째", { exact: true }).click();
+      // 첫째로 되묻기 → 고른 약으로 다시 묻기: 이번 답은 confirmed_drugs, 답이 오면 이전 선택(prior_drugs)이 되어 다음 질문에 실린다(AG-21-02·03 A)
+      await ask(page, "mock:되묻기 둘째 합성 질문");
+      await expect(page.locator('[data-turn="turn-2"]').getByTestId("candidate-card")).toBeVisible();
+      await page.locator('[data-turn="turn-2"]').getByTestId("candidate").nth(0).click();
+      await page.getByRole("button", { name: "이 약으로 다시 묻기" }).click();
+      await expect(page.locator('[data-turn="turn-3"]').getByTestId("result-card")).toBeVisible();
       await ask(page, "둘째 합성 질문");
-      await expect(page.locator('[data-turn="turn-2"]').getByTestId("result-card")).toBeVisible();
+      await expect(page.locator('[data-turn="turn-4"]').getByTestId("result-card")).toBeVisible();
+      // "누가 먹나요" 대상을 바꾸면 이전 선택을 비운다(다른 사람의 약을 같은 이름으로 확인하지 않게)
       await picker.getByText("선택 안 함", { exact: true }).click();
       await ask(page, "셋째 합성 질문");
-      await expect(page.locator('[data-turn="turn-3"]').getByTestId("result-card")).toBeVisible();
+      await expect(page.locator('[data-turn="turn-5"]').getByTestId("result-card")).toBeVisible();
+      const pick = { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" };
+      const child = { age: { lower: 6, upper: 11, unit: "세" }, pregnant: null };
       expect(bodies.map((body) => body.context)).toEqual([
-        { age: { lower: 19, upper: 64, unit: "세" }, pregnant: true, confirmed_drugs: [] }, // 복용 약(입력 원문)은 싣지 않는다
-        { age: { lower: 6, upper: 11, unit: "세" }, pregnant: null, confirmed_drugs: [] },
-        { age: null, pregnant: null, confirmed_drugs: [] },
+        { age: { lower: 19, upper: 64, unit: "세" }, pregnant: true, confirmed_drugs: [], prior_drugs: [], took_today: null }, // 복용 약(입력 원문)은 싣지 않는다
+        { ...child, confirmed_drugs: [], prior_drugs: [], took_today: null },
+        { ...child, confirmed_drugs: [pick], prior_drugs: [], took_today: null },
+        { ...child, confirmed_drugs: [], prior_drugs: [pick], took_today: null },
+        { age: null, pregnant: null, confirmed_drugs: [], prior_drugs: [], took_today: null },
       ]);
 
       // ---- 로그인·프로필·건강 정보·질문을 브라우저 저장소·쿠키에 남기지 않는다

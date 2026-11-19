@@ -181,7 +181,8 @@ def test_normal_pair_runs_fixed_order_and_model_only_summarizes(dd, q):
     st = run_question(g, q)
     assert rec.names() == ["identify_drug", "identify_drug", "check_contraindications", "search_reason", "search_label", "search_label"]
     assert tm.calls == [] and len(sm.calls) == 1 and st["call_count"] == 1  # 도구 선택 호출 0, 요약 1
-    assert rec.args("check_contraindications") == [{"drugs": [{"item_seq": SEQ_GEBO}, {"item_seq": SEQ_WARF}], "pregnancy": False, "include_cautions": False}]
+    # 주의 3종은 LLM 인자가 아니라 코드 규칙(AG-22-04 A)이라 인자에 `include_cautions`가 없다
+    assert rec.args("check_contraindications") == [{"drugs": [{"item_seq": SEQ_GEBO}, {"item_seq": SEQ_WARF}], "pregnancy": False}]
     reason = rec.args("search_reason")[0]
     assert reason["pair_ids"] == ["104001ATB+105001ATB"] and reason["kinds"] == ["combo"] and reason["query"]
     assert [a["item_seq"] for a in rec.args("search_label")] == [SEQ_GEBO, SEQ_WARF] and all(a["query"] for a in rec.args("search_label"))
@@ -261,7 +262,7 @@ def test_partial_identification_continues_with_found_only(dd):
     g, tm, sm, rec = make(dd, [{"sentences": [{"text": "조회한 약은 아래와 같아요.", "evidence_ids": [], "claim_type": "guidance", "citations": []}]}])
     st = run_question(g, "게보린정이랑 쿵쿵따리정 같이 먹어도 되나요")
     assert rec.names().count("identify_drug") == 2 and rec.args("check_contraindications") == [
-        {"drugs": [{"item_seq": SEQ_GEBO}], "pregnancy": False, "include_cautions": False}]
+        {"drugs": [{"item_seq": SEQ_GEBO}], "pregnancy": False}]
     assert rec.args("search_reason") == [] and events(st, EVENT_STEP)[2]["skipped"] == "NO_FOUND_CONTRA"  # 판정 항목 없음 → 사유 검색 0
     assert [a["item_seq"] for a in rec.args("search_label")] == [SEQ_GEBO] and len(sm.calls) == 1
     assert any(it["kind"] == "identify" and it["status"] == "UNIDENTIFIED" for it in st["evidence"])
@@ -272,7 +273,7 @@ def test_partial_identification_continues_with_found_only(dd):
 def test_pregnancy_and_age_from_router_profile_feed_tool_args(dd):
     g, tm, sm, rec = make(dd, [PREG_DRAFT])
     st = run_question(g, "임신 중인데 게보린정 먹어도 되나요")
-    assert rec.args("check_contraindications") == [{"drugs": [{"item_seq": SEQ_GEBO}], "pregnancy": True, "include_cautions": False}]
+    assert rec.args("check_contraindications") == [{"drugs": [{"item_seq": SEQ_GEBO}], "pregnancy": True}]
     reason = rec.args("search_reason")
     assert len(reason) == 1 and reason[0]["ingr_codes"] == ["105001ATB"] and reason[0]["kinds"] == ["pregnancy"] and "pair_ids" not in reason[0]
     assert st["end_reason"] == "NORMAL" and any(e["bucket"] == "found" and e["kind"] == "pregnancy" for e in st["answer"]["entries"])

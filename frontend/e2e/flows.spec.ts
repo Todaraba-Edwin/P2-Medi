@@ -181,7 +181,7 @@ test.describe("흐름 360px", () => {
     expect(sent).toHaveLength(2);
     expect(sent[1]).toEqual({
       question: QUESTION,
-      context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }] },
+      context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }], prior_drugs: [], took_today: null },
     });
     await expect(page.locator("[data-turn]")).toHaveCount(2);
     await expect(page.getByTestId("candidate")).toHaveCount(0); // 지난 되묻기의 후보는 더 고를 수 없다
@@ -1507,7 +1507,10 @@ for (const width of [360, 320]) {
       await expect(turn2.getByTestId("result-card")).toBeVisible();
       const sent = await requests(page);
       expect(sent).toHaveLength(2);
-      expect(sent[1]).toEqual({ question: QUESTION, context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }] } });
+      expect(sent[1]).toEqual({
+        question: QUESTION,
+        context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }], prior_drugs: [], took_today: null },
+      });
       // 판정은 다시 물은 답(둘째 차례)에만 있다
       await expect(turn2.getByTestId("status-badge").first()).toBeVisible();
       await noVerdict({ cardShown: false });

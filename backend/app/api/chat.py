@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from app.api import events
 from app.api.events import NDJSON_MEDIA_TYPE, ChatEvent
 from app.api.request import AgeInput, ChatRequest, ConfirmedDrug, ConversationContext
-from app.api.runner import ChatRunner, confirmed_from_context, profile_from_context
+from app.api.runner import ChatRunner, confirmed_from_context, graph_extras, profile_from_context
 from app.api.schemas import _Strict
 from app.api.stream import MetricsSink, chat_events
 from app.logging import SpanLogger
@@ -79,8 +79,9 @@ async def chat(request: ChatRequest, http_request: Request) -> Response:
     # 질문·요청 묶음은 저장·로그하지 않고 그래프 입력으로만 쓴다(PRD-07-01 A).
     # `context.confirmed_drugs`는 품목기준코드만 Router 확정 입력으로 넘긴다(AG-05-03 A, 이름은 넘기지 않는다)
     metrics: MetricsSink | None = getattr(http_request.app.state, METRICS_STATE_KEY, None)
+    # `prior_drugs`(이전 차례 선택, AG-21-02 A)·`took_today`(용량주의 되묻기 답, AG-22-05 A)는 값이 있을 때만 그래프 입력으로 넘긴다
     stream = chat_events(runner, request.question, profile_from_context(request.context), metrics,
-                         confirmed_item_seqs=confirmed_from_context(request.context))
+                         confirmed_item_seqs=confirmed_from_context(request.context), graph_extras=graph_extras(request.context))
     return NDJSONResponse(events.ndjson_with_heartbeat(stream, interval_s=events.HEARTBEAT_INTERVAL_S))
 
 

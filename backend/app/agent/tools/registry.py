@@ -53,6 +53,12 @@ REGISTRY: dict[str, ToolSpec] = {
 }
 
 
+# 없앤 옛 인자(C-1 A, 2026-11-19): 들어오면 검증 전에 조용히 버리고 개수만 이벤트로 남긴다(`ARG_SCHEMA`로 막으면 모델이 한 번 더 호출해야 한다).
+# `include_cautions`는 주의 3종 조회를 코드 규칙으로 옮기며 뺐다(AG-22-04 A, `ToolContext.caution_kinds`). 캐시된 옛 응답·모델 환각 대비다
+IGNORED_ARGS: dict[str, tuple[str, ...]] = {"check_contraindications": ("include_cautions",)}
+EVENT_ARG_IGNORED = "ARG_IGNORED"
+
+
 def invoke(name: str, raw_args: dict[str, Any], ctx: ToolContext, registry: dict[str, ToolSpec] | None = None) -> dict[str, Any]:
     """도구 호출 1건. 반환: `{"items": [...], ...}`(+ `text` 데이터 블록, `contract_violations`, `writable`)."""
     spec = (registry or REGISTRY).get(name)
@@ -60,6 +66,9 @@ def invoke(name: str, raw_args: dict[str, Any], ctx: ToolContext, registry: dict
         return {"items": [], "blocked": True, "error": {
             "code": "UNKNOWN_TOOL", "tool": name, "reason": "등록되지 않은 도구", "next_action": "등록된 도구 이름으로 호출한다",
             "remaining_calls": max(ctx.remaining_calls, 0)}}
+    ignored = [k for k in IGNORED_ARGS.get(name, ()) if isinstance(raw_args, dict) and k in raw_args]
+    if ignored:
+        raw_args = {k: v for k, v in raw_args.items() if k not in ignored}
     try:
         args = spec.args_model.model_validate(raw_args)
     except ValidationError as e:
@@ -69,6 +78,8 @@ def invoke(name: str, raw_args: dict[str, Any], ctx: ToolContext, registry: dict
     out["contract_violations"] = check_items(name, items)
     out["text"] = render_data_block(name, items)
     out["writable"] = writable_update(out)
+    if ignored:  # 개수만(인자 값은 남기지 않는다)
+        out["writable"]["events"].append({"rule": "H21", "event": EVENT_ARG_IGNORED, "tool": name, "n": len(ignored)})
     return out
 
 

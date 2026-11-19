@@ -144,7 +144,7 @@ def test_age_and_pregnancy_lines_have_no_reasons_even_with_row_reason():
     assert _pair(r).reasons == [R1]
     # 임부·연령 판정은 제품 줄의 배지로 나온다(BE-06-12 A 연결, 2026-11-18). 제품 줄은 사유 칸이 비어 있다
     (prod,) = [f for f in r.findings if f.target == "product" and f.drugs == [DRUGS[0]]]
-    assert [b.kind for b in prod.badges] == ["contra_pair", "pregnancy", "age"]
+    assert [b.kind for b in prod.badges] == ["pregnancy", "age"]  # 병용 배지는 짝 줄에만(FE-11-05 A, 2026-11-19)
     assert all(f.reasons == [] for f in r.findings if f.target == "product")
     assert _detail_reasons(r, "age:448001ATB") == ["12세 미만 소아에서 안전성 및 유효성 미확립"]  # 근거 상세는 그대로
 

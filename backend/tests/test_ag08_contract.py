@@ -87,16 +87,18 @@ def _rows(resp: dict[str, Any]) -> dict[str, dict[str, Any]]:
 PRODUCT_ROW_KEYS = {
     "key", "drug", "name", "bucket", "text", "badges", "contra_kinds", "found_kinds", "not_listed_kinds", "unconfirmed_kinds",
     "caution_kinds", "dup", "evidence_ids", "ingredients", "unresolved",
+    "section", "pair_ref", "caution_desc",  # FE-11-04·05 A·AG-22 ③(2026-11-19): 구역·짝 참조·용량주의 설명
 }
 BADGE_KEYS = {"kind", "grade", "text", "evidence_id", "note"}  # 등급 불일치일 때만 `source_tail_key`가 더 붙는다
 
 # 계약 예시 1(AG-08 §5 "finalize 출력 계약" ①·②의 JSON과 같은 값): 와파린정(SEQ_A) 식별 + 아스피린정 병용 + 임부 2등급 + 쿠마딘정 성분 중복
+# FE-11-05 A(2026-11-19, AG-08-29 A 대체): 제품 줄에서 병용 배지를 빼고 짝 참조(`pair_ref`)를 둔다. 성분 칩 원인 글자(`contra_kinds`)는 유지
 EXAMPLE_ROW_SEQ_A = {
-    "key": "SEQ_A", "drug": "와파린정", "name": "와파린정", "bucket": "found", "text": fp.BADGE_PAIR,
+    "key": "SEQ_A", "drug": "와파린정", "name": "와파린정", "bucket": "found", "text": fp.BADGE_PREGNANCY.format(grade="2"),
     "badges": [
-        {"kind": "contra_pair", "grade": None, "text": fp.BADGE_PAIR, "evidence_id": PAIR_EID, "note": None},
         {"kind": "pregnancy", "grade": "2", "text": fp.BADGE_PREGNANCY.format(grade="2"), "evidence_id": "pregnancy:SEQ_A", "note": None},
     ],
+    "section": "core", "pair_ref": {"count": 1, "evidence_ids": [PAIR_EID], "text": fp.PAIR_REF_LINE.format(n=1)}, "caution_desc": None,
     "contra_kinds": ["contra_pair", "pregnancy"],
     "found_kinds": ["contra_pair", "pregnancy"], "not_listed_kinds": [], "unconfirmed_kinds": [], "caution_kinds": [],
     "dup": True,
@@ -107,8 +109,10 @@ EXAMPLE_ROW_SEQ_A = {
     "unresolved": False,
 }
 EXAMPLE_ROW_SEQ_B = {
-    "key": "SEQ_B", "drug": "아스피린정", "name": None, "bucket": "found", "text": fp.BADGE_PAIR,
-    "badges": [{"kind": "contra_pair", "grade": None, "text": fp.BADGE_PAIR, "evidence_id": PAIR_EID, "note": None}],
+    # 짝에만 걸린 약: 배지 없는 "찾음" 줄 + 짝 참조, 구역 core(C-4 A)
+    "key": "SEQ_B", "drug": "아스피린정", "name": None, "bucket": "identified", "text": fp.IDENTIFIED_LINE,
+    "badges": [],
+    "section": "core", "pair_ref": {"count": 1, "evidence_ids": [PAIR_EID], "text": fp.PAIR_REF_LINE.format(n=1)}, "caution_desc": None,
     "contra_kinds": ["contra_pair"], "found_kinds": ["contra_pair"], "not_listed_kinds": [], "unconfirmed_kinds": [],
     "caution_kinds": [], "dup": False, "evidence_ids": [PAIR_EID], "ingredients": [], "unresolved": False,
 }
@@ -155,12 +159,13 @@ def test_contract_row_key_is_tool_drug_key():
 
 
 def test_contract_badges_one_per_text_in_pair_pregnancy_age_order():
-    """한 줄 배지: 금기 종류(병용 → 임부 → 연령)만, 같은 글자는 한 번(병용 쌍이 여럿이어도 병용 배지 하나, AG-08-29 A)."""
+    """한 줄 배지: 금기 종류(임부 → 연령)만, 같은 글자는 한 번. 병용은 배지가 아니라 짝 참조로 짝 수를 센다(FE-11-05 A, AG-08-29 A 대체)."""
     items = [_age(), _preg(), _pair(), _pair(eid="contra_pair:SEQ_A:SEQ_D", b=("클로피도그렐정", "SEQ_D")), _dose_caution()]
     row = _rows(finalize(items))["SEQ_A"]
-    assert [b["text"] for b in row["badges"]] == [fp.BADGE_PAIR, fp.BADGE_PREGNANCY.format(grade="2"), fp.BADGE_AGE]
+    assert [b["text"] for b in row["badges"]] == [fp.BADGE_PREGNANCY.format(grade="2"), fp.BADGE_AGE]
     assert row["text"] == row["badges"][0]["text"]  # 줄 대표 글자 = 첫 배지
-    assert row["caution_kinds"] == ["dose"]  # 주의는 배지 없이 종류 키만
+    assert row["pair_ref"]["count"] == 2 and row["pair_ref"]["text"] == fp.PAIR_REF_LINE.format(n=2)
+    assert row["caution_kinds"] == ["dose"] and row["caution_desc"] == fp.DOSE_CAUTION_DESC  # 주의는 배지 없이 종류 키 + 설명
 
 
 def test_contract_pair_lines_stay_in_entries():

@@ -242,7 +242,14 @@ def test_finalize_emits_contract_product_rows():
     resp = finalize(ITEMS)
     assert "product_rows" in resp
     rows = {r["key"]: r for r in resp["product_rows"]}
-    assert rows["SEQ_A"] == ROW_SEQ_A and rows["SEQ_B"] == ROW_SEQ_B
+    # FE-11-05 A(2026-11-19, AG-08-29 A 대체): finalize는 제품 줄에서 병용 배지를 빼고 짝 참조(`pair_ref`)·구역(`section`)을 낸다.
+    # 위 fixture(병용 배지가 있는 이전 모양)는 응답 변환 입력 시험에 그대로 쓰고, 여기서는 바뀐 칸만 덮어 비교한다
+    ref = {"count": 1, "evidence_ids": [PAIR_EID], "text": fp.PAIR_REF_LINE.format(n=1)}
+    want_a = {**ROW_SEQ_A, "text": fp.BADGE_PREGNANCY.format(grade="2"), "badges": ROW_SEQ_A["badges"][1:],
+              "section": "core", "pair_ref": ref, "caution_desc": None}
+    want_b = {**ROW_SEQ_B, "bucket": "identified", "text": fp.IDENTIFIED_LINE, "badges": [],
+              "section": "core", "pair_ref": ref, "caution_desc": None}
+    assert rows["SEQ_A"] == want_a and rows["SEQ_B"] == want_b
 
 
 def test_finalize_emits_advice_kinds_and_response_carries_them():
@@ -399,7 +406,8 @@ def test_product_findings_have_no_evidence_id_and_ids_stay_unique():
     r = to_chat_response(finalize(ITEMS), end_reason="NORMAL")
     products = [f for f in r.findings if f.target == "product" and f.badges]
     assert products and all(f.evidence_id is None for f in products)
-    assert [f.kind for f in products] == ["contra_pair", "contra_pair"]  # 줄 대표 종류 = 첫 배지 종류(text = 첫 배지 글자와 짝)
+    # 줄 대표 종류 = 첫 배지 종류(text = 첫 배지 글자와 짝). FE-11-05 A로 병용 배지는 제품 줄에 없어 배지 있는 제품 줄은 임부 줄 하나다
+    assert [f.kind for f in products] == ["pregnancy"]
     ids = [f.evidence_id for f in r.findings if f.evidence_id is not None]
     assert ids == [PAIR_EID]  # 쌍 줄만 근거 ID를 가진다: ID로 줄을 찾아도 겹치지 않는다
     assert {b.evidence_id for f in products for b in f.badges} <= {d.evidence_id for d in r.detail}  # 배지 ID로 근거 상세를 연다
@@ -409,7 +417,8 @@ def test_real_finalize_output_links_end_to_end():
     """실제 finalize 출력(fixture를 얹지 않음)으로 `:41`·`:55`: 와파린정 한 줄(배지 둘·칩), 아스피린정 한 줄, 쌍 줄 하나."""
     r = to_chat_response(finalize(ITEMS), end_reason="NORMAL")
     (a,) = _product_findings(r, "와파린정")
-    assert [b.kind for b in a.badges] == ["contra_pair", "pregnancy"] and a.ingredients[0].state_labels == ROW_SEQ_A["ingredients"][0][
+    # 병용 배지는 짝 줄에만(FE-11-05 A). 성분 칩 원인 글자("병용금기 원인")는 그대로
+    assert [b.kind for b in a.badges] == ["pregnancy"] and a.ingredients[0].state_labels == ROW_SEQ_A["ingredients"][0][
         "state_labels"]
     assert a.sub_line == "와파린"  # 흡수한 "찾음" 줄의 보조줄(성분 이름)은 버리지 않는다
     assert [f.drugs for f in r.findings if f.target == "pair"] == [["와파린정", "아스피린정"]]
@@ -455,7 +464,9 @@ def test_unconfirmed_and_not_listed_lines_stay_separate():
 def test_row_without_found_or_identified_is_not_emitted():
     """판정이 확인하지 못함뿐인 약은 제품 줄을 내지 않고 근거 줄(찾음 줄 포함)을 지금처럼 둔다(같은 글자 두 번 방지)."""
     r = to_chat_response(finalize([_ident(), _age_unlinked()]), end_reason="NORMAL")
-    assert [(f.kind, f.bucket) for f in _product_findings(r, "와파린정")] == [("identify", "identified"), ("age", "unconfirmed")]
+    # 구역 순서(GROUP-01 3단계, FE-11-04 A): 확인 못 함(접지 않음) 줄이 나머지(찾음) 줄보다 앞
+    assert [(f.kind, f.bucket, f.section) for f in _product_findings(r, "와파린정")] == [
+        ("age", "unconfirmed", "unconfirmed"), ("identify", "identified", "rest")]
 
 
 # =========================================================================== FE 계약 확인(goal-fe-sync.md §5, 2026-11-18 메인 추가 지시)
