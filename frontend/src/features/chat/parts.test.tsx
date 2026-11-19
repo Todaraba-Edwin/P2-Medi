@@ -47,6 +47,49 @@ describe("ProgressSteps", () => {
     expect(screen.getByRole("status").innerHTML).toBe(before);
   });
 
+  it("대기 표시는 첫 progress 이벤트 전(stage=null)에만, 단계 줄 밖에 글자 없이 보인다(BE-17-04 A)", () => {
+    const { rerender } = render(<ProgressSteps stage={null} />);
+    const waiting = screen.getByTestId("progress-waiting");
+    expect(waiting).toHaveAttribute("aria-hidden", "true");
+    expect(waiting.textContent).toBe(""); // 새 글자 없음
+    expect(waiting.closest("ol")).toBeNull(); // 단계 줄과 따로
+    expect(within(waiting).queryByTestId("mascot")).toBeNull(); // 마스코트를 쓰지 않는다
+    expect(stepStates()).toEqual(["todo", "todo", "todo"]); // 어느 단계도 주장하지 않는다
+    expect(screen.getByRole("list").querySelector(".animate-spin")).toBeNull();
+    // 전이: null → drug_lookup → contraindication_check
+    rerender(<ProgressSteps stage="drug_lookup" />);
+    expect(screen.queryByTestId("progress-waiting")).toBeNull();
+    expect(stepStates()).toEqual(["now", "todo", "todo"]);
+    rerender(<ProgressSteps stage="contraindication_check" />);
+    expect(screen.queryByTestId("progress-waiting")).toBeNull();
+    expect(stepStates()).toEqual(["done", "now", "todo"]);
+  });
+
+  it("움직임 줄이기에서는 스피너를 숨기고 멈춘 점 3개로 바꾼다", () => {
+    render(<ProgressSteps stage={null} />);
+    const spinner = screen.getByTestId("progress-waiting-spinner");
+    expect(spinner).toHaveClass("motion-safe:animate-spin", "motion-reduce:hidden");
+    expect(spinner).not.toHaveClass("animate-spin"); // 움직임은 motion-safe에서만
+    const still = screen.getByTestId("progress-waiting-still");
+    expect(still).toHaveClass("hidden", "motion-reduce:flex");
+    expect(still.children).toHaveLength(3);
+  });
+
+  it("첫 이벤트가 drug_lookup이면 대기 표시 없이 그 줄에 기존 스피너가 돈다", () => {
+    render(<ProgressSteps stage="drug_lookup" />);
+    expect(screen.queryByTestId("progress-waiting")).toBeNull();
+    const [first, ...rest] = screen.getAllByRole("listitem");
+    expect(first).toHaveAttribute("aria-current", "step");
+    expect(first.querySelector(".animate-spin")).not.toBeNull();
+    for (const li of rest) expect(li.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("119 안내로 마스코트를 숨겨도 대기 표시는 보인다", () => {
+    render(<ProgressSteps stage={null} hideMascot />);
+    expect(screen.queryByTestId("mascot")).toBeNull();
+    expect(screen.getByTestId("progress-waiting")).toBeInTheDocument();
+  });
+
   it("이벤트에 label이 오면 지금 줄에 그 값을 쓴다", () => {
     render(<ProgressSteps stage="contraindication_check" label="받은 진행 문구" />);
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["약 찾는 중", "받은 진행 문구", "근거 찾는 중"]);

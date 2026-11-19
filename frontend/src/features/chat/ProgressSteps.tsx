@@ -15,11 +15,38 @@ export interface ProgressStepsProps {
   hideMascot?: boolean;
 }
 
+/**
+ * 첫 `progress` 이벤트 전(`stage=null`)의 대기 표시(BE-17-04 A). 단계 줄 밖에 두고 글자·마스코트를 쓰지 않는다:
+ * 어느 단계인지 주장하지 않고 "기다리는 중"만 보인다(FE-01-07 가짜 진행 없음). 보조기기에는 바깥 `role="status"`가 이미 알린다.
+ * 움직임 줄이기(`prefers-reduced-motion: reduce`)에서는 스피너 대신 멈춘 점 3개를 보인다.
+ */
+function WaitingMark() {
+  return (
+    <span aria-hidden="true" data-testid="progress-waiting" className="mb-1 flex h-5 flex-none items-center">
+      <span
+        data-testid="progress-waiting-spinner"
+        className="size-4 rounded-full border-2 border-line-2 border-t-link motion-safe:animate-spin motion-reduce:hidden"
+      />
+      <span data-testid="progress-waiting-still" className="hidden items-center gap-1 motion-reduce:flex">
+        <span className="size-1.5 rounded-full bg-mute" />
+        <span className="size-1.5 rounded-full bg-mute" />
+        <span className="size-1.5 rounded-full bg-mute" />
+      </span>
+    </span>
+  );
+}
+
 export function ProgressSteps({ stage, label, hideMascot = false }: ProgressStepsProps) {
   const current = stage ? ORDER.indexOf(stage) : -1;
+  const waiting = stage === null;
   return (
     <div role="status" aria-label={PROGRESS_LABEL} className="flex flex-col items-start gap-2.5">
-      {!hideMascot && <Mascot variant="search" size={72} />}
+      {(!hideMascot || waiting) && (
+        <div className="flex items-end gap-2">
+          {!hideMascot && <Mascot variant="search" size={72} />}
+          {waiting && <WaitingMark />}
+        </div>
+      )}
       <ol className="m-0 flex w-full max-w-xs list-none flex-col gap-2 rounded-[18px] bg-bg-soft px-4 py-3">
         {ORDER.map((item, index) => {
           const state = index < current ? "done" : index === current ? "now" : "todo";
