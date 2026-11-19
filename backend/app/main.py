@@ -20,10 +20,12 @@ from .api import chat as chat_api
 from .api import me as me_api
 from .api import service
 from .config import Settings, get_settings
+from .logging.console import install_app_console_logging
 from .logging.redact_filter import install_log_redaction
 from .security import auth
 
 install_log_redaction()  # 서버 로그(uvicorn·httpx 포함)의 비밀값 가리기, httpx INFO URL 차단(S-05·S-06)
+install_app_console_logging()  # BE-17 후속: `app.*` INFO 줄을 stderr에(uvicorn은 루트 처리기를 두지 않아 INFO가 버려졌다). 멱등
 
 
 def load_settings() -> Settings:
@@ -33,8 +35,9 @@ def load_settings() -> Settings:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    install_app_console_logging()  # 시작 뒤 로깅 설정이 바뀌었어도 처리기 하나를 보장한다(이미 있으면 그대로)
     settings_now = load_settings()
-    runner = service.make_service_runner(settings_now)  # 자원을 만들지 않는다(접속 0). 설정이 모자라면 None
+    runner =service.make_service_runner(settings_now)  # 자원을 만들지 않는다(접속 0). 설정이 모자라면 None
     if runner is not None:
         chat_api.set_runner(app, runner)
         service.start_warmup(runner, settings_now)  # BE-17-01 A: 백그라운드 스레드만 띄우고 기다리지 않는다(스위치 끔이면 안 띄움)
