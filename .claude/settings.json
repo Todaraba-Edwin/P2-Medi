@@ -29,7 +29,15 @@
       "Bash(PYTHONPATH=* /Users/edwin/develop/P2-Medi/backend/.venv/bin/python -m pytest *)",
       "Bash(PYTHONPATH=. .venv/bin/python -m pytest *)",
       "Bash(/Users/edwin/develop/P2-Medi/backend/.venv/bin/ruff check *)",
-      "Bash(PYTHONPATH=* /Users/edwin/develop/P2-Medi-wt-*/backend/.venv/bin/python -m pytest *)"
+      "Bash(PYTHONPATH=* /Users/edwin/develop/P2-Medi-wt-*/backend/.venv/bin/python -m pytest *)",
+      "Bash(pnpm --dir /Users/edwin/develop/P2-Medi*/frontend typecheck*)",
+      "Bash(pnpm --dir /Users/edwin/develop/P2-Medi*/frontend lint*)",
+      "Bash(pnpm --dir /Users/edwin/develop/P2-Medi*/frontend test*)",
+      "Bash(pnpm --dir /Users/edwin/develop/P2-Medi*/frontend e2e*)",
+      "Bash(pnpm --dir /Users/edwin/develop/P2-Medi*/frontend gen:api*)",
+      "Bash(pnpm --dir /Users/edwin/develop/P2-Medi*/frontend install --frozen-lockfile*)",
+      "Bash(/Users/edwin/develop/P2-Medi-wt-*/backend/.venv/bin/ruff check *)",
+      "Bash(ruff check /Users/edwin/develop/P2-Medi*)"
     ],
     "deny": [
       "Read(./.env)",
