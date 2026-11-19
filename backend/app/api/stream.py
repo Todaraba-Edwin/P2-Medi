@@ -22,7 +22,7 @@ import asyncio
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, Protocol
 
 from app.agent.graph.nodes import after_router
@@ -81,7 +81,7 @@ def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reaso
 
 def _run_in_thread(runner: ChatRunner, question: str, profile: dict[str, Any] | None, confirmed_item_seqs: Sequence[ConfirmedInput],
                    loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[Any], stop: threading.Event,
-                   usage: RequestUsage | None = None) -> None:
+                   usage: RequestUsage | None = None, extras: Mapping[str, Any] | None = None) -> None:
     if usage is not None:
         REQUEST_USAGE.set(usage)  # 이 스레드(= 이 요청)의 맥락에만. 실행기가 요청 전용 모델 래퍼를 이 합계에 묶는다
 
@@ -92,7 +92,8 @@ def _run_in_thread(runner: ChatRunner, question: str, profile: dict[str, Any] | 
             stop.set()
 
     try:
-        for chunk in runner.updates(question, profile, confirmed_item_seqs):
+        # 키워드 입력(`prior_drugs`·`took_today`)은 값이 있을 때만 넘긴다(`runner.graph_extras`): 이전 실행기 호환
+        for chunk in runner.updates(question, profile, confirmed_item_seqs, **dict(extras or {})):
             if stop.is_set():
                 return
             put(chunk)
@@ -119,10 +120,12 @@ def _tool_stages(update: dict[str, Any]) -> list[str]:
 
 
 async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any] | None,
-                      metrics: MetricsSink | None = None, *, confirmed_item_seqs: Sequence[ConfirmedInput] = ()) -> AsyncIterator[AnyEvent]:
+                      metrics: MetricsSink | None = None, *, confirmed_item_seqs: Sequence[ConfirmedInput] = (),
+                      graph_extras: Mapping[str, Any] | None = None) -> AsyncIterator[AnyEvent]:
     """질문 하나의 이벤트 스트림. 항상 `done`으로 끝난다(정상이면 `answer` 뒤, 실패면 `error` 뒤).
 
-    `confirmed_item_seqs`(되묻기에서 고른 약의 품목기준코드, AG-05-03 A)는 실행기로만 넘기고 지표·로그에 싣지 않는다."""
+    `confirmed_item_seqs`(되묻기에서 고른 약의 품목기준코드, AG-05-03 A)와 `graph_extras`(이전 차례 선택 `prior_drugs` AG-21-02 A,
+    용량주의 되묻기 답 `took_today` AG-22-05 A)는 실행기로만 넘기고 지표·로그·이벤트에 싣지 않는다."""
     started = time.monotonic()
     block_rules: list[str] = []  # 하네스 차단 이벤트의 규칙 ID(내용 없음)
     error_type: str | None = None
@@ -132,7 +135,8 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
     queue: asyncio.Queue[Any] = asyncio.Queue()
     stop = threading.Event()
     usage = RequestUsage()  # 이 요청의 모델 사용량(숫자만, BE-06-36 A)
-    threading.Thread(target=_run_in_thread, args=(runner, question, profile, tuple(confirmed_item_seqs), loop, queue, stop, usage),
+    threading.Thread(target=_run_in_thread, args=(runner, question, profile, tuple(confirmed_item_seqs), loop, queue, stop, usage,
+                                                  dict(graph_extras or {})),
                      daemon=True, name="chat-graph").start()
     final: dict[str, Any] = {}  # 응답 변환에 쓰는 값만 모은다(`answer`·`end_reason`·`clarify`·`entities`)
     last_stage: str | None = None

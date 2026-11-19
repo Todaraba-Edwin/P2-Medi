@@ -19,6 +19,10 @@
 - 응급은 `end_reason` 값이 아니라 `emergency` 필드로만 표현한다(BE-06-02 A). 되묻기 후보는 `candidates[]`(BE-06-03 A).
   상단 배너(상한 도달·API 실패)는 기존 `notice` 한 칸이다(BE-06-06 A). 용법용량은 표 구조 없이 원문 인용 텍스트만(`detail[].rows`, BE-06-04 B).
 - `detail[]`은 도구 항목을 코드가 렌더한 것(AG-06 `renderer`)이고 LLM 문장(`LLM_SUMMARY`)은 없다. `summary`만 LLM 문장(검증 통과분) 또는 코드 문구다.
+- 결과 묶음(GROUP-01 3단계, FE-11-04·05·07·08, AG-22-05 A, 2026-11-19): 판정 줄마다 구역 `section`(core·caution·rest·unconfirmed, 검색 근거는 칸 없음)과
+  제품 줄의 짝 참조 `pair_ref`(제품 줄에는 병용 배지 없음), 용량주의 설명 `caution_desc`. 응답에는 요약 `result_summary`, 접힘 줄 `rest_fold`,
+  용량주의 되묻기 `dose_check`·고지 `dose_notice`, 재복용 고지 `redose_notice`. 값·순서는 서버가 정하고(`findings`는 구역 순서) 문구는 모두 상수다.
+  값이 없는 새 칸은 응답 글자에서 빠진다(칸 추가라 `chat_response@v1` 유지).
 - 내부 필드(`events`·`warnings`·`text`)는 응답에 싣지 않는다. 금지 칸(복용 지시·용량 숫자)의 **내용** 검사는 Validator(AG-07) 몫이고 여기서는 형식만 본다.
 - 고정 문구 불변식(코드 강제): `fixed_notice`는 1줄 이상·빈 줄 없음·`FIXED_NOTICE` 포함, `disclaimer`는 `DISCLAIMER` 그대로,
   `emergency`는 `EMERGENCY_119`·`EMERGENCY_119_TEL` 그대로, `notice`는 상수 목록(`NOTICE_TEXTS`)에 있는 값만.
@@ -87,6 +91,12 @@ Target = Literal["product", "pair"]
 Grade = Literal["1", "2", "M"]
 GradeMissingReason = Literal["FETCH_FAIL", "OUT_OF_SCOPE"]  # 등급 정의는 청크 ID 조회라 SEARCH_MISS가 없다(PRD-15-03)
 AdviceKind = Literal["missing", "grade_def"]  # 약사 확인 권고 줄의 종류(AG-08-28 A, AG-08 §5 계약 ④)
+# 결과 구역(FE-11-04 A, 값은 `finalize.SECTIONS`). 없음(칸 생략) = 판정이 아닌 검색 근거 줄이라 근거 상세에만 둔다(FE-11-07 B)
+Section = Literal["core", "caution", "rest", "unconfirmed"]
+# 판정 줄 순서(FE-11-04 A: 서버가 순서·구역을 정하고 화면은 재정렬하지 않는다). 핵심 → 주의 → 확인 못 함(접지 않음) → 나머지(접힘) → 구역 없음.
+# 같은 구역 안은 이전 순서 그대로(안정 정렬), 핵심 구역만 짝 줄을 그 짝에 걸린 약 줄보다 앞에 둔다(FE-11-08 A "짝 줄 바로 아래")
+SECTION_ORDER: tuple[str, ...] = ("core", "caution", "unconfirmed", "rest")
+SECTION_REST = "rest"
 
 
 class _Strict(BaseModel):
@@ -263,6 +273,30 @@ def _badge_rank(b: Badge) -> tuple[int, int]:
     return k, s
 
 
+def _omit_none(v: Any) -> bool:
+    """새 칸(GROUP-01 3단계)은 값이 없으면 응답 글자에서 뺀다: 해당 정보가 없는 응답의 JSON이 칸을 더하기 전과 같다
+    (`pharmacist_advice_kinds`와 같은 방식, 모르는 키를 거부하는 프런트 검증 대비). OpenAPI에는 선택 칸으로 그대로 있다."""
+    return v is None
+
+
+class PairRef(_Strict):
+    """제품 줄의 병용금기 짝 참조(FE-11-05 A, AG-08-29 A 대체). 제품 줄에는 "삐! 병용금기" 배지를 달지 않고 이 보조줄만 둔다.
+
+    `evidence_ids`는 그 약이 낀 병용금기 FOUND 짝 줄의 근거 ID(짝 줄 `evidence_id`와 같은 값), `text`는 상수 `PAIR_REF_LINE` 그대로."""
+
+    count: int = Field(ge=1)
+    evidence_ids: list[str] = Field(min_length=1)
+    text: str
+
+    @model_validator(mode="after")
+    def _check(self) -> PairRef:
+        if len(self.evidence_ids) != self.count or len(set(self.evidence_ids)) != self.count:
+            raise ValueError("pair_ref.count는 서로 다른 evidence_ids 개수와 같아야 한다")
+        if self.text != fp.PAIR_REF_LINE.format(n=self.count):
+            raise ValueError("pair_ref.text는 상수 PAIR_REF_LINE에 count를 넣은 글자 그대로여야 한다")
+        return self
+
+
 class Finding(_Strict):
     """판정 줄(`finalize.entries` 한 항목). 제품 줄 또는 쌍 줄(BE-06-01 A). 문구는 코드 상수."""
 
@@ -296,11 +330,20 @@ class Finding(_Strict):
     # 병용금기 사유 원문(FE-02-06 A): 금기 발견 쌍 금기 줄에만, 근거 행 `reason` 그대로(자르지 않음, 순서 유지·중복 제거).
     # 용량 숫자가 든 사유는 카드에서 빼고 근거 상세(`detail[].rows`)에만 남긴다(RFP-21-03). 칸 추가라 `chat_response@v1` 유지
     reasons: list[str] = Field(default_factory=list)
+    # GROUP-01 3단계(2026-11-19, 칸 추가라 `chat_response@v1` 유지). 값은 `finalize`가 정하고 응답 변환은 옮기기만 한다.
+    # 구역(FE-11-04 A). 칸 없음 = 판정이 아닌 검색 근거 줄(FE-11-07 B, 화면은 근거 상세에만)
+    section: Section | None = Field(default=None, exclude_if=_omit_none)
+    pair_ref: PairRef | None = Field(default=None, exclude_if=_omit_none)  # 제품 줄의 병용금기 짝 참조(FE-11-05 A)
+    caution_desc: str | None = Field(default=None, exclude_if=_omit_none)  # 용량주의 줄 아래 설명(상수 `DOSE_CAUTION_DESC`, AG-22-07 A ③)
 
     @model_validator(mode="after")
     def _check(self) -> Finding:
         if self.target == "pair" and len(self.drugs) != 2:
             raise ValueError("쌍 줄은 drugs에 두 약을 담는다")
+        if self.pair_ref is not None and self.target != "product":
+            raise ValueError("pair_ref는 제품 줄에만 둔다(쌍 줄은 배지로 보인다)")
+        if self.caution_desc not in (None, fp.DOSE_CAUTION_DESC):
+            raise ValueError("caution_desc는 상수 DOSE_CAUTION_DESC 그대로여야 한다")
         if self.badges and self.bucket != "found":
             raise ValueError("배지는 금기 발견 줄에만 붙는다")
         if self.reasons and not (self.bucket == "found" and self.kind in PAIR_KINDS):
@@ -386,6 +429,84 @@ class NameCorrection(_Strict):
         return self
 
 
+def result_summary_text(n_drugs: int, pairs: Sequence[Sequence[str]], n_unchecked: int) -> str:
+    """요약 한 줄(승인 문구 ④, AG-22-07 A): 걸린 짝이 있으면 `RESULT_SUMMARY_FOUND`, 없으면 `RESULT_SUMMARY_NONE`, 확인 못 한 짝이 있으면 꼬리.
+
+    `finalize._result_summary`와 같은 규칙이다. 응답 변환이 표시 이름(F3)을 바꾼 뒤 다시 채우고, 검증이 같은 함수로 글자를 맞춘다."""
+    if pairs:
+        text = fp.RESULT_SUMMARY_FOUND.format(
+            n=n_drugs, k=len(pairs), pairs=fp.RESULT_SUMMARY_PAIRS_SEP.join(fp.RESULT_SUMMARY_PAIR_JOIN.join(p) for p in pairs))
+    else:
+        text = fp.RESULT_SUMMARY_NONE.format(n=n_drugs)
+    return text + (fp.RESULT_SUMMARY_UNCHECKED_TAIL.format(u=n_unchecked) if n_unchecked else "")
+
+
+class PairFound(_Strict):
+    """요약에 든 걸린 짝 하나: 두 약 표시 이름과 그 짝 줄의 근거 ID."""
+
+    drugs: list[str] = Field(min_length=2, max_length=2)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class ResultSummary(_Strict):
+    """약 2개 이상 결과의 맨 위 요약(FE-11-04 A, 문구 ④⑤). LLM `summary`와 별개의 코드 칸이다. 화면은 `text`·`pair_only_notice`를 그대로 그린다.
+
+    `text`는 상수 틀에 수치·짝을 넣은 글자 그대로, `pair_only_notice`는 약 3개 이상일 때만 상수 `PAIR_ONLY_NOTICE`(FE-11-06 A)."""
+
+    n_drugs: int = Field(ge=2)
+    n_pairs: int = Field(ge=1)
+    pairs_found: list[PairFound] = Field(default_factory=list)
+    n_pairs_unchecked: int = Field(ge=0)
+    text: str
+    pair_only_notice: str | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> ResultSummary:
+        if self.n_pairs != self.n_drugs * (self.n_drugs - 1) // 2:
+            raise ValueError("result_summary.n_pairs는 약 수로 만든 짝 수여야 한다")
+        if len(self.pairs_found) + self.n_pairs_unchecked > self.n_pairs:
+            raise ValueError("걸린 짝과 확인 못 한 짝의 합은 짝 수를 넘을 수 없다")
+        if self.text != result_summary_text(self.n_drugs, [p.drugs for p in self.pairs_found], self.n_pairs_unchecked):
+            raise ValueError("result_summary.text는 상수 RESULT_SUMMARY_* 틀에 값을 넣은 글자 그대로여야 한다")
+        if self.pair_only_notice != (fp.PAIR_ONLY_NOTICE if self.n_drugs >= 3 else None):
+            raise ValueError("pair_only_notice는 약 3개 이상일 때만 상수 PAIR_ONLY_NOTICE 그대로 둔다")
+        return self
+
+
+class RestFold(_Strict):
+    """나머지 구역 접힘 줄(문구 ⑥, AG-22-07 A). `count`는 `section == "rest"`인 판정 줄 수이고 응답이 스스로 센다(화면은 세지 않는다)."""
+
+    count: int = Field(ge=1)
+    text: str
+    open_label: str = fp.REST_FOLD_OPEN
+    close_label: str = fp.REST_FOLD_CLOSE
+
+    @model_validator(mode="after")
+    def _check(self) -> RestFold:
+        if self.text != fp.REST_FOLD_LINE.format(n=self.count):
+            raise ValueError("rest_fold.text는 상수 REST_FOLD_LINE에 count를 넣은 글자 그대로여야 한다")
+        if (self.open_label, self.close_label) != (fp.REST_FOLD_OPEN, fp.REST_FOLD_CLOSE):
+            raise ValueError("rest_fold 버튼 글자는 상수 REST_FOLD_OPEN·REST_FOLD_CLOSE 그대로여야 한다")
+        return self
+
+
+class DoseCheck(_Strict):
+    """용량주의 되묻기(AG-22-02 B·05 A): 용량주의 성분 FOUND ∧ 복용 관련 질문 ∧ 아직 답 없음일 때 결과와 함께 온다.
+
+    화면은 `options` 중 하나를 고르면 같은 질문을 `context.took_today`(예 → true, 아니요 → false)와 함께 다시 보낸다. 시각·양은 묻지 않는다."""
+
+    question: str
+    options: list[str]
+    drugs: list[str] = Field(default_factory=list)  # 용량주의가 걸린 약 표시 이름
+    evidence_ids: list[str] = Field(default_factory=list)  # 그 용량주의 근거 ID
+
+    @model_validator(mode="after")
+    def _check(self) -> DoseCheck:
+        if self.question != fp.DOSE_CHECK_QUESTION or self.options != [fp.DOSE_CHECK_YES, fp.DOSE_CHECK_NO]:
+            raise ValueError("dose_check는 상수 DOSE_CHECK_QUESTION과 선택지 [DOSE_CHECK_YES, DOSE_CHECK_NO] 그대로여야 한다")
+        return self
+
+
 class ChatResponse(_Strict):
     """`/chat` 최종 응답(`chat_response@v1`). 스트림에서는 `answer` 이벤트의 `response`로 간다."""
 
@@ -415,6 +536,12 @@ class ChatResponse(_Strict):
     pharmacist_advice_kinds: list[AdviceKind] = Field(default_factory=list, exclude_if=lambda v: not v)
     fixed_notice: list[str] = Field(min_length=1)  # 줄 목록: (미확보가 있으면) 약사 확인 권고 → 고정 문구
     disclaimer: str = Field(min_length=1)
+    # GROUP-01 3단계(2026-11-19, 칸 추가라 `chat_response@v1` 유지). 값이 없으면 응답 글자에서 빠진다(`_omit_none`)
+    result_summary: ResultSummary | None = Field(default=None, exclude_if=_omit_none)  # 약 2개 이상 요약(FE-11-04·06 A)
+    rest_fold: RestFold | None = Field(default=None, exclude_if=_omit_none)  # 나머지 구역 접힘 줄(⑥). `findings`의 rest 줄 수에서 정한다
+    dose_check: DoseCheck | None = Field(default=None, exclude_if=_omit_none)  # 용량주의 되묻기(AG-22-05 A)
+    dose_notice: str | None = Field(default=None, exclude_if=_omit_none)  # "예" 답일 때 맨 위 강조 고지(상수 `DOSE_NOTICE`, `notice`와 별개)
+    redose_notice: str | None = Field(default=None, exclude_if=_omit_none)  # 재복용 질문 고지(상수 `REDOSE_NOTICE`, AG-22-01 A, `summary` 밖)
 
     @field_validator("fixed_notice")
     @classmethod
@@ -450,6 +577,21 @@ class ChatResponse(_Strict):
             raise ValueError("미확보 항목이 있으면 pharmacist_advice(약사 확인 권고)가 비어 있을 수 없다")  # BE-06-17 A
         if self.pharmacist_advice_kinds and len(self.pharmacist_advice_kinds) != len(self.pharmacist_advice):
             raise ValueError("pharmacist_advice_kinds는 pharmacist_advice와 같은 길이·순서여야 한다(AG-08-28 A)")
+        if self.dose_notice not in (None, fp.DOSE_NOTICE):
+            raise ValueError("dose_notice는 상수 DOSE_NOTICE 그대로여야 한다")
+        if self.redose_notice not in (None, fp.REDOSE_NOTICE):
+            raise ValueError("redose_notice는 상수 REDOSE_NOTICE 그대로여야 한다")
+        if self.dose_check is not None and self.dose_notice is not None:
+            raise ValueError("dose_check(답 전)와 dose_notice(답 '예' 뒤)는 함께 두지 않는다")
+        if self.end_reason == "CLARIFY" and (self.result_summary or self.dose_check or self.dose_notice):
+            raise ValueError("되묻기(CLARIFY) 응답에는 결과 요약·용량주의 되묻기·고지를 두지 않는다")
+        # 접힘 줄(⑥): 건수는 응답의 rest 줄 수에서 정한다(`candidates_line`처럼 서버가 채우고, 주어진 값은 맞는지 본다)
+        n_rest = sum(1 for f in self.findings if f.section == SECTION_REST)
+        expected = RestFold(count=n_rest, text=fp.REST_FOLD_LINE.format(n=n_rest)) if n_rest else None
+        if self.rest_fold is None:
+            self.rest_fold = expected
+        elif self.rest_fold != expected:
+            raise ValueError("rest_fold는 rest 구역 줄이 있을 때만, 그 줄 수로 만든 상수 글자 그대로 둔다")
         return self
 
 
@@ -645,7 +787,9 @@ _NOT_JUDGED_CHIP = {"contra_kinds": [], "dup": False}
 
 
 def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]], *,
-             chip_default: dict[str, Any] | None = None, display: dict[str, str] | None = None) -> Finding:
+             chip_default: dict[str, Any] | None = None, display: dict[str, str] | None = None,
+             extra: dict[str, Any] | None = None) -> Finding:
+    """근거 줄 하나 → `Finding`. `extra`는 `finalize`가 근거 ID별로 정한 새 칸(`section`·`caution_desc`, GROUP-01 3단계)이다."""
     if display and isinstance(e.get("drug"), str):
         e = {**e, "drug": _named_head(e["drug"], display)}  # 줄 머리의 품목기준코드 조각 → 사전 확정 이름(F3)
     d = detail_by_id.get(e.get("evidence_id") or "")
@@ -664,7 +808,22 @@ def _finding(e: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_i
         retried=bool(e.get("retried_line")) if unidentified else None,
         ingredients=[Ingredient(**{**(chip_default or {}), **i}) for i in e.get("ingredients") or [] if isinstance(i, dict) and i.get("name")],
         **{k: e[k] for k in _FINDING_PASS if e.get(k) is not None},
+        **(extra or {}),
     )
+
+
+def _evidence_extra(eid: Any, resp: dict[str, Any]) -> dict[str, Any]:
+    """근거 ID 하나의 새 칸: 구역(`sections`, FE-11-04 A)과 용량주의 설명(`caution_descs`, ③). `finalize`가 주지 않으면 빈 사전(칸 없음)."""
+    if not isinstance(eid, str) or not eid:
+        return {}
+    out: dict[str, Any] = {}
+    sec = (resp.get("sections") or {}).get(eid)
+    if sec is not None:
+        out["section"] = sec
+    desc = (resp.get("caution_descs") or {}).get(eid)
+    if desc is not None:
+        out["caution_desc"] = desc
+    return out
 
 
 # 제품 줄로 내보내는 묶음(BE-06-39~41 연결). `not_listed`·`unconfirmed` 줄의 글자(`NOT_LISTED`·`UNIDENTIFIED` 등)는 금기 종류를 말하지 않아
@@ -705,6 +864,11 @@ def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]], displa
     # 그것도 없으면 흡수한 첫 줄의 종류(성분 중복·주의). 근거 ID와 달리 종류는 줄을 가리키는 열쇠가 아니다
     kinds = [b.get("kind") for b in row.get("badges") or []] + sorted((e.get("kind") for e in absorbed), key=lambda k: k != "identify")
     kind = next((k for k in kinds if k), None)
+    pair_ref = row.get("pair_ref") if isinstance(row.get("pair_ref"), dict) else None
+    if pair_ref and not row.get("badges"):
+        # 병용 짝에만 걸린 약(FE-11-05 A): 줄 글자는 "찾음"이고 배지가 없다. 흡수한 첫 줄(주의·검색 근거)의 종류를 대표로 두면
+        # 화면이 그 종류 색으로 그리므로(ag22 §3.3) 줄 글자와 짝인 `identify`로 둔다. 병용 표지는 짝 줄과 `pair_ref`가 맡는다
+        kind = "identify"
     drug = _named(str(row["drug"]), display or {})  # 줄 머리가 품목기준코드면 사전 확정 이름(F3)
     return Finding(
         target="product", bucket=row["bucket"], evidence_id=None, kind=kind, drug=drug, drugs=[drug], text=row["text"],
@@ -712,6 +876,8 @@ def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]], displa
         ingredients=[Ingredient(**i) for i in row.get("ingredients") or [] if isinstance(i, dict) and i.get("name")],
         notes=list(dict.fromkeys(notes)), unresolved=bool(row.get("unresolved")), sub_line=sub_line,
         age_criteria=age_criteria, age_info_line=age_info_line if age_criteria else None,
+        # GROUP-01 3단계: `finalize`가 정한 구역·짝 참조·용량주의 설명을 옮긴다(이전 출력에는 키가 없어 칸 없음)
+        section=row.get("section"), pair_ref=PairRef(**pair_ref) if pair_ref else None, caution_desc=row.get("caution_desc"),
     )
 
 
@@ -757,14 +923,28 @@ def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_
         members = [by_eid[x] for x in group_of.get(e.get("evidence_id") or "", []) if x in by_eid and id(by_eid[x]) not in merged]
         if len(members) > 1 and any(m is e for m in members):
             merged.update(id(m) for m in members)
-            out.append(_group_finding(members, detail_by_id, badges_by_id, display))
+            out.append(_group_finding(members, detail_by_id, badges_by_id, display, extra=_evidence_extra(members[0].get("evidence_id"), resp)))
             continue
-        out.append(_finding(e, detail_by_id, badges_by_id, chip_default=chip_default(e), display=display))
-    return out
+        out.append(_finding(e, detail_by_id, badges_by_id, chip_default=chip_default(e), display=display,
+                            extra=_evidence_extra(e.get("evidence_id"), resp)))
+    return _section_sorted(out)
+
+
+def _section_sorted(findings: list[Finding]) -> list[Finding]:
+    """구역 순서로 안정 정렬(FE-11-04 A: 서버가 순서를 정한다). 구역 칸이 하나도 없으면(이전 `finalize` 출력) 순서가 그대로다.
+
+    순서: 핵심 → 주의 → 확인 못 함(접지 않음) → 나머지(접힘) → 구역 없음(검색 근거). 핵심 안에서는 짝 줄을 먼저 두고 그 짝에 걸린 약의
+    제품 줄을 뒤에 둔다(FE-11-08 A "짝 줄 바로 아래"). 그 밖은 원래 순서(제품 줄 → 근거 줄, `entries` 순서) 그대로다."""
+    def key(f: Finding) -> tuple[int, int]:
+        rank = SECTION_ORDER.index(f.section) if f.section in SECTION_ORDER else len(SECTION_ORDER)
+        return rank, 0 if (f.section == "core" and f.target == "pair") else 1
+
+    return sorted(findings, key=key)
 
 
 def _group_finding(members: list[dict[str, Any]], detail_by_id: dict[str, DetailItem],
-                   badges_by_id: dict[str, list[Badge]], display: dict[str, str] | None = None) -> Finding:
+                   badges_by_id: dict[str, list[Badge]], display: dict[str, str] | None = None, *,
+                   extra: dict[str, Any] | None = None) -> Finding:
     """같은 약·같은 주의 종류의 근거 줄 여럿 → 한 줄(BE-06-47 A). 줄 글자·출처 표지는 묶음 안에서 같고(묶음 키가 종류·출처 종류·자료),
     근거 ID는 첫 줄의 것(화면이 근거 상세의 출처 표지를 찾는 열쇠, 같은 자료라 표지가 같다)이다. 줄마다 달 수 있는 칸
     (꼬리 안내·등급·고시 번호·배지)은 나온 순서로 합치고 같은 값은 한 번만 둔다. 근거 상세는 근거마다 그대로 남는다."""
@@ -779,7 +959,7 @@ def _group_finding(members: list[dict[str, Any]], detail_by_id: dict[str, Detail
             if all((y.kind, y.text) != (b.kind, b.text) for y in badges):
                 badges.append(b)
     e = {**first, "notes": union("notes"), "grades": union("grades"), "notice_nos": union("notice_nos")}
-    return _finding(e, detail_by_id, {first.get("evidence_id") or "": badges}, display=display)
+    return _finding(e, detail_by_id, {first.get("evidence_id") or "": badges}, display=display, extra=extra)  # 구역은 첫 근거 값
 
 
 def _candidates(clarify: dict[str, Any] | None) -> list[Candidate]:
@@ -839,7 +1019,34 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
         pharmacist_advice_kinds=list(resp.get("pharmacist_advice_kinds") or []),
         fixed_notice=fixed,
         disclaimer=resp.get("disclaimer") or "",
+        # GROUP-01 3단계: `finalize`가 만든 결과 칸을 옮긴다(이름만 F3 표시 이름으로). 모양이 어긋나면 검증 오류로 드러난다
+        result_summary=_result_summary(resp.get("result_summary"), display),
+        dose_check=_dose_check(resp.get("dose_check"), display),
+        dose_notice=resp.get("dose_notice"),
+        redose_notice=resp.get("redose_notice"),
     )
+
+
+def _result_summary(rs: Any, display: dict[str, str]) -> ResultSummary | None:
+    """`finalize.result_summary` → `ResultSummary`. 짝의 약 이름이 품목기준코드면 사전 확정 이름으로 바꾸고 요약 글자를 같은 틀로 다시 채운다."""
+    if not isinstance(rs, dict):
+        return None
+    pairs = [PairFound(drugs=[_named(str(x), display) for x in p.get("drugs") or []], evidence_ids=list(p.get("evidence_ids") or []))
+             for p in rs.get("pairs_found") or [] if isinstance(p, dict)]
+    n_drugs, n_unchecked = int(rs["n_drugs"]), int(rs["n_pairs_unchecked"])
+    text = rs.get("text")
+    if any(p.drugs != list(src.get("drugs") or []) for p, src in zip(pairs, rs.get("pairs_found") or [], strict=False)):
+        text = result_summary_text(n_drugs, [p.drugs for p in pairs], n_unchecked)  # 이름이 바뀐 때만 다시 채운다(같은 틀)
+    return ResultSummary(n_drugs=n_drugs, n_pairs=int(rs["n_pairs"]), pairs_found=pairs, n_pairs_unchecked=n_unchecked, text=text,
+                         pair_only_notice=rs.get("pair_only_notice"))
+
+
+def _dose_check(dc: Any, display: dict[str, str]) -> DoseCheck | None:
+    if not isinstance(dc, dict):
+        return None
+    return DoseCheck(question=dc.get("question"), options=list(dc.get("options") or []),
+                     drugs=list(dict.fromkeys(_named(str(x), display) for x in dc.get("drugs") or [])),
+                     evidence_ids=list(dc.get("evidence_ids") or []))
 
 
 def response_from_state(state: dict[str, Any]) -> ChatResponse:

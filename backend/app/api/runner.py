@@ -1,6 +1,6 @@
 """BE-06 `/chat` 그래프 실행기와 요청 묶음 → 그래프 입력 변환.
 
-- 실행기(`ChatRunner`)는 `updates(question, profile, confirmed_item_seqs)`로 **노드 갱신**(`{노드 이름: 갱신 dict}`)을 차례로 낸다.
+- 실행기(`ChatRunner`)는 `updates(question, profile, confirmed_item_seqs, *, prior_drugs, took_today)`로 **노드 갱신**(`{노드 이름: 갱신 dict}`)을 차례로 낸다.
   라우트는 이 갱신만 읽어 이벤트로 바꾼다(`app.api.stream`). 실행기가 주입되지 않으면 라우트는 501이다(`app.api.chat`).
 - `GraphRunner`는 AG-01 그래프(`build_graph`)를 `stream_mode="updates"`로 돌린다. **서비스 경로는 trace를 켜지 않는다**(RFP-22-06 A):
   `from_deps`는 받은 의존성의 `tracer`를 떼고 그래프를 만든다.
@@ -22,11 +22,18 @@ NodeUpdate = dict[str, Any]  # {노드 이름: 그 노드가 쓴 상태 갱신}
 ConfirmedInput = str | dict[str, str]  # 그래프 입력 `confirmed_item_seqs`의 원소(`router.confirmed_picks`가 읽는 두 모양)
 
 
+PriorInput = dict[str, str]  # 그래프 입력 `prior_drugs`의 원소(`{"item_seq", "input_name"?}`, `router.prior_picks`가 읽는 모양)
+
+
 class ChatRunner(Protocol):
-    """질문 하나를 끝까지 돌리며 노드 갱신을 차례로 내는 실행기(동기, 라우트가 스레드에서 돌린다)."""
+    """질문 하나를 끝까지 돌리며 노드 갱신을 차례로 내는 실행기(동기, 라우트가 스레드에서 돌린다).
+
+    키워드 입력 `prior_drugs`(AG-21-02 A)·`took_today`(AG-22-05 A)는 **값이 있을 때만** 넘긴다(`graph_extras`). 그래서 이 두 키워드를
+    받지 않는 이전 실행기(시험용 가짜 등)도 새 칸이 없는 요청에서는 그대로 돈다."""
 
     def updates(self, question: str, profile: dict[str, Any] | None,
-                confirmed_item_seqs: Sequence[ConfirmedInput] = ()) -> Iterable[NodeUpdate]: ...
+                confirmed_item_seqs: Sequence[ConfirmedInput] = (), *,
+                prior_drugs: Sequence[PriorInput] = (), took_today: bool | None = None) -> Iterable[NodeUpdate]: ...
 
 
 class GraphRunner:
@@ -42,8 +49,10 @@ class GraphRunner:
         return cls(lambda: graph)
 
     def updates(self, question: str, profile: dict[str, Any] | None,
-                confirmed_item_seqs: Sequence[ConfirmedInput] = ()) -> Iterator[NodeUpdate]:
-        state = initial_state(question, profile, confirmed_item_seqs)
+                confirmed_item_seqs: Sequence[ConfirmedInput] = (), *,
+                prior_drugs: Sequence[PriorInput] = (), took_today: bool | None = None) -> Iterator[NodeUpdate]:
+        # 빈 값이면 시작 상태에 키가 생기지 않는다(`initial_state`): 새 칸이 없는 요청은 이전과 같은 시작 상태다
+        state = initial_state(question, profile, confirmed_item_seqs, prior_drugs=prior_drugs, took_today=took_today)
         for chunk in self._graph_factory().stream(state, stream_mode="updates"):
             if isinstance(chunk, dict):
                 yield chunk
@@ -80,4 +89,33 @@ def confirmed_from_context(context: ConversationContext) -> list[ConfirmedInput]
     return out
 
 
-__all__ = ["ChatRunner", "ConfirmedInput", "GraphRunner", "NodeUpdate", "confirmed_from_context", "profile_from_context"]
+def prior_from_context(context: ConversationContext) -> list[PriorInput]:
+    """요청 묶음의 이전 차례 선택(AG-21-02 A) → 그래프 입력 `prior_drugs`. 품목기준코드가 있는 것만, 보낸 순서대로(중복 제거).
+
+    `{"item_seq": ..., "input_name": ...}`(묶음 이름이 없으면 `item_seq`만). 표시용 이름(`name`)은 그래프로 넘기지 않는다:
+    확인 질문의 약 이름은 사전 제품명을 쓴다(`router.prior_picks`가 `name`을 읽지 않음, 요청 글자를 화면 문구에 넣지 않는다)."""
+    out: list[PriorInput] = []
+    for drug in context.prior_drugs:
+        if not drug.item_seq:
+            continue
+        v: PriorInput = {"item_seq": drug.item_seq, **({"input_name": drug.input_name} if drug.input_name else {})}
+        if v not in out:
+            out.append(v)
+    return out
+
+
+def graph_extras(context: ConversationContext) -> dict[str, Any]:
+    """실행기에 넘길 키워드 입력(`prior_drugs`·`took_today`). **값이 있는 것만** 담는다(없으면 빈 사전 → 이전 호출과 같은 인자).
+
+    값은 그래프 입력으로만 쓰고 저장·로그·이벤트·지표에 싣지 않는다(PRD-07-01 A, AG-22-05 A)."""
+    extras: dict[str, Any] = {}
+    prior = prior_from_context(context)
+    if prior:
+        extras["prior_drugs"] = prior
+    if context.took_today is not None:
+        extras["took_today"] = context.took_today
+    return extras
+
+
+__all__ = ["ChatRunner", "ConfirmedInput", "GraphRunner", "NodeUpdate", "PriorInput", "confirmed_from_context", "graph_extras",
+           "prior_from_context", "profile_from_context"]

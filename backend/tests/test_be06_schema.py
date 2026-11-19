@@ -156,12 +156,14 @@ def test_emergency_refuse_and_limit_shapes():
 
 def test_findings_and_badges_follow_finalize_order():
     r = _resp([preg_file(), contra_file(), unid()])
-    # 제품 줄: 임부 배지가 있는 A는 found, 짝에만 걸린 B는 배지 없는 identified(FE-11-05 A, 2026-11-19)
-    assert [f.bucket for f in r.findings][:2] == ["found", "identified"] and r.findings[-1].bucket == "unconfirmed"
+    # 구역 순서(GROUP-01 3단계, FE-11-04·08 A): 핵심(짝 줄 → 그 짝에 걸린 약 제품 줄) → 확인 못 함. 제품 줄: 임부 배지가 있는 A는 found,
+    # 짝에만 걸린 B는 배지 없는 identified(FE-11-05 A, 2026-11-19)
+    assert [(f.target, f.bucket, f.section) for f in r.findings] == [
+        ("pair", "found", "core"), ("product", "found", "core"), ("product", "identified", "core"), ("product", "unconfirmed", "unconfirmed")]
     assert r.findings[-1].input_name == "쿵쿵정" and [s.model_dump() for s in r.findings[-1].searched] == [{"dataset": "허가정보", "count": 0}]
-    # v1: 배지는 판정 줄에 붙는다(최상위 `badges` 없음). 제품 줄(약마다, 임부·연령) → 쌍 줄 순서(BE-06-12 A 연결). 병용 배지는 쌍 줄에만(FE-11-05 A)
+    # v1: 배지는 판정 줄에 붙는다(최상위 `badges` 없음). 병용 배지는 쌍 줄에만(FE-11-05 A), 핵심 구역 안은 짝 줄 → 제품 줄(FE-11-08 A)
     assert [(f.target, f.drugs, [b.kind for b in f.badges]) for f in r.findings if f.badges] == [
-        ("product", [A_DRUG], ["pregnancy"]), ("pair", [A_DRUG, B_DRUG], ["contra_pair"])]
+        ("pair", [A_DRUG, B_DRUG], ["contra_pair"]), ("product", [A_DRUG], ["pregnancy"])]
     assert "badges" not in ChatResponse.model_fields
 
 
@@ -331,7 +333,9 @@ def _schema_keys(model) -> set[str]:
 
 def test_be06_04_06_07_no_dose_table_no_banner_field_no_time_field():
     keys = _schema_keys(ChatResponse)
-    assert not any("dose" in k or "table" in k for k in keys)            # BE-06-04 B: 원문 인용 텍스트만
+    # BE-06-04 B: 용법용량은 원문 인용 텍스트만(표 구조 칸 없음). 용량주의 되묻기·고지 칸 3개(AG-22-05 A·01 A, 상수 문구, 표 아님)만 허용 목록
+    dose_fields = {"dose_check", "dose_notice", "redose_notice"}
+    assert dose_fields <= keys and not any(("dose" in k and k not in dose_fields) or "table" in k for k in keys)
     assert not {"banner", "api_notice", "api_failure", "alert"} & keys   # BE-06-06 A: 기존 notice만
     assert not any(k.endswith("_at") or "time" in k for k in keys)       # BE-06-07 B: 시각 필드 없음
     assert "notice" in ChatResponse.model_fields

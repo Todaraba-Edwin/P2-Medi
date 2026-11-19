@@ -464,7 +464,9 @@ def test_unconfirmed_and_not_listed_lines_stay_separate():
 def test_row_without_found_or_identified_is_not_emitted():
     """판정이 확인하지 못함뿐인 약은 제품 줄을 내지 않고 근거 줄(찾음 줄 포함)을 지금처럼 둔다(같은 글자 두 번 방지)."""
     r = to_chat_response(finalize([_ident(), _age_unlinked()]), end_reason="NORMAL")
-    assert [(f.kind, f.bucket) for f in _product_findings(r, "와파린정")] == [("identify", "identified"), ("age", "unconfirmed")]
+    # 구역 순서(GROUP-01 3단계, FE-11-04 A): 확인 못 함(접지 않음) 줄이 나머지(찾음) 줄보다 앞
+    assert [(f.kind, f.bucket, f.section) for f in _product_findings(r, "와파린정")] == [
+        ("age", "unconfirmed", "unconfirmed"), ("identify", "identified", "rest")]
 
 
 # =========================================================================== FE 계약 확인(goal-fe-sync.md §5, 2026-11-18 메인 추가 지시)
