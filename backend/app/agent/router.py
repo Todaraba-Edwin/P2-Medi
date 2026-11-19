@@ -26,7 +26,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.agent.fixed_phrases import CLARIFY_MANY_CANDIDATES, CLARIFY_ONE_CANDIDATE
+from app.agent.fixed_phrases import CLARIFY_MANY_CANDIDATES, CLARIFY_MANY_DRUGS, CLARIFY_MANY_DRUGS_SEP, CLARIFY_ONE_CANDIDATE
 from app.tools.drug_dict import (
     MATCH_BM25,
     MATCH_CONTAINS,
@@ -171,13 +171,27 @@ class Entity(BaseModel):
     options: list[ClarifyOption] = Field(default_factory=list)  # 최대 5
 
 
+class ClarifyGroup(BaseModel):
+    """되묻기 묶음 하나: 질문 속 약 이름 하나(`target_raw`)와 그 후보(최대 `MAX_CLARIFY_OPTIONS`개). FE-09-01 A."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_raw: str
+    options: list[ClarifyOption]
+
+
 class Clarify(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: str
-    target_raw: str  # 되묻는 엔티티(한 번에 하나만 묻는다)
+    # `target_raw`·`options`는 **첫 묶음**(`groups[0]`)과 같다. 평가 러너(`eval_runner.py` `clarify_options = len(options)`)와
+    # 단일 묶음 소비자의 하위 호환을 위해 남긴다(FE-09-01 A, 2026-11-19).
+    target_raw: str
     options: list[ClarifyOption]
-    pending_raws: list[str] = Field(default_factory=list)  # 이번에 묻지 않은 다른 모호 엔티티(다음 턴)
+    # 묶음 상한(`MAX_DRUGS`)을 넘어 이번 응답에 싣지 못한 엔티티. 엔티티 수가 이미 `MAX_DRUGS` 이하로 잘려 있어 실제로는 늘 빈 목록이다.
+    # 예전 의미("이번에 묻지 않고 다음 턴으로 미룬 모호 엔티티")는 FE-09-01 A로 모든 모호 엔티티를 한 응답에 묶으면서 없어졌다.
+    pending_raws: list[str] = Field(default_factory=list)
+    groups: list[ClarifyGroup] = Field(default_factory=list)  # 모호한 이름 전부(질문 등장 순서). FE-09-01 A
 
 
 class RouterResult(BaseModel):
@@ -677,21 +691,35 @@ def _entity(raw: str, r: LookupResult, strength: str | None = None) -> Entity:
 # 원문 승인(AG-05-10 A, 2026-11-18)·켜기(AG-13-07 A, 2026-11-18 밤, AG-11 기준선 뒤)로 원본을 `fixed_phrases`로 옮기고 승인 스위치를 지웠다.
 
 
+def _single_question(t: Entity) -> str:
+    """묶음이 1개일 때의 질문(FE-09 이전과 같은 글자)."""
+    if t.status == ST_NOT_FOUND:  # 후보를 보여 주는 근거 없음(AG-05-02 A): "찾지 못했다"고 먼저 말하고 비슷한 이름만 묻는다(없다는 말이 안전하다는 뜻이 아니다)
+        return f"'{t.raw}'은(는) 목록에서 찾지 못했어요. 혹시 아래 중에 찾으시는 약이 있나요? 없으면 약 이름을 다시 알려 주세요."
+    if t.status == ST_TYPO:
+        return f"'{t.raw}'와(과) 비슷한 약이 있어요. 찾으시는 약이 아래 중에 있나요? 하나를 골라 주세요."
+    if t.n_candidates <= 1 and len(t.options) == 1:  # 후보 1개(접두·중간 일치, AG-05-01 A로 되묻기 유지)에는 "여러 개"라고 하지 않는다
+        return CLARIFY_ONE_CANDIDATE.format(drug=t.raw)
+    return CLARIFY_MANY_CANDIDATES.format(drug=t.raw)
+
+
 def _clarify(ents: list[Entity]) -> Clarify | None:
+    """되묻기를 조립한다. 모호·오탈자 의심·후보 있는 근거 없음 엔티티 **전부**를 질문 등장 순서대로 묶음으로 담는다(FE-09-01 A).
+
+    - 묶음 1개: 질문·`target_raw`·`options`가 FE-09 이전과 같은 글자다.
+    - 묶음 2개 이상: 질문은 고정 문구 `CLARIFY_MANY_DRUGS` 하나(물음표 1개, FE-09-02 A). 묶음별 상태 문구를 반복하지 않는다.
+    코드 템플릿이다. 후보 이름만 보여 주고 먹어도 되는지·안전한지는 말하지 않는다. 질문은 하나다."""
     pending = [e for e in ents if e.status in (ST_AMBIGUOUS, ST_TYPO) or (e.status == ST_NOT_FOUND and e.options)]
     if not pending:
         return None
-    t = pending[0]
-    # 코드 템플릿. 후보 이름만 보여 주고 먹어도 되는지·안전한지는 말하지 않는다. 질문은 하나다.
-    if t.status == ST_NOT_FOUND:  # 후보를 보여 주는 근거 없음(AG-05-02 A): "찾지 못했다"고 먼저 말하고 비슷한 이름만 묻는다(없다는 말이 안전하다는 뜻이 아니다)
-        q = f"'{t.raw}'은(는) 목록에서 찾지 못했어요. 혹시 아래 중에 찾으시는 약이 있나요? 없으면 약 이름을 다시 알려 주세요."
-    elif t.status == ST_TYPO:
-        q = f"'{t.raw}'와(과) 비슷한 약이 있어요. 찾으시는 약이 아래 중에 있나요? 하나를 골라 주세요."
-    elif t.n_candidates <= 1 and len(t.options) == 1:  # 후보 1개(접두·중간 일치, AG-05-01 A로 되묻기 유지)에는 "여러 개"라고 하지 않는다
-        q = CLARIFY_ONE_CANDIDATE.format(drug=t.raw)
+    asked, overflow = pending[:MAX_DRUGS], pending[MAX_DRUGS:]
+    groups = [ClarifyGroup(target_raw=e.raw, options=e.options[:MAX_CLARIFY_OPTIONS]) for e in asked]
+    if len(groups) == 1:
+        q = _single_question(asked[0])
     else:
-        q = CLARIFY_MANY_CANDIDATES.format(drug=t.raw)
-    return Clarify(question=q, target_raw=t.raw, options=t.options[:MAX_CLARIFY_OPTIONS], pending_raws=[e.raw for e in pending[1:]])
+        q = CLARIFY_MANY_DRUGS.format(drugs=CLARIFY_MANY_DRUGS_SEP.join(f"'{g.target_raw}'" for g in groups))
+    first = groups[0]
+    return Clarify(question=q, target_raw=first.target_raw, options=list(first.options), pending_raws=[e.raw for e in overflow],
+                   groups=groups)
 
 
 # --------------------------------------------------------------------------- 되묻기에서 고른 약(AG-05-03 A)

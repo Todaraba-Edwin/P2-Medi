@@ -242,9 +242,14 @@ class TestManyCandidatesPhrase:
             assert c is not None and _q_count(c.question) == 1, q
             assert len(c.options) <= R.MAX_CLARIFY_OPTIONS
 
-    def test_one_target_per_turn(self, dd):
+    def test_all_ambiguous_names_in_one_turn(self, dd):
+        """FE-09-01 A(2026-11-19): 모호한 이름을 한 번에 하나씩 묻던 동작(다음 턴으로 미룸)을 바꿔 한 응답에 모두 묶는다.
+        `target_raw`·`options`는 첫 묶음 그대로(하위 호환)이고 미룬 이름이 없으니 `pending_raws`는 비어 있다."""
         c = route_input("보라를 누리정이랑 같이 먹어도 되나요", dd).clarify
-        assert c.target_raw == "보라" and c.pending_raws == ["누리정"]
+        assert c.target_raw == "보라" and c.pending_raws == []
+        assert [g.target_raw for g in c.groups] == ["보라", "누리정"]
+        assert c.options == c.groups[0].options
+        assert c.question == "'보라', '누리정'에 해당하는 약이 여러 개예요. 약마다 하나씩 골라 주시겠어요?" and _q_count(c.question) == 1
 
 
 # =========================================================================== 6. 분류기 경로의 비저장·비로깅(AG-05 §2 37·38줄의 남은 확인 가능 부분)

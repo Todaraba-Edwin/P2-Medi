@@ -293,6 +293,10 @@ def test_0e_clarify_line_and_code_missing_text():
     r = to_chat_response(raw, end_reason="CLARIFY", clarify=clar)
     assert r.candidates_line == fp.CLARIFY_PICK_LINE and len(r.candidates) == 2
     assert to_chat_response(raw, end_reason="NORMAL").candidates_line is None
+    # 여러 이름 되묻기 질문(FE-09-02 A 승인 원문, 2026-11-19). 이름은 작은따옴표로 감싸 ", "로 잇는다. 물음표 1개
+    two = fp.CLARIFY_MANY_DRUGS.format(drugs=fp.CLARIFY_MANY_DRUGS_SEP.join(("'타이레놀'", "'게보린'")))
+    assert two == "'타이레놀', '게보린'에 해당하는 약이 여러 개예요. 약마다 하나씩 골라 주시겠어요?" and two.count("?") == 1
+    assert "CLARIFY_MANY_DRUGS" not in fp.DRAFT_KEYS
     for bad in ({"candidates_line": "아무거나 고르세요"}, {"candidates": [], "candidates_line": fp.CLARIFY_PICK_LINE}):
         with pytest.raises(ValidationError):
             ChatResponse.model_validate({**r.model_dump(), **bad})

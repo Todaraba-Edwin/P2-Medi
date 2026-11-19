@@ -78,6 +78,11 @@ CLARIFY_ONE_CANDIDATE = "'{drug}'은(는) 아래 약을 말씀하신 건가요? 
 # 2026-11-18 밤). 이전 문장("…여러 개예요. 어떤 약인지 하나를 골라 주세요.")은 물음표가 없어 평가 `ONE_QUESTION`이 모호 문항에서 늘 실패했다.
 # `router._clarify`가 후보 2개 이상일 때 쓴다. 가부·안전·용량 표현 없음, 물음표 1개.
 CLARIFY_MANY_CANDIDATES = "'{drug}'에 해당하는 약이 여러 개예요. 어떤 약을 말씀하시는 건가요?"
+# 모호한 약 이름이 둘 이상일 때 한 번에 묻는 질문. **원문 승인(FE-09-02 A, 2026-11-19)**: `'{A}', '{B}'에 해당하는 약이 여러 개예요.
+# 약마다 하나씩 골라 주시겠어요?` `{drugs}`에는 이름마다 작은따옴표로 감싸 `CLARIFY_MANY_DRUGS_SEP`(", ")로 이은 글자가 들어간다(3개 이상도 같다).
+# `router._clarify`가 되묻기 묶음이 2개 이상일 때만 쓴다(1개면 위 문구 그대로). 가부·안전·용량 표현 없음, 물음표 1개(`ONE_QUESTION`).
+CLARIFY_MANY_DRUGS = "{drugs}에 해당하는 약이 여러 개예요. 약마다 하나씩 골라 주시겠어요?"
+CLARIFY_MANY_DRUGS_SEP = ", "
 
 # 성분코드 없음·참고 전용·이름 모호·조회 실패·잘림: 판정 문구가 아니다
 CODE_NOT_LINKED = FLAG_NOTES["CODE_NOT_LINKED"]

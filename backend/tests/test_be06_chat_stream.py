@@ -23,7 +23,7 @@ from pydantic import PrivateAttr
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "e2e"))
 
-from golden_synth import Q_P3, SEQ_AZI, SEQ_COLD, SEQ_KID, FakeDur, golden_conn, golden_dict  # noqa: E402
+from golden_synth import Q_P3, SEQ_AZI, SEQ_COLD, SEQ_KID, SEQ_T500, FakeDur, golden_conn, golden_dict  # noqa: E402
 
 from app.agent import fixed_phrases as fp  # noqa: E402
 from app.agent.graph.build import build_graph, run_question  # noqa: E402
@@ -110,6 +110,11 @@ def _answer(events: list[ev.ChatEvent]) -> Any:
     return next(e.root.response for e in events if e.root.type == "answer")
 
 
+def _groups(answer: Any) -> list[str]:
+    """되묻기 후보의 묶음 이름(`input_name`)을 나온 순서대로 한 번씩."""
+    return list(dict.fromkeys(c.input_name for c in answer.candidates))
+
+
 # --------------------------------------------------------------------------- ①② 정상 병용 질문
 def test_normal_pair_stream_is_ordered_ndjson_ending_normal(dd):
     _, events = _stream(dd, Q_PAIR, _script(AZI, COLD), [PAIR_DRAFT])
@@ -158,6 +163,19 @@ def test_ambiguous_name_ends_with_clarify_candidates(dd):
     assert _types(events) == ["answer", "done"] and events[-1].root.end_reason == "CLARIFY"
     a = _answer(events)
     assert a.candidates and a.candidates_line == fp.CLARIFY_PICK_LINE and not a.findings
+
+
+def test_two_ambiguous_names_stream_one_answer_with_two_candidate_groups(dd):
+    """FE-09-01·02 A: 두 이름이 모두 모호하면 한 `answer` 이벤트에 두 묶음 후보(`input_name`별)와 승인 문구 질문 하나를 싣는다."""
+    r, events = _stream(dd, "타이레놀이랑 이지렉트 같이 먹어도 되나요?", [], [])
+    assert _types(events) == ["answer", "done"] and events_end(events) == "CLARIFY"
+    a = _answer(events)
+    assert _groups(a) == ["타이레놀", "이지렉트"] and a.summary.count("?") == 1
+    assert a.summary == "'타이레놀', '이지렉트'에 해당하는 약이 여러 개예요. 약마다 하나씩 골라 주시겠어요?"
+    assert {c.item_seq for c in a.candidates if c.input_name == "타이레놀"} == {SEQ_T500, SEQ_COLD}
+    assert [c.item_seq for c in a.candidates if c.input_name == "이지렉트"] == [SEQ_AZI]
+    raw = next(json.loads(x) for x in r.content.split(b"\n") if x and json.loads(x)["type"] == "answer")
+    assert [c["input_name"] for c in raw["response"]["candidates"]] == ["타이레놀", "타이레놀", "이지렉트"]  # 전송 바이트도 묶음 순서
 
 
 def test_call_limit_ends_with_limit_notice(dd):
@@ -285,13 +303,15 @@ def test_second_turn_with_confirmed_drugs_skips_clarify_and_runs_lookup(dd):
     assert [(d["status"], d["item_seq"]) for d in note["drug_candidates"]] == [("RESOLVED", SEQ_AZI), ("RESOLVED", SEQ_COLD)]
 
 
-def test_one_confirmed_drug_moves_clarify_to_the_next_ambiguous_name(dd):
-    """고른 약이 하나면 그 약만 확정하고, 남은 모호한 이름을 다음으로 되묻는다(한 번에 하나)."""
+def test_one_confirmed_drug_keeps_only_the_remaining_ambiguous_names(dd):
+    """턴 1은 모호한 이름 전부를 묶음으로 한 번에 보인다(FE-09-01 A). 고른 약이 하나면 그 약만 확정하고 남은 묶음만 다시 묻는다."""
     _, first = _stream(dd, Q_P3, [], [])
     _, second = _stream(dd, Q_P3, [], [], context={"confirmed_drugs": [{"name": AZI, "item_seq": SEQ_AZI}]})
     assert events_end(first) == events_end(second) == "CLARIFY"
-    assert {c.name for c in _answer(first).candidates} == {AZI}
-    assert AZI not in {c.name for c in _answer(second).candidates} and COLD in {c.name for c in _answer(second).candidates}
+    assert _groups(_answer(first)) == ["이지렉트정", "타이레놀", "콜드-에스"]
+    assert _answer(first).summary == fp.CLARIFY_MANY_DRUGS.format(drugs="'이지렉트정', '타이레놀', '콜드-에스'")
+    assert _groups(_answer(second)) == ["타이레놀", "콜드-에스"] and AZI not in {c.name for c in _answer(second).candidates}
+    assert COLD in {c.name for c in _answer(second).candidates}
 
 
 @pytest.mark.parametrize("picked", [
