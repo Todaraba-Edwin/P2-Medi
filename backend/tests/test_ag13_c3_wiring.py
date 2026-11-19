@@ -270,6 +270,85 @@ def test_validator_span_reason_counts_also_in_c2_and_filter_reasons():
     assert "근거 없는" not in json.dumps(span, ensure_ascii=False)
 
 
+# --------------------------------------------------------------------------- AG-13-17 B: ⑯ 되감기 메시지 보강(c3-layer-check@v2)
+PAIR = "contra_pair:AAA:BBB"
+
+
+def _preg_named() -> dict[str, Any]:
+    it = _preg_found()
+    it["matches"] = [{**it["matches"][0], "ingr_name": "합성성분A"}, {"grade": "2", "row_evidence_id": PREG + "#b", "row_key": "b",
+                                                                   "ingr_name": "합성성분A"}]
+    return it
+
+
+def _named_omit_state() -> dict[str, Any]:
+    st = _omit_state()
+    st["evidence"] = [_preg_named(), _label()]
+    return st
+
+
+def _rewind_text(upd: dict[str, Any]) -> str:
+    assert upd["validation"]["next"] == "rewind"
+    (msg,) = upd["messages"]
+    return str(msg.content)
+
+
+def test_c3_version_is_v2():
+    assert C3_VERSION == "c3-layer-check@v2"
+    assert harness_profile("C3")["c3_version"] == "c3-layer-check@v2"
+
+
+def test_c3_claim_omitted_rewind_message_quotes_found_verdict():
+    """C3 ⑯ 되감기: 기존 문구 + 고정 지시 + 코드가 만든 FOUND 판정 줄(금기 종류·성분명·근거 ID). 성분명은 중복 없이 한 번."""
+    text = _rewind_text(make_raw_nodes(_bare_deps(layer_check=True))["validator"](_named_omit_state()))
+    assert text.startswith(N.REWIND_MESSAGE.format(reasons=CLAIM_OMITTED))
+    assert N.CLAIM_OMIT_HINT_HEAD in text
+    assert N.CLAIM_OMIT_HINT_LINE.format(kind="임부금기", names="합성성분A", eid=PREG) in text
+    assert text.count("합성성분A") == 1
+    assert "허가사항 안내에는" not in text                    # 모델이 쓴 문장은 메시지에 넣지 않는다
+
+
+def test_c2_same_state_has_no_hint_and_passes():
+    off = make_raw_nodes(_bare_deps())["validator"](_named_omit_state())
+    assert off["validation"]["next"] == "finalize" and "messages" not in off
+
+
+def test_c3_rewind_without_claim_omitted_keeps_baseline_message():
+    """⑯이 아닌 실패(형식 오류)면 C3에서도 기존 되감기 문구 그대로다."""
+    st = {**_named_omit_state(), "draft": None}
+    for deps in (_bare_deps(), _bare_deps(layer_check=True)):
+        text = _rewind_text(make_raw_nodes(deps)["validator"](st))
+        assert text == N.REWIND_MESSAGE.format(reasons="SCHEMA_INVALID") and N.CLAIM_OMIT_HINT_HEAD not in text
+
+
+def test_claim_omit_hint_values_come_from_items_only():
+    api_pair = {"kind": "contra_pair", "status": "FOUND", "evidence_id": PAIR, "matches": [{"content": "x", "row_evidence_id": PAIR + "#1"}]}
+    file_pair = {"kind": "contra_pair", "status": "FOUND", "evidence_id": "contra_pair:C:D",
+                 "matches": [{"name_a": " 성분\n가 ", "name_b": "성분나" + "긴" * 60}]}
+    dose = {"kind": "dose", "status": "FOUND", "evidence_id": "dose:E", "matches": [{"ingr_name": "용량성분"}]}
+    hint = N.claim_omit_hint([PAIR, "contra_pair:C:D", "dose:E", "없는:ID", PAIR], [api_pair, file_pair, dose])
+    lines = hint.splitlines()
+    assert lines[0] == N.CLAIM_OMIT_HINT_HEAD and len(lines) == 3          # 핵심 금기 아님·묶음에 없음·중복은 건너뛴다
+    assert lines[1] == N.CLAIM_OMIT_HINT_LINE.format(kind="병용금기", names=N.CLAIM_OMIT_NAMES_UNKNOWN, eid=PAIR)
+    assert lines[2].startswith("- 병용금기: 성분 가·성분나") and len(lines[2].split("·")[1].split(" (")[0]) == N.CLAIM_OMIT_NAME_LEN
+    assert N.claim_omit_hint(["없는:ID"], [api_pair]) == "" and N.claim_omit_hint([], []) == ""
+
+
+def test_claim_omit_hint_caps_items():
+    items = [{"kind": "age", "status": "FOUND", "evidence_id": f"age:{i}", "matches": [{"ingr_name": f"성분{i}"}]} for i in range(9)]
+    hint = N.claim_omit_hint([f"age:{i}" for i in range(9)], items)
+    assert len(hint.splitlines()) == 1 + N.CLAIM_OMIT_MAX_ITEMS
+
+
+def test_c3_v2_hint_not_in_span_or_events():
+    """보강 지시(성분명·근거 ID)는 모델 입력에만 있고 validator span·이벤트에는 없다(AG-13-12)."""
+    sink = ListSink()
+    upd = make_nodes(_bare_deps(layer_check=True, tracer=GraphTracer(sink=sink)))["validator"](_named_omit_state())
+    assert N.CLAIM_OMIT_HINT_HEAD in _rewind_text(upd)
+    blob = json.dumps([*sink.records, upd["events"], upd["validation"]], ensure_ascii=False)
+    assert "합성성분A" not in blob and "빠진 주장 유형" not in blob and PREG not in blob
+
+
 def test_check_counts_keeps_only_code_shaped_positive_int_counts():
     events = [
         {"event": "SENTENCE_FILTER", "reasons": {"NO_EVIDENCE": 2, "문장 원문": 1, "lower_case": 1, "BAD": "1", "ZERO": 0, "FLAG": True}},
