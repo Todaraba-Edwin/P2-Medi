@@ -2,10 +2,10 @@
 
 **DESIGN DOC: 설계 문서**
 
-- 기준일: 2026-11-19 (develop `3ea004a` 시점 코드·티켓)
+- 기준일: 2026-11-19 (develop `7acc540` 시점 코드·티켓, 검색 색인 보강 반영)
 - 성격: 정의·생명주기 설명과 의사결정 기록. 코드와 티켓은 고치지 않았고, 아래 "추정" 표시가 없는 값은 읽은 파일에서 확인한 값이다.
-- 근거: `data/mock/briefs/reports/chat-rca.md`(로컬, 측정 §2.1~2.3·후보 C1~C7·결정 후보 1~5), `data/mock/briefs/2026-11-19-chat-rca-userlog.md`(로컬), `backend/app/api/service.py`, `backend/app/main.py`, `backend/app/agent/tools/corpus.py`·`corpus_remote.py`, `backend/app/db/schema_corpus.sql`·`schema_dict.sql`·`drug_dict_store.py`, `backend/app/tools/drug_dict.py`, `evaluation/eval_runner.py`, `backend/Dockerfile`, `tickets/backend/BE-05.md`·`BE-06.md`·`BE-13.md`, `tickets/doc/RFP-15.md`, `P2-doc/PJ2-DUR-RAG-근거설계.md`, `P2-doc/PJ2-아키텍처.md` 3장, `CLAUDE.md` 1장.
-- 관련 결정: BE-05-03 D, BE-06-24 B, BE-06-27 A, RFP-15-03, RFP-15-05.
+- 근거: `data/mock/briefs/reports/chat-rca.md`(로컬, 측정 §2.1~2.3·후보 C1~C7·결정 후보 1~5), `data/mock/briefs/2026-11-19-chat-rca-userlog.md`(로컬), `backend/app/api/service.py`, `backend/app/main.py`, `backend/app/agent/tools/corpus.py`·`corpus_remote.py`, `backend/app/db/schema_corpus.sql`·`schema_dict.sql`·`drug_dict_store.py`, `backend/app/tools/drug_dict.py`, `evaluation/eval_runner.py`, `backend/Dockerfile`, `tickets/backend/BE-05.md`·`BE-06.md`·`BE-13.md`, `tickets/doc/RFP-15.md`, `P2-doc/PJ2-DUR-RAG-근거설계.md`, `P2-doc/PJ2-아키텍처.md` 3장, `tickets/agent/AG-03.md`, `tickets/backend/BE-16.md`(ef_search 근거 인용), `CLAUDE.md` 1장.
+- 관련 결정: BE-05-03 D, BE-06-24 B, BE-06-26 A, BE-06-27 A, RFP-15-03, RFP-15-05.
 
 ## Index
 
@@ -30,7 +30,34 @@
 
 판정 테이블(`contra_pair`·`pregnancy_contra`·`age_contra`·`caution`)은 코퍼스가 아니다. 금기 여부는 코드가 판정 테이블에서 정확 일치로 정하고, 코퍼스는 그 판정의 **설명·정의·사유 문장**을 찾는 데만 쓴다(`PJ2-DUR-RAG-근거설계.md` 1장 "RAG는 판정하지 않는다").
 
-### 1.2 코퍼스의 구성 (로컬 빌드 산출물 기준)
+### 1.2 검색 색인: BM25와 HNSW
+
+코퍼스는 RAG가 검색하는 **대상 전체**이고, 색인은 그 위에 얹는 **찾는 방법**이다. 이 프로젝트에는 색인이 둘 있다. HNSW는 코퍼스를 만드는 목적이 아니라 둘 중 하나(의미 검색)의 DB 쪽 구조다.
+
+| 구분 | BM25 | HNSW(pgvector) |
+|---|---|---|
+| 개념 | 질의와 청크가 **글자 2-gram**을 얼마나 공유하는지로 점수를 매기는 키워드 검색(단어 경계를 넘는 n-gram 없음, `corpus.py:35-43`) | 청크를 `text-embedding-3-small` 1536차원 벡터로 바꿔 두고, 질의 벡터와 **코사인 거리가 가까운 청크를 근사로** 찾는 그래프 색인(`schema_corpus.sql:35`, `:44`) |
+| 강점·약점 | 성분명·조항 번호처럼 글자가 같은 질의에 강하고, 말을 바꿔 쓴 설명형 질의는 못 찾는다 | 어휘가 달라도 뜻이 가까우면 찾지만, 식별 조건이 없으면 엉뚱한 청크도 항상 k개를 돌려준다(`corpus.py:241`) |
+| 어디에 있나 | **서버 프로세스 메모리**(`CorpusIndex._bm25`). 저장되지 않는다 | **DB**(Supabase Postgres의 `corpus_chunks.embedding` 열과 인덱스 `idx_corpus_embedding_hnsw`, `m=16`·`ef_construction=64`) |
+| 만드는 비용 | 서버 프로세스마다 첫 요청에서 구성 **2.56초**(§2.2 표). 로컬 jsonl 기준 스모크는 2.0초(`BE-05.md:41`) | **367초**, 임베딩을 채운 뒤 적재 때 한 번(`BE-05.md:56`). 크기 **364.91MB**(§1.3) |
+| 질의 비용 | 로컬 메모리라 네트워크가 없다. BM25 단독의 질의 지연은 **따로 측정한 값을 찾지 못했다**(공백) | 합성 질의 10개, 원격 왕복 약 9.5ms 포함: 벡터 top-10 평균 72.7ms(최대 1,739ms, 콜드 이상치), 하이브리드(BM25+벡터 RRF) 평균 76.7ms·최대 168.7ms(`BE-05.md:129`, `:41`). 원격 스모크 5개 질의는 하이브리드 평균 161ms·최대 198ms(`AG-03.md:80`). 질의마다 임베딩 API 호출이 더 든다 |
+| 질의 때 쓰는 설정 | 없음 | `ef_search` 무필터 40, 필터 있으면 100(`corpus_remote.py:33-38`, BE-16 §7.8 로컬 recall@10) |
+
+- **RRF**(Reciprocal Rank Fusion)는 두 순위표를 합치는 방법이다. 각 순위표의 앞 100개에서 순위 r인 청크에 `1/(60+r)`을 더해 합이 큰 순으로 정렬한다(`corpus.py:28-29`, `:101-109`). 벡터 결과도 사전 필터 후보 밖이면 버린다(`corpus.py:6`, `:261`).
+- **하이브리드가 되는 조건**: `CorpusIndex.search`에 `vector_fn`(`VectorSearchFn`)이 주입될 때만이다. 없으면 BM25 단독이다(`corpus.py:5`, `:257`).
+- **이 프로젝트 질의에서 측정된 강약**(`BE-05.md:107-111`, 합성 질의, 소표본이라 k/n과 Wilson 95% 구간으로만 읽고 유의성은 주장하지 않는다): 청크 단위 비교에서 e약은요는 BM25 top-5 25/30 [.66–.93], 허가 상세 UD는 BM25 32/36 [.75–.96], 임부·연령 상세는 BM25 30/30 [.89–1.00]이었고, 허가 상세 NB는 BM25 단독으로 단위를 구분하지 못해 하이브리드 25/30으로 비교했다. 이 표는 청크 **단위**를 고르려는 비교이고 BM25 대 벡터의 직접 비교가 아니다. 검색 방식 칸의 결론은 "BM25를 기본, 하이브리드(RRF)는 구조·일상어 질의 보조(임베딩 단독은 이 질의에서 대체로 낮음, 질의 편향 가능)"다. 별도 표본(합성 e약은요 질의 120개)에서는 정답이 하이브리드에서 BM25보다 높게 오른 사례가 3건 있었으나 top-1·top-5 비율은 하이브리드가 더 높지 않았고 미적중이 8→2로 줄었다(`AG-03.md:36`). 모두 질의가 합성이고 평가 세트가 아니므로 "하이브리드가 더 낫다"는 일반 주장으로 쓰지 않는다.
+
+**지금 서비스와 평가가 쓰는 색인**
+
+| 경로 | BM25 | HNSW(벡터) | 근거 |
+|---|---|---|---|
+| 서비스 런타임 | 사용 | **사용 안 함**(`vector_search_fn=None`) | `service.py:64`, `:86` |
+| 평가 러너 | 사용 | **사용 안 함**(`vector_search_fn=None`, 재현성 기록에도 `method: bm25`, `vector: False`, `embedding_model: None`) | `eval_runner.py:1259-1261`, `:1117`, `:1125` |
+| DB(적재 상태) | — | 만들어 둠(`embedding` 열과 HNSW 인덱스, 지금 질의하는 쪽은 없음) | `schema_corpus.sql:44`, §1.3, §5.4 |
+
+서비스와 평가가 같은 방식(BM25 단독)이다. 벡터 검색 어댑터(`PgVectorSearch`)는 구현·시험을 마쳤지만(`AG-03.md:53`, `:80`) 어느 쪽 그래프에도 연결돼 있지 않다.
+
+### 1.3 코퍼스의 구성 (로컬 빌드 산출물 기준)
 
 층(layer)은 근거의 성격이다. 개수는 로컬 `data/mock/corpus/*.jsonl` 줄 수를 직접 센 값이며 합이 원격 적재 수와 같다.
 
@@ -168,6 +195,24 @@ BE-06-24 B가 지연의 한 원인이다(사전 SELECT 7.9초는 B 때문에 생
 - 설계 조건(제안): `/health`는 지금처럼 즉시 응답을 유지한다(`main.py:49-52`, `be13_health_check.py`가 의존). `/warmup`은 상태를 바꾸지 않고(멱등), 이미 준비 중·완료면 새로 시작하지 않으며, 응답은 준비 상태(`idle`/`warming`/`ready`) 정도만 돌려준다. 로그에는 시작·완료·실패 종류와 소요 초만 남기고 질문·사용자 정보는 보내지 않는다.
 - 위험(추정): 게스트가 열 때마다 서버가 DB를 약 90MB 읽는 egress 부담은 프로세스당 1회라 작지만, 프로세스가 이미 준비돼 있으면 0이다. 악의적 반복 호출은 중복 시작 안 함 조건으로 막는다. 브라우저 스플래시 시점에 백엔드가 아직 안 떠 있을 수 있다(콜드 스타트). 새 API 계약이라 `GET /openapi.json`·타입 재생성이 필요하다.
 
+### 5.4 HNSW를 만들고 런타임에서 쓰지 않는 이유와 기록
+
+시간순 사실이다. 읽은 파일에서 확인한 것만 적는다.
+
+| 날짜 | 사건 | 내용 | 출처 |
+|---|---|---|---|
+| 2026-11-02 | RFP-15-05 | `text-embedding-3-small` + BM25 하이브리드를 후보로 시험하는 계획 승인. 코퍼스 BM25를 서버 메모리에 둘지 DB에 둘지는 미정 | `RFP-15.md:101`, `:149` |
+| 2026-11-11 | BE-05 적재·비교 시험 | 원격 pgvector에 임베딩·HNSW 적재(367초, 364.91MB). 시험 결론은 "BM25 기본, 하이브리드(RRF)는 구조·일상어 질의 보조" | `BE-05.md:56`, `:111` |
+| 2026-11-11 | 원격 어댑터 구현 | `PgVectorSearch`(`VectorSearchFn`)와 DB→`CorpusIndex` 로더. 벡터 경로 실패는 BM25 단독으로 저하 | `AG-03.md:53`, `:80`, `corpus_remote.py:7-10` |
+| 2026-11-12 | AG-03 done | 하이브리드 사례 1건 이상 기록으로 닫음(정답 기준 사례는 합성, 하이브리드가 일반적으로 낫다는 주장은 하지 않음) | `AG-03.md:36` |
+| 2026-11-17 | **BE-06-26 A** | 서비스 배선에서 "벡터 검색 없이 BM25 단독으로 서비스할까?"에 **A: 1차는 BM25 단독**으로 결정. 이유: 붙이려면 임베딩 호출 비용과 `.env`를 읽는 경로를 정리해야 함. 같은 결정에 "평가(RFP 9장) 조건과 같은지 대조 필요"가 붙음 | `BE-06.md:157` |
+| (시점 미확인) | 평가 러너 | 평가도 `vector_search_fn=None`, 재현성 기록 `method: bm25` | `eval_runner.py:1117`, `:1125`, `:1261` |
+| 2026-11-19 | 이 문서 | 위 대조가 이 문서 작성 때 확인됨: 서비스와 평가 모두 BM25 단독 | §1.2 표 |
+
+- **결정 번호**: BM25 단독은 BE-06-26 A로 정했다. 다만 그 결정은 "1차"이고 임베딩을 **끄기로** 한 것이지 HNSW를 **지우기로** 한 것이 아니다. HNSW를 만들 때의 목적(하이브리드 시험)과 서비스 배선 결정 사이를 잇는 별도 결정은 찾지 못했다(공백). RFP 9장(`PJ2-RFP.md` 9.5절 비교 조건)에는 검색 방식을 고정 조건으로 적은 문장을 `grep`으로 찾지 못했고, 반대로 `PJ2-RFP.md:151`·`:169`의 5.1절 (3) 설계는 하이브리드를 전제한다. 즉 요구서 설계(하이브리드)와 구현(BM25 단독)이 어긋난 채 BE-06-26 A가 "1차"로 메우고 있다.
+- **HNSW가 DB에 남아 있는 이유(추정 포함)**: 이미 만들었고(367초) 어댑터·시험이 끝났으며, 서비스가 DB를 원칙으로 읽으므로(BE-06-24 B) 나중에 하이브리드를 켜려면 `vector_search_fn`만 주입하면 된다. 비용은 DB 용량 364.91MB와 재적재 때 재생성 시간이다. "다시 쓸 계획"이 있는지는 기록에서 확인하지 못했다.
+- **지연과의 관계**: HNSW는 질의 때 DB가 탐색하므로 서버가 **미리 읽을 데이터가 아니다**. 그래서 서버가 읽는 열에서 `embedding`은 빠지고(`corpus_remote.py:41-46`), §2.2의 코퍼스 SELECT 16.07초에 벡터 전송은 들어 있지 않다. 반대로 첫 요청 29.2초 중 BM25 메모리 색인 구성은 2.56초(약 9%)이고 대부분은 코퍼스·사전 전송이다. 하이브리드(B)를 켜면 질의마다 임베딩 호출과 DB 질의가 더해지고, 시작 지연은 변하지 않는다(HNSW는 미리 읽지 않으므로).
+
 ## 6. 대기 중인 결정
 
 번호는 아직 없다(메인이 티켓에 올린다). 권장은 chat-rca §4와 아래 판단을 합친 것이다.
@@ -180,6 +225,7 @@ BE-06-24 B가 지연의 한 원인이다(사전 SELECT 7.9초는 B 때문에 생
 | 4 | 첫 이벤트 전 `stage=null`에 무엇을 보일까 | A) 글자 없는 대기 스피너(C3) / B) 첫 줄 "약 찾는 중"을 now로 | ★A. 특정 단계를 주장하지 않아 "가짜 진행 없음"을 지키고 새 문구 승인도 필요 없다 |
 | 5 | 14:38 H2 폴백 사유 확인 방법 | A) L4에 사유 코드 개수 추가 / B) 개발 서버에서 같은 질문을 trace로 재현 | ★B. 질문 1건 확인에 L4 스키마 변경(RFP-34)은 과하다 |
 | 6(신규) | 스플래시 중 준비 신호(`/warmup`)를 둘까 | A) 두지 않고 C1만 / B) C1에 더해 스플래시 신호 / C) C1 없이 신호만 | ★A, 단 **배포 방식이 서버리스·재시작이 잦은 구성으로 바뀌면 B**. EC2 1대 상시(`BE-13.md:27`)에서는 C1이 같은 효과를 신호 없이 내고 새 API 계약·FE 변경이 없다. C는 비권장(브라우저가 열리기 전에는 효과 없음, 서버 시작 준비를 못 대체) |
+| 7(신규) | 서비스 런타임 검색 방식을 무엇으로 둘까(BE-06-26 A "1차" 재확인) | A) BM25 단독 유지 / B) 하이브리드(BM25 + pgvector HNSW, RRF) | ★A. 평가 러너가 BM25 단독이다(`eval_runner.py:1261`, `:1125`). RFP 9장은 측정 시작 뒤 조건을 고정하므로 서비스만 하이브리드면 평가 수치가 서비스 성능을 대표하지 못한다. 하이브리드 이득도 표본이 작고 합성이라 확인되지 않았다(§1.2). B는 질의마다 임베딩 호출 비용과 DB 질의가 들고 평가를 하이브리드로 다시 돌려야 한다. 포트폴리오 목표상 하이브리드 개선은 AG-13에서 평가 수치와 함께 올리는 편이 맞다(추정) |
 
 ## 7. 평가 영향
 
@@ -190,6 +236,6 @@ BE-06-24 B가 지연의 한 원인이다(사전 SELECT 7.9초는 B 때문에 생
 
 ## 8. 근거 자료
 
-- 읽은 파일: `data/mock/briefs/2026-11-19-doc-corpus.md`, `data/mock/briefs/reports/chat-rca.md`, `data/mock/briefs/2026-11-19-chat-rca-userlog.md`(이상 로컬), `backend/app/api/service.py`(`:58-212`), `backend/app/main.py`, `backend/app/agent/tools/corpus.py`(`:100-180`), `backend/app/agent/tools/corpus_remote.py`(`:1-135`), `backend/app/db/schema_corpus.sql`·`schema_dict.sql`·`drug_dict_store.py`(`:170-200`), `backend/app/tools/drug_dict.py`(`:395-420`), `backend/scripts/load_corpus.py`·`be06_dict_load.py`·`build_corpus_l2.py`·`build_corpus_l3.py`·`embed_corpus.py`(머리 docstring), `backend/Dockerfile`(`:35`), `evaluation/eval_runner.py`(`:1230-1269`), `frontend/src/features/chat/Splash.tsx`, `tickets/backend/BE-05.md`·`BE-06.md`·`BE-13.md`, `tickets/doc/RFP-15.md`, `P2-doc/PJ2-DUR-RAG-근거설계.md`, `P2-doc/PJ2-아키텍처.md` 3장, `CLAUDE.md` 1장, `data/mock/corpus/manifest.json`·`*.jsonl` 줄 수.
-- 결정 번호: RFP-15-03·05, BE-05-03 D, BE-06-22 A, BE-06-24 B, BE-06-27 A, FE-01-07.
-- 확인하지 못한 것: 사용자 브라우저가 잰 27.84초의 측정 위치, 14:36 두 요청 각각의 지연, 실제 앱에서 스플래시 지속 시간 호출 값, 워커 수·인스턴스 유형의 배포 최종값(AWS 미준비), C1~C7의 실측 효과(전부 추정), `data/mock/corpus/manifest.json`이 현재 28,390(L2만)이라 L3·L1 종류별 개수는 jsonl 줄 수로만 확인(`chunk_kind`별 세부 개수는 읽지 않음).
+- 읽은 파일: `data/mock/briefs/2026-11-19-doc-corpus.md`, `data/mock/briefs/reports/chat-rca.md`, `data/mock/briefs/2026-11-19-chat-rca-userlog.md`(이상 로컬), `backend/app/api/service.py`(`:58-212`), `backend/app/main.py`, `backend/app/agent/tools/corpus.py`(`:100-180`), `backend/app/agent/tools/corpus_remote.py`(`:1-135`), `backend/app/db/schema_corpus.sql`·`schema_dict.sql`·`drug_dict_store.py`(`:170-200`), `backend/app/tools/drug_dict.py`(`:395-420`), `backend/scripts/load_corpus.py`·`be06_dict_load.py`·`build_corpus_l2.py`·`build_corpus_l3.py`·`embed_corpus.py`(머리 docstring), `backend/Dockerfile`(`:35`), `evaluation/eval_runner.py`(`:1230-1269`), `frontend/src/features/chat/Splash.tsx`, `tickets/backend/BE-05.md`·`BE-06.md`·`BE-13.md`, `tickets/doc/RFP-15.md`, `P2-doc/PJ2-DUR-RAG-근거설계.md`, `P2-doc/PJ2-아키텍처.md` 3장, `P2-doc/PJ2-RFP.md`(5.1절·검색 방식 `grep`), `tickets/agent/AG-03.md`, `backend/app/agent/tools/corpus.py`(`:1-330`), `backend/app/db/schema_corpus.sql`, `evaluation/eval_runner.py`(`:1108-1130`, `:1237-1267`), `CLAUDE.md` 1장, `data/mock/corpus/manifest.json`·`*.jsonl` 줄 수.
+- 결정 번호: RFP-15-03·05, BE-05-03 D, BE-06-22 A, BE-06-24 B, BE-06-26 A, BE-06-27 A, FE-01-07.
+- 확인하지 못한 것: BM25 단독 질의 지연 측정값, 평가 러너가 BM25 단독이 된 시점·결정 번호, HNSW를 앞으로 쓸지 기록, PJ2-RFP.md 9장에 검색 방식 고정 문구가 있는지(`grep`으로 못 찾음, 9장 전문은 읽지 않음), 사용자 브라우저가 잰 27.84초의 측정 위치, 14:36 두 요청 각각의 지연, 실제 앱에서 스플래시 지속 시간 호출 값, 워커 수·인스턴스 유형의 배포 최종값(AWS 미준비), C1~C7의 실측 효과(전부 추정), `data/mock/corpus/manifest.json`이 현재 28,390(L2만)이라 L3·L1 종류별 개수는 jsonl 줄 수로만 확인(`chunk_kind`별 세부 개수는 읽지 않음).
