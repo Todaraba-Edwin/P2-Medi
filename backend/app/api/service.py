@@ -2,11 +2,15 @@
 
 - `missing_settings(settings)`: 서비스 실행기에 꼭 필요한 설정 중 비어 있는 것의 **환경변수 이름**을 돌려준다. 값은 비었는지만 본다.
 - `make_service_runner(settings)`: 빠진 이름이 있으면 None(→ `/chat` 501 유지). 다 있으면 **아무것도 만들지 않고** 지연 실행기를 돌려준다.
-  무거운 자원(사전·코퍼스·DB 연결 팩토리·DUR 클라이언트·모델 객체)은 **첫 요청 때**(라우트가 띄운 스레드 안) 한 번만 만든다.
-  앱 시작 때는 어디에도 접속하지 않는다. 만들다 실패하면 저장하지 않고 예외를 올려(스트림은 `error` → `done`) 다음 요청에서 다시 시도한다.
+  무거운 자원(사전·코퍼스·DB 연결 팩토리·DUR 클라이언트·모델 객체)은 한 번만 만든다.
+- `start_warmup(runner, settings)`(BE-17-01·02 A, 2026-11-19): lifespan이 부르면 **백그라운드 스레드**가 자원 전체를 한 번 만든다.
+  lifespan은 기다리지 않고 바로 끝난다(`/health` 즉시 응답). 그동안 온 요청은 같은 잠금에서 기다렸다가 같은 자원을 쓴다.
+  스위치 `MEDIAGENT_WARMUP`(기본 켬)을 끄면 BE-06-27 A처럼 첫 요청 때(라우트가 띄운 스레드 안) 만든다.
+  만들다 실패하면 저장하지 않는다: 준비 스레드는 종류 이름만 로그에 남기고, 요청 중 실패는 예외를 올려(스트림은 `error` → `done`)
+  다음 요청에서 다시 시도한다.
 - 요청마다 `ToolContext`를 새로 만들어 새 그래프를 쓴다(`request_deps`): `remaining_calls` 같은 요청 상태가 동시 요청 사이에 섞이지 않는다.
   무거운 자원과 모델 객체는 공유한다. 판정은 바뀌지 않는다.
-- 새 환경변수를 만들지 않는다(BE-06-19 A). 로그에는 "붙임/안 붙임"과 빠진 변수 **이름**만 남기고 값·접속 문자열·키는 남기지 않는다.
+- 필수 설정에 새 환경변수를 더하지 않는다(BE-06-19 A). 선택 스위치 `MEDIAGENT_WARMUP` 하나만 BE-17-01 A로 더했다. 로그에는 "붙임/안 붙임"과 빠진 변수 **이름**만 남기고 값·접속 문자열·키는 남기지 않는다.
 - 서비스 경로는 trace를 켜지 않는다(RFP-22-06 A): `tracer=None`.
 - L4 요청 단위 사용량(BE-06-36 A): 스트림이 그래프 스레드에 `REQUEST_USAGE`를 넣으면 `request_deps`가 두 모델을 `UsageMeter`로 감싸
   호출 수·토큰·추정 비용(숫자만)을 그 요청의 `RequestUsage`에 더한다. 메시지·모델 출력은 보지 않는다.
@@ -16,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -191,10 +196,48 @@ class LazyGraphRunner:
                     self._base = self._factory(self._settings)
         return self._base
 
+    @property
+    def ready(self) -> bool:
+        """자원이 이미 만들어졌는지(내용 없음)."""
+        return self._base is not None
+
+    def warm(self) -> bool:
+        """자원을 미리 한 번 만든다(BE-17-01·02 A: 자원 전체). 성공하면 True.
+
+        `_resources()`와 같은 잠금을 쓰므로 그동안 들어온 요청은 잠금에서 기다렸다가 같은 자원을 쓴다(생성 1회).
+        실패하면 저장하지 않고(→ 다음 요청이 다시 시도) 예외를 삼킨다. 로그에는 예외 **종류 이름**과 소요 초만 남긴다."""
+        started = time.monotonic()
+        logger.info("chat resources warmup started")
+        try:
+            self._resources()
+        except Exception as exc:  # noqa: BLE001 — 백그라운드 스레드: 종류 이름만 남기고 다음 요청의 재시도에 맡긴다
+            logger.warning("chat resources warmup failed: %s after %.1fs", type(exc).__name__, time.monotonic() - started)
+            return False
+        logger.info("chat resources warmup done in %.1fs", time.monotonic() - started)
+        return True
+
+    def start_warmup(self) -> threading.Thread:
+        """`warm()`을 데몬 스레드로 띄우고 바로 돌아온다(lifespan을 막지 않는다)."""
+        thread = threading.Thread(target=self.warm, daemon=True, name="chat-warmup")
+        thread.start()
+        return thread
+
     def updates(self, question: str, profile: dict[str, Any] | None,
                 confirmed_item_seqs: Sequence[ConfirmedInput] = ()) -> Iterator[NodeUpdate]:
         graph = build_graph(request_deps(self._resources()))
         yield from GraphRunner(lambda: graph).updates(question, profile, confirmed_item_seqs)
+
+
+def start_warmup(runner: ChatRunner | None, settings: Any) -> threading.Thread | None:
+    """서버 시작 백그라운드 준비(BE-17-01 A). 실행기가 없거나(설정 없음 → 501) 스위치(`MEDIAGENT_WARMUP`)가 꺼졌으면 띄우지 않는다.
+
+    스레드만 띄우고 기다리지 않는다. 자원 생성(접속)은 그 스레드 안에서 일어난다."""
+    if not isinstance(runner, LazyGraphRunner):
+        return None
+    if not getattr(settings, "mediagent_warmup", True):
+        logger.info("chat resources warmup disabled (MEDIAGENT_WARMUP); resources are built on the first request")
+        return None
+    return runner.start_warmup()
 
 
 def make_service_runner(settings: Any, *, resources_factory: ResourcesFactory | None = None) -> ChatRunner | None:
@@ -203,9 +246,9 @@ def make_service_runner(settings: Any, *, resources_factory: ResourcesFactory | 
     if missing:
         logger.info("chat runner not attached (/chat stays 501); missing settings: %s", ", ".join(missing))
         return None
-    logger.info("chat runner attached (resources are built on the first request)")
+    logger.info("chat runner attached (resources are built once, by the startup warmup or the first request)")
     return LazyGraphRunner(settings, resources_factory or default_resources)
 
 
 __all__ = ["REQUEST_USAGE", "REQUIRED_ENV", "LazyGraphRunner", "RequestUsage", "UsageMeter", "default_resources", "make_service_runner",
-           "missing_settings", "request_deps"]
+           "missing_settings", "request_deps", "start_warmup"]

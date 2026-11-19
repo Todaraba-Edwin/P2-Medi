@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     mediagent_api_cache_ttl_seconds: float = 86400.0
     mediagent_api_max_calls: int = 1000
 
+    # 서버 시작 직후 백그라운드 자원 준비(BE-17-01·02 A). 기본 켬. `MEDIAGENT_WARMUP=0`(false·off)이면 지금처럼 첫 요청에서 만든다
+    mediagent_warmup: bool = True
+
     # 식약처 DUR 품목정보 OpenAPI
     durprdlstinfoservice03_end_point: str | None = None
     durprdlstinfoservice03_api_key: SecretStr | None = None

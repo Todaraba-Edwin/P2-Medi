@@ -50,6 +50,7 @@ DEFAULT_REMAINING = ToolContext.__dataclass_fields__["remaining_calls"].default
 def _settings(**drop_or_override: Any) -> Settings:
     """필수 값을 모두 가짜로 채운 설정. `x=None`을 주면 그 칸만 비운다."""
     vals: dict[str, Any] = {n.lower(): f"{SECRET}-{i}" for i, n in enumerate(ENV_NAMES)}
+    vals["mediagent_warmup"] = True  # 시험 공통은 끔(conftest). 여기서는 실제 기본값(켬)으로 lifespan을 본다(BE-17-01 A)
     vals.update(drop_or_override)
     return Settings(_env_file=None, **{k: v for k, v in vals.items() if v is not None})
 
@@ -335,14 +336,28 @@ def test_lifespan_without_settings_keeps_501_and_health(wired):
 def test_lifespan_with_settings_attaches_lazy_runner_and_streams(wired):
     wired["settings"] = _settings()
     with TestClient(main_mod.app) as client:
-        assert wired["fake"].calls == 0  # 시작만으로는 자원을 만들지 않는다
-        assert client.get("/health").status_code == 200 and wired["fake"].calls == 0
+        assert client.get("/health").status_code == 200
         r, events = _post(client)
         assert r.status_code == 200 and r.headers["content-type"].startswith(ev.NDJSON_MEDIA_TYPE)
+        # BE-17-01 A: 시작 준비 스레드와 첫 요청이 같은 잠금을 쓰므로 누가 먼저든 자원은 한 번만 만든다
         assert _types(events)[-1] == "done" and events[-1].root.end_reason == "NORMAL" and wired["fake"].calls == 1
 
 
-def test_lifespan_startup_opens_no_network(wired, monkeypatch):
+def test_lifespan_with_warmup_off_builds_on_first_request(wired):
+    """스위치를 끄면(`MEDIAGENT_WARMUP=0`) 이전 동작(BE-06-27 A): 시작만으로는 자원을 만들지 않고 첫 요청에서 만든다."""
+    wired["settings"] = _settings(mediagent_warmup=False)
+    with TestClient(main_mod.app) as client:
+        assert client.get("/health").status_code == 200 and wired["fake"].calls == 0
+        _post(client)
+        assert wired["fake"].calls == 1
+
+
+def test_lifespan_itself_does_not_wait_for_network(wired, monkeypatch):
+    """BE-17-01 A로 의미를 바꾼 시험(이전: "시작 구간 네트워크 0").
+
+    이제 시작 직후 백그라운드 스레드가 자원을 만들므로 접속은 **그 스레드 안에서** 일어난다. 이 시험은 lifespan 자체(실행기 붙이기·
+    스레드 띄우기)가 접속하지 않고, 자원 생성이 끝나기를 기다리지 않으며, 그동안 `/health`가 바로 답하는지를 본다.
+    자원 생성은 문이 열릴 때까지 막히는 가짜라 실제 접속은 일어나지 않는다."""
     import psycopg
 
     def no_net(*a: Any, **kw: Any) -> Any:
@@ -352,11 +367,38 @@ def test_lifespan_startup_opens_no_network(wired, monkeypatch):
     monkeypatch.setattr(socket.socket, "connect_ex", no_net)
     monkeypatch.setattr(socket, "create_connection", no_net)
     monkeypatch.setattr(psycopg, "connect", no_net)
+    gate, entered = threading.Event(), threading.Event()
+    fake = wired["fake"]
+
+    def gated(settings: Any) -> Any:
+        entered.set()
+        assert gate.wait(10)
+        return fake(settings)
+
+    monkeypatch.setattr(service, "default_resources", gated)
+    threads: list[threading.Thread] = []
+    real_start = service.start_warmup
+
+    def spy_start(runner: Any, settings: Any) -> Any:
+        t = real_start(runner, settings)
+        threads.append(t)
+        return t
+
+    monkeypatch.setattr(service, "start_warmup", spy_start)
     wired["settings"] = _settings()
-    with TestClient(main_mod.app) as client:
-        assert getattr(main_mod.app.state, chat_api.RUNNER_STATE_KEY) is not None
-        assert client.get("/health").status_code == 200
-    assert wired["fake"].calls == 0
+    t0 = time.monotonic()
+    try:
+        with TestClient(main_mod.app) as client:
+            assert getattr(main_mod.app.state, chat_api.RUNNER_STATE_KEY) is not None
+            assert entered.wait(5) and fake.calls == 0  # 준비 스레드는 생성 중(막힘)인데 lifespan은 이미 끝났다
+            assert client.get("/health").status_code == 200 and fake.calls == 0
+            assert time.monotonic() - t0 < 5
+            gate.set()
+            assert len(threads) == 1 and threads[0] is not None
+            threads[0].join(5)
+            assert not threads[0].is_alive() and fake.calls == 1
+    finally:
+        gate.set()
 
 
 def test_runner_does_not_leak_after_fixture_and_openapi_is_unchanged(wired):
