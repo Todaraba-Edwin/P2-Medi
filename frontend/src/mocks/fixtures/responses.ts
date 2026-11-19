@@ -27,7 +27,9 @@ import {
   fillCorrection,
   clarifyMultiQuestion,
   fillJosa,
+  fillPriorPick,
   ingredientStateLabels,
+  resultSummaryFound,
 } from "./phrases";
 
 // 합성 약 이름·성분(실제 제품이 아니다)
@@ -945,6 +947,77 @@ export const clarifyTripleResponse = make({
     { input_name: DRUG_AMBIGUOUS_3, name: "라마바캡슐 10밀리그램", item_seq: "200000006", entp_name: "합성제약(주)", prescription: "일반의약품", matched_by: "product_name" },
     { input_name: DRUG_AMBIGUOUS_3, name: "라마바캡슐 20밀리그램", item_seq: "200000007", entp_name: "가상약품(주)", prescription: "전문의약품", matched_by: "product_name" },
   ],
+});
+
+/**
+ * 되묻기(이전 차례의 선택 확인, AG-21): 앞 차례에서 `가나다정 100밀리그램`을 골랐는데 같은 이름 `가나다`가 다시 나왔다.
+ * 질문은 `CLARIFY_PRIOR_PICK`에 **사전 제품명**을 채운 문장이고, 그 약이 첫 후보다(후보 목록은 `clarifyResponse`와 같다)
+ */
+export const clarifyPriorResponse = make({
+  route: "AGENT",
+  end_reason: "CLARIFY",
+  summary: fillPriorPick(clarifyResponse.candidates[0].name),
+  candidates: clarifyResponse.candidates,
+});
+
+/** 재복용·추가 복용 질문(AG-22-01 A): 결과는 그대로이고 `redose_notice` 한 줄이 `summary` 밖 별도 칸으로 온다 */
+export const redoseResponse = make({
+  ...foundResponse,
+  redose_notice: PHRASES.REDOSE_NOTICE,
+});
+
+/**
+ * 약 3개 결과 묶음(GROUP-01 3단계 계약, g1s3 §4 모양): 서버가 구역 순서(핵심 → 나머지)로 정렬한 판정 줄, 제품 줄의 짝 참조(병용 배지 대신),
+ * 묶음 요약(`result_summary`, 약 3개라 `pair_only_notice`가 있다), 나머지 접힘 줄(`rest_fold`, 서버가 센 건수).
+ * 화면은 지금 요약 줄만 그리고 구역·짝 참조·접힘은 4단계 디자인 뒤에 그린다(타입·fixture만 먼저)
+ */
+export const resultSummaryResponse = make({
+  route: "AGENT",
+  end_reason: "NORMAL",
+  summary: `${DRUG_A}과 ${DRUG_B}은 병용금기 목록에 함께 올라 있어요. ${DRUG_C}은 두 약과 짝으로 오른 기록이 없어요.`,
+  result_summary: {
+    n_drugs: 3,
+    n_pairs: 3,
+    pairs_found: [{ drugs: [DRUG_A, DRUG_B], evidence_ids: ["ev-pair-1"] }],
+    n_pairs_unchecked: 0,
+    text: resultSummaryFound(3, [[DRUG_A, DRUG_B]]),
+    pair_only_notice: PHRASES.PAIR_ONLY_NOTICE,
+  },
+  rest_fold: { count: 2, text: PHRASES.REST_FOLD_LINE.replace("{n}", "2"), open_label: PHRASES.REST_FOLD_OPEN, close_label: PHRASES.REST_FOLD_CLOSE },
+  findings: [
+    { ...pairFinding, section: "core" },
+    {
+      target: "product",
+      bucket: "identified",
+      evidence_id: null,
+      kind: "identify",
+      drug: DRUG_A,
+      drugs: [DRUG_A],
+      text: PHRASES.IDENTIFIED_LINE,
+      sub_line: INGR_A.name,
+      ingredients: [{ ...INGR_A, contra_kinds: ["contra_pair"] }],
+      section: "core",
+      pair_ref: { count: 1, evidence_ids: ["ev-pair-1"], text: PHRASES.PAIR_REF_LINE.replace("{n}", "1") },
+    },
+    {
+      target: "product",
+      bucket: "identified",
+      evidence_id: null,
+      kind: "identify",
+      drug: DRUG_B,
+      drugs: [DRUG_B],
+      text: PHRASES.IDENTIFIED_LINE,
+      sub_line: INGR_B.name,
+      ingredients: [{ ...INGR_B, contra_kinds: ["contra_pair"] }],
+      section: "core",
+      pair_ref: { count: 1, evidence_ids: ["ev-pair-1"], text: PHRASES.PAIR_REF_LINE.replace("{n}", "1") },
+    },
+    { target: "pair", bucket: "not_listed", evidence_id: "ev-pair-2", kind: "contra_pair", drug: `${DRUG_A} · ${DRUG_C}`, drugs: [DRUG_A, DRUG_C], text: PHRASES.NOT_LISTED, section: "rest" },
+    { target: "pair", bucket: "not_listed", evidence_id: "ev-pair-3", kind: "contra_pair", drug: `${DRUG_B} · ${DRUG_C}`, drugs: [DRUG_B, DRUG_C], text: PHRASES.NOT_LISTED, section: "rest" },
+  ],
+  detail: [pairDetail],
+  citations: [pairCitation],
+  sentence_refs: [{ evidence_id: "ev-pair-1", sentence_index: 0 }],
 });
 
 /** 거절(복용량 결정 요청) */

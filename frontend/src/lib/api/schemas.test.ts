@@ -191,7 +191,25 @@ describe("ChatEvent v1 zod", () => {
 
 describe("ChatRequest·ErrorBody zod", () => {
   it("질문만 주면 빈 묶음이 채워진다", () => {
-    expect(ChatRequestSchema.parse({ question: "질문" })).toEqual({ question: "질문", context: { age: null, pregnant: null, confirmed_drugs: [] } });
+    expect(ChatRequestSchema.parse({ question: "질문" })).toEqual({ question: "질문", context: { age: null, pregnant: null, confirmed_drugs: [], prior_drugs: [], took_today: null } });
+  });
+
+  // AG-21-02 A·AG-22-05 A: 이전 선택은 고른 약과 같은 모양·같은 상한(10), 용량주의 답은 엄격한 불리언(서버 `took_today` strict)
+  it.each([
+    [{ question: "질문", context: { prior_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }] } }, true],
+    [{ question: "질문", context: { prior_drugs: Array.from({ length: 10 }, (_, i) => ({ name: `약${i}` })) } }, true],
+    [{ question: "질문", context: { prior_drugs: Array.from({ length: 11 }, (_, i) => ({ name: `약${i}` })) } }, false],
+    [{ question: "질문", context: { prior_drugs: [{ name: "가나다정", item_seq: "123" }] } }, false],
+    [{ question: "질문", context: { prior_drugs: [{ name: " " }] } }, false],
+    [{ question: "질문", context: { priorDrugs: [] } }, false],
+    [{ question: "질문", context: { took_today: true } }, true],
+    [{ question: "질문", context: { took_today: false } }, true],
+    [{ question: "질문", context: { took_today: null } }, true],
+    [{ question: "질문", context: { took_today: "예" } }, false],
+    [{ question: "질문", context: { took_today: 1 } }, false],
+    [{ question: "질문", context: { took_today: "true" } }, false],
+  ])("prior_drugs·took_today %j → %s", (request, ok) => {
+    expect(ChatRequestSchema.safeParse(request).success).toBe(ok);
   });
 
   it.each([

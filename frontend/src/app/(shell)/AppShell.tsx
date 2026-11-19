@@ -114,38 +114,44 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
 
   if (layout === null || width === null) return <div data-testid="app-shell" data-ready="false" className="h-dvh" />;
 
-  const send = (question: string, display?: string) => {
-    // 고른 대상("누가 먹나요")의 연령대·임신 여부를 묶음에 싣는다. 게스트이거나 고르지 않았으면 두 칸은 비어 있다(값 전달만, 대화는 저장하지 않는다)
+  /** 고른 대상("누가 먹나요")의 연령대·임신 여부. 게스트이거나 고르지 않았으면 두 칸은 비어 있다(값 전달만, 대화는 저장하지 않는다) */
+  const targetContext = () => {
     const state = account.getState();
-    store.getState().setContext(profileToContext(selectTargetProfile(state), hasHealthConsent(state.me)));
-    void store.getState().send(question, display);
+    return profileToContext(selectTargetProfile(state), hasHealthConsent(state.me));
+  };
+  // 새 질문: 이번 질문의 되묻기 답은 없다(`confirmed_drugs=[]`, AG-21-02 A). 이전 차례의 선택(`priorDrugs`)은 그대로 실린다
+  const send = (question: string) => {
+    store.getState().setContext({ ...targetContext(), confirmedDrugs: [] });
+    void store.getState().send(question);
   };
   const newChat = () => {
     store.getState().reset();
     setPicked({});
     dispatch({ type: "newChat" });
   };
+  // 대상이 바뀌면 이전 선택 힌트를 비운다(AG-21-03 A: 다른 사람의 약을 같은 이름으로 확인하지 않게)
+  const changeTarget = (profileId: string | null) => {
+    if (profileId !== targetProfileId) store.getState().setContext({ priorDrugs: [] });
+    account.getState().setTarget(profileId);
+  };
   const resend = (turnId: string) => {
-    const { context, setContext, turns: current } = store.getState();
+    const { setContext, turns: current } = store.getState();
     const turn = current.find((item) => item.id === turnId);
     const picks = picked[turnId] ?? {};
     const groups = groupCandidates(turn?.stream.response?.candidates ?? []);
     const chosen = groups.flatMap((group) => (picks[group.inputName] ? [picks[group.inputName]] : []));
     // 모든 묶음(되묻는 이름)을 골랐을 때만 보낸다(FE-09-01 A)
     if (!turn || groups.length === 0 || chosen.length !== groups.length) return;
-    // 고른 후보 전부를 묶음에 한 번에 붙이고 같은 질문을 한 번 다시 보낸다(PRD 15.3 (4), 요청 1회)
+    // 고른 후보 전부를 묶음에 한 번에 붙이고 같은 질문을 한 번 다시 보낸다(PRD 15.3 (4), 요청 1회).
+    // 지금 고른 것만 `confirmed_drugs`로 싣고, 이전 차례의 선택은 `prior_drugs`로 따로 간다(AG-21-02 A). 답이 오면 스토어가 고른 것을 이전 선택으로 옮긴다
     const names = chosen.map((candidate) => candidate.name);
-    const inputNames = chosen.map((candidate) => candidate.input_name);
     setContext({
-      confirmedDrugs: [
-        // 이전에 확정한 약 가운데 같은 제품이거나 같은 입력 이름으로 고른 것은 지금 고른 것으로 바꾼다
-        ...context.confirmedDrugs.filter((drug) => !names.includes(drug.name) && !(drug.inputName && inputNames.includes(drug.inputName))),
-        // 어느 묶음에서 골랐는지(`input_name`)를 함께 싣는다(FE-09-05 A). 묶음이 하나여도 싣는다
-        ...chosen.map((candidate) => ({ name: candidate.name, itemSeq: candidate.item_seq, inputName: candidate.input_name })),
-      ],
+      ...targetContext(),
+      // 어느 묶음에서 골랐는지(`input_name`)를 함께 싣는다(FE-09-05 A). 묶음이 하나여도 싣는다
+      confirmedDrugs: chosen.map((candidate) => ({ name: candidate.name, itemSeq: candidate.item_seq, inputName: candidate.input_name })),
     });
     // 말풍선에는 무엇을 골랐는지 보이고(FE-09-04 A), 서버로는 원 질문을 보낸다
-    send(turn.question, resendBubbleText(names));
+    void store.getState().send(turn.question, resendBubbleText(names));
   };
   const focusInput = () => main.current?.querySelector("textarea")?.focus();
   // 계정 모달을 열 때 드로어·사이드바 오버레이는 닫는다(층을 겹치지 않는다)
@@ -241,7 +247,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               {/* 응답을 받기 전(시작 화면·첫 답을 기다리는 중)의 상시 고지는 백엔드 상수에서 생성한 값이다(FE-01-19 A) */}
               {!lastFailed && <LegalFooter disclaimer={dockResponse ? dockResponse.disclaimer : DISCLAIMER} />}
               {/* 대상 선택 "누가 먹나요": 로그인하고 프로필이 있을 때만(게스트는 숨김) */}
-              {member && profiles.length > 0 && <TargetPicker profiles={profiles} value={targetProfileId} onChange={(id) => account.getState().setTarget(id)} />}
+              {member && profiles.length > 0 && <TargetPicker profiles={profiles} value={targetProfileId} onChange={changeTarget} />}
               <ChatInput onSend={(question) => send(question)} />
             </div>
           </div>

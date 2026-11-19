@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { ask, banner, bannerTel, dock, expect119Reachable, expectInFirstScreen, expectNoHorizontalScroll, openApp, sheet } from "../e2e/helpers";
+import { PHRASES } from "../src/mocks/fixtures/phrases";
 
 // 가짜 서버 끝단 연결(R5): 실제 HTTP·NDJSON 스트림 경로를 Next rewrites 프록시로 끝까지 본다(설정·실행법은 playwright.fake.config.ts).
 // 통신 대역(MSW·페이지 안 fetch 대역)이 없다. 질문 문장은 `backend/scripts/dev_fake_server.py`의 시나리오 표 그대로다(합성 자원, 평가 문항 아님).
@@ -24,7 +25,7 @@ const FIXED_NOTICE = "금기 목록에 없다는 것이 안전하다는 뜻이 �
 interface Seen {
   status: number;
   contentType: string;
-  body: { question: string; context?: { confirmed_drugs?: { name: string; item_seq: string | null }[] } };
+  body: { question: string; context?: { confirmed_drugs?: { name: string; item_seq: string | null; input_name: string | null }[] } };
 }
 
 /** `/api/chat` 요청·응답을 기록한다(가로채지 않는다). 실제 네트워크로 나갔는지 확인하는 용도 */
@@ -62,17 +63,18 @@ test("정상(병용금기 1건): 진행 → 결과 카드·배지·확인하지 
   expect(seen[0].contentType).toContain("application/x-ndjson");
   expect(seen[0].body.question).toBe(Q.found);
   await expect(page.locator('[data-turn="turn-1"]')).toHaveAttribute("data-status", "done");
-  // 판정 줄: 제품 줄 둘(약마다 병용금기 배지와 성분 칩) + 쌍 줄(BE-06-39 A: 식별 줄이 제품 줄로 흡수됐다)
-  await expect(lines(page)).toHaveCount(3);
-  await expect(lines(page).getByTestId("line-title")).toHaveText([AZI, COLD, `${AZI} · ${COLD}`]);
-  for (const index of [0, 1, 2]) {
-    await expect(lines(page).nth(index)).toHaveAttribute("data-bucket", "found");
-    await expect(lines(page).nth(index).getByTestId("status-badge")).toHaveText(["삐! 병용금기"]);
-  }
-  // 복합제 줄의 성분 칩은 원인·중복을 모름(`null`)으로 받아 그린다(BE-06-40 A)
-  const comboChips = lines(page).nth(1).getByTestId("ingredient-chip");
-  await expect(comboChips).toHaveCount(4);
-  for (const chip of await comboChips.all()) await expect(chip).toHaveAttribute("data-state", "unknown");
+  // 판정 줄(GROUP-01 3단계 계약, 서버가 구역 순서로 정렬): 쌍 줄(핵심, 병용금기 배지) → 제품 줄 둘(핵심, "찾음" + 짝 참조, 병용 배지 없음: FE-11-05 A)
+  // → 용량주의 "목록에 없음" 줄 둘(나머지 구역). 화면은 받은 순서 그대로 그리고, 구역 접기·짝 참조 표시는 4단계 디자인 뒤(5단계)다
+  await expect(lines(page)).toHaveCount(5);
+  await expect(lines(page).getByTestId("line-title")).toHaveText([`${AZI} · ${COLD}`, AZI, COLD, AZI, COLD]);
+  await expect(lines(page).nth(0)).toHaveAttribute("data-bucket", "found");
+  await expect(lines(page).nth(0).getByTestId("status-badge")).toHaveText(["삐! 병용금기"]);
+  for (const index of [1, 2]) await expect(lines(page).nth(index)).toHaveAttribute("data-bucket", "identified");
+  for (const index of [3, 4]) await expect(lines(page).nth(index)).toHaveAttribute("data-bucket", "not_listed");
+  await expect(page.getByTestId("status-badge")).toHaveCount(1); // 배지는 쌍 줄에만
+  // 식별된 약 줄(`identified`)은 성분 칩 대신 보조줄(`sub_line`: 성분 이름을 " · "로 이음)을 그린다(AG-08-12 B). 복합제(콜드-에스정)는 성분 넷
+  await expect(lines(page).nth(2).locator('[data-slot="sub-line"]')).toHaveText("아세트아미노펜 · 슈도에페드린 · 덱스트로메토르판 · 클로르페니라민");
+  await expect(lines(page).nth(2).getByTestId("ingredient-chip")).toHaveCount(0);
   await expect(page.getByTestId("result-summary")).toContainText("병용금기");
   // 실시간 확인을 못 했다는 배너와 임신 여부를 몰라 확인하지 못한 줄(서버 값 그대로)
   await expect(page.getByTestId("result-notice")).toHaveText("실시간 확인을 하지 못해 아래 결과는 기준일 자료로 확인한 것이에요.");
@@ -114,7 +116,8 @@ test("되묻기 → 후보 선택 → 다시 묻기: 고른 약(item_seq)이 실
   const candidates = page.getByTestId("candidate");
   await expect(candidates).toHaveCount(2);
   await expect(candidates.locator("b")).toHaveText([COLD, T500]);
-  await expect(page.getByTestId("result-summary")).toHaveText("'타이레놀'에 해당하는 약이 여러 개예요. 어떤 약인지 하나를 골라 주세요.");
+  // 되묻기 질문은 백엔드 상수 `CLARIFY_MANY_CANDIDATES`(AG-05-10 A)에 이름을 채운 문장이다. 글자를 여기 적지 않고 상수 대조표(phrases.ts, fixtures.test.ts가 원문과 대조)를 쓴다
+  await expect(page.getByTestId("result-summary")).toHaveText(PHRASES.CLARIFY_MANY_CANDIDATES.replace("{drug}", "타이레놀"));
   // 가부 미표시: 고르기 전에는 판정이 없다
   await expect(page.getByTestId("result-card")).toHaveCount(0);
   await expect(page.getByTestId("status-badge")).toHaveCount(0);
@@ -126,7 +129,9 @@ test("되묻기 → 후보 선택 → 다시 묻기: 고른 약(item_seq)이 실
   await expect(page.locator('[data-turn="turn-2"]').getByTestId("result-card")).toBeVisible();
   expect(seen).toHaveLength(2);
   expect(seen[1].body.question).toBe(Q.clarify);
-  expect(seen[1].body.context?.confirmed_drugs).toEqual([{ name: COLD, item_seq: "202106954" }]);
+  // 고른 약에는 그 묶음의 이름(`input_name`, FE-09-05 A)이 함께 실린다. 이전 차례 선택은 없다(첫 되묻기)
+  expect(seen[1].body.context?.confirmed_drugs).toEqual([{ name: COLD, item_seq: "202106954", input_name: "타이레놀" }]);
+  expect(seen[1].body.context).toMatchObject({ prior_drugs: [], took_today: null });
   // 콜드-에스정으로 확정 → 병용금기 1건
   await expect(lines(page, 2).nth(0).getByTestId("status-badge")).toHaveText(["삐! 병용금기"]);
   await expect(page.getByTestId("candidate")).toHaveCount(0);

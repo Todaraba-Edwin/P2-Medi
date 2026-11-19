@@ -7,6 +7,7 @@ import {
   ageInfoResponse,
   apiFailResponse,
   clarifyMultiResponse,
+  clarifyPriorResponse,
   clarifyResponse,
   clarifyTripleResponse,
   codeNotLinkedResponse,
@@ -29,7 +30,9 @@ import {
   pregnancyMResponse,
   pregnancyResponse,
   productRowsResponse,
+  redoseResponse,
   refuseResponse,
+  resultSummaryResponse,
   rxPermitResponse,
   typoCorrectedResponse,
   unidentifiedMixedResponse,
@@ -96,6 +99,8 @@ export const scenarios = {
   clarifyMulti: { kind: "stream", ending: "close", events: events(progress("drug_lookup"), answer(clarifyMultiResponse), done(clarifyMultiResponse)) },
   /** 되묻기(이름 셋이 모두 모호: 묶음 셋. FE-10 2열 줄바꿈·캡슐 3칸 화면 시험용) */
   clarifyTriple: { kind: "stream", ending: "close", events: events(progress("drug_lookup"), answer(clarifyTripleResponse), done(clarifyTripleResponse)) },
+  /** 되묻기(이전 차례 선택 확인, AG-21): 요청에 `prior_drugs`만 있고 같은 이름이 다시 나왔을 때. q1(되묻기) → q2(재전송 결과) → q3(이 시나리오) */
+  clarifyPrior: { kind: "stream", ending: "close", events: events(progress("drug_lookup"), answer(clarifyPriorResponse), done(clarifyPriorResponse)) },
   /** 거절(진행 없이 바로 답) */
   refuse: { kind: "stream", ending: "close", events: events(answer(refuseResponse), done(refuseResponse)) },
   /** 서버 오류 이벤트. `message`는 오류 문구 상수(`ERROR_MESSAGES[code]`)이고 항상 온다(2026-11-12 승인 뒤). 화면은 받은 글자를 그대로 보인다 */
@@ -183,6 +188,11 @@ export const scenarios = {
   gradeDefAndMissing: normal(gradeDefAndMissingResponse),
   /** 제품 줄 묶음: `evidence_id`가 없는 제품 줄들 + 쌍 줄, 복합제 칩의 원인·중복 모름 */
   productRows: normal(productRowsResponse),
+  // ---- GROUP-01 3단계 새 칸(AG-22·FE-11)
+  /** 재복용 질문 고지(`redose_notice`) */
+  redose: normal(redoseResponse),
+  /** 약 3개 묶음 요약(`result_summary`·`pair_only_notice`)·구역·짝 참조·접힘 줄 */
+  resultSummary: normal(resultSummaryResponse),
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;

@@ -99,6 +99,8 @@ for (const width of [393, 1280]) {
             { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" },
             { name: "가나다시럽 키즈", item_seq: "200000004", input_name: "가나다시럽" },
           ],
+          prior_drugs: [],
+          took_today: null,
         },
       });
       // 말풍선: 다시 물은 차례는 표시용 글자, 처음 차례는 원 질문(FE-09-04 A)
@@ -179,11 +181,14 @@ test.describe("단일 묶음 되묻기 회귀(FE-09)", () => {
     await expect(page.locator('[data-turn="turn-2"]').getByTestId("result-card")).toBeVisible();
     const sent = await requests(page);
     expect(sent).toHaveLength(2);
-    expect(sent[1]).toEqual({ question: QUESTION, context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }] } });
+    expect(sent[1]).toEqual({
+      question: QUESTION,
+      context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }], prior_drugs: [], took_today: null },
+    });
     await expect(bubble(page, 2)).toHaveText("고른 약: 가나다시럽으로 다시 확인");
   });
 
-  test("같은 이름을 다시 되물으면 그 이름으로 앞서 고른 약은 새로 고른 약으로 바뀐다(input_name당 하나, FE-09-05 A)", async ({ page }) => {
+  test("같은 이름을 다시 되물으면 이번에 고른 약만 confirmed_drugs로 가고, 앞서 고른 약은 prior_drugs로 따로 간다(AG-21-02 A; input_name당 하나, FE-09-05 A)", async ({ page }) => {
     await mockChat(page, "clarify", "clarify", "found");
     await openApp(page);
     await ask(page);
@@ -198,7 +203,13 @@ test.describe("단일 묶음 되묻기 회귀(FE-09)", () => {
     expect(sent).toHaveLength(3);
     expect(sent[2]).toEqual({
       question: QUESTION,
-      context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 500밀리그램", item_seq: "200000002", input_name: "가나다" }] },
+      context: {
+        age: null,
+        pregnant: null,
+        confirmed_drugs: [{ name: "가나다정 500밀리그램", item_seq: "200000002", input_name: "가나다" }],
+        prior_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }],
+        took_today: null,
+      },
     });
   });
 });

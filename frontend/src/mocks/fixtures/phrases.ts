@@ -29,6 +29,21 @@ export const PHRASES = {
   // 되묻기 질문(`summary`, AG-05-05 A·AG-05-10 A): 후보 1개 / 여럿. `router._clarify`가 `.format(drug=t.raw)`로 채운다(물음표 1개)
   CLARIFY_ONE_CANDIDATE: "'{drug}'은(는) 아래 약을 말씀하신 건가요? 맞으면 골라 주시고, 아니면 약 이름을 다시 알려 주세요.",
   CLARIFY_MANY_CANDIDATES: "'{drug}'에 해당하는 약이 여러 개예요. 어떤 약을 말씀하시는 건가요?",
+  // 이전 차례에서 고른 약과 같은 이름이 다시 나왔을 때의 확인 질문(AG-21-04 A). `router._single_question`이 첫 후보(이전 선택)의 사전 제품명으로 채운다(fixture는 `fillPriorPick`)
+  CLARIFY_PRIOR_PICK: "앞에서 고른 '{drug}'을(를) 말씀하시는 건가요? 다른 약이면 아래에서 골라 주세요.",
+  // 용량주의 "예" 답 고지(`dose_notice`)·재복용 질문 고지(`redose_notice`)(AG-22, 2026-11-19 원문 승인). 결과 위 안내 띠에 그대로
+  DOSE_NOTICE: "오늘 이미 드셨다면 하루 최대량을 넘을 수 있어요. 근거 상세의 허가사항 용법용량을 보고 약사에게 확인하세요.",
+  REDOSE_NOTICE: "추가 복용 여부·간격은 정해 드릴 수 없어요. 근거 상세의 허가사항 용법용량을 보고 약사에게 확인하세요.",
+  // 약 2개 이상 결과의 묶음 요약(`result_summary.text`, FE-11-04 A)과 약 3개 이상일 때의 한 줄(`pair_only_notice`, FE-11-06 A). fixture는 `resultSummaryFound`
+  RESULT_SUMMARY_FOUND: "약 {n}개를 함께 먹을 때: 병용금기 {k}건({pairs})",
+  RESULT_SUMMARY_PAIR_JOIN: " + ",
+  RESULT_SUMMARY_PAIRS_SEP: ", ",
+  PAIR_ONLY_NOTICE: "병용금기는 두 약씩 짝으로 확인해요. 세 약 이상을 함께 먹을 때의 규칙은 자료에 따로 없어요.",
+  REST_FOLD_LINE: "나머지 확인 {n}건: 금기·주의 목록에 없음(안전하다는 뜻이 아님)",
+  REST_FOLD_OPEN: "펼치기",
+  REST_FOLD_CLOSE: "접기",
+  PAIR_REF_LINE: "병용금기 짝 {n}건에 포함",
+  DOSE_CAUTION_DESC: "하루 최대량이 정해진 성분이에요. 오늘 이미 드신 약이 있으면 근거 상세의 허가사항 용법용량을 보고 약사에게 확인하세요.",
   // 근거 상세 안내 줄·등급 정의 블록
   GRADE_DEF_TITLE: "임부금기 {grade}등급이란?",
   GRADE_DEF_PHARMACIST_ADVICE: "등급의 뜻이 궁금하면 약국·약사에게 물어보세요.",
@@ -140,6 +155,18 @@ export function fillJosa(template: string, key: string, value: string): string {
   const last = value.charCodeAt(value.length - 1);
   const batchim = last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 !== 0;
   return template.replace(`{${key}}을(를)`, `${value}${batchim ? "을" : "를"}`).replace(`{${key}}`, value);
+}
+
+/**
+ * `router._single_question`과 같은 규칙: `CLARIFY_PRIOR_PICK.format(drug=<이전 선택의 사전 제품명>)`.
+ * 서버는 이 문장에 `josa.fill`을 적용하지 않아 "'이름'을(를)"이 그대로 나간다(2026-11-19 밤 FE 확인, 백엔드 정정 후보). fixture는 서버가 보내는 글자 그대로 둔다
+ */
+export const fillPriorPick = (name: string) => PHRASES.CLARIFY_PRIOR_PICK.replace("{drug}", name);
+
+/** `finalize._result_summary`·`schemas.result_summary_text`와 같은 규칙(걸린 짝이 있을 때): 틀에 약 수·짝 수·짝 이름을 넣는다 */
+export function resultSummaryFound(nDrugs: number, pairs: ReadonlyArray<readonly [string, string]>): string {
+  const joined = pairs.map((pair) => pair.join(PHRASES.RESULT_SUMMARY_PAIR_JOIN)).join(PHRASES.RESULT_SUMMARY_PAIRS_SEP);
+  return PHRASES.RESULT_SUMMARY_FOUND.replace("{n}", String(nDrugs)).replace("{k}", String(pairs.length)).replace("{pairs}", joined);
 }
 
 /** `finalize`가 보정 고지를 만드는 규칙과 같다: `TYPO_CORRECTED_LINE.format(input=…, name=…)` → `{input, name, text}` */

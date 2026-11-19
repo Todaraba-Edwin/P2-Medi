@@ -907,3 +907,50 @@ describe("PRD-09-01~04 판정 줄의 등급 표기(등급은 표지에만, '단�
     expect(copy.moreIngredientsLabel(2)).not.toMatch(/단계|등급/);
   });
 });
+
+// GROUP-01 3단계 새 칸의 최소 표시(디자인 전 임시): 고지 2종은 결과 위 안내 띠, 묶음 요약은 결과 카드 위 한 줄. 구역·짝 참조·용량 되묻기 카드는 그리지 않는다
+describe("새 응답 칸(AG-22·FE-11) 최소 표시", () => {
+  const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it("redose_notice는 받은 글자 그대로 요약 다음·결과 카드 앞의 안내 띠로 보이고, 없으면 띠가 없다", () => {
+    const { rerender } = render(<ResultView response={fixtures.redoseResponse} />);
+    const band = screen.getByTestId("redose-notice");
+    expect(band.textContent).toBe(PHRASES.REDOSE_NOTICE);
+    expect(band.className).toBe(screen.getByTestId("result-summary").nextElementSibling?.className); // 같은 띠 모양(배너 부품 재사용)
+    expect(before(screen.getByTestId("result-summary"), band)).toBe(true);
+    expect(before(band, screen.getByTestId("result-card"))).toBe(true);
+    expect(band.closest("details, [hidden], [data-state='closed']")).toBeNull();
+    rerender(<ResultView response={fixtures.foundResponse} />);
+    expect(screen.queryByTestId("redose-notice")).toBeNull();
+    expect(screen.queryByTestId("dose-notice")).toBeNull();
+    expect(screen.queryByTestId("result-summary-line")).toBeNull();
+  });
+
+  it("dose_notice는 결과 묶음의 맨 위(배너보다 앞)에 안내 띠로 보인다", () => {
+    const response: ChatResponse = { ...fixtures.apiFailResponse, dose_notice: PHRASES.DOSE_NOTICE };
+    render(<ResultView response={response} />);
+    const band = screen.getByTestId("dose-notice");
+    expect(band.textContent).toBe(PHRASES.DOSE_NOTICE);
+    expect(band.className).toBe(screen.getByTestId("result-notice").className);
+    expect(before(band, screen.getByTestId("result-notice"))).toBe(true);
+    expect(screen.getByTestId("result-view").firstElementChild).toBe(band);
+  });
+
+  it("result_summary.text와 pair_only_notice는 결과 카드 바로 위 한 줄에 받은 글자 그대로이고, 구역·짝 참조·접힘·용량 되묻기는 아직 그리지 않는다", () => {
+    const { container } = render(<ResultView response={fixtures.resultSummaryResponse} />);
+    const line = screen.getByTestId("result-summary-line");
+    const summary = fixtures.resultSummaryResponse.result_summary!;
+    expect(line.firstElementChild?.textContent).toBe(summary.text);
+    expect(screen.getByTestId("pair-only-notice").textContent).toBe(summary.pair_only_notice);
+    expect(before(screen.getByTestId("result-summary"), line)).toBe(true);
+    expect(line.nextElementSibling).toBe(screen.getByTestId("result-card")); // 카드 바로 위
+    // 판정 줄은 받은 순서 그대로(핵심 → 나머지), 제품 줄에 병용 배지 없음
+    expect(texts(screen.getAllByTestId("line-title"))).toEqual(fixtures.resultSummaryResponse.findings.map((f) => f.drug));
+    expect(screen.getAllByTestId("status-badge")).toHaveLength(1);
+    expect(container.textContent).not.toContain(PHRASES.PAIR_REF_LINE.replace("{n}", "1"));
+    expect(container.textContent).not.toContain(PHRASES.REST_FOLD_LINE.replace("{n}", "2"));
+    expect(container.textContent).not.toContain("펼치기");
+    expect(container.textContent).not.toContain("오늘 이 약(같은 성분)을 이미 드셨나요?");
+    expect(screen.queryByTestId("mascot")).toBeNull();
+  });
+});

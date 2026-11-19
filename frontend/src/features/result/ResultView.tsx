@@ -19,11 +19,22 @@ export interface ResultViewProps {
   hideCandidatesLine?: boolean;
 }
 
+/** 결과 위 안내 띠(서버 상수 글자 그대로): 공공 API 실패 배너·용량 고지·재복용 고지가 같은 모양이다 */
+function NoticeBand({ testId, text }: { testId: string; text: string }) {
+  return (
+    <p data-testid={testId} className="m-0 rounded-xl bg-warn-bg px-3 py-2 text-[13px] leading-[19px] font-semibold break-words text-warn-ink">
+      {text}
+    </p>
+  );
+}
+
 /**
- * 결과 부품 묶음: 상단 배너(`notice`) → 보정 고지(`name_corrections`) → 쉬운 요약(`summary`) → 결과 카드 → (약을 찾지 못했으면) 동작 칩 → 확인하지 못한 종류의 줄
- * → (되묻기면) 후보 카드와 안내. 순서는 서버 `finalize.render_text`와 같다(보정 고지는 요약보다 먼저: 무엇을 확인했는지부터).
+ * 결과 부품 묶음: 용량 고지(`dose_notice`, 119 다음 맨 위) → 상단 배너(`notice`) → 보정 고지(`name_corrections`) → 쉬운 요약(`summary`) → 재복용 고지(`redose_notice`)
+ * → 묶음 요약 한 줄(`result_summary.text`·`pair_only_notice`) → 결과 카드 → (약을 찾지 못했으면) 동작 칩 → 확인하지 못한 종류의 줄 → (되묻기면) 후보 카드와 안내.
+ * 순서는 서버 `finalize.render_text`와 같다(보정 고지는 요약보다 먼저: 무엇을 확인했는지부터).
  * 배너·고지·요약은 받은 글자를 가공 없이 그린다(요약에 용량 숫자를 만들거나 표로 쪼개지 않고, 고지 문장을 다시 조립하지 않는다, S8).
  * 고정 안내·고지·119·근거 상세는 FE-IMPL-05, 화면 조립은 FE-IMPL-06이 한다.
+ * GROUP-01 3단계의 새 칸 가운데 고지·요약 줄만 임시로 그린다(디자인 전). 구역별 접기(`section`·`rest_fold`)·짝 참조(`pair_ref`)·용량 되묻기 카드(`dose_check`)는 4단계 디자인 뒤 5단계 본 작업이다
  */
 export function ResultView({ response, basis, footer, onPickCandidate, onOtherCandidate, selectedCandidates, onRetryName, hideCandidatesLine = false }: ResultViewProps) {
   const showCandidates = response.end_reason === "CLARIFY" && response.candidates.length > 0 && onPickCandidate;
@@ -32,11 +43,8 @@ export function ResultView({ response, basis, footer, onPickCandidate, onOtherCa
   return (
     <NoMascotZone>
       <div data-testid="result-view" data-end-reason={response.end_reason ?? undefined} className="flex flex-col gap-2.5">
-        {response.notice !== null && (
-          <p data-testid="result-notice" className="m-0 rounded-xl bg-warn-bg px-3 py-2 text-[13px] leading-[19px] font-semibold break-words text-warn-ink">
-            {response.notice}
-          </p>
-        )}
+        {response.dose_notice !== null && <NoticeBand testId="dose-notice" text={response.dose_notice} />}
+        {response.notice !== null && <NoticeBand testId="result-notice" text={response.notice} />}
         {/* 오탈자 보정 고지(서버가 완성한 문장, FE-02). 요약보다 먼저·접히지 않는 자리에 받은 순서 그대로. "삐!" 표지·마스코트 없음 */}
         {response.name_corrections.length > 0 && (
           <ul data-testid="name-corrections" className="m-0 flex list-none flex-col gap-1 p-0">
@@ -51,6 +59,18 @@ export function ResultView({ response, basis, footer, onPickCandidate, onOtherCa
           <p data-testid="result-summary" className="m-0 text-base leading-[25px] break-words whitespace-pre-wrap">
             {response.summary}
           </p>
+        )}
+        {response.redose_notice !== null && <NoticeBand testId="redose-notice" text={response.redose_notice} />}
+        {/* 약 2개 이상 결과의 묶음 요약 한 줄(코드 칸, 서버 상수 틀 그대로). 결과 카드 바로 위 */}
+        {response.result_summary !== null && (
+          <div data-testid="result-summary-line" className="m-0 flex flex-col gap-1 px-1 text-[13px] leading-[19px] break-words text-ink-2">
+            <p className="m-0 font-semibold text-ink">{response.result_summary.text}</p>
+            {response.result_summary.pair_only_notice !== null && (
+              <p data-testid="pair-only-notice" className="m-0">
+                {response.result_summary.pair_only_notice}
+              </p>
+            )}
+          </div>
         )}
         <ResultCard response={response} basis={basis} footer={footer} />
         {/* 결과 카드 바로 아래 한 줄. 고정 안내·119를 밀어내지 않는다(그것들은 이 묶음 밖의 접히지 않는 영역이다) */}

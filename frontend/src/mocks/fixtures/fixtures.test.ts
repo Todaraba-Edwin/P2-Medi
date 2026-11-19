@@ -157,7 +157,11 @@ describe("AG-08·BE-06-13~17 새 칸의 fixture(서버 규칙과 같은 모양)"
   it("조사 '을(를)'은 받침으로 고른 글자만 남는다(josa.fill과 같은 규칙)", () => {
     expect(phrases.fillJosa("{drug}을(를) 찾지", "drug", "가나다정")).toBe("가나다정을 찾지");
     expect(phrases.fillJosa("{drug}을(를) 찾지", "drug", "판콜에이")).toBe("판콜에이를 찾지");
-    for (const response of Object.values(responses)) expect(JSON.stringify(response)).not.toContain("을(를)");
+    // 예외: 이전 선택 확인 질문(`clarifyPriorResponse`)은 서버 `router._single_question`이 `josa.fill` 없이 `.format`만 해서 "을(를)"이 그대로 나간다(백엔드 정정 후보). fixture는 서버 글자 그대로다
+    for (const [name, response] of Object.entries(responses)) {
+      if (name === "clarifyPriorResponse") continue;
+      expect(JSON.stringify(response), name).not.toContain("을(를)");
+    }
   });
 
   it("성분 상태 글자는 contra_kinds·dup에서 서버 규칙으로 정한 값이고 순서는 병용금기 원인 → 금기 원인 → 중복이다", () => {
@@ -247,6 +251,53 @@ describe("AG-08·BE-06-13~17 새 칸의 fixture(서버 규칙과 같은 모양)"
     }
     // 가짜 서버 `typo`와 같은 흐름: 진행 둘 → 답(보정 1건 + 병용금기 1건) → done
     expect(scenarios.typoCorrected.events.map((e) => e.type)).toEqual(["progress", "progress", "answer", "done"]);
+  });
+
+  it("이전 선택 확인 되묻기(AG-21-04 A): router가 상수 CLARIFY_PRIOR_PICK에 첫 후보(이전 선택)의 사전 제품명을 채우고, fixture도 같은 문장·첫 후보다", () => {
+    expect(router).toContain("return CLARIFY_PRIOR_PICK.format(drug=t.options[0].name)");
+    const first = responses.clarifyPriorResponse.candidates[0];
+    expect(responses.clarifyPriorResponse.summary).toBe(phrases.fillPriorPick(first.name));
+    expect(responses.clarifyPriorResponse.summary?.match(/\?/g)).toHaveLength(1);
+    // 서버가 `.format`만 하고 `josa.fill`을 거치지 않으므로(router.py `_single_question`) "을(를)"이 그대로 온다: fixture는 서버 글자와 같다(바뀌면 이 시험이 알린다)
+    expect(router).not.toMatch(/CLARIFY_PRIOR_PICK[^\n]*josa|fill\([^\n]*CLARIFY_PRIOR_PICK/);
+    expect(responses.clarifyPriorResponse.summary).toContain(`'${first.name}'을(를)`);
+    expect(responses.clarifyPriorResponse.end_reason).toBe("CLARIFY");
+    expect(scenarios.clarifyPrior.events.map((e) => e.type)).toEqual(["progress", "answer", "done"]);
+  });
+
+  it("GROUP-01 3단계 새 칸: 고지는 상수 그대로, 요약 글자는 서버 틀 그대로, 접힘 건수는 rest 줄 수, 짝 참조는 제품 줄에만, 되묻기 응답에는 결과 칸이 없다", () => {
+    const schemasPy = readFileSync(path.join(BACKEND, "api/schemas.py"), "utf8");
+    // 서버 검증 규칙(바뀌면 이 시험이 먼저 알린다)
+    expect(schemasPy).toContain("if self.dose_notice not in (None, fp.DOSE_NOTICE):");
+    expect(schemasPy).toContain("if self.redose_notice not in (None, fp.REDOSE_NOTICE):");
+    expect(schemasPy).toContain("if self.text != fp.PAIR_REF_LINE.format(n=self.count):");
+    expect(schemasPy).toContain("if self.text != fp.REST_FOLD_LINE.format(n=self.count):");
+    expect(responses.redoseResponse.redose_notice).toBe(phrases.PHRASES.REDOSE_NOTICE);
+    const summary = responses.resultSummaryResponse.result_summary!;
+    expect(summary.text).toBe(phrases.resultSummaryFound(3, [["가나다정", "라마바캡슐"]]));
+    expect(summary.text).toBe("약 3개를 함께 먹을 때: 병용금기 1건(가나다정 + 라마바캡슐)");
+    expect(summary.pair_only_notice).toBe(phrases.PHRASES.PAIR_ONLY_NOTICE);
+    const rest = responses.resultSummaryResponse.findings.filter((f) => f.section === "rest");
+    expect(responses.resultSummaryResponse.rest_fold).toEqual({ count: rest.length, text: phrases.PHRASES.REST_FOLD_LINE.replace("{n}", String(rest.length)), open_label: "펼치기", close_label: "접기" });
+    for (const [name, response] of Object.entries(responses)) {
+      for (const f of response.findings) {
+        if (f.pair_ref !== null) {
+          expect(f.target, name).toBe("product");
+          expect(f.pair_ref.text, name).toBe(phrases.PHRASES.PAIR_REF_LINE.replace("{n}", String(f.pair_ref.count)));
+          expect(f.badges.some((b) => b.kind === "contra_pair"), name).toBe(false); // 병용 배지 대신 짝 참조
+        }
+        if (f.caution_desc !== null) expect(f.caution_desc, name).toBe(phrases.PHRASES.DOSE_CAUTION_DESC);
+      }
+      expect(response.dose_notice === null || response.dose_notice === phrases.PHRASES.DOSE_NOTICE, name).toBe(true);
+      if (response.end_reason === "CLARIFY") {
+        expect(response.result_summary, name).toBeNull();
+        expect(response.rest_fold, name).toBeNull();
+        expect(response.dose_check, name).toBeNull();
+        expect(response.dose_notice, name).toBeNull();
+        expect(response.redose_notice, name).toBeNull();
+      }
+      if (response.result_summary !== null) expect(response.result_summary.pair_only_notice !== null, name).toBe(response.result_summary.n_drugs >= 3);
+    }
   });
 
   it("오류 이벤트의 문구는 코드별 상수이고 항상 있다", () => {
