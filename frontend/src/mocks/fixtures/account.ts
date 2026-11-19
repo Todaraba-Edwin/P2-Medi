@@ -1,6 +1,7 @@
 // 계정·약관 목의 합성 자료(FE-04). **실제 약관·방침이 아니다.** 실제 문서는 DB에서 버전 관리하고 API가 내려 준다.
 // 화면 코드는 이 파일을 가져다 쓰지 않는다(mock·시험 전용). 모양은 백엔드 `LegalDocumentOut`과 같다(`src/lib/api/account.ts`).
-import type { LegalDoc, LegalDocType } from "@/lib/api/account";
+import { DRUG_CANDIDATES_MAX, DRUG_MATCH_SIMILAR } from "@/lib/api/account";
+import type { DrugCandidate, DrugSearchResult, LegalDoc, LegalDocType } from "@/lib/api/account";
 
 /** 합성 본문 지문 자리(64자리 16진수 모양만 맞춘 값. 실제 해시가 아니다) */
 const fakeSha = (digit: string) => digit.repeat(64);
@@ -92,3 +93,74 @@ export const MOCK_LOGIN_FAIL_MARK = "mock-fail";
 export const MOCK_SIGNUP_TAKEN_MARK = "mock-taken";
 /** 이 글자가 이메일에 있으면 이미 동의·프로필을 마친 사용자로 로그인한다 */
 export const MOCK_ONBOARDED_MARK = "mock-onboarded";
+
+// ---------------------------------------------------------------- 약 이름 사전(합성, `POST /api/drugs/search` 목. FE-04-13 A)
+// 실제 사전(DB의 제품 47,773·성분 1,581)이 아니라 화면 개발용 합성 이름이다. 제품명은 채팅 목(`responses.ts`의 되묻기 후보)과 같은 이름·번호를 쓴다.
+interface MockDictEntry {
+  name: string;
+  item_seq: string | null;
+  entp_name: string | null;
+  prescription: string | null;
+  matched_by: DrugCandidate["matched_by"];
+  /** 이 글자로 찾으면 "비슷한 이름"(`bm25`) 후보로 낸다(오타 흉내) */
+  similar?: string[];
+}
+
+const product = (name: string, item_seq: string, entp_name: string, prescription: "일반" | "전문", similar?: string[]): MockDictEntry => ({ name, item_seq, entp_name, prescription, matched_by: "product_name", similar });
+const ingredient = (name: string): MockDictEntry => ({ name, item_seq: null, entp_name: null, prescription: null, matched_by: "ingredient_name" });
+
+/** 제품 → 성분 순서(백엔드 `lookup_name` 계약). `다목정`은 후보 상한(10)을 보는 12개짜리 묶음이다 */
+export const MOCK_DRUG_DICT: readonly MockDictEntry[] = [
+  product("가나다정 100밀리그램", "200000001", "합성제약(주)", "일반", ["가나다졍"]),
+  product("가나다정 500밀리그램", "200000002", "합성제약(주)", "전문"),
+  product("가나다시럽", "200000003", "가상약품(주)", "일반"),
+  product("가나다시럽 키즈", "200000004", "가상약품(주)", "일반"),
+  product("가나다시럽 플러스", "200000005", "합성제약(주)", "전문"),
+  product("라마바캡슐 10밀리그램", "200000006", "합성제약(주)", "일반"),
+  product("라마바캡슐 20밀리그램", "200000007", "가상약품(주)", "전문"),
+  ...Array.from({ length: 12 }, (_, index) => product(`다목정 ${index + 1}밀리그램`, `2000001${String(index + 1).padStart(2, "0")}`, "합성제약(주)", "일반")),
+  ingredient("가나다마이신"),
+  ingredient("라마바펜"),
+  ingredient("사아자페린"),
+];
+export const MOCK_DRUG_DICT_VERSION = "mock-dict-2026-11-20";
+/** 서버가 사전에서 확인한 품목 번호만 저장한다(`dict_item_seq_checker`): 목도 같은 규칙으로 사전에 없는 번호를 버린다 */
+export const MOCK_DRUG_ITEM_SEQS: ReadonlySet<string> = new Set(MOCK_DRUG_DICT.flatMap((entry) => (entry.item_seq ? [entry.item_seq] : [])));
+/** 검색어에 이 글자가 있으면 그 오류로 답한다(화면의 실패 처리 확인용 합성 규칙. 실제 서버에는 없다) */
+export const MOCK_DRUG_SEARCH_ERRORS: ReadonlyArray<readonly [mark: string, status: number, code: string]> = [
+  ["mock-401", 401, "AUTH_REQUIRED"],
+  ["mock-422", 422, "INVALID_REQUEST"],
+  ["mock-503", 503, "DICT_UNAVAILABLE"],
+];
+
+const normalize = (text: string) => text.normalize("NFC").toLowerCase().replace(/\s+/g, "");
+
+/**
+ * 합성 검색: 정규화한 이름의 일치 → 앞부분 → 포함 → 비슷한 이름 순서로 제품을 먼저, 성분을 나중에 낸다. 최대 10개.
+ * `needs_confirmation`은 후보가 여럿이거나 비슷한 이름이 섞였을 때 true, 후보가 없으면 false(백엔드 계약과 같다)
+ */
+export function searchMockDrugs(q: string): DrugSearchResult {
+  const key = normalize(q);
+  const matchType = (entry: MockDictEntry): string | null => {
+    const name = normalize(entry.name);
+    if (name === key) return "exact";
+    if (name.startsWith(key)) return "prefix";
+    if (name.includes(key)) return "contains";
+    if (entry.similar?.some((alias) => normalize(alias) === key)) return DRUG_MATCH_SIMILAR;
+    return null;
+  };
+  const candidates: DrugCandidate[] = [];
+  for (const matched_by of ["product_name", "ingredient_name"] as const) {
+    for (const entry of MOCK_DRUG_DICT) {
+      if (entry.matched_by !== matched_by) continue;
+      const match_type = matchType(entry);
+      if (!match_type || candidates.length >= DRUG_CANDIDATES_MAX) continue;
+      candidates.push({ name: entry.name, item_seq: entry.item_seq, entp_name: entry.entp_name, prescription: entry.prescription, matched_by, match_type });
+    }
+  }
+  return {
+    candidates,
+    needs_confirmation: candidates.length > 1 || candidates.some((candidate) => candidate.match_type === DRUG_MATCH_SIMILAR),
+    dict_version: MOCK_DRUG_DICT_VERSION,
+  };
+}

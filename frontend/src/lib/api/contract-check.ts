@@ -75,4 +75,10 @@ export type ContractChecks = [
   Expect<Extends<Gen["ProfileOut"]["relation"], A.Relation>>,
   Expect<Extends<NonNullable<Gen["ProfileOut"]["age_band"]>, A.AgeBand>>,
   Expect<Extends<NonNullable<Gen["ProfileOut"]["pregnancy_status"]>, A.PregnancyStatus>>,
+  // 프로필 약 검색(FE-04-13 A, `POST /drugs/search`)
+  Expect<Conforms<typeof A.DrugCandidateSchema, Gen["DrugCandidateOut"]>>,
+  Expect<Conforms<typeof A.DrugSearchResultSchema, Gen["DrugSearchOut"]>>,
+  Expect<Extends<Gen["DrugCandidateOut"]["matched_by"], A.DrugMatchedBy>>,
+  Expect<Extends<A.DrugMatchedBy, Gen["DrugCandidateOut"]["matched_by"]>>,
+  Expect<SameKeys<A.DrugSearchBody, { q: string }>>,
 ];

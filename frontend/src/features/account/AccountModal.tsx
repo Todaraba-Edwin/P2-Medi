@@ -91,6 +91,10 @@ export function AccountModal({ store = accountStore, container = null, hasEmerge
           onCloseAutoFocus={restoreFocus}
           // 바깥을 눌러도 닫지 않는다: 적던 값이 실수로 사라지지 않게 닫기·Esc로만 닫는다
           onPointerDownOutside={(event) => event.preventDefault()}
+          // 열린 콤보박스(약 검색 후보 목록) 위의 Esc는 목록만 닫는다(Radix는 document capture 단계에서 먼저 받으므로 여기서 막는다). 목록이 닫힌 뒤의 Esc는 모달을 닫는다
+          onEscapeKeyDown={(event) => {
+            if (event.target instanceof Element && event.target.closest('[role="combobox"][aria-expanded="true"]')) event.preventDefault();
+          }}
           className={MODAL_BOX_CLASS}
         >
           {flow.length > 1 && (

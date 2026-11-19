@@ -20,9 +20,11 @@ import {
   SOCIAL_PROVIDERS,
 } from "@/lib/api/account";
 import type { ConsentDocType, ConsentState, Me, Medication, OnboardingStep, Profile } from "@/lib/api/account";
-import { MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK, MOCK_SIGNUP_TAKEN_MARK } from "./fixtures/account";
+import { MOCK_DRUG_ITEM_SEQS, MOCK_DRUG_SEARCH_ERRORS, MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK, MOCK_SIGNUP_TAKEN_MARK, searchMockDrugs } from "./fixtures/account";
 
 const CredentialsSchema = z.object({ email: z.string().min(1), password: z.string().min(1) });
+/** `DrugSearchIn`(백엔드 `drugs.py`): 앞뒤 공백 제거 뒤 1~100자, 다른 칸은 422 */
+const DrugSearchInSchema = z.strictObject({ q: z.string().trim().min(1).max(MEDICATION_NAME_MAX_CHARS) });
 // 요청 모델(백엔드 `_Strict`: 모르는 칸은 422)
 const ConsentRequestSchema = z.strictObject({
   items: z
@@ -124,8 +126,11 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
   };
 
   const medications = (items: z.infer<typeof MedicationInSchema>[]): Medication[] =>
-    // 목에는 품목 확인 함수가 없다: 백엔드처럼 원문만 저장한다(`item_seq`·`confirmed_at`은 null)
-    items.map((item) => ({ medication_id: nextId(2), input_text: item.input_text, item_seq: null, confirmed_at: null }));
+    // 백엔드 `dict_item_seq_checker`처럼 사전에 있는 품목 번호만 남기고(확인 시각을 붙인다) 없는 번호는 버려 원문만 저장한다
+    items.map((item) => {
+      const confirmed = item.item_seq != null && MOCK_DRUG_ITEM_SEQS.has(item.item_seq);
+      return { medication_id: nextId(2), input_text: item.input_text, item_seq: confirmed ? item.item_seq! : null, confirmed_at: confirmed ? NOW : null };
+    });
 
   const login = (email = "") => {
     const session: Session = { step: "consent", completedAt: null, consents: {}, profiles: [] };
@@ -209,6 +214,17 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
       }
       return HttpResponse.json(me(session), { status: 201, headers: NO_STORE });
     }),
+
+    // ---- 프로필 약 이름 검색(FE-04-13 A·FE-04-21 A: POST 본문 `{q}`, 로그인 필요, 질문은 되돌려 주지 않는다). GET은 405(백엔드와 같다)
+    http.post("*/api/drugs/search", async ({ request }) => {
+      if (!state.session) return error(401, "AUTH_REQUIRED");
+      const body = DrugSearchInSchema.safeParse(await request.json().catch(() => null));
+      if (!body.success) return error(422, "INVALID_REQUEST", ["q"]);
+      const forced = MOCK_DRUG_SEARCH_ERRORS.find(([mark]) => body.data.q.includes(mark));
+      if (forced) return error(forced[1], forced[2], forced[2] === "INVALID_REQUEST" ? ["q"] : []);
+      return HttpResponse.json(searchMockDrugs(body.data.q), { headers: NO_STORE });
+    }),
+    http.get("*/api/drugs/search", () => new HttpResponse(null, { status: 405, headers: NO_STORE })),
 
     http.get("*/api/profiles", () => (state.session ? HttpResponse.json(state.session.profiles, { headers: NO_STORE }) : error(401, "AUTH_REQUIRED"))),
 
