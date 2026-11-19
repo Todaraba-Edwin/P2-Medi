@@ -73,7 +73,7 @@ def _code_counts(raw: Any) -> dict[str, int]:
 
 def _check_counts(events: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     """validator span의 사유 건수(AG-13-12 A). 문장 필터(`SENTENCE_FILTER`, H1)와 Validator(`VALIDATOR`, H2) 이벤트의 `reasons`를 코드별로 더하고,
-    계층 검사를 켰으면(C3) `claim_gaps` 건수도 싣는다. 문장 원문·근거 ID는 넣지 않는다. 건수가 없으면 키를 만들지 않는다."""
+    계층 검사를 켰으면(C3) `claim_gaps` 건수와 기록만 한 검사 건수(`recorded`, C3 v4)도 싣는다. 문장 원문·근거 ID는 넣지 않는다. 건수가 없으면 키를 만들지 않는다."""
     out: dict[str, dict[str, int]] = {}
     for e in events:
         if not isinstance(e, dict):
@@ -86,6 +86,9 @@ def _check_counts(events: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
         if e.get("event") == "VALIDATOR":
             for k, n in _code_counts(e.get("claim_gaps")).items():
                 out.setdefault("claim_gaps", {})[k] = out.get("claim_gaps", {}).get(k, 0) + n
+            # C3 v4(AG-13-29 A): 되감기 대신 기록만 한 검사(⑯) 건수. 키가 없는 이벤트(C1·C1+·C2)는 기존 모양 그대로
+            for k, n in _code_counts(e.get("recorded")).items():
+                out.setdefault("recorded", {})[k] = out.get("recorded", {}).get(k, 0) + n
     return out
 
 

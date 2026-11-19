@@ -48,6 +48,7 @@ from app.agent.pipeline.build import (  # noqa: E402
     harness_profile,
 )
 from app.agent.validator import CLAIM_OMITTED, GAP_ANSWER_OMIT, INGREDIENT_NOT_IN_EVIDENCE  # noqa: E402
+from app.agent.validator import MISSING_ADVICE_ABSENT as V_MISSING  # noqa: E402
 from app.config import Settings  # noqa: E402
 
 COLD, AZI = "타이레놀콜드-에스정", "이지렉트정1.0밀리그램"
@@ -210,14 +211,17 @@ def test_build_for_condition_does_not_mutate_injected_deps(validate_calls):
     assert st["end_reason"] and validate_calls and all(c == {} for c in validate_calls)
 
 
-def test_validator_node_c2_passes_and_c3_rewinds_on_answer_omit():
-    """같은 상태: C2(꺼짐)는 기준선대로 통과, C3(켜짐)는 ⑯ ANSWER_OMIT로 되감기 1회."""
+def test_validator_node_c2_passes_and_c3_records_answer_omit():
+    """같은 상태: C2(꺼짐)는 기준선대로 통과. C3 v4(AG-13-29 A)는 ⑯ ANSWER_OMIT를 되감지 않고 건수만 기록한 뒤 통과한다(v1~v3은 되감기)."""
     off = make_raw_nodes(_bare_deps())["validator"](_omit_state())
-    assert off["validation"]["status"] != "FAIL" and off["validation"]["next"] == "finalize"
+    assert off["validation"]["status"] != "FAIL" and off["validation"]["next"] == "finalize" and "recorded" not in off["validation"]
     on = make_raw_nodes(_bare_deps(layer_check=True))["validator"](_omit_state())
-    assert on["validation"]["status"] == "FAIL" and on["validation"]["reasons"] == [CLAIM_OMITTED] and on["validation"]["next"] == "rewind"
+    assert on["validation"]["status"] == "PASS" and on["validation"]["reasons"] == [] and on["validation"]["next"] == "finalize"
+    assert on["validation"]["recorded"] == {CLAIM_OMITTED: 1} and "messages" not in on and on["final_sentences"]
+    assert "rewind_count" not in on and not any(e.get("event") == "REWIND" for e in on["events"])
     ev = next(e for e in on["events"] if e.get("event") == "VALIDATOR")
-    assert ev["claim_gaps"] == {GAP_ANSWER_OMIT: 1}
+    assert ev["claim_gaps"] == {GAP_ANSWER_OMIT: 1} and ev["reasons"] == {CLAIM_OMITTED: 1}   # 검사 결과(사유)는 그대로 남는다
+    assert ev["status"] == "PASS" and ev["recorded"] == {CLAIM_OMITTED: 1}                     # 이벤트 상태는 노드 판단과 같게
 
 
 def test_harness_profile_c3_row_and_unknown_condition():
@@ -254,6 +258,8 @@ def test_validator_span_carries_reason_counts_without_text():
     summ = span["output_summary"]
     assert summ["validator_reasons"] == {INGREDIENT_NOT_IN_EVIDENCE: 1, CLAIM_OMITTED: 1}
     assert summ["claim_gaps"] == {GAP_ANSWER_OMIT: 1}
+    assert summ["recorded"] == {CLAIM_OMITTED: 1}             # C3 v4: ⑯은 기록만(되감기 사유 `violations`에는 없음)
+    assert CLAIM_OMITTED not in span["violations"] and span["verdict"] == "fix"
     assert "filter_reasons" not in summ                       # 문장 필터에서 걸린 문장이 없으면 키를 만들지 않는다
     blob = json.dumps(span, ensure_ascii=False)
     assert "가상성분" not in blob and "허가사항" not in blob and PREG not in json.dumps(summ)   # 원문·근거 ID 없음
@@ -266,7 +272,7 @@ def test_validator_span_reason_counts_also_in_c2_and_filter_reasons():
     make_nodes(deps)["validator"]({"evidence": [_preg_found()], "draft": d.model_dump(), "call_count": 2})
     span = next(r for r in sink.records if r.get("node") == "validator" and "harness_event" not in r)
     summ = span["output_summary"]
-    assert summ["filter_reasons"] == {"NO_EVIDENCE": 1} and "claim_gaps" not in summ
+    assert summ["filter_reasons"] == {"NO_EVIDENCE": 1} and "claim_gaps" not in summ and "recorded" not in summ
     assert "근거 없는" not in json.dumps(span, ensure_ascii=False)
 
 
@@ -293,20 +299,17 @@ def _rewind_text(upd: dict[str, Any]) -> str:
     return str(msg.content)
 
 
-def test_c3_version_is_v3():
-    assert C3_VERSION == "c3-layer-check@v3"
-    assert harness_profile("C3")["c3_version"] == "c3-layer-check@v3"
+def test_c3_version_is_v4():
+    assert C3_VERSION == "c3-layer-check@v4"
+    assert harness_profile("C3")["c3_version"] == "c3-layer-check@v4"
     assert C3_IMPROVEMENTS == ("AG07_LAYER_CHECK",)            # 장치 이름은 그대로, 판 번호로만 구분(AG-13-25 A)
 
 
-def test_c3_claim_omitted_rewind_message_quotes_found_verdict():
-    """C3 ⑯ 되감기: 기존 문구 + 고정 지시 + 코드가 만든 FOUND 판정 줄(금기 종류·성분명·근거 ID). 성분명은 중복 없이 한 번."""
-    text = _rewind_text(make_raw_nodes(_bare_deps(layer_check=True))["validator"](_named_omit_state()))
-    assert text.startswith(N.REWIND_MESSAGE.format(reasons=CLAIM_OMITTED))
-    assert N.CLAIM_OMIT_HINT_HEAD in text
-    assert N.CLAIM_OMIT_HINT_LINE.format(kind="임부금기", names="합성성분A", eid=PREG) in text
-    assert text.count("합성성분A") == 1
-    assert "허가사항 안내에는" not in text                    # 모델이 쓴 문장은 메시지에 넣지 않는다
+def test_c3_v4_claim_omitted_no_rewind_and_no_hint():
+    """C3 v4: ⑯만 걸린 답은 되감지 않는다. v2 보강 지시(`claim_omit_hint`)는 그래프에서 더 쓰지 않는다(함수는 이전 판 재현용으로 남김)."""
+    upd = make_raw_nodes(_bare_deps(layer_check=True))["validator"](_named_omit_state())
+    assert upd["validation"]["next"] == "finalize" and "messages" not in upd
+    assert N.CLAIM_OMIT_HINT_HEAD not in json.dumps(upd, ensure_ascii=False, default=str)
 
 
 def test_c2_same_state_has_no_hint_and_passes():
@@ -341,13 +344,100 @@ def test_claim_omit_hint_caps_items():
     assert len(hint.splitlines()) == 1 + N.CLAIM_OMIT_MAX_ITEMS
 
 
-def test_c3_v2_hint_not_in_span_or_events():
-    """보강 지시(성분명·근거 ID)는 모델 입력에만 있고 validator span·이벤트에는 없다(AG-13-12)."""
+def test_c3_v4_records_not_in_span_text_or_ids():
+    """⑯ 기록은 사유 코드 건수뿐이다. 성분명·근거 ID·지시 문구는 validator span·이벤트·상태에 없다(AG-13-12)."""
     sink = ListSink()
     upd = make_nodes(_bare_deps(layer_check=True, tracer=GraphTracer(sink=sink)))["validator"](_named_omit_state())
-    assert N.CLAIM_OMIT_HINT_HEAD in _rewind_text(upd)
     blob = json.dumps([*sink.records, upd["events"], upd["validation"]], ensure_ascii=False)
     assert "합성성분A" not in blob and "빠진 주장 유형" not in blob and PREG not in blob
+    span = next(r for r in sink.records if r.get("node") == "validator" and "harness_event" not in r)
+    assert span["output_summary"]["recorded"] == {CLAIM_OMITTED: 1} and span["verdict"] == "pass"
+
+
+# --------------------------------------------------------------------------- AG-13-32 A: ⑥ 되감기 메시지에 미확보 근거 ID(c3-layer-check@v4)
+LABEL_MISS = "label:900001ATB:dosage"
+SEARCH_MISS = "search:search_label:abcdef012345"
+
+
+def _label_miss() -> dict[str, Any]:
+    """라벨 원문 미확보(`label_provider=None`) 항목. `get_label_section` 출력 모양(합성)."""
+    return {"kind": "label", "status": "NO_EVIDENCE", "evidence_id": LABEL_MISS, "subject": ["900001ATB", "dosage"], "source": None,
+            "source_kind": None, "flags": [], "matches": [], "missing_reason": "OUT_OF_SCOPE", "is_label": True, "text": None}
+
+
+def _search_miss() -> dict[str, Any]:
+    return {"kind": "search_miss", "status": "NO_EVIDENCE", "evidence_id": SEARCH_MISS, "subject": ["search_label"], "source": None,
+            "source_kind": None, "flags": [], "matches": [], "missing_reason": "SEARCH_MISS", "verdict_allowed": False, "text": None}
+
+
+def _missing_state() -> dict[str, Any]:
+    """FOUND 임부금기를 말한 문장은 있지만 라벨 미확보 항목에 약사 확인 안내가 없는 상태(⑥만 걸림, ⑯ 아님)."""
+    d = AnswerDraft(sentences=[S("임부금기 2등급으로 올라 있어요.", [PREG])])
+    return {"evidence": [_preg_found(), _label_miss()], "draft": d.model_dump(), "required_claims": REQ, "call_count": 2, "rewind_count": 0}
+
+
+def test_c2_missing_advice_rewind_message_is_baseline():
+    """C2: ⑥ 되감기 메시지는 기준선 문구 그대로(힌트 없음), 상태에 `recorded` 키가 없다."""
+    upd = make_raw_nodes(_bare_deps())["validator"](_missing_state())
+    assert upd["validation"]["reasons"] == [V_MISSING]
+    assert _rewind_text(upd).encode("utf-8") == N.REWIND_MESSAGE.format(reasons=V_MISSING).encode("utf-8")
+    assert "recorded" not in upd["validation"]
+    assert all("recorded" not in e for e in upd["events"])
+
+
+def test_c3_v4_missing_advice_rewind_message_lists_missing_ids():
+    """C3 v4: ⑥ 되감기 = 기준선 문구 + 줄바꿈 + 고정 지시 + 미확보 근거 ID 줄(코드 값만)."""
+    text = _rewind_text(make_raw_nodes(_bare_deps(layer_check=True))["validator"](_missing_state()))
+    hint = N.MISSING_ADVICE_HINT_HEAD + "\n" + N.MISSING_ADVICE_HINT_LINE.format(what="허가사항 원문", eid=LABEL_MISS)
+    assert text == N.REWIND_MESSAGE.format(reasons=V_MISSING) + "\n" + hint
+    assert "임부금기 2등급" not in text                        # 모델이 쓴 문장은 메시지에 넣지 않는다
+
+
+def test_c3_v4_omit_and_missing_rewinds_for_missing_only():
+    """⑯과 ⑥이 함께 걸리면 ⑥으로만 되감는다(사유에 ⑯ 없음, ⑯ 지시 없음), ⑯은 기록에 남는다."""
+    st = _omit_state()
+    st["evidence"] = [_preg_found(), _label(), _label_miss()]
+    upd = make_raw_nodes(_bare_deps(layer_check=True))["validator"](st)
+    assert upd["validation"]["status"] == "FAIL" and upd["validation"]["reasons"] == [V_MISSING]
+    assert upd["validation"]["recorded"] == {CLAIM_OMITTED: 1}
+    text = _rewind_text(upd)
+    assert N.MISSING_ADVICE_HINT_HEAD in text and LABEL_MISS in text and N.CLAIM_OMIT_HINT_HEAD not in text and CLAIM_OMITTED not in text
+    ev = next(e for e in upd["events"] if e.get("event") == "VALIDATOR")
+    assert ev["status"] == "FAIL" and ev["recorded"] == {CLAIM_OMITTED: 1}
+    assert next(e for e in upd["events"] if e.get("event") == "REWIND")["reasons"] == [V_MISSING]
+
+
+def test_c3_v4_hint_in_second_summary_input_via_v3_path():
+    """⑥ 힌트가 든 되감기 메시지는 v3 경로(마지막 되감기를 요약 지시 뒤에)로 둘째 요약 호출에 그대로 들어간다. C2는 들어가지 않는다."""
+    msg = _rewind_text(make_raw_nodes(_bare_deps(layer_check=True))["validator"](_missing_state()))
+    st = _summary_state(msg)
+    c3 = _summary_body(replace(_bare_deps(layer_check=True), system_prompt=SYS), st)
+    c2 = _summary_body(replace(_bare_deps(), system_prompt=SYS), st)
+    assert c3 == _baseline_summary_text(Q_PAIR, TOOL_BLOCK, N.SUMMARY_INSTRUCTION) + "\n\n" + msg and LABEL_MISS in c3
+    assert c2 == _baseline_summary_text(Q_PAIR, TOOL_BLOCK, N.SUMMARY_INSTRUCTION) and LABEL_MISS not in c2
+
+
+def test_c3_v4_missing_hint_not_in_span_or_events():
+    sink = ListSink()
+    upd = make_nodes(_bare_deps(layer_check=True, tracer=GraphTracer(sink=sink)))["validator"](_missing_state())
+    assert LABEL_MISS in _rewind_text(upd)
+    blob = json.dumps([*sink.records, upd["events"], upd["validation"]], ensure_ascii=False)
+    assert LABEL_MISS not in blob and "약사 확인 안내가 빠진" not in blob
+
+
+def test_missing_advice_hint_values_and_caps():
+    preg = _preg_found()
+    hint = N.missing_advice_hint([LABEL_MISS, SEARCH_MISS, PREG, "없는:ID", LABEL_MISS], [preg, _label_miss(), _search_miss()])
+    lines = hint.splitlines()
+    assert lines == [N.MISSING_ADVICE_HINT_HEAD,                                       # 미확보 아님·묶음에 없음·중복은 건너뛴다
+                     N.MISSING_ADVICE_HINT_LINE.format(what="허가사항 원문", eid=LABEL_MISS),
+                     N.MISSING_ADVICE_HINT_LINE.format(what="검색 근거", eid=SEARCH_MISS)]
+    other = {"kind": "contra_pair", "status": "UNIDENTIFIED", "evidence_id": "contra_pair:X:Y", "missing_reason": "UNIDENTIFIED"}
+    assert N.missing_advice_hint(["contra_pair:X:Y"], [other]).splitlines()[1] == N.MISSING_ADVICE_HINT_LINE.format(
+        what=N.MISSING_ADVICE_KIND_OTHER, eid="contra_pair:X:Y")
+    assert N.missing_advice_hint([], []) == "" and N.missing_advice_hint([PREG], [preg]) == ""
+    many = [{**_label_miss(), "evidence_id": f"label:{i}:dosage"} for i in range(9)]
+    assert len(N.missing_advice_hint([m["evidence_id"] for m in many], many).splitlines()) == 1 + N.MISSING_ADVICE_MAX_ITEMS
 
 
 # --------------------------------------------------------------------------- AG-13-23 A: 되감기 메시지를 요약 호출에도 전달(c3-layer-check@v3)
@@ -443,6 +533,42 @@ def test_pipeline_summary_input_unchanged_by_v3(cond):
     rec = _graph_summaries(cond, layer_check=True)
     assert len(rec.bodies) == 2 and rec.bodies[1] == rec.bodies[0] and "[HARNESS]" not in rec.bodies[1]
     assert rec.tails == [0, 1]
+
+
+# --------------------------------------------------------------------------- AG-13-35 A: 러너 `--note`(결과 meta에 그대로, 동결 값 아님)
+NOTE = "caution_rule@v1·intake@v1 합성 메모"
+
+
+def _run_args(tmp_path: Path, name: str, *extra: str) -> tuple[int, dict[str, Any]]:
+    out = tmp_path / f"{name}.json"
+    rc = R.main(["--set", str(_synth_set(tmp_path)), "--agent", "graph", "--max-usd", "1", "--out", str(out), "--condition", "C2", *extra],
+                settings_fn=_settings, resources_factory=Factory(), registry_path=tmp_path / "registry.jsonl")
+    return rc, (json.loads(out.read_text(encoding="utf-8")) if out.exists() else {})
+
+
+def test_runner_note_kept_verbatim_in_meta_and_absent_without(tmp_path):
+    rc, with_note = _run_args(tmp_path, "with", "--note", NOTE)
+    rc2, without = _run_args(tmp_path, "without")
+    assert rc == rc2 == 0
+    assert with_note["meta"]["note"] == NOTE                     # 글자 그대로
+    assert "note" not in without["meta"]                          # 주지 않으면 키가 없다(기존 결과 모양 그대로)
+
+
+def test_runner_note_is_not_a_freeze_value(tmp_path):
+    """메모는 동결 비교에 들지 않는다: 메모만 다른 두 결과는 `--same` 차이 0, 메모 없는 결과를 기준선으로 가드도 통과(이유 없이)."""
+    _, base = _run_args(tmp_path, "base")
+    base_path = tmp_path / "base.json"
+    rc, noted = _run_args(tmp_path, "noted", "--note", NOTE, "--baseline", str(base_path))
+    assert rc == 0 and noted["meta"]["freeze_baseline"]["diffs"] == [] and noted["meta"]["freeze_baseline"]["reason"] is None
+    assert FZ.same_freeze(base, noted) == []
+    assert "note" not in FZ.freeze_values(noted)
+
+
+def test_runner_note_offline_agent_too(tmp_path):
+    out = tmp_path / "offline.json"
+    rc = R.main(["--set", str(_synth_set(tmp_path)), "--agent", "offline-fixed", "--out", str(out), "--note", NOTE],
+                settings_fn=_settings, registry_path=tmp_path / "registry.jsonl")
+    assert rc == 0 and json.loads(out.read_text(encoding="utf-8"))["meta"]["note"] == NOTE
 
 
 def test_check_counts_keeps_only_code_shaped_positive_int_counts():
