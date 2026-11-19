@@ -62,6 +62,9 @@ class AgentState(TypedDict, total=False):
     # AG-21-02 A: 같은 대화의 이전 차례에서 고른 약(`{"name", "item_seq", "input_name"}`). 확정에 쓰지 않고 확인 되묻기에만 쓴다
     # (`router.apply_prior`). 어느 노드도 쓰지 않는 입력 전용 키다
     prior_drugs: list[dict[str, str]]
+    # AG-22-05 A: 용량주의 되묻기 답(요청 `context.took_today`, 예=True·아니요=False·답 없음=None). 어느 노드도 쓰지 않는 입력 전용 키이고
+    # 저장·로그·이벤트에 남기지 않는다. `finalize`만 읽어 `dose_check`·`dose_notice`를 정한다(평가 경로에는 없다)
+    took_today: bool | None
     # guardrail_in(AG-08)
     emergency: Annotated[bool, _or]
     route: Annotated[str, _sticky_route]
@@ -79,6 +82,8 @@ class AgentState(TypedDict, total=False):
     clarify: dict[str, Any] | None
     truncated: bool
     required_claims: list[str]  # AG-05: 필요한 주장 유형(코드 규칙 부분). 쓰는 쪽은 router뿐이다
+    intake_question: bool  # AG-22-06 A: 복용 관련 질문(주의 조회 규칙·용량주의 되묻기 조건). 쓰는 쪽은 router뿐이다
+    redose_question: bool  # AG-22-01 A: 재복용 질문(재복용 고지 조건). 쓰는 쪽은 router뿐이다
     # model ⇄ tools
     messages: Annotated[list[Any], add_messages]
     call_count: int

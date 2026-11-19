@@ -72,27 +72,33 @@ def _as_finding(r) -> Finding:
 
 
 # --------------------------------------------------------------------------- 한 제품 줄에 배지 여러 개
-def test_pair_and_pregnancy_on_same_product_give_one_row_with_two_badges():
+# FE-11-05 A(2026-11-19, AG-08-29 A 대체): 제품 줄에는 병용 배지를 달지 않고 짝 참조(`pair_ref`)만 둔다. "삐! 병용금기"는 짝 줄(entries)에만
+def test_pair_and_pregnancy_on_same_product_give_one_row_with_pregnancy_badge_and_pair_ref():
     resp = finalize([_pair(), _single("pregnancy")])
     rows = _rows(resp)
-    assert [b["text"] for b in rows["SEQ_A"]["badges"]] == [fp.BADGE_PAIR, fp.BADGE_PREGNANCY.format(grade="2")]
-    assert rows["SEQ_A"]["contra_kinds"] == ["contra_pair", "pregnancy"]
-    assert [b["text"] for b in rows["SEQ_B"]["badges"]] == [fp.BADGE_PAIR]  # 쌍의 다른 쪽도 병용 배지
+    assert [b["text"] for b in rows["SEQ_A"]["badges"]] == [fp.BADGE_PREGNANCY.format(grade="2")]
+    assert rows["SEQ_A"]["contra_kinds"] == ["contra_pair", "pregnancy"]  # 성분 칩 원인 글자는 유지
+    assert rows["SEQ_A"]["pair_ref"]["count"] == 1
+    # 쌍의 다른 쪽: 배지 없는 "찾음" 줄 + 짝 참조(C-4 A: 구역 core)
+    assert rows["SEQ_B"]["badges"] == [] and rows["SEQ_B"]["bucket"] == "identified" and rows["SEQ_B"]["text"] == fp.IDENTIFIED_LINE
+    assert rows["SEQ_B"]["pair_ref"]["text"] == fp.PAIR_REF_LINE.format(n=1) and rows["SEQ_B"]["section"] == "core"
     _as_finding(rows["SEQ_A"])  # `Finding.badges` 순서 검증 통과
+    _as_finding(rows["SEQ_B"])  # 배지 없는 identified 줄도 통과
 
 
 def test_pair_pregnancy_age_order_matches_schema_check():
     items = [_single("age"), _single("pregnancy"), _pair()]  # 입력 순서를 일부러 뒤집는다
     row = _rows(finalize(items))["SEQ_A"]
-    assert [b["kind"] for b in row["badges"]] == ["contra_pair", "pregnancy", "age"]
-    assert [b["text"] for b in row["badges"]] == [fp.BADGE_PAIR, fp.BADGE_PREGNANCY.format(grade="2"), fp.BADGE_AGE]
+    assert [b["kind"] for b in row["badges"]] == ["pregnancy", "age"]
+    assert [b["text"] for b in row["badges"]] == [fp.BADGE_PREGNANCY.format(grade="2"), fp.BADGE_AGE]
     _as_finding(row)
 
 
-def test_two_pairs_on_one_product_give_one_pair_badge_but_keep_both_evidence():
+def test_two_pairs_on_one_product_give_pair_ref_two_and_keep_both_evidence():
     items = [_pair(), _pair(b=("클로피도그렐정", "SEQ_D"))]
     row = _rows(finalize(items))["SEQ_A"]
-    assert [b["text"] for b in row["badges"]] == [fp.BADGE_PAIR]
+    assert row["badges"] == [] and row["pair_ref"]["count"] == 2 and row["pair_ref"]["text"] == fp.PAIR_REF_LINE.format(n=2)
+    assert row["pair_ref"]["evidence_ids"] == ["contra_pair:SEQ_A:SEQ_B", "contra_pair:SEQ_A:SEQ_D"]
     assert row["evidence_ids"] == ["contra_pair:SEQ_A:SEQ_B", "contra_pair:SEQ_A:SEQ_D"]
 
 

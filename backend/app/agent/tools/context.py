@@ -41,3 +41,6 @@ class ToolContext:
     corpus: Any = None                            # AG-03 `CorpusIndex`(로컬 청크 인덱스). None이면 검색 도구는 OUT_OF_SCOPE
     vector_search_fn: Any = None                  # AG-03 `VectorSearchFn`(주입, 원격 pgvector 어댑터). None이면 BM25 단독
     remaining_calls: int = 6                      # ARG_SCHEMA 메시지에 알릴 남은 도구 호출 수(H21, 그래프가 갱신)
+    # 이번 요청에서 조회할 주의 종류(AG-22-04 A, `intake.caution_kinds`). 그래프 `tools` 노드가 상태로 갱신한다(요청마다 새 ToolContext).
+    # 비어 있으면 주의 3종을 조회하지 않는다(LLM 인자 `include_cautions`는 없앴다, C-1 A)
+    caution_kinds: frozenset[str] = frozenset()

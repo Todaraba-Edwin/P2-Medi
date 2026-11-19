@@ -30,6 +30,7 @@ from app.agent.graph.state import (
     AgentState,
     restrict_update,
 )
+from app.agent.intake import caution_kinds
 from app.agent.router import FLAG_PRIOR_PICK, FLAG_USER_CONFIRMED, corrections_of, note_entities, route_input
 from app.agent.sentence_filter import filter_sentences
 from app.agent.tools.context import ToolContext
@@ -213,6 +214,7 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         upd: dict[str, Any] = {"evidence": [], "known_ids": set(), "input_units": {}, "events": []}
         for tc in getattr(last, "tool_calls", None) or []:
             deps.tool_ctx.remaining_calls = max(deps.max_calls - state.get("call_count", 0), 0)
+            deps.tool_ctx.caution_kinds = caution_kinds(state)  # AG-22-04 A: 주의 3종은 코드 규칙(LLM 인자 아님). C1도 이 본문을 쓴다
             name, args = tc.get("name", ""), tc.get("args") or {}
             out: dict[str, Any]
             with _tool_span(deps, name, args, state.get("call_count", 0)) as rec:
@@ -305,6 +307,17 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         # 붙일 자리(문구는 AG-01-11 A로 승인, `finalize`가 붙인다). 되묻기(후보 제시)는 이 함수를 지나지 않는다
         if state.get("emergency") and not any(isinstance(e, dict) and e.get("status") == "RESOLVED" for e in state.get("entities") or []):
             extra["emergency_no_drug"] = True
+        # AG-22·FE-11(2026-11-19): 복용 관련·재복용 질문 신호, 용량주의 되묻기 답(`took_today`, 입력 전용·로그 금지), 질문 속 약 수(요약 한 줄).
+        # 값이 기본값이면 넘기지 않는다(기존 출력 불변)
+        if state.get("intake_question"):
+            extra["intake_question"] = True
+        if state.get("redose_question"):
+            extra["redose_question"] = True
+        if state.get("took_today") is not None:
+            extra["took_today"] = bool(state["took_today"])
+        n_drugs = sum(1 for e in state.get("entities") or [] if isinstance(e, dict))
+        if n_drugs >= 2:
+            extra["n_drugs"] = n_drugs
         if deps.grade_def_fn is not None:  # 함수가 주입되지 않았으면 아무것도 넘기지 않는다(기존 출력 불변)
             defs, missing = grade_def_inputs(items, deps.grade_def_fn)
             if defs:

@@ -38,6 +38,76 @@ _GRADES = ("1", "2", "M")
 ADVICE_KIND_MISSING = "missing"
 ADVICE_KIND_GRADE_DEF = "grade_def"
 ADVICE_KINDS = (ADVICE_KIND_MISSING, ADVICE_KIND_GRADE_DEF)
+# 결과 구역(FE-11-04 A). 화면에 나오는 글자가 아니라 구역 키다. 판정이 아닌 검색 근거 줄은 구역 값이 없다(None, C-3 B)
+SECTION_CORE, SECTION_CAUTION, SECTION_REST, SECTION_UNCONFIRMED = "core", "caution", "rest", "unconfirmed"
+SECTIONS = (SECTION_CORE, SECTION_CAUTION, SECTION_REST, SECTION_UNCONFIRMED)
+_CAUTION_SECTION_KINDS = ("dose", "lactation", "elderly", "dup_ingredient")  # 금기가 아닌 주의·성분 중복
+_JUDGED_SECTION_KINDS = (*fp.BADGE_ORDER, *_CAUTION_SECTION_KINDS, "identify")  # 구역을 갖는 줄 종류(판정·식별). 그 밖은 None(C-3 B)
+
+
+def _section(it: dict[str, Any], bucket: int) -> str | None:
+    """근거 줄 하나의 구역(FE-11-04 A). 확인 못 함 → unconfirmed, 금기 FOUND → core, 주의·중복 FOUND → caution,
+    목록에 없음·식별(찾음) → rest. 판정·식별이 아닌 검색 근거(`chunk` 등)는 None(근거 상세에만, C-3 B)."""
+    kind = it.get("kind")
+    if kind not in _JUDGED_SECTION_KINDS:
+        return None
+    if bucket == BUCKET_UNCONFIRMED:
+        return SECTION_UNCONFIRMED
+    if bucket == BUCKET_FOUND:
+        return SECTION_CORE if kind in fp.BADGE_ORDER else (SECTION_REST if kind == "identify" else SECTION_CAUTION)
+    return SECTION_REST
+
+
+def _pair_key(it: dict[str, Any]) -> tuple[str, ...] | None:
+    """짝 항목의 두 약 키(순서 무관). 키가 없으면 이름으로 대신한다."""
+    keys = _item_keys(it) or _names(it)
+    return tuple(sorted(str(k) for k in keys)) if len(keys) == 2 else None
+
+
+def _result_summary(buckets: list[tuple[dict[str, Any], int]], n_drugs: int) -> dict[str, Any] | None:
+    """약 2개 이상 결과의 맨 위 요약(FE-11-04 A, 문구 ④⑤ 2026-11-19 원문 승인). LLM `summary`와 별개의 코드 칸이다.
+
+    짝 조회 항목(`contra_pair`·같은 성분 `dup_ingredient`)이 하나도 없으면(판정 도구를 부르지 않음) 만들지 않는다: "짝 없음"을 지어내지 않는다.
+    확인 못 한 짝 = 확인 못 함 묶음의 짝 + 질문 속 약 수로 생기는 짝 중 결과에 없는 짝. 접힘 줄 건수(⑥)는 화면 줄 기준이라 응답 변환이 센다."""
+    if n_drugs < 2:
+        return None
+    found: dict[tuple[str, ...], dict[str, Any]] = {}
+    checked: set[tuple[str, ...]] = set()
+    unconfirmed: set[tuple[str, ...]] = set()
+    for it, b in buckets:
+        if it.get("kind") not in ("contra_pair", "dup_ingredient"):
+            continue
+        pk = _pair_key(it)
+        if pk is None:
+            continue
+        if it.get("kind") == "contra_pair" and b == BUCKET_FOUND:
+            names = _names(it)
+            f = found.setdefault(pk, {"drugs": names[:2] if len(names) >= 2 else list(pk), "evidence_ids": []})
+            if it.get("evidence_id") and it["evidence_id"] not in f["evidence_ids"]:
+                f["evidence_ids"].append(it["evidence_id"])
+        if b == BUCKET_UNCONFIRMED:
+            unconfirmed.add(pk)
+        else:
+            checked.add(pk)
+    if not checked and not unconfirmed:
+        return None
+    unconfirmed -= checked | set(found)
+    n_pairs = n_drugs * (n_drugs - 1) // 2
+    n_unchecked = len(unconfirmed) + max(n_pairs - len(checked | unconfirmed), 0)
+    pairs = list(found.values())
+    if pairs:
+        text = fp.RESULT_SUMMARY_FOUND.format(
+            n=n_drugs, k=len(pairs), pairs=fp.RESULT_SUMMARY_PAIRS_SEP.join(fp.RESULT_SUMMARY_PAIR_JOIN.join(p["drugs"]) for p in pairs))
+    else:
+        text = fp.RESULT_SUMMARY_NONE.format(n=n_drugs)
+    if n_unchecked:
+        text += fp.RESULT_SUMMARY_UNCHECKED_TAIL.format(u=n_unchecked)
+    return {"n_drugs": n_drugs, "n_pairs": n_pairs, "pairs_found": pairs, "n_pairs_unchecked": n_unchecked, "text": text,
+            "pair_only_notice": fp.PAIR_ONLY_NOTICE if n_drugs >= 3 else None}
+
+
+def _dose_found(buckets: list[tuple[dict[str, Any], int]]) -> list[dict[str, Any]]:
+    return [it for it, b in buckets if it.get("kind") == "dose" and b == BUCKET_FOUND]
 
 
 def _kind_rank(kind: str | None) -> int:
@@ -310,6 +380,7 @@ def _product_rows(buckets: list[tuple[dict[str, Any], int]], badges: list[dict[s
     rows: dict[str, dict[str, Any]] = {}
     identified: dict[str, dict[str, Any]] = {}
     identify_ids: dict[str, list[str]] = {}
+    pair_ids: dict[str, list[str]] = {}  # 약 키 → 그 약이 낀 병용금기 FOUND 근거 ID(FE-11-05 A `pair_ref`)
 
     def row(key: str, label: str) -> dict[str, Any]:
         if key not in rows:
@@ -321,6 +392,8 @@ def _product_rows(buckets: list[tuple[dict[str, Any], int]], badges: list[dict[s
         eid, kind = it.get("evidence_id"), it.get("kind")
         if eid and eid not in r["evidence_ids"]:
             r["evidence_ids"].append(eid)
+        if kind == "contra_pair" and b == BUCKET_FOUND and eid and eid not in pair_ids.setdefault(r["key"], []):
+            pair_ids[r["key"]].append(eid)
         if kind == "dup_ingredient":
             r["dup"] = r["dup"] or b == BUCKET_FOUND
             return
@@ -354,11 +427,19 @@ def _product_rows(buckets: list[tuple[dict[str, Any], int]], badges: list[dict[s
         for x in sorted((x for x in badges if x.get("evidence_id") in ids and x["kind"] in fp.BADGE_ORDER), key=_badge_key):
             if all((y["kind"], y["text"]) != (x["kind"], x["text"]) for y in mine):
                 mine.append(dict(x))
+        # 성분 칩 원인 글자("병용금기 원인")는 병용 배지를 빼기 전 값으로 정한다(FE-11-05 A: 칩 글자는 유지)
         contra_kinds = list(dict.fromkeys(x["kind"] for x in mine))
+        # FE-11-05 A(AG-08-29 A 대체): 제품 줄에는 병용 배지를 달지 않고 짝 참조(`pair_ref`)만 둔다. "삐! 병용금기"는 짝 줄에만
+        mine = [x for x in mine if x["kind"] != "contra_pair"]
+        my_pairs = pair_ids.get(r["key"], [])
+        pair_ref = ({"count": len(my_pairs), "evidence_ids": list(my_pairs), "text": fp.PAIR_REF_LINE.format(n=len(my_pairs))}
+                    if my_pairs else None)
         for slot in ("found_kinds", "not_listed_kinds", "unconfirmed_kinds"):
             r[slot].sort(key=_kind_rank)
         if mine:
             bucket, text = "found", mine[0]["text"]
+        elif pair_ref:  # 짝에만 걸린 약: 배지 없는 "찾음" 줄로 남겨 짝 참조를 싣는다(응답 변환 `_ROW_BUCKETS`가 내보낸다)
+            bucket, text = "identified", fp.IDENTIFIED_LINE
         elif r["unconfirmed_kinds"]:
             bucket, text = "unconfirmed", fp.UNIDENTIFIED
         elif r["not_listed_kinds"]:
@@ -375,10 +456,25 @@ def _product_rows(buckets: list[tuple[dict[str, Any], int]], badges: list[dict[s
                 ingredients[0]["dup"] = r["dup"]
             for ing in ingredients:
                 ing["state_labels"] = fp.ingredient_state_labels(ing.get("contra_kinds") or [], bool(ing.get("dup")))
+        # 구역(FE-11-04 A, C-4 A): 금기 배지·짝 참조 → core, 주의·중복만 → caution, 확인 못 함 → unconfirmed, 나머지 판정·식별 → rest.
+        # 검색 근거(`chunk` 등)만 모인 줄은 판정 줄이 아니라 구역 값 없음(None, C-3 B). 검색 근거가 `subject`(위치·품목기준코드)로 줄을 만드는 것은
+        # 이전부터의 동작이다(응답 변환이 이 줄을 "찾음"으로 낸다, 3단계 BE 인계)
+        judged = {*r["found_kinds"], *r["not_listed_kinds"], *r["unconfirmed_kinds"], *r["caution_kinds"]} & set(_JUDGED_SECTION_KINDS)
+        if mine or pair_ref:
+            section: str | None = SECTION_CORE
+        elif set(r["caution_kinds"]) & set(_CAUTION_SECTION_KINDS) or r["dup"]:
+            section = SECTION_CAUTION
+        elif bucket == "unconfirmed" and judged:
+            section = SECTION_UNCONFIRMED
+        elif judged or r["key"] in identified:
+            section = SECTION_REST
+        else:
+            section = None
         out.append({
             **r, "name": ident.get("name") if ident is not None else None, "bucket": bucket, "text": text,
             "badges": mine, "contra_kinds": contra_kinds, "ingredients": ingredients,
-            "unresolved": bool(r["unconfirmed_kinds"]),
+            "unresolved": bool(r["unconfirmed_kinds"]), "section": section, "pair_ref": pair_ref,
+            "caution_desc": fp.DOSE_CAUTION_DESC if "dose" in r["caution_kinds"] else None,
         })
     # 금기 발견 줄 먼저, 같은 묶음은 처음 나온 순서(안정 정렬)
     order = {"found": 0, "not_listed": 1, "unconfirmed": 2, "identified": 3}
@@ -490,6 +586,10 @@ def finalize(
     age_unknown: bool = False,
     name_corrections: list[dict[str, Any]] | None = None,
     emergency_no_drug: bool = False,
+    intake_question: bool = False,
+    redose_question: bool = False,
+    took_today: bool | None = None,
+    n_drugs: int = 0,
 ) -> dict[str, Any]:
     """응답 딕셔너리를 만든다. 고정 문구는 인자·모델 출력과 무관하게 항상 들어간다.
 
@@ -507,6 +607,9 @@ def finalize(
       안내 줄 `age_info_line`(상수 `AGE_INFO_LINE`, 0-E 3번 승인)을 붙인다. 판정이 아니라 원문 값 안내다. 값이 없는 줄에는 붙지 않는다
       (지금 도구는 나이가 없으면 연령금기 항목을 만들지 않아 실제 경로에서는 None이 유지된다. 항목 모양은 AG-02 결정 뒤).
     """
+    # AG-22·FE-11(2026-11-19, 문구 원문 승인): `intake_question`(복용 관련 질문, AG-22-06 A)·`redose_question`(재복용, AG-22-01 A)·
+    # `took_today`(되묻기 답 예/아니요/None, AG-22-05 A, 로그 금지)·`n_drugs`(질문 속 약 수). 결과 칸 `dose_check`·`dose_notice`·`redose_notice`·
+    # `result_summary`·`sections`(근거 ID → 구역)와 제품 줄 `section`·`pair_ref`·`caution_desc`를 만든다. **`entries`는 바꾸지 않는다**(평가 원본).
     # `name_corrections`: `[{"input": 질문에 적힌 조각, "name": 보정한 사전 이름}]` 오탈자 보정으로 확정한 약(AG-10). 주면 보정 고지 줄
     # (`TYPO_CORRECTED_LINE`)을 요약 앞에 싣는다. 보정해 놓고 고지 없이 결과만 보이지 않게 하는 자리다. 없으면 응답에 이 키가 없다(기존 출력 불변).
     items = [it for it in items or [] if isinstance(it, dict)]
@@ -613,7 +716,21 @@ def finalize(
         "warnings": warnings,
         "events": events,
     }
-    corrections = [{"input": str(c["input"]), "name": str(c["name"]),
+    # ---------------------------------------------------------------- AG-22·FE-11 결과 칸(`entries`는 위 값 그대로)
+    resp["sections"] = {e["evidence_id"]: _section(it, b) for (it, b), e in zip(buckets, entries, strict=True) if e.get("evidence_id")}
+    resp["result_summary"] = None if refuse_keys else _result_summary(buckets, n_drugs)
+    dose = [] if refuse_keys else _dose_found(buckets)
+    dose_ids = list(dict.fromkeys(str(it["evidence_id"]) for it in dose if it.get("evidence_id")))
+    resp["caution_descs"] = {eid: fp.DOSE_CAUTION_DESC for eid in dose_ids}  # 용량주의 줄 설명(③)
+    # 되묻기(AG-22-02 B·03 A·05 A): 용량주의 성분 FOUND ∧ 복용 관련 질문 ∧ 아직 답 없음. 시각·양은 묻지 않는다
+    resp["dose_check"] = ({"question": fp.DOSE_CHECK_QUESTION, "options": [fp.DOSE_CHECK_YES, fp.DOSE_CHECK_NO],
+                           "drugs": list(dict.fromkeys(_drug(it) for it in dose)), "evidence_ids": dose_ids}
+                          if dose and intake_question and took_today is None else None)
+    # "예"면 결과 맨 위(119 다음) 강조 고지. 누적량은 계산하지 않는다(RFP-21-03)
+    resp["dose_notice"] = fp.DOSE_NOTICE if dose and took_today is True else None
+    # 재복용 질문 고지(AG-22-01 A): LLM `summary`에 붙이지 않는 별도 칸(judge·평가 `model_text` 입력 불변). 금기 결과는 그대로 나간다
+    resp["redose_notice"] = fp.REDOSE_NOTICE if redose_question and not refuse_keys else None
+    corrections =[{"input": str(c["input"]), "name": str(c["name"]),
                     "text": fp.TYPO_CORRECTED_LINE.format(input=c["input"], name=c["name"])}
                    for c in name_corrections or [] if isinstance(c, dict) and c.get("input") and c.get("name")]
     if corrections:
@@ -654,9 +771,17 @@ def render_text(resp: dict[str, Any]) -> str:
         lines.append(resp["emergency"])
     if resp.get("notice"):
         lines.append(resp["notice"])
+    if resp.get("dose_notice"):  # 용량주의 "예" 강조 고지는 결과 맨 위(119·배너 다음, AG-22-02 B)
+        lines.append(resp["dose_notice"])
     lines.extend(c["text"] for c in resp.get("name_corrections") or [])  # 보정 고지는 요약보다 먼저(무엇을 확인했는지부터)
     if resp.get("summary"):
         lines.append(resp["summary"])
+    if resp.get("redose_notice"):
+        lines.append(resp["redose_notice"])
+    rs = resp.get("result_summary") or {}
+    lines.extend(x for x in (rs.get("text"), rs.get("pair_only_notice")) if x)
+    if resp.get("dose_check"):
+        lines.append(resp["dose_check"]["question"])
     for e in resp["entries"]:
         head = f"[{e['drug']}] " if e.get("drug") else ""
         lines.append(head + e["text"])

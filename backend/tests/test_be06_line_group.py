@@ -130,7 +130,10 @@ def test_found_pair_row_still_absorbs_cautions_into_product_line():
     r = _resp(items)
     (row,) = [f for f in r.findings if f.target == "product" and f.drugs == ["아스피린"]]
     assert row.notes.count(fp.CAUTION_LABELS["elderly"]) == 1
-    assert [f for f in r.findings if f.kind == "elderly"] == []
+    # 따로 남는 노인 주의 줄은 없다. FE-11-05 A(2026-11-19)로 짝에만 걸린 약의 제품 줄은 배지 없는 "찾음" 줄이라, 줄 대표 종류는
+    # 응답 변환 규칙(`schemas._product_finding`: 배지 → 흡수한 첫 줄)대로 흡수한 주의 종류가 된다(3단계 BE 인계 항목)
+    assert row.bucket == "identified" and row.badges == []
+    assert [f for f in r.findings if f.kind == "elderly" and f is not row] == []
     assert len(r.detail) == 6
 
 

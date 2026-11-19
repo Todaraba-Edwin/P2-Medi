@@ -50,7 +50,9 @@ def test_pair_plus_file_api_grade_mismatch_gives_three_ordered_constant_badges()
     assert all(("병용금기" in t) or ("임부금기" in t) for t in texts)  # G15: 종류 글자
     assert all("등급이 달라요" not in t for t in texts)  # 합친 배지 없음
     row = next(r for r in resp["product_rows"] if r["key"] == "SEQ_A")
-    assert [b["text"] for b in row["badges"]] == texts
+    # FE-11-05 A(AG-08-29 A 대체): 제품 줄에는 병용 배지가 없고 짝 참조만 있다. 나머지 배지 순서는 그대로
+    assert [b["text"] for b in row["badges"]] == texts[1:]
+    assert row["pair_ref"]["count"] == 1 and row["pair_ref"]["text"] == fp.PAIR_REF_LINE.format(n=1)
 
 
 def test_same_grade_file_and_api_make_no_tail():

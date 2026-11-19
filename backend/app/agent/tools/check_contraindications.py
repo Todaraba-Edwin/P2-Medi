@@ -384,8 +384,8 @@ def check_contraindications(args: CheckContraArgs, ctx: ToolContext) -> dict[str
                 items.extend(aged)
                 if ctx.api_enabled:
                     single_api.append((d, "age", aged))
-            if args.include_cautions:
-                for kind in lookup._CAUTION_KINDS:
+            for kind in lookup._CAUTION_KINDS:  # 주의 종류는 코드 규칙(AG-22-04 A), 순서는 lookup 정의 순서 그대로
+                if kind in ctx.caution_kinds:
                     items.extend(_merged(kind, [lookup.lookup_caution(conn, c, kind, ctx.paramstyle) for c in d.kids_codes], f"{kind}:{d.key}", [d]))
     except Exception as exc:  # noqa: BLE001 - DB 오류 내용은 응답에 싣지 않고 예외 종류만 남긴다(비밀 비노출). 판정하지 못했으므로 UNIDENTIFIED
         items = [i for i in items if i["status"] == UNIDENTIFIED]
