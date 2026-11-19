@@ -163,15 +163,15 @@ test.describe("흐름 360px", () => {
     await candidates.nth(1).click();
     await expect(page.getByTestId("picked-name")).toHaveText("가나다정 500밀리그램");
     // 후보는 선택 상태만 바꾼다(G-4)
-    await expect(candidates.nth(1)).toHaveAttribute("aria-pressed", "true");
-    await expect(candidates.nth(0)).toHaveAttribute("aria-pressed", "false");
+    await expect(candidates.nth(1)).toHaveAttribute("aria-checked", "true");
+    await expect(candidates.nth(0)).toHaveAttribute("aria-checked", "false");
     // 고르기만 했다: 요청은 그대로 한 번, 대화도 한 차례다
     expect(await requests(page)).toHaveLength(1);
     await expect(page.locator("[data-turn]")).toHaveCount(1);
     await candidates.nth(0).click(); // 다시 고를 수 있다
     await expect(page.getByTestId("picked-name")).toHaveText("가나다정 100밀리그램");
-    await expect(candidates.nth(0)).toHaveAttribute("aria-pressed", "true");
-    await expect(candidates.nth(1)).toHaveAttribute("aria-pressed", "false");
+    await expect(candidates.nth(0)).toHaveAttribute("aria-checked", "true");
+    await expect(candidates.nth(1)).toHaveAttribute("aria-checked", "false");
     expect(await requests(page)).toHaveLength(1);
     const resend = page.getByRole("button", { name: "이 약으로 다시 묻기" });
     await expectTouchTarget(resend);
@@ -1520,7 +1520,7 @@ for (const width of [360, 320]) {
       await ask(page);
       await page.getByTestId("candidate").first().focus();
       await page.keyboard.press("Enter");
-      await expect(page.getByTestId("candidate").first()).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByTestId("candidate").first()).toHaveAttribute("aria-checked", "true");
       expect(await requests(page)).toHaveLength(1);
       await page.getByRole("button", { name: "이 약으로 다시 묻기" }).focus();
       await page.keyboard.press("Enter");

@@ -31,8 +31,9 @@ for (const width of [393, 1280]) {
       await expect(page.getByTestId("candidate-group")).toHaveCount(2);
       await expect(group(page, 0).getByTestId("candidate")).toHaveCount(3);
       await expect(group(page, 1).getByTestId("candidate")).toHaveCount(3);
-      await expect(page.getByRole("group", { name: "가나다", exact: true })).toBeVisible();
-      await expect(page.getByRole("group", { name: "가나다시럽", exact: true })).toBeVisible();
+      // 펼쳐진 묶음은 radiogroup이고 이름은 되묻는 약 이름 그대로다(FE-10: 표지 글자·후보 수는 이름에 섞이지 않는다)
+      await expect(page.getByRole("radiogroup", { name: "가나다", exact: true })).toBeVisible();
+      await expect(page.getByRole("radiogroup", { name: "가나다시럽", exact: true })).toBeVisible();
       await expect(page.getByTestId("result-card")).toHaveCount(0); // 고르기 전에는 판정이 없다
       // 처음에는 비활성: 남은 묶음 수를 알린다
       await expect(resendButton(page)).toHaveText("이 약들로 확인하기");
@@ -64,18 +65,23 @@ for (const width of [393, 1280]) {
       await expect(group(page, 1)).toHaveAttribute("data-collapsed", "true");
       await expect(resendButton(page)).not.toHaveAttribute("aria-disabled", "true");
       await expect(page.getByTestId("picks-remaining")).toHaveCount(0);
-      await expect(page.getByTestId("picked-name")).toHaveText("가나다시럽, 가나다시럽 키즈");
+      // 고른 약은 쉼표 대신 캡슐 칸에 담긴다(FE-10): A칸·B칸에 글자와 이름
+      await expect(page.getByTestId("capsule-cell")).toHaveText(["A가나다시럽", "B가나다시럽 키즈"]);
       await shot(page, "03-all-picked");
 
       // "바꾸기"로 다시 펼쳐 다른 제품으로 바꾼다(고른 값은 눌린 채 남아 있고, 버튼은 켜진 그대로다)
       await group(page, 0).getByRole("button", { name: "가나다 바꾸기" }).click();
-      await expect(group(page, 0).getByTestId("candidate").nth(2)).toHaveAttribute("aria-pressed", "true");
+      await expect(group(page, 0).getByTestId("candidate").nth(2)).toHaveAttribute("aria-checked", "true");
       await expect(resendButton(page)).not.toHaveAttribute("aria-disabled", "true");
       await group(page, 0).getByTestId("candidate").nth(0).click();
       await expect(group(page, 0).getByTestId("candidate-picked")).toContainText("가나다 → 가나다정 100밀리그램");
       // 후보 카드·확인 줄에는 가부로 읽힐 글자가 없다
       await expect(page.getByTestId("candidate-card")).not.toContainText(/삐!|금기|안전|먹어도|드셔도/);
-      await expect(page.getByTestId("resend-pick")).not.toContainText(/삐!|금기|안전|먹어도|드셔도/);
+      // 확인 줄의 첫 행은 서버 안내 문장(응답 값, "금기를 확인해 드려요")이다(FE-10). 프런트가 만든 캡슐·남은 수 글자에는 가부 글자가 없다
+      await expect(page.getByTestId("resend-pick").getByTestId("candidates-line")).toHaveText("어느 제품인지 고르면 금기를 확인해 드려요.");
+      await expect(page.getByTestId("candidates-line")).toHaveCount(1); // 안내 문장은 한 번만 보인다
+      await expect(page.getByTestId("picked-capsule")).not.toContainText(/삐!|금기|안전|먹어도|드셔도/);
+      await expect(resendButton(page)).not.toContainText(/삐!|금기|안전|먹어도|드셔도/);
       expect(await requests(page)).toHaveLength(1); // 고르기만 했다
 
       // 한 번 눌러 한 번 보낸다: 원 질문 + 고른 약 둘
@@ -166,7 +172,7 @@ test.describe("단일 묶음 되묻기 회귀(FE-09)", () => {
     await page.getByTestId("candidate").nth(2).click();
     await expect(page.getByTestId("candidate")).toHaveCount(3); // 접히지 않는다
     await expect(page.getByTestId("candidate-change")).toHaveCount(0);
-    await expect(page.getByTestId("candidate").nth(2)).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("candidate").nth(2)).toHaveAttribute("aria-checked", "true");
     await expect(resendButton(page)).toHaveText("이 약으로 다시 묻기");
     await expect(resendButton(page)).not.toHaveAttribute("aria-disabled", "true");
     await resendButton(page).click();

@@ -25,5 +25,15 @@ export const CANDIDATE_PICKED_ARROW = "→";
 /** 다른 묶음에서 이미 고른 제품이라 이 묶음에서 고를 수 없는 이유(FE-09-03 A). 원문 승인(FE-09-10 A, 2026-11-19) */
 export const CANDIDATE_TAKEN_NOTE = "다른 약으로 이미 골랐어요";
 
+/**
+ * 묶음 머리 오른쪽의 후보 수(FE-10 디자인 "FE-09 r2" `.gh small` "제품 4개"). 개수만 넣는다. **초안이다(승인 필요)**
+ */
+export const candidateCountLabel = (count: number) => `제품 ${count}개`;
+
+/**
+ * 확인 줄 캡슐에서 아직 고르지 않은 칸의 글자(FE-10 디자인 "FE-09 r2" `.cell.empty` "A 고르기 전"). 묶음 표지 글자만 넣는다. **초안이다(승인 필요)**
+ */
+export const pickPendingLabel = (letter: string) => `${letter} 고르기 전`;
+
 /** 약을 찾지 못한 결과 카드 아래의 동작 칩(tickets/doc/PRD-14.md §5.4 PRD-14-03 A "이름 다시 입력", 1차). 누르면 입력창으로 간다 */
 export const RETRY_NAME_LABEL = "이름 다시 입력";

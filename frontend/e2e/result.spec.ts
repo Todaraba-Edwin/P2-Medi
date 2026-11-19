@@ -168,7 +168,9 @@ for (const viewport of NARROW) {
       await expectNoHorizontalScroll(page);
 
       const clarify = sample(page, "clarify");
-      for (const button of await clarify.getByRole("button").all()) {
+      // 후보는 라디오(FE-10), 직접 입력은 버튼이다
+      await expect(clarify.getByRole("radio")).toHaveCount(3);
+      for (const button of [...(await clarify.getByRole("radio").all()), ...(await clarify.getByRole("button").all())]) {
         expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(MIN_TOUCH);
       }
       await clarify.getByTestId("candidate").nth(1).click();

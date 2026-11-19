@@ -30,7 +30,7 @@ test("되묻기 → 후보 선택 → 다시 묻기: 워커가 confirmed_drugs�
   const candidates = page.getByTestId("candidate");
   await expect(candidates).toHaveCount(3);
   await candidates.nth(0).click();
-  await expect(candidates.nth(0)).toHaveAttribute("aria-pressed", "true");
+  await expect(candidates.nth(0)).toHaveAttribute("aria-checked", "true");
   expect(bodies).toHaveLength(1); // 고르기만 하면 보내지 않는다
   await page.getByRole("button", { name: "이 약으로 다시 묻기" }).click();
   const second = page.locator('[data-turn="turn-2"]');

@@ -1,6 +1,7 @@
 export { CandidateCard } from "./CandidateCard";
 export type { CandidateCardProps } from "./CandidateCard";
-export { groupCandidates, isTakenElsewhere } from "./candidate-groups";
+export { groupCandidates, groupLetter, isTakenElsewhere } from "./candidate-groups";
+export { GroupTag, PickCapsule } from "./PickCapsule";
 export type { CandidateGroup, CandidatePicks } from "./candidate-groups";
 export { IngredientChip, IngredientChips } from "./IngredientChips";
 export { ProductLine } from "./ProductLine";
