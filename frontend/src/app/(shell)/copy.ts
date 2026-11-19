@@ -19,9 +19,9 @@ export const NEW_CHAT_LABEL = "새 질문";
 /** 지금 대화 머리글과 빈 상태(디자인 반영본 사이드바) */
 export const CURRENT_CHAT_HEADING = "지금 대화";
 export const CURRENT_CHAT_EMPTY = "아직 질문이 없어요.";
-/** 저장하지 않는다는 안내(디자인 반영본 사이드바. FE-01-08 A: 대화는 메모리에만 둔다) */
-export const NOT_SAVED_NOTE = "대화는 이 화면에만 있고 저장하지 않아요. 새로고침하거나 닫으면 사라져요.";
-/** 머리줄의 짧은 안내(디자인 반영본 머리줄 "대화는 저장하지 않아요") */
+// 사이드바의 긴 저장 안내("대화는 이 화면에만 있고 저장하지 않아요. …")는 PRD-17-08 A(2026-11-19)로 삭제했다.
+// 같은 말은 입력창 아래 고지(`features/chat/copy.ts` INPUT_NOTICE, PRD-17-07 A) 한 곳에서만 한다.
+/** 머리줄의 짧은 안내(디자인 반영본 머리줄 "대화는 저장하지 않아요". PRD-17-08 A: 유지) */
 export const NOT_SAVED_SHORT = "대화는 저장하지 않아요";
 
 /**

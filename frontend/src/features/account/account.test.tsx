@@ -130,8 +130,9 @@ describe("로그인 화면", () => {
   it("Google·Kakao는 공식 로고 + 글자 버튼이고 이름은 보이는 글자가 준다. Naver·Apple은 없다", async () => {
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-    const group = screen.getByRole("group", { name: "다른 방법으로 로그인" });
-    expect(modal().textContent).not.toContain("간편 로그인");
+    // 제목은 "간편 로그인"(FE-04-17 A, 2026-11-19). 이전 글자 "다른 방법으로 로그인"은 남지 않는다
+    const group = screen.getByRole("group", { name: "간편 로그인" });
+    expect(modal().textContent).not.toContain("다른 방법으로 로그인");
     const buttons = within(group).getAllByRole("button");
     expect(buttons.map((button) => button.getAttribute("data-testid"))).toEqual(["social-google", "social-kakao"]);
     expect(screen.getByRole("button", { name: "Google로 계속하기" })).toBe(screen.getByTestId("social-google"));

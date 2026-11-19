@@ -118,8 +118,9 @@ for (const width of [360, 1280]) {
       await expect(modal(page).getByRole("button", { name: "이메일로 가입하기" })).toHaveCount(0);
       await expect(modal(page).getByRole("button", { name: "로그인", exact: true })).toHaveCount(0);
       await expect(modal(page).getByRole("button")).toHaveText(["닫기", "Google로 계속하기", "카카오 로그인", "로그인 없이 계속하기"]);
-      await expect(modal(page)).not.toContainText("간편 로그인");
-      const social = modal(page).getByRole("group", { name: "다른 방법으로 로그인" });
+      // 제목은 "간편 로그인"(FE-04-17 A, 2026-11-19). 이전 글자 "다른 방법으로 로그인"은 남지 않는다
+      await expect(modal(page)).not.toContainText("다른 방법으로 로그인");
+      const social = modal(page).getByRole("group", { name: "간편 로그인" });
       const google = social.getByRole("button", { name: "Google로 계속하기" });
       const kakao = social.getByRole("button", { name: "카카오 로그인" });
       // 사양 변경(사용자 지시 2026-11-19 FE-04e): 가로로 꽉 찬 "공식 로고 + 글자" 버튼이 세로로 놓인다

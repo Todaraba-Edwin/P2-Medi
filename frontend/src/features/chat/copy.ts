@@ -27,6 +27,11 @@ export const INPUT_LABEL = "질문 입력";
 export const INPUT_PLACEHOLDER = "삐약에게 물어보기";
 /** 전송 버튼 이름(디자인 반영본 입력창) */
 export const SEND_LABEL = "보내기";
+/**
+ * 입력창 아래 고지(PRD-17-07 A, 2026-11-19 원문 승인. PRD-17-03 A: 게스트 포함, 어디에 저장하지 않는지(이 탭)와 외부 전송을 한 번에 말한다).
+ * 안내이지 동의 관문이 아니다: 체크·버튼이 없고 질문을 막지 않는다. 사이드바의 긴 저장 안내는 PRD-17-08 A로 지우고 이 한 줄로 대체했다.
+ */
+export const INPUT_NOTICE = "질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문은 외부 AI(OpenAI)로 전송돼요.";
 
 /** 진행 표시 영역 이름(PJ2-PRD.md 15.4 로딩 행 "진행 상태", NFR-06) */
 export const PROGRESS_LABEL = "진행 상태";

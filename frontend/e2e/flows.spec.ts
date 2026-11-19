@@ -45,6 +45,7 @@ for (const width of [360, 320]) {
       await expect(page.getByRole("heading", { level: 1 })).toContainText("Can I PPiyak");
       await expectInFirstScreen(page, input(page));
       await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, page.getByTestId("input-notice")); // 입력창 아래 고지(PRD-17-07 A)
       const entry = page.getByTestId("emergency-entry");
       await expectInFirstScreen(page, entry);
       await expect(entry).toHaveAttribute("href", "tel:119");
@@ -286,6 +287,7 @@ test.describe("흐름 360px", () => {
     const drawer = page.getByTestId("menu-drawer");
     await expect(drawer).toBeVisible();
     await expect(drawer.getByTestId("current-chat")).toHaveText(QUESTION);
+    await expect(drawer).not.toContainText("저장하지 않아요"); // 사이드바 저장 안내는 삭제(PRD-17-08 A)
     await expectTouchTarget(drawer.getByRole("button", { name: "메뉴 닫기" }));
     await expectTouchTarget(drawer.getByTestId("new-chat"));
     // 드로어가 열려 있어도 119 배너는 스크림 밖에 있고 덮이지 않는다(배너가 있으니 드로어 안 진입점은 없다)

@@ -1,7 +1,8 @@
 // 계정(시작 선택·로그인·동의·프로필·대상 선택) 화면에서 프런트가 쓰는 UI 글자. 줄마다 근거를 적는다.
 // 약관·개인정보·민감정보 문서의 제목·본문은 여기 두지 않는다(`GET /api/legal/*` 값을 그대로 그린다, 사용자 결정 2026-11-18).
 // 고정 안내·판정·119 문장도 두지 않는다(S1). 문서·디자인에 원문이 없던 글자는 문구 검토에서 승인됐다(Recap 44, 2026-11-19).
-// 그 뒤에 더한 글자에는 "승인 전(FE-04c)"이라고 적는다(로그인 연결에서 새로 생긴 안내·오류 문구. 보고의 결정 후보).
+// 그 뒤 로그인 연결(FE-04c)에서 생긴 안내·오류 문구 7줄은 FE-04-08 A(2026-11-19)로 승인됐다. 이메일 숨김(PRD-01-10 A) 문구 4줄만
+// "승인 전(FE-04c)" 표시를 남겨 두고 이메일 로그인 재검토 때 다시 묻는다. 로그인 제목은 FE-04-17 A(2026-11-19) "간편 로그인"이다.
 // 약관 문서 자체는 법률 검토 전이라 `LEGAL_NOT_REVIEWED_TAG` 표지는 그대로 붙인다.
 import type { AgeBand, PregnancyStatus, Profile, Relation, SocialProvider } from "@/lib/api/account";
 
@@ -34,8 +35,8 @@ export const CONTINUE_AS_GUEST_LABEL = "로그인 없이 계속하기";
 /** 가입 화면 제목·버튼 */
 export const SIGNUP_TITLE = "이메일로 가입";
 export const SIGNUP_SUBMIT_LABEL = "가입하기";
-/** 소셜 로그인 묶음 이름(FE-04d 이전 글자로 되돌림, 사용자 지시 2026-11-19 FE-04e) */
-export const SOCIAL_HEADING = "다른 방법으로 로그인";
+/** 소셜 로그인 묶음 이름(FE-04-17 A, 2026-11-19 원문 승인 "간편 로그인": 이메일을 숨겨 "다른 방법"이 맞지 않는다) */
+export const SOCIAL_HEADING = "간편 로그인";
 /**
  * 소셜 로그인 버튼의 보이는 글자(사용자 결정 2026-11-18: Google·Kakao, Apple 없음). 글자 앞에 공식 로고가 붙는다(FE-04e).
  * - Google: FE-04d 이전 글자 그대로. Google 가이드의 권장 문구 "Continue with Google"의 한국어 표현이다(현지화 허용)
@@ -66,7 +67,7 @@ export const LEGAL_NOT_REVIEWED_TAG = "초안·법률 검토 전";
 export const docVersionLine = (version: number, effectiveAt: string) => `버전 ${version} · 시행일 ${effectiveAt.slice(0, 10)}`;
 /** 동의해 둔 건강 정보 동의의 체크를 껐을 때의 한 줄(철회하면 서버가 즉시 지운다, 설계 문서 6.3절) */
 export const HEALTH_WITHDRAW_WARNING = "건강 정보 동의를 철회하면 저장해 둔 임신 여부와 복용 중인 약이 바로 삭제돼요.";
-/** 건강 정보 동의 철회 확인 모달(FE-04-06 A: 삭제·탈퇴와 같은 무게, 되돌릴 수 없음을 밝힌다). 승인 전(FE-04c) */
+/** 건강 정보 동의 철회 확인 모달(FE-04-06 A: 삭제·탈퇴와 같은 무게, 되돌릴 수 없음을 밝힌다). 원문 승인(FE-04-08 A, 2026-11-19) */
 export const HEALTH_WITHDRAW_CONFIRM_TITLE = "건강 정보 동의를 철회할까요?";
 export const HEALTH_WITHDRAW_CONFIRM_BODY = "저장해 둔 임신 여부와 복용 중인 약이 바로 삭제되고 되돌릴 수 없어요.";
 export const HEALTH_WITHDRAW_CONFIRM_LABEL = "철회하기";
@@ -158,17 +159,18 @@ export const MANAGE_PROFILES_LABEL = "프로필 관리";
 /** 로그인·가입(Supabase Auth·목 로그인. 백엔드 코드가 아니다) */
 export const ERROR_INVALID_CREDENTIALS = "이메일이나 비밀번호가 맞지 않아요.";
 export const ERROR_EMAIL_TAKEN = "이미 가입한 이메일이에요. 로그인해 주세요.";
-/** 로그인 연결에서 새로 생긴 로그인·가입 오류. 아래 다섯 줄은 승인 전(FE-04c) */
+/** 로그인 연결에서 새로 생긴 로그인·가입 오류. 아래 이메일 3줄은 화면에서 숨겨져(PRD-01-10 A) 승인 전(FE-04c)이고, 그 아래 2줄은 원문 승인(FE-04-08 A, 2026-11-19) */
 /** 가입은 했지만 확인 메일의 링크를 아직 누르지 않았다 */
 export const ERROR_EMAIL_NOT_CONFIRMED = "이메일 확인이 끝나지 않았어요. 받은 메일의 링크를 누른 뒤 다시 로그인해 주세요.";
 export const ERROR_WEAK_PASSWORD = "비밀번호가 너무 짧거나 단순해요. 더 길게 바꿔 주세요.";
 /** 확인 메일을 보내지 못했다(메일 발송 한도·수신 제한) */
 export const ERROR_EMAIL_SEND_FAILED = "지금은 확인 메일을 보내지 못했어요. 잠시 뒤 다시 시도하거나 다른 방법으로 로그인해 주세요.";
+/** 원문 승인(FE-04-08 A, 2026-11-19) */
 export const ERROR_AUTH_RATE_LIMITED = "요청이 너무 많았어요. 잠시 뒤 다시 시도해 주세요.";
 export const ERROR_AUTH_FAILED = "로그인하지 못했어요. 잠시 뒤 다시 시도해 주세요. 로그인하지 않아도 질문은 할 수 있어요.";
-/** 소셜 로그인 콜백: 이메일 없는 카카오계정·이메일 미동의(BE-11-16 B: 이메일 필수). 문구는 지시서(2026-11-19 FE-04c) 할 일 4 */
+/** 소셜 로그인 콜백: 이메일 없는 카카오계정·이메일 미동의(BE-11-16 B: 이메일 필수). 문구는 지시서(2026-11-19 FE-04c) 할 일 4, 원문 승인(FE-04-08 A, 2026-11-19) */
 export const ERROR_OAUTH_EMAIL_REQUIRED = "카카오계정에 이메일이 없거나 동의하지 않으면 로그인할 수 없어요. 다른 방법으로 로그인하거나 로그인 없이 쓰세요.";
-/** 소셜 로그인 콜백: 그 밖의 실패(동의 취소 등) */
+/** 소셜 로그인 콜백: 그 밖의 실패(동의 취소 등). 원문 승인(FE-04-08 A, 2026-11-19) */
 export const ERROR_OAUTH_FAILED = "로그인을 마치지 못했어요. 다시 시도하거나 로그인 없이 쓰세요.";
 /** 401 `AUTH_REQUIRED`·`AUTH_INVALID` */
 export const ERROR_AUTH_REQUIRED = "로그인이 필요해요. 다시 로그인해 주세요.";
