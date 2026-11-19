@@ -172,7 +172,8 @@ for sc, i in top:
     if m["sch"] != sc:
         errors.append(f"Top 5: {i} SCH 표기 불일치")
 for name, i, prog, now, _ in rows:
-    if prog not in PROG:
+    # 직렬 그룹(2026-11-19 사용자 지시): `직렬(GROUP-nn …)`도 직렬로 본다
+    if prog not in PROG and not re.fullmatch(r"직렬\(GROUP-\d{2}[^)]*\)", prog):
         errors.append(f"Top 5 {name} {i}: 진행 '{prog}'는 {'·'.join(PROG)} 중 하나여야 함")
         continue
     undone = [p for p in tick.get(i, {}).get("pre", []) if p in tick and tick[p]["status"] != "done"]
