@@ -410,7 +410,8 @@ def test_runner_does_not_leak_after_fixture_and_openapi_is_unchanged(wired):
     assert TestClient(main_mod.app).post("/chat", json={"question": Q_PAIR}).status_code == 501
 
 
-ACCOUNT_PATHS = {"/me", "/legal/{doc_type}", "/consents", "/profiles", "/profiles/{profile_id}"}  # BE-11 계정 API(2026-11-18)
+ACCOUNT_PATHS = {"/me", "/legal/{doc_type}", "/consents", "/profiles", "/profiles/{profile_id}",  # BE-11 계정 API(2026-11-18)
+                 "/drugs/search"}  # FE-04-13 A 프로필 약 사전 검색(2026-11-20)
 
 
 def test_openapi_matches_committed_export_shape():
@@ -426,6 +427,8 @@ def test_openapi_matches_committed_export_shape():
     assert set(paths["/legal/{doc_type}"]["get"]["responses"]) == {"200", "404", "422", "501", "503"}
     assert {"201", "401", "403", "404", "409", "422", "501", "503"} <= set(paths["/consents"]["post"]["responses"])
     assert "security" not in paths["/legal/{doc_type}"]["get"]  # 게스트 허용
+    assert set(paths["/drugs/search"]) == {"post"}  # 질문을 URL 쿼리에 싣지 않는다(access 로그)
+    assert set(paths["/drugs/search"]["post"]["responses"]) == {"200", "401", "422", "501", "503"}
 
 
 def test_default_resources_is_not_called_by_tests_and_psycopg_is_imported_lazily():

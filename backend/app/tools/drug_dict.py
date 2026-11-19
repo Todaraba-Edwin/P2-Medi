@@ -417,6 +417,10 @@ class DrugDict:
     def version(self) -> str:
         return str(self.meta.get("version", ""))
 
+    def has_item_seq(self, item_seq: str) -> bool:
+        """허가번호(`item_seq`)가 사전 제품에 있는가(프로필 약 저장 때 재확인용, FE-04-13 A)."""
+        return item_seq in self._by_seq
+
     # -- 후보 만들기
     def _ingredient_refs(self, ids: Iterable[int]) -> tuple[IngredientRef, ...]:
         refs = []

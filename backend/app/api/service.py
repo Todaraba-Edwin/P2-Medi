@@ -280,6 +280,12 @@ class LazyGraphRunner:
             BUILD_LABEL.reset(token)
         return True
 
+    def drug_dict(self) -> Any:
+        """채팅 자원이 들고 있는 사전(`DrugDict`)을 돌려준다(프로필 약 검색 `POST /drugs/search`가 같은 판을 공유, FE-04-13 A).
+
+        자원이 아직 없으면 `/chat` 첫 요청처럼 한 번 만든다(같은 잠금, 생성 1회). 실패하면 예외가 그대로 올라간다."""
+        return self._resources().drug_dict
+
     def start_warmup(self) -> threading.Thread:
         """`warm()`을 데몬 스레드로 띄우고 바로 돌아온다(lifespan을 막지 않는다)."""
         thread = threading.Thread(target=self.warm, daemon=True, name="chat-warmup")
