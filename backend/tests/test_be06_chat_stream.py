@@ -184,7 +184,8 @@ def test_call_limit_ends_with_limit_notice(dd):
     assert events[-1].root.end_reason == "LIMIT"
     a = _answer(events)
     assert a.notice == fp.LIMIT_REACHED and a.summary is None
-    assert [e.root.stage for e in events if e.root.type == "progress"] == ["contraindication_check"]  # 같은 단계가 연달아 오면 한 번만
+    # 같은 단계가 연달아 오면 한 번만. 앞의 drug_lookup은 router가 모델로 넘길 때 서버가 낸다(BE-17-03 A)
+    assert [e.root.stage for e in events if e.root.type == "progress"] == ["drug_lookup", "contraindication_check"]
 
 
 # --------------------------------------------------------------------------- ⑤ 진행 라벨·단계 대응

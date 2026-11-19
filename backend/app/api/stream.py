@@ -3,6 +3,7 @@
 - 실행기(동기)는 **스레드**에서 돌린다(이벤트 루프를 막지 않는다). 갱신은 큐로 넘어오고 여기서 이벤트로 바꾼다.
 - 대응 규칙(순서 규칙은 `EventSequence`가 그때그때 검사한다):
   - `guardrail_in` 갱신의 `emergency`가 참 → `emergency`(`seq` 0, LLM 호출 전)
+  - `router` 갱신 다음이 `model`(되묻기 아님) → `progress: drug_lookup`(BE-17-03 A, `ROUTER_STAGE`). 응급이면 `emergency` 뒤에 온다
   - `model` 갱신의 도구 호출 이름 → `progress` 단계(`TOOL_STAGE`). 같은 단계가 연달아 오면 한 번만
   - `finalize` 갱신의 `answer` → `answer`(`response_from_state`와 같은 변환) → `done`
 - 오류(실행·응답 변환·순서 규칙 위반·`answer` 없이 끝남)는 `error`(`INTERNAL_ERROR`) → `done`으로 끝낸다. 스트림과 로그에는 예외 문자열·질문을
@@ -24,6 +25,7 @@ import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Protocol
 
+from app.agent.graph.nodes import after_router
 from app.agent.graph.trace import harness_events
 from app.api.events import AnswerEvent, AnyEvent, ErrorEvent, EventSequence
 from app.api.runner import ChatRunner, ConfirmedInput
@@ -41,6 +43,9 @@ TOOL_STAGE: dict[str, str] = {
     "search_label": "evidence_search",
     "get_label_section": "evidence_search",
 }
+# router가 사전으로 약을 찾고 모델로 넘길 때 내는 단계(BE-17-03 A). 되묻기(ambiguous)·거절·응급만으로 끝나는 경로는 router가
+# finalize로 가거나 router를 지나지 않으므로 내지 않는다. 뒤이은 `identify_drug`는 같은 단계라 `last_stage`로 한 번만 낸다
+ROUTER_STAGE = TOOL_STAGE["identify_drug"]
 _DONE = object()
 METRICS_NODE = "chat"  # 집계에서 요청 수를 세는 이름(`counts["node=chat"]`)
 ERROR_CLIENT_GONE = "ClientDisconnected"  # 응답을 다 보내기 전에 연결이 끊긴 요청의 오류 유형
@@ -96,6 +101,13 @@ def _run_in_thread(runner: ChatRunner, question: str, profile: dict[str, Any] | 
         put(exc)
 
 
+def _router_goes_to_model(update: dict[str, Any]) -> bool:
+    """router 갱신 다음 노드가 `model`인가(BE-17-03 A). 그래프의 분기 함수(`after_router`)를 그대로 쓴다.
+
+    router 갱신에 `ambiguous` 키가 없으면(router가 아닌 가짜 갱신 등) 판단하지 않고 False(진행 이벤트를 지어내지 않는다)."""
+    return "ambiguous" in update and after_router(update) == "model"  # type: ignore[arg-type]
+
+
 def _tool_stages(update: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for msg in update.get("messages") or []:
@@ -140,6 +152,9 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
                 elif node == "router":
                     # 되묻기 묶음과 확정 엔티티(표시 이름 표에만 씀, 이슈 F3). 지표·로그에는 싣지 않는다
                     final.update({k: update[k] for k in ("clarify", "entities") if k in update})
+                    if _router_goes_to_model(update) and last_stage != ROUTER_STAGE:  # BE-17-03 A
+                        last_stage = ROUTER_STAGE
+                        yield seq.progress(ROUTER_STAGE)
                 elif node == "model":
                     for stage in _tool_stages(update):
                         if stage != last_stage:

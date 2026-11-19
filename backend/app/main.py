@@ -6,8 +6,9 @@
   검증기가 없으면 토큰이 온 요청은 501, 계정 저장소(`account.set_repo`)가 없으면 계정 API는 501. 원격 `account` 스키마가 아직 적용 전이라
   lifespan은 저장소를 붙이지 않는다(적용 뒤 `PostgresAccountRepo.from_dsn`을 붙이는 한 줄을 더한다).
 
-앱 시작(lifespan, BE-06-22 A): 설정을 읽어 필수 값이 다 있으면 지연 실행기를 붙인다(`app.api.service`). 시작 때는 어디에도 접속하지 않고
-무거운 자원은 첫 요청에서 만든다. 필수 값이 하나라도 없으면 실행기를 붙이지 않는다(→ 501). 새 환경변수는 없다(BE-06-19 A).
+앱 시작(lifespan, BE-06-22 A·BE-17-01 A): 설정을 읽어 필수 값이 다 있으면 지연 실행기를 붙이고, 백그라운드 스레드로 무거운 자원을
+한 번 만들기 시작한다. lifespan 자체는 접속을 기다리지 않고 바로 끝난다(`/health` 즉시 응답). 스위치 `MEDIAGENT_WARMUP`을 끄면
+첫 요청에서 만든다. 필수 값이 하나라도 없으면 실행기도 준비도 없다(→ 501). 필수 설정에 새 환경변수는 없다(BE-06-19 A).
 """
 
 from collections.abc import AsyncIterator
@@ -36,6 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     runner = service.make_service_runner(settings_now)  # 자원을 만들지 않는다(접속 0). 설정이 모자라면 None
     if runner is not None:
         chat_api.set_runner(app, runner)
+        service.start_warmup(runner, settings_now)  # BE-17-01 A: 백그라운드 스레드만 띄우고 기다리지 않는다(스위치 끔이면 안 띄움)
     auth.set_verifier(app, auth.build_verifier(settings_now))  # 접속 0. 설정이 모자라면 None → 토큰이 온 /me는 501
     yield
 

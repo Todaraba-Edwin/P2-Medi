@@ -142,7 +142,9 @@ def test_server_error_is_error_then_done_without_leak(client):
     r, events, _ = _post(client, dfs.SCENARIOS["server_error"])
     assert r.status_code == 200
     ev.check_event_order(events, complete=True)
-    assert [e.root.type for e in events] == ["error", "done"] and events[0].root.code == "INTERNAL_ERROR"
+    # BE-17-03 A: router가 모델로 넘기면 모델 호출(여기서 실패) 전에 `progress: drug_lookup`이 먼저 나간다
+    assert [e.root.type for e in events] == ["progress", "error", "done"] and events[1].root.code == "INTERNAL_ERROR"
+    assert events[0].root.stage == "drug_lookup"
     body = r.content.decode("utf-8")
     assert "RuntimeError" not in body and "scripted server error" not in body
 
