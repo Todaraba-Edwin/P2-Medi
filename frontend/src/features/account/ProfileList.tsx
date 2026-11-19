@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Mascot } from "@/components/Mascot";
-import { FAMILY_PROFILE_MAX, HEALTH_CONSENT_DOC } from "@/lib/api/account";
+import { FAMILY_PROFILE_MAX } from "@/lib/api/account";
 import type { Profile } from "@/lib/api/account";
 import { canAddFamily, canAddSelf, familyProfiles, hasHealthConsent, useAccountStore } from "@/stores/account";
 import {
@@ -30,6 +30,7 @@ import {
   deleteProfileLabel,
   editProfileLabel,
   medicationCount,
+  profileName,
 } from "./copy";
 import { ConfirmDialog, EmergencyEntrySlot, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, TEXT_BUTTON, useAccountModal } from "./parts";
 
@@ -37,24 +38,19 @@ import { ConfirmDialog, EmergencyEntrySlot, FailureLine, PRIMARY_BUTTON, SECONDA
 export function profileSummary(profile: Profile, healthConsent: boolean): string {
   const parts = [RELATION_LABELS[profile.relation]];
   if (profile.age_band) parts.push(AGE_BAND_LABELS[profile.age_band]);
-  if (healthConsent && profile.pregnancy_status !== "unknown") parts.push(`${PREGNANCY_LABEL} ${PREGNANCY_LABELS[profile.pregnancy_status]}`);
+  if (healthConsent && profile.pregnancy_status !== null && profile.pregnancy_status !== "unknown") parts.push(`${PREGNANCY_LABEL} ${PREGNANCY_LABELS[profile.pregnancy_status]}`);
   if (healthConsent && profile.medications.length > 0) parts.push(medicationCount(profile.medications.length));
   return parts.join(" · ");
 }
 
-/** 건강 정보 동의가 없을 때의 이유 한 줄: 서버 문구(`declined_notice`)가 있으면 그대로, 없으면 화면 글자 */
+/** 건강 정보 동의가 없을 때의 이유 한 줄. 서버는 이 문구를 주지 않으므로(계약에 없다) 화면 글자(초안)를 쓴다 */
 export function useHealthConsentNotice(): string {
-  const { store } = useAccountModal();
-  const notice = useAccountStore((state) => state.legalDocs.find((doc) => doc.doc_type === HEALTH_CONSENT_DOC)?.declined_notice ?? null, store);
-  useEffect(() => {
-    void store.getState().loadLegalDocs();
-  }, [store]);
-  return notice ?? HEALTH_CONSENT_REQUIRED_FALLBACK;
+  return HEALTH_CONSENT_REQUIRED_FALLBACK;
 }
 
 /**
  * 프로필 목록(S10 3·5단계): 본인 + 가족 최대 3명의 추가·수정·삭제, 동의 다시 보기, 로그아웃, 탈퇴.
- * 가족이 3명이면 추가 버튼이 비활성이다(4번째 추가 불가).
+ * 가족이 3명이면 추가 버튼이 비활성이다(4번째 추가 불가). 본인 프로필에는 삭제 버튼이 없다(서버가 409 `SELF_REQUIRED`로 막는다. 계정을 지우려면 탈퇴).
  */
 export function ProfileList() {
   const { store, hideMascot } = useAccountModal();
@@ -83,20 +79,22 @@ export function ProfileList() {
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {profiles.map((profile) => (
-            <li key={profile.id} data-testid="profile-item" data-relation={profile.relation} className="flex flex-wrap items-center gap-2 rounded-2xl border border-line px-3 py-2">
+            <li key={profile.profile_id} data-testid="profile-item" data-relation={profile.relation} className="flex flex-wrap items-center gap-2 rounded-2xl border border-line px-3 py-2">
               {/* 프로필 기본 이미지: 병아리 얼굴(FE-06-01, 위험 정보와 무관한 자리) */}
               {!hideMascot && <Mascot variant="face" size={36} />}
               <div className="min-w-0 flex-1 basis-32">
-                <b className="block truncate text-sm">{profile.label}</b>
+                <b className="block truncate text-sm">{profileName(profile)}</b>
                 <span className="block text-xs leading-[17px] text-mute">{profileSummary(profile, healthConsent)}</span>
               </div>
               <div className="flex flex-none gap-1">
-                <button type="button" aria-label={editProfileLabel(profile.label)} onClick={() => editProfile({ profileId: profile.id, self: profile.relation === "self" })} className={TEXT_BUTTON}>
+                <button type="button" aria-label={editProfileLabel(profileName(profile))} onClick={() => editProfile({ profileId: profile.profile_id, self: profile.relation === "self" })} className={TEXT_BUTTON}>
                   {EDIT_LABEL}
                 </button>
-                <button type="button" aria-label={deleteProfileLabel(profile.label)} onClick={() => setDeleting(profile)} className={TEXT_BUTTON}>
-                  {DELETE_LABEL}
-                </button>
+                {profile.relation !== "self" && (
+                  <button type="button" aria-label={deleteProfileLabel(profileName(profile))} onClick={() => setDeleting(profile)} className={TEXT_BUTTON}>
+                    {DELETE_LABEL}
+                  </button>
+                )}
               </div>
             </li>
           ))}
@@ -133,13 +131,13 @@ export function ProfileList() {
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title={deleting ? deleteProfileConfirm(deleting.label) : ""}
+        title={deleting ? deleteProfileConfirm(profileName(deleting)) : ""}
         body={DELETE_PROFILE_BODY}
         confirmLabel={DELETE_LABEL}
         pending={pending}
         onConfirm={() => {
           if (!deleting) return;
-          void removeProfile(deleting.id).then(() => setDeleting(null));
+          void removeProfile(deleting.profile_id).then(() => setDeleting(null));
         }}
       />
       <ConfirmDialog

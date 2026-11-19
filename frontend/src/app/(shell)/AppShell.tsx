@@ -4,7 +4,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { UserIcon } from "lucide-react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
-import { AccountMenu, AccountModal, EntryChoice, LOGIN_ENTRY_LABEL, MANAGE_PROFILES_LABEL, TargetPicker, openAccountModal } from "@/features/account";
+import { AccountMenu, AccountModal, EntryChoice, LOGIN_ENTRY_LABEL, MANAGE_PROFILES_LABEL, TargetPicker, isAccountEntryEnabled, openAccountModal } from "@/features/account";
 import { ChatInput, ExampleChips, HomeHero } from "@/features/chat";
 import { EmergencyBanner, ExternalAiNotice, FixedNoticeBox, LegalFooter, StartEmergencyLink } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
@@ -36,7 +36,8 @@ import { useViewportWidth } from "./useViewportWidth";
 export function AppShell({ store = chatStore, account = accountStore }: { store?: ChatStore; account?: AccountStore }) {
   const width = useViewportWidth();
   const member = useAccountStore((state) => state.status === "member", account);
-  const displayName = useAccountStore((state) => state.me?.display_name ?? null, account);
+  // 계정 진입점 스위치(FE-04-02 A): 목 모드에서만 켠다. 꺼져 있으면 로그인/가입·계정 자리를 그리지 않고 `/api/me`도 부르지 않는다
+  const accountEnabled = isAccountEntryEnabled();
   const profiles = useAccountStore((state) => state.profiles, account);
   const targetProfileId = useAccountStore((state) => state.targetProfileId, account);
   const entryDismissed = useAccountStore((state) => state.entryDismissed, account);
@@ -53,7 +54,9 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   useEffect(() => () => store.getState().abort(), [store]);
 
   // 서버 세션이 있으면(소셜 로그인에서 돌아온 경우 등) 로그인 상태를 읽는다. 없거나 실패하면 게스트 그대로다
-  useEffect(() => void account.getState().bootstrap(), [account]);
+  useEffect(() => {
+    if (accountEnabled) void account.getState().bootstrap();
+  }, [account, accountEnabled]);
 
   // 넓은 폭에서는 판정 줄이 있는 답이 도착하면 근거 상세를 연다(디자인 반영본). 여는 동작 안에서 사이드바 판정도 같이 한다
   useEffect(
@@ -136,7 +139,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     account.getState().startGuest();
     focusInput();
   };
-  const accountMenu = <AccountMenu displayName={member ? (displayName ?? "") : null} onOpen={openAccount} onLogout={() => void account.getState().logout()} />;
+  const accountMenu = accountEnabled ? <AccountMenu member={member} onOpen={openAccount} onLogout={() => void account.getState().logout()} /> : null;
 
   const first = turns[0];
   const last = turns[turns.length - 1];
@@ -163,9 +166,11 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               {...sidebar}
               onToggle={() => dispatch({ type: "toggleSidebar" })}
               railAccount={
-                <IconButton label={member ? MANAGE_PROFILES_LABEL : LOGIN_ENTRY_LABEL} data-testid="account-entry" className="mt-auto" onClick={openAccount}>
-                  <UserIcon className="size-5" aria-hidden="true" />
-                </IconButton>
+                accountEnabled && (
+                  <IconButton label={member ? MANAGE_PROFILES_LABEL : LOGIN_ENTRY_LABEL} data-testid="account-entry" className="mt-auto" onClick={openAccount}>
+                    <UserIcon className="size-5" aria-hidden="true" />
+                  </IconButton>
+                )
               }
             />
           </div>
@@ -186,7 +191,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               <div data-testid="home" className="flex min-h-0 flex-1 flex-col justify-center gap-4 overflow-y-auto py-2">
                 <HomeHero />
                 {/* 진입 선택: 게스트로 시작(주) / 로그인·가입(보조). 누르지 않아도 아래 입력창으로 바로 질문할 수 있다 */}
-                {!member && !entryDismissed && <EntryChoice onGuest={startGuest} onLogin={openAccount} />}
+                {accountEnabled && !member && !entryDismissed && <EntryChoice onGuest={startGuest} onLogin={openAccount} />}
                 <ExampleChips onPick={send} />
               </div>
             ) : (
@@ -241,7 +246,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
             {evidenceResponse && <EvidenceDetail response={evidenceResponse} />}
           </EvidencePanel>
         )}
-        <AccountModal store={account} container={layer} hasEmergency={emergency !== null} emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />} />
+        {accountEnabled && <AccountModal store={account} container={layer} hasEmergency={emergency !== null} emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />} />}
         <SidebarOverlay open={layout.sidebarOverlay} onClose={() => dispatch({ type: "collapseSidebar" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
         <MenuDrawer open={!layout.desktop && shell.drawerOpen} onClose={() => dispatch({ type: "closeDrawer" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
       </div>

@@ -4,7 +4,8 @@ import type { Page } from "@playwright/test";
 import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openApp } from "./helpers";
 
 // 계정 흐름(FE-04) e2e. Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다.
-// 서버는 브라우저 워커의 목(src/mocks/account-handlers.ts, 임시 계약)이고 실제 백엔드·원격 호출은 0이다.
+// 서버는 브라우저 워커의 목(src/mocks/account-handlers.ts, BE-11 계약과 같은 모양)이고 실제 백엔드·원격 호출은 0이다.
+// 계정 진입점은 이 목 모드에서만 보인다(FE-04-02 A). 실제 백엔드 모드에서 숨는 것은 `account-switch.spec.ts`(app 프로젝트)가 본다.
 // 캡처: `FE04_SHOT_DIR`을 주면 그 폴더에 `*-fe04.png`를 남긴다(로컬 전용 `data/mock/fe-issue-shots`. 주지 않으면 찍지 않는다).
 const SHOT_DIR = process.env.FE04_SHOT_DIR;
 const shot = async (page: Page, name: string) => {
@@ -136,10 +137,14 @@ for (const width of [360, 1280]) {
       await expectModalFits(page);
       await shot(page, "consent");
       const agree = (docType: string) => modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox");
+      // 고지 문서(처리방침: 외부 AI 전송 안내)는 체크 없는 고지다(FE-04-03 A). 동의 대상은 셋뿐이다
+      await expect(agree("privacy_policy")).toHaveCount(0);
+      await expect(modal(page).getByRole("checkbox")).toHaveCount(3);
+      await expect(modal(page).getByTestId("legal-not-reviewed")).toHaveCount(4); // 초안·법률 검토 전 표지
       await agree("terms").check();
       await expect(submit).toBeDisabled();
-      await agree("privacy").check();
-      await agree("sensitive_health").check();
+      await agree("privacy_consent").check();
+      await agree("sensitive_consent").check();
       await expect(submit).toBeEnabled();
       await submit.click();
 
@@ -148,7 +153,7 @@ for (const width of [360, 1280]) {
       await modal(page).getByTestId("add-self").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
       await modal(page).getByLabel("이름(별명)").fill("나");
-      await modal(page).getByLabel("연령대").selectOption("adult");
+      await modal(page).getByLabel("연령대").selectOption("y19_64");
       await modal(page).getByRole("radio", { name: "예" }).check();
       await modal(page).getByLabel("복용 중인 약(선택)").fill("가나다정 100밀리그램");
       await modal(page).getByTestId("medication-add").click();
@@ -161,7 +166,7 @@ for (const width of [360, 1280]) {
       // 가족 한 명 더
       await modal(page).getByTestId("add-family").click();
       await modal(page).getByLabel("이름(별명)").fill("첫째");
-      await modal(page).getByLabel("연령대").selectOption("child");
+      await modal(page).getByLabel("연령대").selectOption("y6_11");
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
       await expectModalFits(page);
@@ -190,7 +195,7 @@ for (const width of [360, 1280]) {
       await expect(page.locator('[data-turn="turn-3"]').getByTestId("result-card")).toBeVisible();
       expect(bodies.map((body) => body.context)).toEqual([
         { age: { lower: 19, upper: 64, unit: "세" }, pregnant: true, confirmed_drugs: [] }, // 복용 약(입력 원문)은 싣지 않는다
-        { age: { lower: 2, upper: 11, unit: "세" }, pregnant: null, confirmed_drugs: [] },
+        { age: { lower: 6, upper: 11, unit: "세" }, pregnant: null, confirmed_drugs: [] },
         { age: null, pregnant: null, confirmed_drugs: [] },
       ]);
 
@@ -203,7 +208,7 @@ for (const width of [360, 1280]) {
         return { local: dump(window.localStorage), session: dump(window.sessionStorage), indexed: names };
       });
       for (const text of [stored.local, stored.session, JSON.stringify(await context.cookies())]) {
-        for (const secret of ["user@example.com", "pw-1234", "가나다정", "첫째", "합성 질문", "adult", "pregnan", "mock-user"]) expect(text).not.toContain(secret);
+        for (const secret of ["user@example.com", "pw-1234", "가나다정", "첫째", "합성 질문", "y19_64", "pregnan", "00000000-0000-4000"]) expect(text).not.toContain(secret);
       }
       expect(stored.indexed).toEqual([]);
     });
