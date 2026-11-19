@@ -41,7 +41,7 @@ SCRIPT = [
 ]
 GOOD = {"sentences": [{"text": SUMMARY_TEXT, "evidence_ids": [PAIR_EID], "claim_type": "fact", "citations": []}]}
 BAD = {"sentences": [{"text": "이 조합은 안전합니다.", "evidence_ids": [PAIR_EID], "claim_type": "fact", "citations": []}]}
-COUNT_KEY_RE = re.compile(r"^(spans|node=chat|end_reason=(NORMAL|CLARIFY|REFUSE|LIMIT|VALIDATION_FALLBACK)|error_type=[A-Za-z_]+|harness_rule=H\d{1,2})$")
+COUNT_KEY_RE = re.compile(r"^(spans|node=chat|end_reason=(NORMAL|CLARIFY|REFUSE|LIMIT|VALIDATION_FALLBACK)|error_type=[A-Za-z_]+|harness_rule=H\d{1,2}|h2_fallback\.[A-Z_]+)$")  # h2_fallback: BE-17-10 A 사유 코드 개수
 
 
 def _runner(script: list[AIMessage], drafts: list[Any]) -> GraphRunner:
@@ -95,6 +95,8 @@ def test_refuse_and_fallback_count_harness_blocks_by_rule():
     line, text = _post(_runner([*SCRIPT, AIMessage("다시 정리")], [BAD, BAD]), Q_PAIR)
     _assert_content_free(line, text)
     assert line["counts"]["end_reason=VALIDATION_FALLBACK"] == 1 and line["counts"]["harness_rule=H2"] == 1  # 되감기(rollback)는 차단으로 세지 않는다
+    h2 = {k: v for k, v in line["counts"].items() if k.startswith("h2_fallback.")}  # BE-17-10 A: 폴백 사유 코드별 개수(실제 그래프 경로)
+    assert h2 and "h2_fallback.OTHER" not in h2 and all(v >= 1 for v in h2.values()), h2
 
 
 def test_error_request_counts_error_type_only():

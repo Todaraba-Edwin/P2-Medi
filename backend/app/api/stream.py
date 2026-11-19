@@ -57,11 +57,21 @@ class MetricsSink(Protocol):
     def log(self, **fields: Any) -> Any: ...
 
 
+def _fallback_reasons(events: Sequence[Any]) -> list[str]:
+    """상태 `events`에서 H2 `VALIDATION_FALLBACK`의 사유 **코드**만 꺼낸다(BE-17-10 A). 문자열이 아닌 값은 버린다."""
+    out: list[str] = []
+    for e in events:
+        if isinstance(e, dict) and e.get("rule") == "H2" and e.get("event") == "VALIDATION_FALLBACK":
+            out.extend(r for r in e.get("reasons") or [] if isinstance(r, str))
+    return out
+
+
 def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reason: str | None, error_type: str | None,
-                    block_rules: list[str], usage: RequestUsage | None = None) -> None:
+                    block_rules: list[str], usage: RequestUsage | None = None, fallback_reasons: Sequence[str] = ()) -> None:
     """요청 한 건의 내용 없는 값을 집계기에 넘긴다. 기록 실패가 응답을 망치지 않게 예외는 종류 이름만 로그에 남긴다.
 
-    `usage`(요청 단위 모델 사용량, BE-06-36 A)는 숫자 칸 `tokens_in`·`tokens_out`·`cost_usd`로만 더한다(모델 호출이 없었으면 칸 없음)."""
+    `usage`(요청 단위 모델 사용량, BE-06-36 A)는 숫자 칸 `tokens_in`·`tokens_out`·`cost_usd`로만 더한다(모델 호출이 없었으면 칸 없음).
+    `fallback_reasons`(H2 폴백 사유 코드, BE-17-10 A)는 서비스 집계기의 `h2_fallback`으로 **코드별 개수만** 더한다(목록 밖 값은 `OTHER`)."""
     if metrics is None:
         return
     try:
@@ -75,6 +85,10 @@ def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reaso
         metrics.log(**fields)
         for rule in block_rules:
             metrics.log(harness_event={"rule": rule})  # 규칙 ID만(L1이 `harness_rule`로 센다)
+        agg = getattr(metrics, "aggregator", None)
+        if fallback_reasons and getattr(metrics, "mode", "service") == "service" and hasattr(agg, "h2_fallback"):
+            for reason in fallback_reasons:
+                agg.h2_fallback(reason)  # type: ignore[union-attr]
     except Exception as exc:  # noqa: BLE001
         logger.error("chat metrics failed: %s", type(exc).__name__)
 
@@ -128,6 +142,7 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
     용량주의 되묻기 답 `took_today` AG-22-05 A)는 실행기로만 넘기고 지표·로그·이벤트에 싣지 않는다."""
     started = time.monotonic()
     block_rules: list[str] = []  # 하네스 차단 이벤트의 규칙 ID(내용 없음)
+    fallback_reasons: list[str] = []  # H2 폴백 사유 코드(내용 없음, BE-17-10 A)
     error_type: str | None = None
     finished = False
     seq = EventSequence()
@@ -151,6 +166,7 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
                 if not isinstance(update, dict):
                     continue
                 block_rules.extend(h["rule"] for h in harness_events(update.get("events") or []) if h["action"] == "block" and h["rule"])
+                fallback_reasons.extend(_fallback_reasons(update.get("events") or []))
                 if node == "guardrail_in" and update.get("emergency"):
                     yield seq.emergency()
                 elif node == "router":
@@ -184,7 +200,7 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
             error_type = ERROR_CLIENT_GONE
         _record_metrics(metrics, latency_ms=(time.monotonic() - started) * 1000,
                         end_reason=answered.response.end_reason if answered and error_type is None else None,
-                        error_type=error_type, block_rules=block_rules, usage=usage)
+                        error_type=error_type, block_rules=block_rules, usage=usage, fallback_reasons=fallback_reasons)
 
 
 __all__ = ["METRICS_NODE", "TOOL_STAGE", "MetricsSink", "chat_events"]
