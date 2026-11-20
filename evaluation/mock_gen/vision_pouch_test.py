@@ -11,6 +11,12 @@
     공통 옵션 --provider openai: gpt-6-luna(OPENAI_API_KEY). 결과·채점·원장 파일에 _luna/_openai가 붙어 Haiku 파일과 섞이지 않는다.
     공통 옵션 --labels <경로>: 정답 파일을 고른다(기본 labels_draft.json). labels_<이름>.json이면
     결과는 grade_<이름>[_upscaled].json·lookup_<이름>.json·suggest_<이름>.json으로 따로 쓴다(기존 결과를 덮어쓰지 않음).
+    .venv/bin/python evaluation/mock_gen/vision_pouch_test.py run --upscale --provider upstage  # AG-17: Upstage OCR + solar-pro4
+    공통 옵션 --provider upstage: Upstage Document OCR(`ocr`)로 글자를 읽고, 같은 지시문·같은 JSON 스키마로 `solar-pro4`가
+      약 이름을 뽑는다(UPSTAGE_API_KEY, Settings로 읽음). Solar 채팅 모델은 이미지 입력이 문서에 없어 OCR을 앞에 둔다.
+      OCR 원문은 개인정보가 섞일 수 있어 파일에 남기지 않고 단어 수·평균 신뢰도만 남긴다. 결과·채점 파일은 results_upstage*·grade_upstage*.
+    공통 옵션 --ledger <경로> --cap <USD>: 원장·상한을 바꾼다. 두 제공자에 같은 원장을 주면 합계 상한이 코드로 강제된다.
+    공통 옵션 --suffix <문자열>: 결과·채점 파일 이름에 붙인다(예: _ag17, 같은 이름의 이전 결과를 덮어쓰지 않으려고).
 
 원칙
 - 키는 환경변수 ANTHROPIC_API_KEY로만 읽는다(_common과 같이 dotenv). 키 값과 이미지 base64는 출력·기록하지 않는다.
@@ -55,6 +61,18 @@ LUNA = "gpt-6-luna"
 OPENAI_PRICES = {LUNA: (0.10, 0.50)}  # USD/100만 토큰, tickets/doc/RFP-15.md §8.2(2026-11-04 문서 조회 값)
 OPENAI_CAP_USD = 0.5
 OPENAI_MAX_COMPLETION = 4000    # 추론 토큰이 출력에 포함될 수 있어 Haiku(1200)보다 넉넉히 둔다(값은 상한일 뿐)
+# Upstage(AG-17, 2026-11-20 공식 문서 확인): OCR 쪽당 0.0015 USD(upstage.ai/pricing, console docs/models/document-ocr),
+# solar-pro4 입력 0.30·출력 1.20 USD/100만 토큰(console docs/models/solar-pro-4, 가격표의 인하 일정보다 높은 쪽을 보수적으로 씀)
+UPSTAGE_BASE = "https://api.upstage.ai/v1"
+UPSTAGE_OCR_MODEL = "ocr"
+UPSTAGE_OCR_USD_PER_PAGE = 0.0015
+SOLAR = "solar-pro4"
+UPSTAGE_PRICES = {SOLAR: (0.30, 1.20)}
+UPSTAGE_CAP_USD = 0.30
+UPSTAGE_MAX_TOKENS = 4000
+OCR_PREFIX = "아래는 약봉투 사진을 OCR로 읽은 글자다(사진 대신 이 글자를 준다). 글자 인식 오류가 있을 수 있다.\n<ocr>\n"
+OCR_MAX_CHARS = 6000  # OCR 글자가 길면 자른다(약봉투는 보통 짧다). 최악 비용 계산에도 쓴다
+SUFFIX = ""  # --suffix: 결과·채점 파일 이름 덧붙임
 RUNS = 3
 MAX_TOKENS = 1200
 MAX_STR = 80  # 필드 값 최대 길이(넘으면 자른다)
@@ -124,11 +142,16 @@ def image_tokens_estimate(path: Path) -> int:
 
 
 def price() -> tuple[float, float]:
+    if PROVIDER == "upstage":
+        return UPSTAGE_PRICES[MODEL]
     return OPENAI_PRICES[MODEL] if PROVIDER == "openai" else PRICES[MODEL]
 
 
 def worst_cost(path: Path, img_tok: int | None = None) -> float:
     in_p, out_p = price()
+    if PROVIDER == "upstage":  # OCR 1쪽 + solar-pro4(글자 입력, 한글 글자당 1토큰으로 보수적) 최대 출력
+        in_tok = len(SYSTEM) + len(USER_TEXT) + len(OCR_PREFIX) + OCR_MAX_CHARS + len(json.dumps(SCHEMA)) + 500
+        return UPSTAGE_OCR_USD_PER_PAGE + in_tok * in_p / 1e6 + UPSTAGE_MAX_TOKENS * out_p / 1e6
     if PROVIDER == "openai":  # 이미지 토큰 계산 방식이 달라 추정의 3배 + 최대 출력으로 보수적으로 잡는다
         text_tokens = (len(SYSTEM) + len(USER_TEXT) + len(json.dumps(SCHEMA))) / 1.5
         in_tok = (text_tokens + (img_tok or image_tokens_estimate(path))) * 3 + 1000
@@ -233,6 +256,7 @@ def call_image_openai(path: Path, tag: str, upscale: bool = False) -> dict:
                     {"type": "text", "text": USER_TEXT}]}]
     client = openai.OpenAI()
     r = None
+    t0 = time.monotonic()
     for attempt in range(4):
         try:
             r = client.chat.completions.create(
@@ -244,6 +268,7 @@ def call_image_openai(path: Path, tag: str, upscale: bool = False) -> dict:
             time.sleep(2 ** attempt * 2)
     if r is None:
         raise SystemExit("API 재시도 실패")
+    latency = round(time.monotonic() - t0, 2)
     u = r.usage
     in_tok, out_tok = u.prompt_tokens, u.completion_tokens
     reasoning = getattr(getattr(u, "completion_tokens_details", None), "reasoning_tokens", None)
@@ -256,7 +281,7 @@ def call_image_openai(path: Path, tag: str, upscale: bool = False) -> dict:
         f.write(json.dumps({"ts": time.strftime("%F %T"), "tag": tag, "model": MODEL, "mode": "structured",
                             "in": in_tok, "out": out_tok, "reasoning": reasoning, "usd": round(cost, 6),
                             "image_sha": hashlib.sha1(path.read_bytes()).hexdigest()[:10], "upscale": upscale,
-                            "stop_reason": ch.finish_reason, "refusal": bool(refusal)}) + "\n")
+                            "stop_reason": ch.finish_reason, "refusal": bool(refusal), "latency_s": latency}) + "\n")
     text = ch.message.content or ""
     parse_ok = True
     try:
@@ -266,7 +291,127 @@ def call_image_openai(path: Path, tag: str, upscale: bool = False) -> dict:
     clean, dropped = sanitize(raw)
     return {"tag": tag, "mode": "structured", "parse_ok": parse_ok, "stop_reason": ch.finish_reason,
             "refusal": bool(refusal), "in_tokens": in_tok, "out_tokens": out_tok, "reasoning_tokens": reasoning,
-            "usd": round(cost, 6), "dropped_keys": dropped, "leak_hits": leak_hits(clean), "output": clean}
+            "usd": round(cost, 6), "latency_s": latency, "dropped_keys": dropped, "leak_hits": leak_hits(clean), "output": clean}
+
+
+def parse_json_text(text: str) -> tuple[dict | None, bool]:
+    """모델 출력 글자에서 JSON 객체를 꺼낸다(코드 펜스 허용). 실패하면 (None, False)."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[1].rsplit("```", 1)[0] if "\n" in t else ""
+    try:
+        return json.loads(t[t.find("{"): t.rfind("}") + 1]), True
+    except Exception:  # noqa: BLE001
+        return None, False
+
+
+def ocr_summary(doc: dict) -> tuple[str, dict]:
+    """Upstage OCR 응답 → (모델에 넘길 글자, 기록용 요약). 요약에는 글자를 넣지 않는다(개인정보가 섞일 수 있음)."""
+    text = doc.get("text") or "\n".join(p.get("text") or "" for p in doc.get("pages") or [])
+    words = [w for p in doc.get("pages") or [] for w in p.get("words") or []]
+    confs = [w["confidence"] for w in words if isinstance(w.get("confidence"), (int, float))]
+    pages = doc.get("numBilledPages")
+    summary = {"ocr_model": doc.get("modelVersion"), "ocr_pages": pages if isinstance(pages, int) else 1,
+               "ocr_words": len(words), "ocr_chars": len(text),
+               "ocr_mean_conf": round(sum(confs) / len(confs), 3) if confs else None,
+               "ocr_truncated": len(text) > OCR_MAX_CHARS}
+    return text[:OCR_MAX_CHARS], summary
+
+
+def upstage_messages(ocr_text: str) -> list[dict]:
+    """OpenAI·Haiku와 같은 SYSTEM·USER_TEXT를 쓰고, 이미지 대신 OCR 글자를 앞에 붙인다(공정 비교를 위해 지시문은 바꾸지 않는다)."""
+    return [{"role": "system", "content": SYSTEM},
+            {"role": "user", "content": OCR_PREFIX + ocr_text + "\n</ocr>\n" + USER_TEXT}]
+
+
+def add_spent(cost: float) -> None:
+    LEDGER.write_text(json.dumps({"usd": round(spent() + cost, 6), "cap_usd": CAP_USD}))
+
+
+def call_image_upstage(path: Path, tag: str, upscale: bool = False) -> dict:
+    """Upstage 2단계: Document OCR(`/document-digitization`, model=ocr) → solar-pro4 Chat Completions(같은 지시문·JSON 스키마 strict).
+    키는 Settings(UPSTAGE_API_KEY)로만 읽고 기록하지 않는다. OCR 글자·이미지 base64는 파일에 남기지 않는다."""
+    import httpx
+    import openai
+
+    sys.path.append(str(ROOT / "backend"))
+    from app.config import get_settings, reveal
+
+    key = reveal(get_settings().upstage_api_key)
+    if not key:
+        raise SystemExit("UPSTAGE_API_KEY가 설정에 없다")
+    media, data, _ = image_payload(path, upscale)
+    worst = worst_cost(path)
+    if spent() + worst > CAP_USD:
+        raise SystemExit(f"중단: 누적 ${spent():.4f} + 예상 최대 ${worst:.4f} > 상한 ${CAP_USD}")
+    t0 = time.monotonic()
+    resp = None
+    for attempt in range(4):
+        try:
+            resp = httpx.post(f"{UPSTAGE_BASE}/document-digitization", headers={"Authorization": f"Bearer {key}"},
+                              files={"document": (f"{path.stem}.jpg", base64.standard_b64decode(data), media)},
+                              data={"model": UPSTAGE_OCR_MODEL}, timeout=180)
+        except httpx.TransportError:
+            time.sleep(2 ** attempt * 2)
+            continue
+        if resp.status_code in (429, 500, 502, 503, 504):
+            time.sleep(2 ** attempt * 2)
+            continue
+        break
+    if resp is None or resp.status_code != 200:
+        status = None if resp is None else resp.status_code
+        raise SystemExit(f"Upstage OCR 실패(HTTP {status})")
+    ocr_text, ocr = ocr_summary(resp.json())
+    ocr_latency = round(time.monotonic() - t0, 2)
+    ocr_cost = ocr["ocr_pages"] * UPSTAGE_OCR_USD_PER_PAGE
+    add_spent(ocr_cost)
+
+    client = openai.OpenAI(api_key=key, base_url=UPSTAGE_BASE)
+    messages = upstage_messages(ocr_text)
+    mode, r = "structured", None
+    t1 = time.monotonic()
+    for attempt in range(4):
+        try:
+            if mode == "structured":
+                r = client.chat.completions.create(
+                    model=MODEL, messages=messages, max_tokens=UPSTAGE_MAX_TOKENS,
+                    response_format={"type": "json_schema",
+                                     "json_schema": {"name": "pouch_drugs", "strict": True, "schema": SCHEMA}})
+            else:
+                r = client.chat.completions.create(
+                    model=MODEL, max_tokens=UPSTAGE_MAX_TOKENS,
+                    messages=[{"role": "system", "content": SYSTEM + "\nJSON 스키마:\n" + json.dumps(SCHEMA, ensure_ascii=False)},
+                              messages[1]])
+            break
+        except openai.BadRequestError as e:
+            if mode == "structured":
+                mode = "prompt_json"
+                print(f"  structured outputs 거부({type(e).__name__}), 프롬프트 JSON으로 전환")
+                continue
+            raise
+        except (openai.RateLimitError, openai.APIConnectionError, openai.InternalServerError):
+            time.sleep(2 ** attempt * 2)
+    if r is None:
+        raise SystemExit("API 재시도 실패")
+    llm_latency = round(time.monotonic() - t1, 2)
+    in_tok, out_tok = r.usage.prompt_tokens, r.usage.completion_tokens
+    in_p, out_p = price()
+    llm_cost = in_tok * in_p / 1e6 + out_tok * out_p / 1e6
+    add_spent(llm_cost)
+    cost = ocr_cost + llm_cost
+    ch = r.choices[0]
+    with CALLS.open("a") as f:
+        f.write(json.dumps({"ts": time.strftime("%F %T"), "tag": tag, "model": MODEL, "mode": mode, **ocr,
+                            "in": in_tok, "out": out_tok, "usd": round(cost, 6), "ocr_usd": ocr_cost,
+                            "image_sha": hashlib.sha1(path.read_bytes(), usedforsecurity=False).hexdigest()[:10], "upscale": upscale,
+                            "stop_reason": ch.finish_reason, "latency_s": round(ocr_latency + llm_latency, 2),
+                            "ocr_latency_s": ocr_latency, "llm_latency_s": llm_latency}) + "\n")
+    raw, parse_ok = parse_json_text(ch.message.content or "")
+    clean, dropped = sanitize(raw)
+    return {"tag": tag, "mode": mode, "parse_ok": parse_ok, "stop_reason": ch.finish_reason, **ocr,
+            "in_tokens": in_tok, "out_tokens": out_tok, "usd": round(cost, 6), "ocr_usd": ocr_cost,
+            "latency_s": round(ocr_latency + llm_latency, 2), "ocr_latency_s": ocr_latency, "llm_latency_s": llm_latency,
+            "dropped_keys": dropped, "leak_hits": leak_hits(clean), "output": clean}
 
 
 def probe() -> dict:
@@ -295,6 +440,8 @@ def probe() -> dict:
 def call_image(path: Path, tag: str, upscale: bool = False) -> dict:
     if PROVIDER == "openai":
         return call_image_openai(path, tag, upscale)
+    if PROVIDER == "upstage":
+        return call_image_upstage(path, tag, upscale)
     import anthropic
     from dotenv import load_dotenv
 
@@ -365,9 +512,11 @@ def paths(upscale: bool) -> tuple[Path, Path]:
     """조건별 결과·채점 파일. 기본(원본 크기)은 results.json·grade.json, 보조(확대)는 *_upscaled.json.
     --labels로 다른 정답을 고르면 채점 파일만 grade_<이름>[_upscaled].json으로 바꾼다(결과 파일은 그대로 읽기만)."""
     t = labels_tag()
+    up = "_upscaled" if upscale else ""
     if PROVIDER == "openai":  # gpt-6-luna: results_luna[_upscaled].json, grade_luna<정답>[_upscaled].json
-        up = "_upscaled" if upscale else ""
-        return OUT / f"results_luna{up}.json", OUT / f"grade_luna{t}{up}.json"
+        return OUT / f"results_luna{SUFFIX}{up}.json", OUT / f"grade_luna{t}{SUFFIX}{up}.json"
+    if PROVIDER == "upstage":  # AG-17: results_upstage[<suffix>][_upscaled].json, grade_upstage<정답>[<suffix>][_upscaled].json
+        return OUT / f"results_upstage{SUFFIX}{up}.json", OUT / f"grade_upstage{t}{SUFFIX}{up}.json"
     if not upscale:
         return RESULTS, (OUT / f"grade{t}.json" if t else GRADE)
     return OUT / "results_upscaled.json", OUT / f"grade{t}_upscaled.json"
@@ -474,7 +623,12 @@ def grade(upscale: bool = False) -> dict:
                 "unreadable_note": r["output"]["unreadable_note"],
                 "leak": bool(r["leak_hits"] or r["dropped_keys"]),  # 의심 표시(패턴은 '환자정보 가려짐' 같은 언급에도 걸린다 → 사람 확인) "leak_hits": r["leak_hits"], "dropped_keys": r["dropped_keys"],
                 "parse_ok": r["parse_ok"], "off_field_values": off_field_values(r["output"]),
+                "usd": r.get("usd"), "latency_s": r.get("latency_s"),
             })
+            T["usd_x1e6"] += round((r.get("usd") or 0) * 1e6)
+            if r.get("latency_s") is not None:
+                T["latency_ms_sum"] += round(r["latency_s"] * 1000)
+                T["latency_n"] += 1
             for k in ("matched", "n_gold", "hallucinated", "near_miss", "ingredient_out", "ingredient_match", "ingredient_gold",
                       "unclear_honest", "unclear_n", "high_conf_wrong", "n_pred", "off_field_values"):
                 T[k] += per_run[-1][k]
@@ -586,6 +740,8 @@ def suggest() -> dict:
     out = {"labels_file": LABELS.name, "dict_names": len(names), "top_k": TOP_K, "conditions": {}}
     for upscale in (False, True):
         res_path, _ = paths(upscale)
+        if not res_path.exists():  # 한 조건만 돌린 경우(AG-17 Upstage는 확대 조건만)
+            continue
         results = json.loads(res_path.read_text())
         C = Counter()
         per_drug: dict[str, int] = Counter()
@@ -624,7 +780,7 @@ def suggest() -> dict:
         print(f"[{'확대' if upscale else '원본'}] 정확 일치 {C['exact']}/{C['n']}, top-{TOP_K} 후보에 정답 {C['topk']}/{C['n']} "
               f"(정답이 사전에 있는 경우만 {C['topk_given_in_dict']}/{C['gold_in_dict_runs']}), 일치 또는 후보 {C['topk_or_exact']}/{C['n']}, "
               f"한 번이라도 {drugs_once}/{n_drugs}, 틀린 이름이 다른 실존 제품을 1순위로 {C['wrong_pred_top1_other_real']}/{C['wrong_pred']}")
-    (OUT / f"suggest{'_luna' if PROVIDER == 'openai' else ''}{labels_tag()}.json").write_text(json.dumps(out, ensure_ascii=False, indent=2))
+    (OUT / f"suggest{ {'openai': '_luna', 'upstage': '_upstage'}.get(PROVIDER, '')}{labels_tag()}{SUFFIX}.json").write_text(json.dumps(out, ensure_ascii=False, indent=2))
     return out
 
 
@@ -640,8 +796,20 @@ if __name__ == "__main__":
         if prov == "openai":
             PROVIDER, MODEL, CAP_USD = "openai", LUNA, OPENAI_CAP_USD
             LEDGER, CALLS = OUT / "ledger_openai.json", OUT / "calls_openai.jsonl"
+        elif prov == "upstage":
+            PROVIDER, MODEL, CAP_USD = "upstage", SOLAR, UPSTAGE_CAP_USD
+            LEDGER, CALLS = OUT / "ledger_upstage.json", OUT / "calls_upstage.jsonl"
         elif prov not in ("anthropic", ""):
             raise SystemExit(f"알 수 없는 provider: {prov}")
+    if "--ledger" in sys.argv[2:]:  # 두 제공자가 같은 원장을 쓰면 합계 상한이 된다(AG-17)
+        i = sys.argv.index("--ledger")
+        LEDGER = Path(sys.argv[i + 1]).resolve()
+    if "--cap" in sys.argv[2:]:
+        i = sys.argv.index("--cap")
+        CAP_USD = float(sys.argv[i + 1])
+    if "--suffix" in sys.argv[2:]:
+        i = sys.argv.index("--suffix")
+        SUFFIX = sys.argv[i + 1]
     if "--labels" in sys.argv[2:]:
         i = sys.argv.index("--labels")
         LABELS = Path(sys.argv[i + 1]).resolve() if i + 1 < len(sys.argv) else LABELS
