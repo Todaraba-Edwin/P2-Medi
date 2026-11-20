@@ -46,6 +46,7 @@ SCHEMA_FILE = DB_DIR / "schema_account.sql"
 SEED_FILE = DB_DIR / "seed_legal_v1.sql"
 SEED_V2_FILE = DB_DIR / "seed_legal_v2.sql"  # PRD-17-05 A: v2 행 추가(v1 유지)
 SEED_FILES = {1: SEED_FILE, 2: SEED_V2_FILE}
+SEED_AGE14_FILE = DB_DIR / "seed_legal_age14.sql"  # PRD-17-12 A: 만 14세 확인 문서 v1. 스키마를 커밋한 뒤 따로 실행
 _EFFECTIVE_PLACEHOLDER = "{{EFFECTIVE_AT}}"
 # 값이 아직 없는 자리표시({{PRIVACY_CONTACT}}, {{확인 필요: …}} 등). 승인 원문 머리의 안내 문구 `{{…}}`(말줄임표 한 글자)는
 # 자리표시가 아니라 본문 문장이므로 제외한다. 주석 줄(--)은 보지 않는다
@@ -72,6 +73,16 @@ def seed_sql(effective_at: datetime, version: int = 1) -> str:
     return SEED_FILES[version].read_text(encoding="utf-8").replace(_EFFECTIVE_PLACEHOLDER, effective_at.isoformat())
 
 
+def seed_age14_sql(effective_at: datetime) -> str:
+    """만 14세 확인 문서(`age_14` v1) 시드 SQL. `{{EFFECTIVE_AT}}`만 채운다(`seed_sql`과 같은 규칙).
+
+    `schema_account.sql`의 `ALTER TYPE … ADD VALUE 'age_14'`가 커밋된 뒤 **다른 트랜잭션**에서 실행한다.
+    """
+    if effective_at.tzinfo is None:
+        raise ValueError("effective_at에는 시간대가 있어야 한다")
+    return SEED_AGE14_FILE.read_text(encoding="utf-8").replace(_EFFECTIVE_PLACEHOLDER, effective_at.isoformat())
+
+
 def unfilled_placeholders(sql: str) -> list[str]:
     """SQL(주석 줄 제외)에 남은 `{{…}}` 자리표시를 나온 순서대로(중복 제거) 돌려준다. `{{EFFECTIVE_AT}}`도 남아 있으면 포함한다."""
     body = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
@@ -89,7 +100,7 @@ def _claims(user_id: str) -> str:
     return json.dumps({"sub": user_id, "role": "authenticated", "aud": "authenticated"})
 
 
-_PROFILE_COLS = "profile_id::text, relation::text, label, age_band::text, pregnancy_status::text, sort_order"
+_PROFILE_COLS = "profile_id::text, relation::text, label, age_band::text, pregnancy_status::text, sort_order, sex::text"
 _LEGAL_COLS = "doc_type::text, version, title, body_md, required, requires_reconsent, effective_at, legal_review, body_sha256"
 
 
@@ -166,7 +177,7 @@ class PostgresAccountRepo:
         meds: dict[str, list[Medication]] = {}
         for pid, mid, text, seq, at in cur.fetchall():
             meds.setdefault(pid, []).append(Medication(mid, text, seq.strip() if seq else None, at))
-        return [Profile(r[0], r[1], r[2], r[3], r[4], r[5], tuple(meds.get(r[0], ()))) for r in rows]
+        return [Profile(r[0], r[1], r[2], r[3], r[4], r[5], tuple(meds.get(r[0], ())), sex=r[6]) for r in rows]
 
     @staticmethod
     def _user(row: Sequence[Any] | None) -> AppUser | None:
@@ -276,9 +287,9 @@ class PostgresAccountRepo:
                 free = [i for i in (1, 2, 3) if i not in used]
                 order = free[0] if free else 3  # 자리가 없으면 트리거가 PROFILE_LIMIT으로 거부한다
             cur.execute(
-                "INSERT INTO account.profiles (user_id, relation, label, age_band, pregnancy_status, sort_order) "
-                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING profile_id::text",
-                (user_id, data.relation, data.label, data.age_band, data.pregnancy_status, order))
+                "INSERT INTO account.profiles (user_id, relation, label, age_band, pregnancy_status, sort_order, sex) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING profile_id::text",
+                (user_id, data.relation, data.label, data.age_band, data.pregnancy_status, order, data.sex))
             pid = cur.fetchone()[0]
             self._insert_meds(cur, user_id, pid, data.medications)
             return self._profiles(cur, user_id, pid)[0]
@@ -289,7 +300,7 @@ class PostgresAccountRepo:
         def q(cur: Any) -> Profile:
             sets: list[str] = []
             args: list[Any] = []
-            for name in ("relation", "label", "age_band", "pregnancy_status"):  # 열 이름은 이 상수 목록에서만
+            for name in ("relation", "label", "age_band", "pregnancy_status", "sex"):  # 열 이름은 이 상수 목록에서만
                 value = getattr(patch, name)
                 if not isinstance(value, _Unset):
                     sets.append(f"{name} = %s")
@@ -325,5 +336,5 @@ class PostgresAccountRepo:
         return await self._run("authenticated", user_id, q)
 
 
-__all__ = ["SCHEMA_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "PostgresAccountRepo", "assert_publishable", "schema_sql",
-           "seed_sql", "unfilled_placeholders"]
+__all__ = ["SCHEMA_FILE", "SEED_AGE14_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "PostgresAccountRepo", "assert_publishable",
+           "schema_sql", "seed_age14_sql", "seed_sql", "unfilled_placeholders"]

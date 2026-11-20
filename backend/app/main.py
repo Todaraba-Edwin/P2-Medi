@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .api import account as account_api
 from .api import chat as chat_api
 from .api import drugs as drugs_api
 from .api import me as me_api
@@ -43,7 +44,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         chat_api.set_runner(app, runner)
         service.start_warmup(runner, settings_now)  # BE-17-01 A: 백그라운드 스레드만 띄우고 기다리지 않는다(스위치 끔이면 안 띄움)
     # FE-04-13 A: 프로필 약 검색은 채팅 자원의 사전을 공유한다(DB 추가 조회 0). 실행기가 없으면 공급자 없음 → 501
-    drugs_api.set_provider(app, runner.drug_dict if isinstance(runner, service.LazyGraphRunner) else None)
+    dict_provider = runner.drug_dict if isinstance(runner, service.LazyGraphRunner) else None
+    drugs_api.set_provider(app, dict_provider)
+    # FE-04-13 남음 ②: 프로필 복용 약 `item_seq`는 같은 사전으로 다시 확인한다(사전에 없는 번호는 원문만 저장). 저장소는 아직
+    # 붙이지 않으므로(BE-11-23 A, 원격 적용 뒤 `set_repo`) 확인 함수만 먼저 붙인다. `set_repo(app, repo)`는 이 값을 그대로 둔다
+    account_api.set_item_seq_checker(app, drugs_api.dict_item_seq_checker(dict_provider) if dict_provider is not None else None)
     auth.set_verifier(app, auth.build_verifier(settings_now))  # 접속 0. 설정이 모자라면 None → 토큰이 온 /me는 501
     yield
 

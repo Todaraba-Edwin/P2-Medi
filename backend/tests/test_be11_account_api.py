@@ -45,13 +45,13 @@ LABEL_SECRET = "막내표지"
 def _doc(doc_type: str, version: int = 1, *, required: bool | None = None, effective: datetime = PAST,
          requires_reconsent: bool = False) -> LegalDoc:
     body = f"> 초안·법률 검토 전입니다.\n\n{doc_type} v{version} 본문"
-    req = doc_type in ("terms", "privacy_consent") if required is None else required
+    req = doc_type in ("terms", "privacy_consent", "age_14") if required is None else required
     return LegalDoc(doc_type, version, f"{doc_type} v{version}(초안)", body, req, requires_reconsent, effective, "not_reviewed",
                     body_sha256(body))
 
 
 def _docs() -> list[LegalDoc]:
-    return [_doc("terms"), _doc("privacy_policy"), _doc("privacy_consent"), _doc("sensitive_consent")]
+    return [_doc("terms"), _doc("privacy_policy"), _doc("privacy_consent"), _doc("sensitive_consent"), _doc("age_14")]
 
 
 class TokenMap:
@@ -89,7 +89,8 @@ class Env:
 
     def onboard(self, token: str = TOK_A, *, health: bool = False) -> None:
         assert self.req("GET", "/me", token).status_code == 200
-        items = [("terms", 1, "agree"), ("privacy_consent", 1, "agree")] + ([("sensitive_consent", 1, "agree")] if health else [])
+        items = [("terms", 1, "agree"), ("privacy_consent", 1, "agree"), ("age_14", 1, "agree")] + \
+            ([("sensitive_consent", 1, "agree")] if health else [])
         assert self.consent(*items, token=token).status_code == 201
 
 
@@ -147,9 +148,10 @@ def test_me_first_call_creates_account_and_lists_consent_states(env):
     assert env.repo.user_count() == 1
     assert body["onboarding_step"] == "consent" and body["onboarding_completed_at"] is None
     states = {s["doc_type"]: s for s in body["consents"]}
-    assert set(states) == {"terms", "privacy_consent", "sensitive_consent"}  # 처리방침은 동의 대상 아님
+    assert set(states) == {"terms", "privacy_consent", "sensitive_consent", "age_14"}  # 처리방침은 동의 대상 아님
     assert all(s["needs_consent"] and s["agreed_version"] is None for s in states.values())
     assert states["terms"]["required"] and not states["sensitive_consent"]["required"]
+    assert states["age_14"]["required"]  # 만 14세 확인은 첫 로그인 필수(PRD-17-12 A)
     assert body["health_consent_active"] is False and body["profile_limit"] == 4
     env.req("GET", "/me")
     assert env.repo.user_count() == 1  # 두 번째 호출은 행을 더 만들지 않는다
@@ -175,6 +177,8 @@ def test_guest_is_401_auth_required_everywhere_except_legal(env, method, path):
 def test_consents_agree_advances_onboarding(env):
     env.req("GET", "/me")
     r = env.consent(("terms", 1, "agree"), ("privacy_consent", 1, "agree"))
+    assert r.json()["onboarding_step"] == "consent"  # 만 14세 확인(age_14)이 없으면 첫 단계에 머문다(PRD-17-12 A)
+    r = env.consent(("age_14", 1, "agree"))
     assert r.status_code == 201 and r.headers["cache-control"] == "no-store"
     body = r.json()
     assert body["onboarding_step"] == "profile_self"
@@ -206,9 +210,12 @@ def test_terms_withdraw_is_409_use_account_delete(env):
 # --------------------------------------------------------------------------- 프로필
 def test_profiles_require_terms_and_privacy_consent(env):
     env.req("GET", "/me")
-    assert _err(env.req("POST", "/profiles", json={"relation": "self"})) == (403, "CONSENT_REQUIRED", ["terms", "privacy_consent"])
+    assert _err(env.req("POST", "/profiles", json={"relation": "self"})) == \
+        (403, "CONSENT_REQUIRED", ["terms", "privacy_consent", "age_14"])
     env.consent(("terms", 1, "agree"))
-    assert _err(env.req("POST", "/profiles", json={"relation": "self"})) == (403, "CONSENT_REQUIRED", ["privacy_consent"])
+    assert _err(env.req("POST", "/profiles", json={"relation": "self"})) == (403, "CONSENT_REQUIRED", ["privacy_consent", "age_14"])
+    env.consent(("privacy_consent", 1, "agree"))
+    assert _err(env.req("POST", "/profiles", json={"relation": "self"})) == (403, "CONSENT_REQUIRED", ["age_14"])
     assert env.req("GET", "/profiles").json() == []
 
 
@@ -398,9 +405,9 @@ def test_delete_me_erases_everything_and_logs_counts_only(env, caplog):
     assert r.status_code == 204 and r.headers["cache-control"] == "no-store"
     assert env.repo.user_count() == 0
     (row,) = env.repo.deletion_log.values()
-    assert (row.deleted_on, row.accounts, row.profiles, row.medications, row.consents) == (NOW.date(), 1, 2, 1, 3)
+    assert (row.deleted_on, row.accounts, row.profiles, row.medications, row.consents) == (NOW.date(), 1, 2, 1, 4)
     assert set(vars(row)) == {"deleted_on", "accounts", "profiles", "medications", "consents"}  # 식별자 칸 없음
-    assert "계정 파기: 프로필 2건, 복용 약 1건, 동의 기록 3건" in caplog.text and UID_A not in caplog.text
+    assert "계정 파기: 프로필 2건, 복용 약 1건, 동의 기록 4건" in caplog.text and UID_A not in caplog.text
     assert _err(env.req("GET", "/profiles")) == (401, "AUTH_INVALID", [])  # 남은 토큰으로 다른 API는 401
     assert env.req("DELETE", "/me").status_code == 204  # 멱등
     assert next(iter(env.repo.deletion_log.values())).accounts == 1  # 없는 계정은 집계하지 않는다
@@ -463,3 +470,92 @@ def test_chat_validation_errors_keep_chat_field_rules(env):
     assert r.status_code == 422 and body["code"] == "INVALID_REQUEST"
     assert "question" in body["fields"] and "profile_id" not in body["fields"]
     assert env.repo.calls == 0
+
+
+# --------------------------------------------------------------------------- GROUP-03 B1: 성별(sex)·만 14세 확인(age_14)
+def test_age_14_withdraw_is_409_use_account_delete(env):
+    """PRD-17-12 A: 만 14세 확인은 `terms`처럼 철회 대신 탈퇴로만. 저장소 단계에서도 막는다(SQL 트리거와 같은 규칙)."""
+    env.onboard()
+    assert _err(env.consent(("age_14", 1, "withdraw"), channel="settings")) == (409, "USE_ACCOUNT_DELETE", ["age_14"])
+    with pytest.raises(AccountRepoError) as info:
+        asyncio.run(env.repo.add_consents(UID_A, [ConsentInput("age_14", 1, "withdraw")], "settings"))
+    assert info.value.code == "USE_ACCOUNT_DELETE"
+    assert env.req("GET", "/me").json()["onboarding_step"] == "profile_self"  # 기록이 남지 않아 그대로
+
+
+def test_first_login_can_send_all_four_consents_at_once(env):
+    env.req("GET", "/me")
+    r = env.consent(("terms", 1, "agree"), ("privacy_consent", 1, "agree"), ("sensitive_consent", 1, "agree"), ("age_14", 1, "agree"))
+    assert r.status_code == 201
+    body = r.json()
+    assert body["onboarding_step"] == "profile_self" and body["health_consent_active"] is True
+    assert env.req("GET", "/legal/age_14", None).json()["required"] is True  # 문서는 게스트도 읽는다
+
+
+@pytest.mark.parametrize("sex", [None, "female", "male"])
+def test_profile_sex_saved_without_health_consent(env, sex):
+    """PRD-17-13 A: 성별은 건강 정보가 아니다 → `sensitive_consent` 없이 저장. 보내지 않으면 null(미입력)."""
+    env.onboard()  # 건강 정보 동의 없음
+    payload: dict[str, Any] = {"relation": "self"} if sex is None else {"relation": "self", "sex": sex}
+    r = env.req("POST", "/profiles", json=payload)
+    assert r.status_code == 201 and r.json()["sex"] == sex
+    assert env.req("GET", "/profiles").json()[0]["sex"] == sex
+
+
+def test_profile_sex_patch_set_clear_and_untouched(env):
+    env.onboard()
+    pid = env.req("POST", "/profiles", json={"relation": "child", "sex": "female"}).json()["profile_id"]
+    assert env.req("PATCH", f"/profiles/{pid}", json={"label": "첫째"}).json()["sex"] == "female"  # 보내지 않으면 그대로
+    assert env.req("PATCH", f"/profiles/{pid}", json={"sex": "male"}).json()["sex"] == "male"
+    assert env.req("PATCH", f"/profiles/{pid}", json={"sex": None}).json()["sex"] is None  # null = 지움(미입력)
+
+
+@pytest.mark.parametrize("bad", ["other", "F", "", 1, "unknown"])
+def test_profile_sex_invalid_value_is_422_without_echo(env, bad):
+    env.onboard()
+    r = env.req("POST", "/profiles", json={"relation": "self", "sex": bad})
+    assert _err(r) == (422, "INVALID_REQUEST", ["sex"])
+    pid = env.req("POST", "/profiles", json={"relation": "self"}).json()["profile_id"]
+    assert _err(env.req("PATCH", f"/profiles/{pid}", json={"sex": bad})) == (422, "INVALID_REQUEST", ["sex"])
+
+
+def test_profile_sex_needs_privacy_consent_and_is_deleted_on_withdraw(env):
+    env.req("GET", "/me")
+    env.consent(("terms", 1, "agree"), ("age_14", 1, "agree"))
+    assert _err(env.req("POST", "/profiles", json={"relation": "self", "sex": "male"})) == (403, "CONSENT_REQUIRED", ["privacy_consent"])
+    env.consent(("privacy_consent", 1, "agree"))
+    env.req("POST", "/profiles", json={"relation": "self", "sex": "male"})
+    env.consent(("privacy_consent", 1, "withdraw"), channel="settings")
+    assert env.req("GET", "/profiles").json() == []  # 성별도 프로필과 함께 지워진다(BE-11-12 A)
+
+
+def test_sensitive_withdraw_keeps_sex(env):
+    env.onboard(health=True)
+    env.req("POST", "/profiles", json={"relation": "self", "sex": "female", "pregnancy_status": "pregnant"})
+    env.consent(("sensitive_consent", 1, "withdraw"), channel="settings")
+    (p,) = env.req("GET", "/profiles").json()
+    assert (p["sex"], p["pregnancy_status"]) == ("female", None)  # 건강 정보만 지운다
+
+
+def test_chat_request_has_no_sex_field():
+    """시드 v2 목적 문장 "성별은 … 외부 AI 서비스로 전송하지 않습니다"의 코드 불변식: `/chat` 요청 스키마에 성별 칸이 없고 보내면 422."""
+    from app.api.request import ChatRequest, ConversationContext
+
+    for model in (ChatRequest, ConversationContext):
+        assert not {"sex", "gender"} & set(model.model_fields)
+    e = Env()
+    for body in ({"question": "타이레놀 먹어도 돼요?", "context": {"sex": "male"}}, {"question": "타이레놀 먹어도 돼요?", "sex": "male"}):
+        r = e.c.post("/chat", json=body)
+        assert r.status_code == 422 and r.json()["code"] == "INVALID_REQUEST"
+
+
+def test_no_code_reads_sex_from_social_login_provider():
+    """PRD-17-13 A ②: 간편 로그인(Google·Kakao) 공급자 정보에서 성별을 가져오지 않는다. 서버 코드에 공급자 메타데이터·성별 읽기가 없다."""
+    from pathlib import Path
+
+    app_dir = Path(__file__).resolve().parents[1] / "app"
+    pattern = ("user_metadata", "raw_user_meta", "identity_data", "gender", "birthyear", "birthday")
+    hits = [f"{p.relative_to(app_dir)}:{w}" for p in app_dir.rglob("*.py") for w in pattern if w in p.read_text(encoding="utf-8").lower()]
+    assert hits == []
+    # 토큰 검증 결과는 사용자 ID 하나뿐이다(성별을 실어 나를 칸이 없다)
+    assert set(auth.Principal.__dataclass_fields__) == {"user_id", "is_guest"}
