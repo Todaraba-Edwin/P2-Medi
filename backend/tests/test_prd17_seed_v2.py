@@ -97,8 +97,13 @@ def test_v2_seed_substitutes_effective_at_only():
 def test_placeholders_block_remote_publish_but_not_v1():
     sql_v2 = seed_sql(datetime(2026, 12, 1, tzinfo=UTC), version=2)
     left = unfilled_placeholders(sql_v2)
-    assert {"{{PRIVACY_CONTACT}}", "{{COUNTRY_OPENAI}}", "{{SUPABASE_REGION}}", "{{BACKUP_RETENTION_DAYS}}"} <= set(left)
+    assert {"{{PRIVACY_CONTACT}}", "{{SUPABASE_REGION}}", "{{BACKUP_RETENTION_DAYS}}"} <= set(left)
     assert any(p.startswith("{{확인 필요:") for p in left)
+    # PRD-17 ⑫(2026-11-20, Recap 58): OpenAI 줄의 법인·연락처·국가·보관 기간은 채웠다. 다른 자리표시가 남아 게시 차단은 그대로다
+    assert "{{COUNTRY_OPENAI}}" not in left and "{{확인 필요: 기간}}" not in left
+    openai_row = next(line for line in V2_ROWS["privacy_policy"]["body"].splitlines() if line.startswith("| OpenAI"))
+    assert "{{" not in openai_row
+    assert "OpenAI OpCo, L.L.C." in openai_row and "| 미국 / 질문할 때마다 / 인터넷 전송 |" in openai_row and "최대 30일" in openai_row
     assert "{{…}}" not in left  # 승인 원문 머리의 안내 문구는 자리표시가 아니다
     with pytest.raises(ValueError, match="PRIVACY_CONTACT"):
         assert_publishable(sql_v2)
