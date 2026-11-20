@@ -18,6 +18,8 @@ from datetime import UTC
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.tools._http import ApiError
 from app.tools.prmsn import PrmsnClient, PrmsnItem
 
@@ -506,7 +508,15 @@ class TestPrmsnDetailDryRun:
     """prmsn-detail dry-run 모드 테스트."""
 
     def test_prmsn_detail_dry_run_no_calls(self):
-        """prmsn-detail --dry-run은 호출하지 않음."""
+        """prmsn-detail --dry-run은 호출하지 않음.
+
+        입력 `data/mock/api_snapshots/persona_eval_products.json`은 로컬 전용(`data/`는 커밋 안 함)이라
+        데이터가 없는 체크아웃(worktree 등)에서는 이유를 적고 건너뛴다. 있으면 그대로 실행·검증한다.
+        """
+        root = Path(__file__).resolve().parents[2]
+        products = root / "data" / "mock" / "api_snapshots" / "persona_eval_products.json"
+        if not products.is_file():
+            pytest.skip(f"로컬 전용 데이터 없음: {products.relative_to(root)}")
         result = subprocess.run(
             [
                 sys.executable,
