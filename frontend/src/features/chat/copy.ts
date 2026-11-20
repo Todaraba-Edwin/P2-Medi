@@ -42,7 +42,7 @@ export const PREGNANCY_OPTION_GENERAL = "일반인";
 export const PREGNANCY_OPTION_PREGNANT = "임산부";
 /**
  * 건강 정보 동의가 없거나 게스트일 때 토글을 바꾸면 그 근처에 보이는 한 줄(FE-11-14 A, 2026-11-20): 이 대화에만 적용하고 프로필에 저장하지 않는다.
- * **초안이다(승인 전, FE-11 §3 하위 작업 "구현 때 승인 대상")**: 티켓 결정 FE-11-14 A의 예시 문구 그대로 두었다. 승인되면 이 주석을 지운다
+ * 원문 승인(2026-11-20, FE-11-14 A): 티켓 결정의 예시 문구 그대로 사용자가 승인했다
  */
 export const PREGNANCY_SAVE_CONSENT_HINT = "프로필에 저장하려면 건강 정보 동의가 필요해요";
 

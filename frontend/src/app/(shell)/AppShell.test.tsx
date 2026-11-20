@@ -56,8 +56,8 @@ function onboardedSession(healthConsent: boolean, selfPregnancy: "pregnant" | "n
     completedAt: null,
     consents: Object.fromEntries(CONSENT_DOC_TYPES.filter((docType) => healthConsent || docType !== HEALTH_CONSENT_DOC).map((docType) => [docType, agree])),
     profiles: [
-      { profile_id: SELF_ID, relation: "self", label: "나", age_band: "y19_64", pregnancy_status: selfPregnancy, sort_order: 0, medications: [] },
-      { profile_id: CHILD_ID, relation: "child", label: "첫째", age_band: "y6_11", pregnancy_status: null, sort_order: 1, medications: [] },
+      { profile_id: SELF_ID, relation: "self", label: "나", age_band: "y19_64", sex: null, pregnancy_status: selfPregnancy, sort_order: 0, medications: [] },
+      { profile_id: CHILD_ID, relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, sort_order: 1, medications: [] },
     ],
   };
 }

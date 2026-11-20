@@ -178,16 +178,56 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
   return null; // idle, 사용자가 끊은 차례(aborted)는 질문만 남긴다
 }
 
-/** 대화 스레드: 질문과 그 답(진행 표시 → 결과 또는 오류)을 받은 순서대로 그린다 */
+/** 대화 영역 위 여백(`pt-2`). 답변 블록을 위쪽에 맞출 때 이만큼 띄운다 */
+const THREAD_PADDING_TOP = 8;
+
+/**
+ * 대화 스레드: 질문과 그 답(진행 표시 → 결과 또는 오류)을 받은 순서대로 그린다.
+ *
+ * 스크롤 규칙(FE-02 §3 "긴 결과 카드 윗부분이 첫 화면 밖", 2026-11-20 사용자 지시):
+ * - 질문을 보내고 진행 표시가 바뀌는 동안은 맨 아래를 따라간다(기존 동작).
+ * - 최종 답변(`stream.response`)이 오면 **그 답변 블록의 맨 위(요약 시작)**를 대화 영역 위쪽에 맞춘다. 맨 아래로 붙이면 393px에서
+ *   결과 카드가 영역보다 커서 "삐! 병용금기" 판정 줄·요약이 첫 화면 밖으로 밀린다. 119 배너는 이 영역 밖(위 고정)이라 그대로다.
+ * - 이 차례에서 사용자가 직접 스크롤했으면(프로그램이 맞춘 위치와 다르면) 억지로 옮기지 않는다. 다음 차례(또는 다시 시도)에서 푼다.
+ */
 export function Conversation({ turns, ...rest }: ConversationProps) {
+  const thread = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  /** 프로그램이 마지막으로 맞춘 위치와 그때의 크기. 크기가 그대로인데 `scrollTop`만 다르면 사용자가 움직인 것이다(크기가 바뀌어 브라우저가 자른 것은 아니다) */
+  const placed = useRef<{ top: number; scrollHeight: number; clientHeight: number } | null>(null);
+  const userScrolled = useRef(false);
   const last = turns[turns.length - 1];
+  const lastId = last?.id;
+  const streaming = last?.stream.status === "streaming";
+
+  // 차례가 새로 시작되면(새 질문·다시 시도) 사용자 스크롤 표시를 지운다. 아래 맞춤 효과보다 먼저 둔다(선언 순서대로 실행)
   useEffect(() => {
-    end.current?.scrollIntoView?.({ block: "end" });
+    if (streaming) userScrolled.current = false;
+  }, [lastId, streaming]);
+
+  useEffect(() => {
+    const box = thread.current;
+    if (!box || userScrolled.current) return;
+    if (last?.stream.response) {
+      // 마지막 차례의 답변 블록(마지막 `turn-answer`)의 위를 영역 위쪽(여백만큼 아래)에 맞춘다. 브라우저가 범위 안으로 잘라 준다
+      const answers = box.querySelectorAll<HTMLElement>('[data-testid="turn-answer"]');
+      const answer = answers[answers.length - 1];
+      if (answer) box.scrollTop = Math.max(0, box.scrollTop + answer.getBoundingClientRect().top - box.getBoundingClientRect().top - THREAD_PADDING_TOP);
+    } else {
+      end.current?.scrollIntoView?.({ block: "end" });
+    }
+    placed.current = { top: box.scrollTop, scrollHeight: box.scrollHeight, clientHeight: box.clientHeight };
   }, [turns.length, last?.stream.status, last?.stream.stage, last?.stream.response]);
 
+  const onScroll = () => {
+    const box = thread.current;
+    const mark = placed.current;
+    if (!box || !mark) return;
+    if (mark.scrollHeight === box.scrollHeight && mark.clientHeight === box.clientHeight && Math.abs(box.scrollTop - mark.top) > 1) userScrolled.current = true;
+  };
+
   return (
-    <div data-testid="chat-thread" className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-0.5 pt-2 pb-3">
+    <div ref={thread} data-testid="chat-thread" onScroll={onScroll} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-0.5 pt-2 pb-3">
       {turns.map((turn) => (
         <div key={turn.id} data-turn={turn.id} data-status={turn.stream.status} className="flex flex-col gap-2.5">
           {/* 고른 약으로 다시 물은 차례는 표시용 글자를 보인다(FE-09-04 A). 서버로 간 것은 원 질문이다 */}
