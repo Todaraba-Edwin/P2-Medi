@@ -33,6 +33,19 @@ export const SEND_LABEL = "보내기";
  */
 export const INPUT_NOTICE = "질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문은 외부 AI(OpenAI)로 전송돼요.";
 
+/**
+ * 입력창 안 왼쪽의 임신 여부 선택(tickets/frontend/FE-11.md §7.1 최종 디자인 `Rdd-Toggle`, 2026-11-20). 묶음 이름(aria-label)과 두 칸 글자.
+ * 원문 승인(FE-11-11 A, 2026-11-20): "임신 여부"·"일반인"·"임산부". 기본값은 "일반인"이고 값은 요청 `context.pregnant`(일반인 false·임산부 true, FE-11-12 A)
+ */
+export const PREGNANCY_TOGGLE_LABEL = "임신 여부";
+export const PREGNANCY_OPTION_GENERAL = "일반인";
+export const PREGNANCY_OPTION_PREGNANT = "임산부";
+/**
+ * 건강 정보 동의가 없거나 게스트일 때 토글을 바꾸면 그 근처에 보이는 한 줄(FE-11-14 A, 2026-11-20): 이 대화에만 적용하고 프로필에 저장하지 않는다.
+ * 원문 승인(2026-11-20, FE-11-14 A): 티켓 결정의 예시 문구 그대로 사용자가 승인했다
+ */
+export const PREGNANCY_SAVE_CONSENT_HINT = "프로필에 저장하려면 건강 정보 동의가 필요해요";
+
 /** 진행 표시 영역 이름(PJ2-PRD.md 15.4 로딩 행 "진행 상태", NFR-06) */
 export const PROGRESS_LABEL = "진행 상태";
 /** 진행 문구 세 가지(PJ2-PRD.md 15.4 로딩 행: 약 찾는 중·금기 확인 중·근거 찾는 중). 이벤트에 label이 오면 그 값을 쓴다 */

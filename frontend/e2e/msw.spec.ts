@@ -41,7 +41,7 @@ test("되묻기 → 후보 선택 → 다시 묻기: 워커가 confirmed_drugs�
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toEqual({
     question,
-    context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }], prior_drugs: [], took_today: null },
+    context: { age: null, pregnant: false, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }], prior_drugs: [], took_today: null },
   });
   // q3(AG-21): 같은 이름을 새 질문으로 다시 물으면 고른 약은 prior_drugs로만 실리고, 워커는 이전 선택을 첫 후보로 둔 확인 되묻기로 답한다
   await ask(page, question);
@@ -51,7 +51,7 @@ test("되묻기 → 후보 선택 → 다시 묻기: 워커가 confirmed_drugs�
   expect(bodies).toHaveLength(3);
   expect(bodies[2]).toEqual({
     question,
-    context: { age: null, pregnant: null, confirmed_drugs: [], prior_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }], took_today: null },
+    context: { age: null, pregnant: false, confirmed_drugs: [], prior_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }], took_today: null },
   });
 });
 
@@ -81,7 +81,7 @@ test("여러 약 되묻기(FE-09): 워커가 이름별 묶음 둘을 주고, 둘
     question,
     context: {
       age: null,
-      pregnant: null,
+      pregnant: false,
       confirmed_drugs: [
         { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" },
         { name: "가나다시럽 키즈", item_seq: "200000004", input_name: "가나다시럽" },

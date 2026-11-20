@@ -10,7 +10,7 @@ import { ErrorState, MessageBubble, ProgressSteps } from "@/features/chat";
 import { FixedNoticeBox } from "@/features/emergency";
 import { EvidenceEntryButton } from "@/features/evidence";
 import type { EvidenceMode } from "@/features/evidence";
-import { PickCapsule, ResultView, groupCandidates } from "@/features/result";
+import { PREGNANCY_PICK_HINT, PickCapsule, ResultView, groupCandidates } from "@/features/result";
 import type { CandidatePicks } from "@/features/result";
 import { cn } from "@/lib/utils";
 import type { ChatTurn } from "@/stores/chat";
@@ -64,6 +64,9 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
     const multiple = groups.length > 1;
     // 묶음이 하나면 고른 뒤에, 둘 이상이면 처음부터 확인 줄을 둔다(남은 묶음 수를 보인다)
     const showResend = groups.length > 0 && (multiple || chosen.length > 0);
+    // 일반인으로 보내 받은 판정 결과 아래의 작은 한 줄(FE-11-03 A): 임부금기를 확인하지 않았음을 알린다. 임부금기 줄이 실제로 있으면(질문 문장의
+    // "임신 중"을 서버가 우선한 경우) 두지 않는다. 임산부(true)·값 없음(null, 토글 없는 조립)에는 두지 않는다
+    const showPregnancyHint = turn.pregnant === false && response.findings.length > 0 && !response.findings.some((finding) => finding.kind === "pregnancy");
     const resendButton = (className: string) => (
       // 모든 묶음을 골라야 보낼 수 있다. 비활성일 때도 초점은 받고(`aria-disabled`) 남은 수 안내를 읽어 준다
       <button
@@ -104,6 +107,13 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
           // 여러 약 되묻기의 안내 줄은 아래 확인 줄 첫 행에 그린다(FE-10)
           hideCandidatesLine={showResend && multiple}
         />
+        {showPregnancyHint && (
+          <NoMascotZone>
+            <p data-testid="pregnancy-pick-hint" className="m-0 px-1 text-xs leading-[17px] break-words text-mute">
+              {PREGNANCY_PICK_HINT}
+            </p>
+          </NoMascotZone>
+        )}
         {showResend && multiple && (
           <NoMascotZone>
             {/* 여러 약 확인 줄(FE-10, 디자인 "FE-09 r2" `.cf`). 캡슐을 가로로 둘지는 이 칸의 폭(640px)으로 정한다 */}
@@ -168,16 +178,56 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
   return null; // idle, 사용자가 끊은 차례(aborted)는 질문만 남긴다
 }
 
-/** 대화 스레드: 질문과 그 답(진행 표시 → 결과 또는 오류)을 받은 순서대로 그린다 */
+/** 대화 영역 위 여백(`pt-2`). 답변 블록을 위쪽에 맞출 때 이만큼 띄운다 */
+const THREAD_PADDING_TOP = 8;
+
+/**
+ * 대화 스레드: 질문과 그 답(진행 표시 → 결과 또는 오류)을 받은 순서대로 그린다.
+ *
+ * 스크롤 규칙(FE-02 §3 "긴 결과 카드 윗부분이 첫 화면 밖", 2026-11-20 사용자 지시):
+ * - 질문을 보내고 진행 표시가 바뀌는 동안은 맨 아래를 따라간다(기존 동작).
+ * - 최종 답변(`stream.response`)이 오면 **그 답변 블록의 맨 위(요약 시작)**를 대화 영역 위쪽에 맞춘다. 맨 아래로 붙이면 393px에서
+ *   결과 카드가 영역보다 커서 "삐! 병용금기" 판정 줄·요약이 첫 화면 밖으로 밀린다. 119 배너는 이 영역 밖(위 고정)이라 그대로다.
+ * - 이 차례에서 사용자가 직접 스크롤했으면(프로그램이 맞춘 위치와 다르면) 억지로 옮기지 않는다. 다음 차례(또는 다시 시도)에서 푼다.
+ */
 export function Conversation({ turns, ...rest }: ConversationProps) {
+  const thread = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  /** 프로그램이 마지막으로 맞춘 위치와 그때의 크기. 크기가 그대로인데 `scrollTop`만 다르면 사용자가 움직인 것이다(크기가 바뀌어 브라우저가 자른 것은 아니다) */
+  const placed = useRef<{ top: number; scrollHeight: number; clientHeight: number } | null>(null);
+  const userScrolled = useRef(false);
   const last = turns[turns.length - 1];
+  const lastId = last?.id;
+  const streaming = last?.stream.status === "streaming";
+
+  // 차례가 새로 시작되면(새 질문·다시 시도) 사용자 스크롤 표시를 지운다. 아래 맞춤 효과보다 먼저 둔다(선언 순서대로 실행)
   useEffect(() => {
-    end.current?.scrollIntoView?.({ block: "end" });
+    if (streaming) userScrolled.current = false;
+  }, [lastId, streaming]);
+
+  useEffect(() => {
+    const box = thread.current;
+    if (!box || userScrolled.current) return;
+    if (last?.stream.response) {
+      // 마지막 차례의 답변 블록(마지막 `turn-answer`)의 위를 영역 위쪽(여백만큼 아래)에 맞춘다. 브라우저가 범위 안으로 잘라 준다
+      const answers = box.querySelectorAll<HTMLElement>('[data-testid="turn-answer"]');
+      const answer = answers[answers.length - 1];
+      if (answer) box.scrollTop = Math.max(0, box.scrollTop + answer.getBoundingClientRect().top - box.getBoundingClientRect().top - THREAD_PADDING_TOP);
+    } else {
+      end.current?.scrollIntoView?.({ block: "end" });
+    }
+    placed.current = { top: box.scrollTop, scrollHeight: box.scrollHeight, clientHeight: box.clientHeight };
   }, [turns.length, last?.stream.status, last?.stream.stage, last?.stream.response]);
 
+  const onScroll = () => {
+    const box = thread.current;
+    const mark = placed.current;
+    if (!box || !mark) return;
+    if (mark.scrollHeight === box.scrollHeight && mark.clientHeight === box.clientHeight && Math.abs(box.scrollTop - mark.top) > 1) userScrolled.current = true;
+  };
+
   return (
-    <div data-testid="chat-thread" className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-0.5 pt-2 pb-3">
+    <div ref={thread} data-testid="chat-thread" onScroll={onScroll} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-0.5 pt-2 pb-3">
       {turns.map((turn) => (
         <div key={turn.id} data-turn={turn.id} data-status={turn.stream.status} className="flex flex-col gap-2.5">
           {/* 고른 약으로 다시 물은 차례는 표시용 글자를 보인다(FE-09-04 A). 서버로 간 것은 원 질문이다 */}

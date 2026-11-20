@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { RESULT_SAMPLES } from "@/app/dev/preview/result/samples";
 import { initialStreamState, streamReducer } from "@/lib/api";
 import type { ChatResponse, Finding } from "@/lib/api";
-import { PHRASES } from "@/mocks/fixtures/phrases";
+import { EvidenceDetail } from "@/features/evidence/EvidenceDetail";
+import { API_FAIL_NOTE, API_NO_CODE_NOTE, PHRASES } from "@/mocks/fixtures/phrases";
 import * as fixtures from "@/mocks/fixtures/responses";
 import { scenarios } from "@/mocks/fixtures/scenarios";
 import { ChatThread } from "../chat/ChatThread";
@@ -734,9 +735,47 @@ describe("AG-08 새 칸(받은 값 그대로)", () => {
     expect(fixtures.clarifyResponse.candidates_line).toBe(PHRASES.CLARIFY_PICK_LINE);
   });
 
-  it("공공 API 실패 배너(notice의 새 값)도 받은 글자 그대로 보인다", () => {
-    render(<ResultView response={fixtures.apiFailResponse} />);
-    expect(screen.getByTestId("result-notice").textContent).toBe(PHRASES.NOTICE_API_FAIL);
+  // 2026-11-20 FE-11-10 A: 아래 두 시험은 옛 "본문 배너" 기대를 근거 상세 기대로 옮긴 것이다(본문 0회, 결과 카드 머리 "기준일 자료" 표지만)
+  it("공공 API 실패 배너(notice)와 줄의 실시간 확인 노트는 본문에 없고(결과 카드 머리 '기준일 자료' 표지만) 근거 상세에 받은 글자 그대로 보인다", () => {
+    const response = fixtures.apiFailResponse;
+    expect(response.notice).toBe(PHRASES.NOTICE_API_FAIL);
+    expect(response.findings[0].notes).toEqual([API_NO_CODE_NOTE]);
+    const body = render(<ResultView response={response} />);
+    expect(screen.queryByTestId("result-notice")).toBeNull();
+    expect(body.container.textContent).not.toContain("실시간 확인");
+    expect(screen.getByTestId("product-line").querySelector("[data-slot='notes']")).toBeNull();
+    const tag = screen.getByTestId("basis-file-tag");
+    expect(tag.textContent).toBe(copy.BASIS_FILE_TAG);
+    expect(tag.textContent).toBe("기준일 자료");
+    expect(screen.getByTestId("result-card").querySelector("header")?.contains(tag)).toBe(true);
+    body.unmount();
+    // 근거 상세: 배너 글자는 맨 위에 한 번, 줄 노트는 판정 줄 부품에 그대로
+    const detail = render(<EvidenceDetail response={response} />);
+    const notice = screen.getByTestId("evidence-api-fail-notice");
+    expect(notice.textContent).toBe(PHRASES.NOTICE_API_FAIL);
+    expect(screen.getByTestId("evidence-detail").firstElementChild).toBe(notice);
+    expect(texts([...screen.getByTestId("judgment-box").querySelectorAll("[data-slot='notes']")])).toEqual([API_NO_CODE_NOTE]);
+    expect((detail.container.textContent?.match(/실시간 확인/g) ?? []).length).toBe(2); // 배너 1 + 줄 노트 1
+  });
+
+  it("실시간 확인 노트만 있고 배너는 없는 줄: 본문 줄에서는 빠지고 표지는 켜지며, 다른 노트는 그대로 남는다", () => {
+    const finding: Finding = { ...fixtures.apiFailResponse.findings[0], notes: ["받은 다른 노트", API_FAIL_NOTE] };
+    const response: ChatResponse = { ...fixtures.apiFailResponse, notice: null, findings: [finding] };
+    render(<ResultView response={response} />);
+    expect(screen.queryByTestId("result-notice")).toBeNull();
+    expect(screen.getByTestId("basis-file-tag")).toBeInTheDocument();
+    expect(texts([...screen.getByTestId("product-line").querySelectorAll("[data-slot='notes']")])).toEqual(["받은 다른 노트"]);
+    // 줄 부품을 바로 쓰면(근거 상세) 두 노트가 받은 순서 그대로다
+    const { container } = line(finding);
+    expect(texts([...container.querySelectorAll("[data-slot='notes']")])).toEqual(["받은 다른 노트", API_FAIL_NOTE]);
+  });
+
+  it("다른 배너(상한 도달)는 본문에 그대로이고 표지는 붙지 않는다", () => {
+    render(<ResultView response={fixtures.limitResponse} />);
+    expect(screen.getByTestId("result-notice").textContent).toBe(PHRASES.LIMIT_REACHED);
+    expect(screen.queryByTestId("basis-file-tag")).toBeNull();
+    const { container } = render(<EvidenceDetail response={fixtures.limitResponse} />);
+    expect(within(container).queryByTestId("evidence-api-fail-notice")).toBeNull();
   });
 });
 
@@ -744,9 +783,10 @@ describe("FE-02 보정 고지(name_corrections)", () => {
   const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
   it("고지 줄은 요약보다 먼저, 배너보다 뒤에, 받은 글자·순서 그대로 접히지 않는 자리에 보인다(읽기 순서 = DOM 순서)", () => {
+    // 배너는 본문에 남는 종류(상한 도달)로 본다: 공공 API 실패 배너는 본문 0회라(FE-11-10 A) 순서 비교 대상이 아니다
     const response: ChatResponse = {
       ...fixtures.typoCorrectedResponse,
-      notice: PHRASES.NOTICE_API_FAIL,
+      notice: PHRASES.LIMIT_REACHED,
       name_corrections: [
         { input: "가", name: "가나", text: "받은 고지 하나" },
         { input: "나", name: "나다", text: "받은 고지 둘" },
@@ -927,7 +967,8 @@ describe("새 응답 칸(AG-22·FE-11) 최소 표시", () => {
   });
 
   it("dose_notice는 결과 묶음의 맨 위(배너보다 앞)에 안내 띠로 보인다", () => {
-    const response: ChatResponse = { ...fixtures.apiFailResponse, dose_notice: PHRASES.DOSE_NOTICE };
+    // 본문에 남는 배너(상한 도달)와 견준다: 공공 API 실패 배너는 본문에 없다(FE-11-10 A)
+    const response: ChatResponse = { ...fixtures.limitResponse, dose_notice: PHRASES.DOSE_NOTICE };
     render(<ResultView response={response} />);
     const band = screen.getByTestId("dose-notice");
     expect(band.textContent).toBe(PHRASES.DOSE_NOTICE);

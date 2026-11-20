@@ -311,6 +311,15 @@ export async function updateProfile(profileId: string, draft: ProfileDraft): Pro
   return read(await call("patch", `profiles/${encodeURIComponent(profileId)}`, body), ProfileSchema);
 }
 
+/**
+ * 질문 화면의 임신 여부 토글로 대상 프로필의 임신 여부만 바꾼다(FE-11-13, 2026-11-20). PATCH는 보낸 칸만 바꾸므로 `pregnancy_status` 하나만 싣는다
+ * (이름·관계·연령대·복용 약은 건드리지 않는다). 건강 정보 동의가 없으면 서버가 422 `HEALTH_CONSENT_REQUIRED`로 막는다(FE-11-14 A: 화면은 이 대화에만 적용).
+ */
+export async function updateProfilePregnancy(profileId: string, status: PregnancyStatus): Promise<Profile> {
+  const body: ProfileUpdateBody = { pregnancy_status: status };
+  return read(await call("patch", `profiles/${encodeURIComponent(profileId)}`, body), ProfileSchema);
+}
+
 /** 가족 프로필 삭제. 본인 프로필은 서버가 409 `SELF_REQUIRED`로 막는다(계정을 지우려면 탈퇴) */
 export async function deleteProfile(profileId: string): Promise<void> {
   await done(await call("delete", `profiles/${encodeURIComponent(profileId)}`));
@@ -413,6 +422,7 @@ export interface AccountApi {
   fetchProfiles: typeof fetchProfiles;
   createProfile: typeof createProfile;
   updateProfile: typeof updateProfile;
+  updateProfilePregnancy: typeof updateProfilePregnancy;
   deleteProfile: typeof deleteProfile;
   deleteMe: typeof deleteMe;
   loginWithEmail: typeof loginWithEmail;
@@ -429,6 +439,7 @@ export const accountApi: AccountApi = {
   fetchProfiles,
   createProfile,
   updateProfile,
+  updateProfilePregnancy,
   deleteProfile,
   deleteMe,
   loginWithEmail,

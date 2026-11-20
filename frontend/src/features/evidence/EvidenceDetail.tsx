@@ -1,7 +1,7 @@
 import type { ChatResponse } from "@/lib/api";
 import { NoMascotZone } from "@/components/NoMascotZone";
 import { cn } from "@/lib/utils";
-import { ProductLine } from "@/features/result";
+import { ProductLine, isApiFailNotice } from "@/features/result";
 import { SECTION_TITLES } from "./copy";
 import { EvidenceBox, SourceTag } from "./EvidenceBox";
 import { GradeDefBlock } from "./GradeDefBlock";
@@ -26,6 +26,8 @@ function Section({ id, title, children }: { id: string; title: string; children:
  * 모든 글자는 응답 값이고 LLM 문장이 없다. 값이 없는 구역은 그리지 않는다. 마스코트 금지 영역이다.
  *
  * 고정 안내(`FixedNoticeBox`)·고지(`LegalFooter`)는 이 본문 밖, 접히지 않는 영역에 조립하는 쪽이 둔다.
+ * 공공 API 실패 배너(`notice` = `NOTICE_API_FAIL`)는 본문(`ResultView`)이 아니라 여기 맨 위에 한 번 보인다(FE-11-10 A, FE-11 §7.2).
+ * 줄의 실시간 확인 노트(`api_flag_note` 문구)도 본문 카드에서는 빠지고 여기 판정 줄 부품에 그대로 남는다.
  */
 export function EvidenceDetail({ response }: { response: ChatResponse }) {
   const sections = buildSections(response);
@@ -37,6 +39,12 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
   return (
     <NoMascotZone>
       <div data-testid="evidence-detail" className="flex flex-col gap-4">
+        {/* 실시간 확인 실패 배너(서버 상수 글자 그대로): 본문에는 없고 근거 상세 맨 위에만 */}
+        {response.notice !== null && isApiFailNotice(response.notice) && (
+          <p role="note" data-testid="evidence-api-fail-notice" className="m-0 rounded-xl bg-warn-bg px-3 py-2 text-[13px] leading-[19px] font-semibold break-words text-warn-ink">
+            {response.notice}
+          </p>
+        )}
         {(sections.judgments.length > 0 || hasGradeDef) && (
           <Section id="judgment" title={SECTION_TITLES.judgment}>
             {sections.judgments.map(({ finding, item }, index) => (

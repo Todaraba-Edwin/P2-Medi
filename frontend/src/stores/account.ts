@@ -6,7 +6,7 @@ import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 import { AccountApiError, FAMILY_PROFILE_MAX, SELF_PROFILE_MAX, accountApi, isConsentDocType } from "@/lib/api/account";
-import type { AccountApi, AccountErrorKind, ConsentChannel, ConsentDocType, ConsentItem, LegalDoc, Me, Profile, ProfileDraft, SocialProvider } from "@/lib/api/account";
+import type { AccountApi, AccountErrorKind, ConsentChannel, ConsentDocType, ConsentItem, LegalDoc, Me, PregnancyStatus, Profile, ProfileDraft, SocialProvider } from "@/lib/api/account";
 
 /** 계정 모달의 화면(단계). `flow`의 마지막이 지금 화면이다 */
 export type AccountStep = "login" | "signup" | "consent" | "profiles" | "profile-form";
@@ -77,6 +77,11 @@ export interface AccountState {
   /** 문서별 동의 여부에서 달라진 것만 동의·철회로 보낸다. 필수 문서를 모두 동의하지 않았으면 보내지 않는다 */
   submitConsents: (agreed: ConsentChoices) => Promise<boolean>;
   saveProfile: (draft: ProfileDraft) => Promise<boolean>;
+  /**
+   * 질문 화면의 임신 여부 토글로 대상 프로필의 `pregnancy_status`만 바꾼다(FE-11-13). 모달의 `pending`·`failure`는 건드리지 않고
+   * 실패를 돌려준다(성공은 null). 성공하면 프로필 목록을 갱신해 프로필 화면에서 바뀐 값이 보인다
+   */
+  savePregnancy: (profileId: string, status: PregnancyStatus) => Promise<AccountFailure | null>;
   removeProfile: (id: string) => Promise<boolean>;
   /** 탈퇴 */
   withdraw: () => Promise<boolean>;
@@ -316,6 +321,16 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
         });
         if (ok) set((state) => ({ form: null, flow: state.flow.length > 1 ? state.flow.slice(0, -1) : ["profiles"] }));
         return ok;
+      },
+
+      savePregnancy: async (profileId, status) => {
+        try {
+          const saved = await api.updateProfilePregnancy(profileId, status);
+          set((state) => ({ profiles: state.profiles.map((profile) => (profile.profile_id === saved.profile_id ? saved : profile)) }));
+          return null;
+        } catch (error) {
+          return toFailure(error);
+        }
       },
 
       removeProfile: (id) =>

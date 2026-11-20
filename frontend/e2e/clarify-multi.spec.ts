@@ -94,7 +94,7 @@ for (const width of [393, 1280]) {
         question: QUESTION,
         context: {
           age: null,
-          pregnant: null,
+          pregnant: false,
           confirmed_drugs: [
             { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" },
             { name: "가나다시럽 키즈", item_seq: "200000004", input_name: "가나다시럽" },
@@ -183,7 +183,7 @@ test.describe("단일 묶음 되묻기 회귀(FE-09)", () => {
     expect(sent).toHaveLength(2);
     expect(sent[1]).toEqual({
       question: QUESTION,
-      context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }], prior_drugs: [], took_today: null },
+      context: { age: null, pregnant: false, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }], prior_drugs: [], took_today: null },
     });
     await expect(bubble(page, 2)).toHaveText("고른 약: 가나다시럽으로 다시 확인");
   });
@@ -205,7 +205,7 @@ test.describe("단일 묶음 되묻기 회귀(FE-09)", () => {
       question: QUESTION,
       context: {
         age: null,
-        pregnant: null,
+        pregnant: false,
         confirmed_drugs: [{ name: "가나다정 500밀리그램", item_seq: "200000002", input_name: "가나다" }],
         prior_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }],
         took_today: null,

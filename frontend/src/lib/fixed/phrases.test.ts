@@ -5,7 +5,13 @@ import * as generated from "./phrases.generated";
 
 // 원문 대조: 시험 때 백엔드 원본을 다시 읽는다. 백엔드 문구가 바뀌면 실패한다 → node scripts/gen-fixed-phrases.mjs
 const py = readFileSync(path.resolve(__dirname, "../../../../backend/app/agent/fixed_phrases.py"), "utf8");
+const prov = readFileSync(path.resolve(__dirname, "../../../../backend/app/tools/provenance.py"), "utf8");
 const constant = (name: string) => new RegExp(`^${name}\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"`, "m").exec(py)?.[1];
+/** 파이썬 dict 블록 안의 `KEY: "..."` 한 줄 값 */
+const dictValue = (source: string, dict: string, key: string) => {
+  const block = new RegExp(`^${dict}\\s*=\\s*\\{([\\s\\S]*?)\\n\\}`, "m").exec(source)?.[1] ?? "";
+  return new RegExp(`^\\s*${key}\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"\\s*,`, "m").exec(block)?.[1];
+};
 
 describe("생성한 고정 문구는 fixed_phrases.py 원문과 같다", () => {
   it("FIXED_NOTICE = NOT_SAFE_NOTICE + 공백 + PHARMACIST_CHECK_NOTICE", () => {
@@ -47,7 +53,26 @@ describe("생성한 고정 문구는 fixed_phrases.py 원문과 같다", () => {
     expect(generated.START_EMERGENCY_119.replace(/119/g, "")).not.toMatch(/\d/);
   });
 
-  it("생성 파일에는 이 네 상수만 있다", () => {
-    expect(Object.keys(generated).sort()).toEqual(["DISCLAIMER", "FIXED_NOTICE", "START_EMERGENCY_119", "START_EXTERNAL_AI_NOTICE"]);
+  it("실시간 확인 실패 배너·줄 노트(판별용, FE-11-10 A)는 fixed_phrases.NOTICE_API_FAIL과 provenance.FLAG_NOTES·API_REASON_NOTES 원문 그대로다", () => {
+    expect(constant("NOTICE_API_FAIL")).toBeTruthy();
+    expect(generated.NOTICE_API_FAIL).toBe(constant("NOTICE_API_FAIL"));
+    // 서버 조립: finalize._notes → provenance.api_flag_note(꼬리표·사유) = FLAG_NOTES[꼬리표] 또는 API_REASON_NOTES[사유]
+    expect(py).toContain("from app.tools.provenance import API_REASON_NOTES as _API_REASON_NOTES");
+    expect(py).toContain("API_REASON_NOTES = dict(_API_REASON_NOTES)");
+    const expected = [
+      dictValue(prov, "FLAG_NOTES", '"API_FAIL"'),
+      dictValue(prov, "FLAG_NOTES", '"API_PAIR_INCOMPLETE"'),
+      dictValue(prov, "API_REASON_NOTES", "API_REASON_NO_CODE"),
+      dictValue(prov, "API_REASON_NOTES", "API_REASON_PARTIAL"),
+      dictValue(prov, "API_REASON_NOTES", "API_REASON_TRUNCATED"),
+    ];
+    for (const text of expected) expect(text).toBeTruthy();
+    expect([...generated.API_FLAG_NOTES]).toEqual(expected);
+    // 판별 대상 문장은 모두 "실시간 확인"으로 시작한다(본문 0회 시험이 이 글자를 센다)
+    for (const text of [generated.NOTICE_API_FAIL, ...generated.API_FLAG_NOTES]) expect(text).toMatch(/^실시간 확인/);
+  });
+
+  it("생성 파일에는 이 여섯 상수만 있다", () => {
+    expect(Object.keys(generated).sort()).toEqual(["API_FLAG_NOTES", "DISCLAIMER", "FIXED_NOTICE", "NOTICE_API_FAIL", "START_EMERGENCY_119", "START_EXTERNAL_AI_NOTICE"]);
   });
 });

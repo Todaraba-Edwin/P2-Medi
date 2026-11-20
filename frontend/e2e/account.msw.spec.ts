@@ -76,7 +76,7 @@ test.describe("게스트 시작 360px", () => {
     await expect(page.getByTestId("target-picker")).toHaveCount(0);
     await ask(page, "합성 질문");
     await expect(page.getByTestId("result-card")).toBeVisible();
-    expect(bodies).toEqual([{ question: "합성 질문", context: { age: null, pregnant: null, confirmed_drugs: [], prior_drugs: [], took_today: null } }]);
+    expect(bodies).toEqual([{ question: "합성 질문", context: { age: null, pregnant: false, confirmed_drugs: [], prior_drugs: [], took_today: null } }]);
     await expect(page.getByTestId("account-modal")).toHaveCount(0);
   });
 
@@ -274,13 +274,13 @@ for (const width of [360, 1280]) {
       await ask(page, "셋째 합성 질문");
       await expect(page.locator('[data-turn="turn-5"]').getByTestId("result-card")).toBeVisible();
       const pick = { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" };
-      const child = { age: { lower: 6, upper: 11, unit: "세" }, pregnant: null };
+      const child = { age: { lower: 6, upper: 11, unit: "세" }, pregnant: false };
       expect(bodies.map((body) => body.context)).toEqual([
         { age: { lower: 19, upper: 64, unit: "세" }, pregnant: true, confirmed_drugs: [], prior_drugs: [], took_today: null }, // 복용 약(입력 원문)은 싣지 않는다
         { ...child, confirmed_drugs: [], prior_drugs: [], took_today: null },
         { ...child, confirmed_drugs: [pick], prior_drugs: [], took_today: null },
         { ...child, confirmed_drugs: [], prior_drugs: [pick], took_today: null },
-        { age: null, pregnant: null, confirmed_drugs: [], prior_drugs: [], took_today: null },
+        { age: null, pregnant: false, confirmed_drugs: [], prior_drugs: [], took_today: null },
       ]);
       expect(JSON.stringify(bodies)).not.toMatch(/sex|gender|female/); // 성별은 외부 AI로 가는 `/chat` 본문에 없다(S10)
 

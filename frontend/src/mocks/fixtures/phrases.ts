@@ -147,6 +147,12 @@ export const GRADE_DEF_MISSING_OUT_OF_SCOPE = "임부금기 {grade}등급의 뜻
 export const CAUTION_DUP_INGREDIENT = "성분 중복";
 /** provenance.FLAG_NOTES["CODE_NOT_LINKED"](= fixed_phrases.CODE_NOT_LINKED): 코드가 이어지지 않아 확인하지 못한 줄의 안내(AG-08에서 문구 변경) */
 export const CODE_NOT_LINKED = "금기 목록에서 확인하지 못했지만, 안전하다는 뜻이 아니에요. 약사에게 확인하세요";
+/**
+ * 실시간 확인 꼬리표 노트(`findings[].notes[]`, `finalize._notes` → `provenance.api_flag_note`): FLAG_NOTES["API_FAIL"]과 API_REASON_NOTES[API_REASON_NO_CODE].
+ * 화면은 본문에 그리지 않고 근거 상세에만 둔다(FE-11-10 A). 생성 상수 `lib/fixed/phrases.generated.API_FLAG_NOTES`와 같은 글자다
+ */
+export const API_FAIL_NOTE = "실시간 확인을 하지 못함(파일 기준 결과는 그대로예요)";
+export const API_NO_CODE_NOTE = "실시간 확인을 하지 못함(이 성분은 실시간 조회에 쓸 코드가 없어요. 파일 기준 결과는 그대로예요)";
 /** schemas.DOSE_SECTION: 이 항목의 원문 인용 아래에만 인용 고지(`quote_notice`)가 온다 */
 export const DOSE_SECTION = "용법용량";
 

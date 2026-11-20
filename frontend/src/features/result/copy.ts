@@ -37,3 +37,15 @@ export const pickPendingLabel = (letter: string) => `${letter} 고르기 전`;
 
 /** 약을 찾지 못한 결과 카드 아래의 동작 칩(tickets/doc/PRD-14.md §5.4 PRD-14-03 A "이름 다시 입력", 1차). 누르면 입력창으로 간다 */
 export const RETRY_NAME_LABEL = "이름 다시 입력";
+
+/**
+ * 결과 카드 머리의 작은 표지(tickets/frontend/FE-11.md §7.2·FE-11-10 A): 실시간 확인을 하지 못해 기준일 자료로 확인한 결과에만 붙는다.
+ * 자세한 문장("실시간 확인을 하지 못해 …")은 본문에 두지 않고 근거 상세에만 있다. 원문 승인(FE-11-11 A, 2026-11-20)
+ */
+export const BASIS_FILE_TAG = "기준일 자료";
+
+/**
+ * 임신 여부를 "일반인"으로 두고 받은 결과 아래의 작은 한 줄(FE-11-03 A, 2026-11-20): 임부금기는 확인하지 않았음을 알린다(안전 방향).
+ * 서버는 임신 여부 선택 상태를 모르므로 화면이 둔다. 원문 승인(FE-11-11 A, FE-11-03이 A일 때 같은 승인에 포함)
+ */
+export const PREGNANCY_PICK_HINT = "임부금기는 '임산부'를 고르면 확인해요";
