@@ -91,7 +91,7 @@ RFP-30-08 A의 2일 스프린트에 맞춘 데이터·API 범위다.
 | BE-11-13 A | 복용 약은 기본 끔, 질문마다 "내 복용 약과 함께 확인" 토글 | 11장 |
 | BE-11-14 A | RLS 시험은 로컬 Postgres + `auth` 스키마 스텁, 원격은 승인 뒤 스모크만 | 13장 |
 | BE-11-15 A | Naver는 Supabase Custom OIDC(`issuer https://nid.naver.com`, 이메일 없음), 실패하면 OAuth2 + userinfo 어댑터 | 4.7·7.3절 |
-| BE-11-16 A | Kakao는 이메일을 받지 않는다(닉네임만, "Allow users without an email") | 4.7·7.3절 |
+| BE-11-16 B | Kakao는 이메일을 필수 동의로 받는다(2026-11-19 사용자 변경, 이전 A "닉네임만"을 대체). 닉네임 필수·프로필 사진 선택·이메일 필수, Supabase "Allow users without an email" OFF(출처 `tickets/backend/BE-11.md` §6 BE-11-16) | 4.7·7.3절 |
 | BE-11-17 A | 백엔드 JWT 검증은 PyJWT(`PyJWKClient`, 새 의존성 승인됨) | 9.1절 |
 | BE-11-18 A | `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` 허용(publishable 키는 RLS 전제의 공개 키라 CLAUDE.md 3장 "키 금지"의 예외) | 9.1절 |
 | BE-11-19 A | Naver S2는 반나절 상한, 넘으면 Naver 제외 | 1.2절 |
@@ -107,7 +107,7 @@ RFP-30-08 A의 2일 스프린트에 맞춘 데이터·API 범위다.
 
 ### 2.1 저장하는 것
 - **로그인 최소 정보**: Supabase Auth가 `auth.users`에 두는 값(이메일, 공급자 식별자). 우리 테이블에는 **이메일을 복사하지 않는다**(이메일은 로그인에만, PJ2-RFP.md 7장 개인정보 `:331`).
-- **일반 프로필(필수 동의 `privacy_consent`)**: 관계(`relation`), 화면 표시용 짧은 이름(`label`, 선택, 실명 대신 "아이"·"엄마" 권장), 연령대(`age_band`).
+- **일반 프로필(필수 동의 `privacy_consent`)**: 관계(`relation`), 화면 표시용 짧은 이름(`label`, 선택, 실명 대신 "아이"·"엄마" 권장), 연령대(`age_band`), 성별(`sex`, 선택, 건강 정보가 아니며 개인정보 수집 동의의 선택 항목, FE-11-09 C·PRD-17-13 A, 2026-11-20).
 - **건강 정보(선택 동의 `sensitive_consent`)**: 임신 여부(`pregnancy_status`), 복용 중인 약(`profile_medications`).
 - **동의 기록**: 어떤 문서의 몇 번째 버전에 언제 동의·철회했는지.
 
@@ -202,7 +202,8 @@ erDiagram
 | `relation` | `self`, `child`, `parent`, `spouse`, `other` | BE-11-01 B "관계 칸: 자녀·부모 등". `spouse`·`other`는 "등"에 해당하며 BE-11-08 A로 확정 |
 | `pregnancy_status` | `pregnant`, `not_pregnant`, `unknown` | NULL = 입력 안 함 또는 건강 동의 없음. `unknown`은 사용자가 "모름"을 고른 것(판정 입력은 `pregnant=None`과 같다, 11장) |
 | `age_band` | 4.8절 표의 11개 | 연령대(PRD-01-03 A). 11구간은 BE-11-07 A로 정해졌고, 경계는 연령금기 기준값에서 흔한 값으로 둔 것이라 원격 분포 확인이 남았다(4.8절) |
-| `doc_type` | `terms`, `privacy_policy`, `privacy_consent`, `sensitive_consent` | 사용자 "이용약관, 개인정보, 민감정보". 처리방침(`privacy_policy`)은 공개 고지이고 동의 대상이 아니다. 수집·이용 동의(`privacy_consent`)와 민감정보 동의(`sensitive_consent`)는 따로 둔다 |
+| `doc_type` | `terms`, `privacy_policy`, `privacy_consent`, `sensitive_consent`, `age_14` | `age_14`는 만 14세 이상 확인 기록(PRD-17-12 A, 2026-11-20, `schema_account.sql`, 철회는 `terms`처럼 탈퇴로만). 사용자 "이용약관, 개인정보, 민감정보". 처리방침(`privacy_policy`)은 공개 고지이고 동의 대상이 아니다. 수집·이용 동의(`privacy_consent`)와 민감정보 동의(`sensitive_consent`)는 따로 둔다 |
+| `sex` | `female`, `male` | 프로필 성별(선택). "기타" 값은 두지 않고 NULL = 미입력(FE-11-09 C, PRD-17-13 A, 2026-11-20). 간편 로그인 공급자 정보에서 성별을 가져오지 않는다 |
 | `doc_status` | `draft`, `published`, `retired` | 8장 |
 | `consent_action` | `agree`, `withdraw` | 4.6절 |
 
@@ -227,6 +228,7 @@ erDiagram
 | `relation` | `relation` | NOT NULL | 본인은 `self` |
 | `label` | text | NULL 허용, 1~20자 | 화면 표시용. 실명을 권하지 않는다(화면 안내) |
 | `age_band` | `age_band` | NULL 허용 | |
+| `sex` | `sex` | NULL 허용 | 성별(선택, FE-11-09 C·PRD-17-13 A, 2026-11-20). 건강 동의 트리거 대상이 아니고 `privacy_consent` 철회 때 프로필과 함께 삭제 |
 | `pregnancy_status` | `pregnancy_status` | NULL 허용, **건강 동의가 있을 때만 NULL이 아닌 값**(트리거) | |
 | `sort_order` | smallint | NOT NULL DEFAULT 0, 0~3 | 화면 순서 |
 | `created_at`·`updated_at` | timestamptz | | |
@@ -258,7 +260,7 @@ erDiagram
 | `version` | integer | NOT NULL ≥1, `UNIQUE (doc_type, version)` | 1, 2, 3 … |
 | `title` | text | NOT NULL | |
 | `body_md` | text | NOT NULL | 마크다운 본문. 프런트는 sanitize 후 렌더링(HTML 허용 안 함) |
-| `required` | boolean | NOT NULL | 가입·저장에 필수인가(`terms`·`privacy_consent` true, `sensitive_consent` false, `privacy_policy`는 동의 대상이 아니므로 false) |
+| `required` | boolean | NOT NULL | 가입·저장에 필수인가(`terms`·`privacy_consent`·`age_14` true, `sensitive_consent` false, `privacy_policy`는 동의 대상이 아니므로 false) |
 | `requires_reconsent` | boolean | NOT NULL DEFAULT false | 이 버전이 시행되면 앞 버전 동의자에게 다시 동의를 받는가 |
 | `status` | `doc_status` | NOT NULL DEFAULT `draft` | |
 | `effective_at` | timestamptz | NOT NULL | 시행 시각 |
@@ -285,9 +287,9 @@ erDiagram
 - 색인: `(user_id, doc_type, acted_at DESC)`.
 
 ### 4.7 auth.users(Supabase Auth, 우리가 만들지 않음)
-Supabase Auth가 관리하며 이메일·공급자 identity·`raw_user_meta_data`를 둔다. **Google·Kakao가 넘기는 이름·사진 URL이 `raw_user_meta_data`에 들어갈 수 있다**(가정, 공급자 scope에 따라 다름). 이는 "로그인 최소 정보"(PJ2-RFP.md:331) 밖이므로 공급자 동의 항목을 최소로 요청하고(Kakao는 닉네임만, Google은 Supabase 기본 scope), 실제로 무엇이 저장되는지 S1에서 확인해 처리방침 본문에 맞춘다(BE-11-11 A). 필요하면 로그인 직후 서버가 메타데이터의 이름·사진을 지우는 안을 S1 실측 뒤에 더한다.
+Supabase Auth가 관리하며 이메일·공급자 identity·`raw_user_meta_data`를 둔다. **Google·Kakao가 넘기는 이름·사진 URL이 `raw_user_meta_data`에 들어갈 수 있다**(가정, 공급자 scope에 따라 다름). 이는 "로그인 최소 정보"(PJ2-RFP.md:331) 밖이므로 공급자 동의 항목을 최소로 요청하고(Kakao는 닉네임·이메일 필수·프로필 사진 선택, BE-11-16 B 2026-11-19, Google은 Supabase 기본 scope), 실제로 무엇이 저장되는지 S1에서 확인해 처리방침 본문에 맞춘다(BE-11-11 A). 필요하면 로그인 직후 서버가 메타데이터의 이름·사진을 지우는 안을 S1 실측 뒤에 더한다.
 
-- **Kakao**: 이메일을 받지 않는다(BE-11-16 A). 동의 항목은 닉네임(`profile_nickname`)만 요청하고 Supabase의 "Allow users without an email"을 켠다. 그래서 `auth.users.email`이 비어 있을 수 있다.
+- **Kakao**: 이메일을 필수 동의로 받는다(BE-11-16 B, 2026-11-19 사용자 변경, 이전 A "닉네임만"을 대체). 동의 항목은 닉네임(`profile_nickname`) 필수·프로필 사진(`profile_image`) 선택·카카오계정 이메일(`account_email`) 필수이고 Supabase의 "Allow users without an email"은 OFF다. 이메일이 없는 계정은 가입할 수 없다(출처 `tickets/backend/BE-11.md` §6 BE-11-16 B 결과 칸).
 - **Naver**: Supabase Custom OIDC로 연동한다(`issuer https://nid.naver.com`, 이메일 없음, BE-11-15 A). 실패하면 OAuth2 + userinfo 어댑터로 내리고, S2 반나절 상한을 넘으면 Naver를 제외한다(BE-11-19 A).
 
 ### 4.8 age_band ↔ 나이 구간 대응
@@ -346,6 +348,7 @@ COMMIT;
 | 문서 | 필수 여부 | 받는 때 | 없을 때 |
 |---|---|---|---|
 | `terms` 이용약관 | 계정 필수 | 온보딩 1단계 | 계정 API 403 `CONSENT_REQUIRED`(게스트 사용은 그대로) |
+| `age_14` 만 14세 이상 확인 | 계정 필수(PRD-17-12 A, 2026-11-20) | 온보딩 1단계 | 철회는 탈퇴로만 |
 | `privacy_consent` 개인정보 수집·이용 | 프로필 저장 필수 | 온보딩 1단계 | 프로필 API 403. 동의 없이 대화 중 입력만(PJ2-PRD.md 15.3절 S10 2단계) |
 | `sensitive_consent` 민감정보(건강) 처리 | **선택** | 온보딩 1단계(별도 체크), 설정에서 나중에 | 임신 여부·복용 약 칸을 저장하지 않음(BE-11-03 A) |
 | `privacy_policy` 처리방침 | 동의 대상 아님(고지) | 온보딩 1단계에 링크로 표시 | 해당 없음 |
@@ -402,11 +405,11 @@ COMMIT;
 | Admin API 사용자 삭제 | `auth.admin.deleteUser(id)`(기본 `shouldSoftDelete:false`)이면 `auth.users` 행이 지워지고 cascade로 세션·refresh token이 무효가 된다. **이미 발급된 access token은 `exp`까지 유효**하다. service_role 키가 필요하다 | supabase.com/docs/guides/auth/managing-user-data, supabase.com/docs/reference/javascript/auth-admin-deleteuser |
 | 탈퇴 뒤 남은 access token | 이 설계에서는 `GET /me`의 `app_users` 생성이 `auth.users` FK에 막혀 실패하므로 401 `AUTH_INVALID`로 답한다(7.1절 보강, 추론). 다른 계정 API는 `app_users`가 없으면 401로 통일 | 위 + 이 문서 4.2절 |
 | `auth.users` 트리거 방식의 위험 | 공식 문서가 "If the trigger fails, it could block signups"라고 경고한다(BE-11-10 A의 근거) | supabase.com/docs/guides/auth/managing-user-data |
-| 공급자가 넘기는 항목 | Google scope `openid`·`userinfo.email`·`userinfo.profile`, Kakao 동의항목 `profile_nickname`·`profile_image`·`account_email`(이메일은 비즈 앱만). Kakao는 "Allow users without an email"로 **이메일 없이 가입** 가능 → `auth.users.email`이 비어 있을 수 있다. Naver(custom 공급자)는 `email_verified`를 주지 않아 이메일이 미검증으로 저장된다(추정) | auth-google·auth-kakao·custom-oauth-providers 문서, 조사 보고 §1.2·§2·§3.3 |
+| 공급자가 넘기는 항목 | Google scope `openid`·`userinfo.email`·`userinfo.profile`, Kakao 동의항목 `profile_nickname`(필수)·`profile_image`(선택)·`account_email`(필수, BE-11-16 B 2026-11-19). Kakao도 "Allow users without an email"을 OFF로 두어 **이메일 없는 가입은 막는다**. Naver(custom 공급자)는 `email_verified`를 주지 않아 이메일이 미검증으로 저장된다(추정) | auth-google·auth-kakao·custom-oauth-providers 문서, 조사 보고 §1.2·§2·§3.3 |
 | 공급자 연결 끊기(unlink) | 미확인 | — |
 | JWT | JWKS `…/auth/v1/.well-known/jwks.json`, ES256(권장)·RS256, 레거시 HS256이면 JWKS가 비어 검증 실패. `aud="authenticated"`, `iss=https://<ref>.supabase.co/auth/v1`, 헤더 `kid`. JWKS는 엣지 10분 캐시 | supabase.com/docs/guides/auth/jwts, …/signing-keys, …/jwt-fields |
 
-이 설계는 **이메일에 기대지 않는다**(우리 테이블에 이메일 열이 없고 식별은 `auth.users.id`). 그래서 Kakao 이메일 없는 가입(BE-11-16 A)과 Naver Custom OIDC의 이메일 없음·미검증(BE-11-15 A)이 데이터 구조를 바꾸지 않는다.
+이 설계는 **이메일에 기대지 않는다**(우리 테이블에 이메일 열이 없고 식별은 `auth.users.id`). 그래서 Kakao 이메일 필수 동의(BE-11-16 B, 2026-11-19)와 Naver Custom OIDC의 이메일 없음·미검증(BE-11-15 A)이 데이터 구조를 바꾸지 않는다.
 
 ## 8. 약관 문서 버전 관리
 - **현재본**: `doc_type`별로 `status='published' AND effective_at <= now()`인 행 중 `version`이 가장 큰 것(뷰 `account.legal_current`, 부록 A).
@@ -505,6 +508,7 @@ class Profile(BaseModel):
     relation: Literal["self", "child", "parent", "spouse", "other"]
     label: str | None
     age_band: AgeBand | None         # 4.8절 11개 값
+    sex: Literal["female", "male"] | None   # 선택, NULL = 미입력(FE-11-09 C, 2026-11-20)
     pregnancy_status: Literal["pregnant", "not_pregnant", "unknown"] | None
     medications: list[Medication]    # 건강 동의 없으면 항상 []
     sort_order: int
@@ -613,7 +617,7 @@ pytest 실행은 공통 규칙의 메인 venv 명령을 쓴다. T1~T3은 Postgre
 | BE-11-13 | 프로필의 복용 약을 질문에 자동으로 실을까? | A) 기본 끔, 질문마다 토글 / B) 프로필을 고르면 항상 실음 | A | 11장 |
 | BE-11-14 | RLS 시험(T1~T3)을 어디서 돌릴까? | A) 로컬 Postgres + `auth` 스키마 스텁 / B) Supabase CLI 로컬 스택(Docker) / C) 원격 시험 스키마 | A. 이 Mac에는 Postgres가 없어 설치와 로컬 DSN 변수 이름은 사용자 확인 필요(Recap 40) | 13장 |
 | BE-11-15 | Naver 연동 방식은? | A) Supabase Custom OIDC(실패하면 OAuth2 + userinfo 어댑터) / B) 백엔드 직접 OAuth + Admin API 세션 / C) Naver 제외 | A | 4.7·7.3절 |
-| BE-11-16 | Kakao에서 이메일을 받을까? | A) 받지 않음(닉네임만) / B) 비즈 앱으로 `account_email` 받음 | A | 4.7·7.3절 |
+| BE-11-16 | Kakao에서 이메일을 받을까? | A) 받지 않음(닉네임만) / B) 비즈 앱으로 `account_email` 받음 | ~~A~~ → **B 완료(2026-11-19 사용자 변경, 이메일 필수 동의)** | 4.7·7.3절 |
 | BE-11-17 | 백엔드 JWT 검증 라이브러리는? | A) PyJWT(`PyJWKClient`, 새 의존성) / B) 의존성 없이 `httpx`로 `/auth/v1/user` 호출 | A | 9.1절 |
 | BE-11-18 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`를 허용할까(CLAUDE.md 3장 예외)? | A) 허용 / B) 프런트는 Supabase를 직접 부르지 않고 백엔드가 OAuth 대행 | A. CLAUDE.md 3장에 예외를 추가함 | 9.1절 |
 | BE-11-19 | Naver S2에 시간 상한을 둘까? | A) 반나절 상한, 넘으면 Naver 제외 / B) 상한 없이 끝까지 | A | 1.2·4.7절 |

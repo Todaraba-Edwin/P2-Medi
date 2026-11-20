@@ -76,8 +76,10 @@ Vercel 프런트  ── rewrites: /api/:path*  →  ${MEDIAGENT_BACKEND_ORIGIN}
 ### (1) 공통: 백엔드를 먼저 띄워 본다
 
 ```
-backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --port 8000
+backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --port 8000 --no-access-log
 ```
+
+- `--no-access-log`: 접속 IP·요청 경로를 남기지 않는다(개인정보 처리방침 v2 §4, PRD-17 ⑫ ⑧ B, 2026-11-20). 빼지 않는다.
 
 - 기본 바인딩은 `127.0.0.1`이다(0.0.0.0로 열지 않는다. 터널이 로컬로 들어오므로 필요 없다).
 - 로그에 `warmup … done`이 나오면 준비가 끝난 것이다(약 30초, BE-17-01 A).
@@ -197,6 +199,7 @@ plist 예시 (경로·Label은 자리표시. **비밀값 없음**, 루트 `.env`
     <string>127.0.0.1</string>
     <string>--port</string>
     <string>8000</string>
+    <string>--no-access-log</string>
   </array>
 
   <key>WorkingDirectory</key>

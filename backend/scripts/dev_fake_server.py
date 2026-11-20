@@ -246,7 +246,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     install_log_redaction()  # 실제 앱과 같은 로그 가리기
     print(f"dev fake server (BE-06): http://{HOST}:{args.port}  /health  POST /chat  (fake resources, no external calls)")
-    uvicorn.run(create_app(slow_seconds=args.slow_seconds), host=HOST, port=args.port, log_level="info")
+    # access_log=False: 실서버와 같이 접속 IP·요청 경로를 남기지 않는다(PRD-17 ⑫ ⑧ B)
+    uvicorn.run(create_app(slow_seconds=args.slow_seconds), host=HOST, port=args.port, log_level="info", access_log=False)
 
 
 if __name__ == "__main__":

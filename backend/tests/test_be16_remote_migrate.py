@@ -111,6 +111,20 @@ def test_plan_does_not_write():
     assert not any(u.startswith(w) for u in upper for w in WRITE_WORDS)
 
 
+def _apply_inputs() -> list[Path]:
+    """`main(["apply"])`가 --yes 검사 전에 읽는 로컬 전용 입력(`local_chunks`·`collect_sources`)."""
+    data = m.REPO / "data"
+    return [m.OUT_DIR / n for n in m.ALL_FILES] + [data / m.loaders.COMBO_JSON_NAME, data / m.loaders.ELDERLY_KIDS_CSV_NAME]
+
+
+_MISSING_APPLY_INPUTS = [p for p in _apply_inputs() if not p.is_file()]
+
+
+@pytest.mark.skipif(
+    bool(_MISSING_APPLY_INPUTS),
+    reason="로컬 전용 데이터 없음(data/는 커밋 안 함): "
+    + ", ".join(str(p.relative_to(m.REPO)) for p in _MISSING_APPLY_INPUTS),
+)
 def test_apply_requires_yes(capsys):
     assert m.main(["apply"]) == 2
     assert "--yes" in capsys.readouterr().err

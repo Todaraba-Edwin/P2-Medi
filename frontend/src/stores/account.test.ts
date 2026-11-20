@@ -14,6 +14,8 @@ import {
   PREGNANCY_STATUSES,
   PROFILE_LABEL_MAX_CHARS,
   RELATIONS,
+  REQUIRED_CONSENT_DOCS,
+  SEXES,
   accountApi,
   createProfile,
   deleteProfile,
@@ -47,11 +49,12 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-const ALL: ConsentChoices = { terms: true, privacy_consent: true, sensitive_consent: true };
-const REQUIRED_ONLY: ConsentChoices = { terms: true, privacy_consent: true, sensitive_consent: false };
+// 필수 동의는 약관·개인정보·만 14세 확인(`age_14`, PRD-17-12 A) 셋이다
+const ALL: ConsentChoices = { terms: true, privacy_consent: true, sensitive_consent: true, age_14: true };
+const REQUIRED_ONLY: ConsentChoices = { terms: true, privacy_consent: true, sensitive_consent: false, age_14: true };
 const NO_HEALTH = { pregnancy_status: null, medications: [] };
-const family = (label: string, extra: Partial<ProfileDraft> = {}): ProfileDraft => ({ relation: "child", label, age_band: "y6_11", health: null, ...extra });
-const selfDraft = (extra: Partial<ProfileDraft> = {}): ProfileDraft => ({ relation: "self", label: "나", age_band: "y19_64", health: null, ...extra });
+const family = (label: string, extra: Partial<ProfileDraft> = {}): ProfileDraft => ({ relation: "child", label, age_band: "y6_11", sex: null, health: null, ...extra });
+const selfDraft = (extra: Partial<ProfileDraft> = {}): ProfileDraft => ({ relation: "self", label: "나", age_band: "y19_64", sex: null, health: null, ...extra });
 const med = (text: string) => ({ input_text: text, item_seq: null });
 const consentOf = (me: Me | null, docType: string) => me?.consents.find((consent) => consent.doc_type === docType);
 
@@ -69,13 +72,17 @@ describe("계약 값은 백엔드 코드와 같다(읽기만)", () => {
   const literal = (name: string) => [...(new RegExp(`^${name} = Literal\\[([^\\]]*)\\]`, "m").exec(repo)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((match) => match[1]);
   const final = (name: string) => Number(new RegExp(`^${name}: Final = (\\d+)`, "m").exec(repo)?.[1]);
 
-  it("문서 종류·관계·연령대·임신 여부 값 목록", () => {
+  it("문서 종류·관계·연령대·임신 여부·성별 값 목록", () => {
     expect(literal("DocType")).toEqual([...LEGAL_DOC_TYPES]);
     expect(literal("ConsentDocType")).toEqual([...CONSENT_DOC_TYPES]);
     expect(literal("Relation")).toEqual([...RELATIONS]);
     expect(literal("AgeBand")).toEqual([...AGE_BANDS]);
     expect(literal("PregnancyStatus").sort()).toEqual([...PREGNANCY_STATUSES].sort());
+    expect(literal("Sex")).toEqual([...SEXES]); // `female`·`male`, "기타" 없음(2026-11-20 사용자 확인)
     expect(Object.keys(AGE_BAND_RANGE)).toEqual([...AGE_BANDS]);
+    // 필수 동의 묶음(`REQUIRED_CONSENT_DOCS = (TERMS_DOC, PROFILE_DOC, AGE_14_DOC)`)
+    expect(/^REQUIRED_CONSENT_DOCS: Final = \(TERMS_DOC, PROFILE_DOC, AGE_14_DOC\)/m.test(repo)).toBe(true);
+    expect(REQUIRED_CONSENT_DOCS).toEqual(["terms", "privacy_consent", "age_14"]);
   });
 
   it("상한: 가족 3명·별명 20자·약 100자·약 10개", () => {
@@ -145,6 +152,7 @@ describe("흐름: 게스트 → 로그인 → 동의 → 프로필", () => {
       ["terms", true, true],
       ["privacy_consent", true, true],
       ["sensitive_consent", false, true],
+      ["age_14", true, true],
     ]);
     expect(needsConsentStep(before)).toBe(true);
     await store.getState().loadLegalDocs();
@@ -230,20 +238,20 @@ describe("흐름: 게스트 → 로그인 → 동의 → 프로필", () => {
 });
 
 describe("약관 동의", () => {
-  it("문서는 API 값 그대로이고 네 종류(동의 대상 셋 + 고지 문서)를 정해진 순서로 받는다", async () => {
+  it("문서는 API 값 그대로이고 다섯 종류(동의 대상 넷 + 고지 문서)를 정해진 순서로 받는다", async () => {
     const docs = await fetchLegalDocs();
-    expect(docs.map((doc) => doc.doc_type)).toEqual(["terms", "privacy_policy", "privacy_consent", "sensitive_consent"]);
-    expect(docs.map((doc) => doc.required)).toEqual([true, false, true, false]);
+    expect(docs.map((doc) => doc.doc_type)).toEqual(["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"]);
+    expect(docs.map((doc) => doc.required)).toEqual([true, false, true, false, true]);
     for (const doc of docs) expect(doc).toEqual(MOCK_LEGAL_DOCS[doc.doc_type]);
   });
 
   it("고지 문서(privacy_policy)는 동의 항목이 아니다: 요청에 싣지 않고 필수 판정에도 넣지 않는다(FE-04-03 A)", async () => {
     const docs = await fetchLegalDocs();
     const items = consentItems(docs, null, { ...ALL, privacy_policy: true } as ConsentChoices);
-    expect(items.map((item) => item.doc_type)).toEqual(["terms", "privacy_consent", "sensitive_consent"]);
-    expect(requiredAgreed(docs, { terms: true, privacy_consent: true })).toBe(true);
+    expect(items.map((item) => item.doc_type)).toEqual(["terms", "privacy_consent", "sensitive_consent", "age_14"]);
+    expect(requiredAgreed(docs, { terms: true, privacy_consent: true, age_14: true })).toBe(true);
     // 고지 문서에 서버가 필수 표시를 달아도 체크가 없으니 관문이 되지 않는다
-    expect(requiredAgreed(docs.map((doc) => (doc.doc_type === "privacy_policy" ? { ...doc, required: true } : doc)), { terms: true, privacy_consent: true })).toBe(true);
+    expect(requiredAgreed(docs.map((doc) => (doc.doc_type === "privacy_policy" ? { ...doc, required: true } : doc)), { terms: true, privacy_consent: true, age_14: true })).toBe(true);
     await createAccountStore().getState().loginEmail("user@example.com", "pw"); // 로그인한 뒤에도 서버(목)는 고지 문서의 동의를 받지 않는다
     await expect(postConsents([{ doc_type: "privacy_policy" as "terms", version: 1, action: "agree" }], "onboarding")).rejects.toMatchObject({ status: 422, code: "INVALID_REQUEST" });
   });
@@ -254,7 +262,8 @@ describe("약관 동의", () => {
     store.getState().open();
     await store.getState().loginEmail("user@example.com", "pw");
     await store.getState().loadLegalDocs();
-    for (const agreed of [{}, { terms: true }, { privacy_consent: true, sensitive_consent: true }] as ConsentChoices[]) {
+    // 만 14세 확인(age_14)을 빼면 필수 미동의다(PRD-17-12 A)
+    for (const agreed of [{}, { terms: true }, { privacy_consent: true, sensitive_consent: true }, { terms: true, privacy_consent: true, sensitive_consent: true }] as ConsentChoices[]) {
       expect(requiredAgreed(store.getState().legalDocs, agreed)).toBe(false);
       expect(await store.getState().submitConsents(agreed)).toBe(false);
     }
@@ -274,6 +283,7 @@ describe("약관 동의", () => {
       [
         { doc_type: "terms", version: 1, action: "agree" },
         { doc_type: "privacy_consent", version: 1, action: "agree" },
+        { doc_type: "age_14", version: 1, action: "agree" },
       ],
       "onboarding",
     );
@@ -337,6 +347,23 @@ describe("약관 동의", () => {
     await expect(postConsents([{ doc_type: "terms", version: 2, action: "agree" }], "settings")).rejects.toMatchObject({ status: 409, code: "VERSION_MISMATCH", fields: ["terms"] });
     await expect(postConsents([{ doc_type: "terms", version: 1, action: "withdraw" }], "settings")).rejects.toMatchObject({ status: 409, code: "USE_ACCOUNT_DELETE", fields: ["terms"] });
   });
+
+  it("만 14세 확인(age_14)은 첫 로그인 4종에 함께 보내고, 철회는 약관처럼 409 USE_ACCOUNT_DELETE다(PRD-17-12 A)", async () => {
+    const store = await loggedIn(ALL);
+    expect(consentOf(store.getState().me, "age_14")).toMatchObject({ required: true, agreed_version: 1, needs_consent: false });
+    expect(store.getState().me?.onboarding_step).toBe("profile_self");
+    await expect(postConsents([{ doc_type: "age_14", version: 1, action: "withdraw" }], "settings")).rejects.toMatchObject({ status: 409, code: "USE_ACCOUNT_DELETE", fields: ["age_14"] });
+    // 네 종류를 넘기면(겹침) 422
+    await expect(
+      postConsents(
+        [
+          { doc_type: "terms", version: 1, action: "agree" },
+          { doc_type: "terms", version: 1, action: "agree" },
+        ],
+        "settings",
+      ),
+    ).rejects.toMatchObject({ status: 422 });
+  });
 });
 
 describe("프로필: 본인 1 + 가족 최대 3", () => {
@@ -352,6 +379,7 @@ describe("프로필: 본인 1 + 가족 최대 3", () => {
       relation: "self",
       label: "나",
       age_band: "y19_64",
+      sex: null,
       pregnancy_status: "not_pregnant",
       sort_order: 0,
       medications: [{ medication_id: expect.any(String), input_text: "가나다정", item_seq: null, confirmed_at: null }],
@@ -370,6 +398,29 @@ describe("프로필: 본인 1 + 가족 최대 3", () => {
     // 건강 정보 칸을 실으면 약은 목록 전체가 바뀐다
     const replaced = await updateProfile(created.profile_id, selfDraft({ health: { pregnancy_status: null, medications: [med("라마바캡슐")] } }));
     expect(replaced).toMatchObject({ pregnancy_status: null, medications: [{ input_text: "라마바캡슐" }] });
+  });
+
+  it("성별(선택, FE-11-09 C): 미입력(null)으로 저장·수정·지우기가 되고, 건강 정보 동의가 없어도 저장되며 건강 동의를 철회해도 남는다", async () => {
+    const store = await loggedIn(REQUIRED_ONLY); // 건강 정보 동의 없음
+    expect(hasHealthConsent(store.getState().me)).toBe(false);
+    const created = await createProfile(selfDraft()); // 미입력
+    expect(created.sex).toBeNull();
+    expect((await updateProfile(created.profile_id, selfDraft({ sex: "female" }))).sex).toBe("female"); // 건강 동의 없이 저장
+    expect((await updateProfile(created.profile_id, selfDraft({ sex: "male" }))).sex).toBe("male");
+    expect((await updateProfile(created.profile_id, selfDraft({ sex: null }))).sex).toBeNull(); // 지움
+    const child = await createProfile(family("첫째", { sex: "male" })); // 가족 프로필도 같은 칸
+    expect(child.sex).toBe("male");
+    // 건강 정보 동의를 받고 임신 여부를 넣은 뒤 철회해도 성별은 남는다(성별은 건강 정보가 아니다)
+    expect(await store.getState().submitConsents(ALL)).toBe(true);
+    await updateProfile(created.profile_id, selfDraft({ sex: "female", health: { pregnancy_status: "pregnant", medications: [] } }));
+    expect(await store.getState().submitConsents(REQUIRED_ONLY)).toBe(true);
+    expect(store.getState().profiles.find((profile) => profile.profile_id === created.profile_id)).toMatchObject({ sex: "female", pregnancy_status: null });
+    // 잘못된 값은 422 INVALID_REQUEST(fields=["sex"])이고 값은 되돌려 주지 않는다
+    for (const bad of ["F", "other", "", "여성"]) {
+      const error = await updateProfile(created.profile_id, { ...selfDraft(), sex: bad as "female" }).catch((reason: unknown) => reason);
+      expect(error).toMatchObject({ status: 422, code: "INVALID_REQUEST", fields: ["sex"] });
+    }
+    expect(JSON.stringify(store.getState().failure ?? {})).not.toMatch(/other|여성/);
   });
 
   it("가족 프로필은 지울 수 있고, 본인 프로필 삭제는 서버가 409 SELF_REQUIRED로 막는다", async () => {
@@ -430,23 +481,38 @@ describe("프로필: 본인 1 + 가족 최대 3", () => {
     await expect(fetchProfiles()).rejects.toMatchObject({ status: 401, code: "AUTH_REQUIRED" });
     const store = createAccountStore();
     await store.getState().loginEmail("user@example.com", "pw");
-    await expect(createProfile(family("첫째"))).rejects.toMatchObject({ status: 403, code: "CONSENT_REQUIRED", fields: ["terms", "privacy_consent"] });
+    await expect(createProfile(family("첫째"))).rejects.toMatchObject({ status: 403, code: "CONSENT_REQUIRED", fields: ["terms", "privacy_consent", "age_14"] });
+    // 만 14세 확인만 빠져도 403이고 온보딩은 동의 단계에 머문다
+    server.resetHandlers(...createAccountHandlers());
+    const fresh = createAccountStore();
+    await fresh.getState().loginEmail("user@example.com", "pw");
+    await fresh.getState().loadLegalDocs();
+    expect(await fresh.getState().submitConsents({ terms: true, privacy_consent: true, sensitive_consent: true })).toBe(false); // 화면이 먼저 막는다
+    await postConsents(
+      [
+        { doc_type: "terms", version: 1, action: "agree" },
+        { doc_type: "privacy_consent", version: 1, action: "agree" },
+      ],
+      "onboarding",
+    );
+    expect((await fetchMe())?.onboarding_step).toBe("consent");
+    await expect(createProfile(family("첫째"))).rejects.toMatchObject({ status: 403, code: "CONSENT_REQUIRED", fields: ["age_14"] });
   });
 
-  it("요청 본문은 ProfileCreate 칸만 싣는다(건강 정보 동의가 없으면 건강 칸이 아예 없다)", async () => {
+  it("요청 본문은 ProfileCreate 칸만 싣는다(건강 정보 동의가 없으면 건강 칸이 아예 없다. 성별은 늘 싣고 null = 미입력)", async () => {
     const bodies: unknown[] = [];
     server.use(
       http.post("*/api/profiles", async ({ request }) => {
         bodies.push(await request.json());
-        const profile: Profile = { profile_id: "00000000-0000-4000-8000-000000000001", relation: "child", label: "첫째", age_band: null, pregnancy_status: null, sort_order: 0, medications: [] };
+        const profile: Profile = { profile_id: "00000000-0000-4000-8000-000000000001", relation: "child", label: "첫째", age_band: null, sex: null, pregnancy_status: null, sort_order: 0, medications: [] };
         return HttpResponse.json(profile, { status: 201 });
       }),
     );
     await createProfile(family("첫째"));
-    await createProfile(family("첫째", { health: { pregnancy_status: "unknown", medications: [med("가나다정")] } }));
+    await createProfile(family("첫째", { sex: "female", health: { pregnancy_status: "unknown", medications: [med("가나다정")] } }));
     expect(bodies).toEqual([
-      { relation: "child", label: "첫째", age_band: "y6_11" },
-      { relation: "child", label: "첫째", age_band: "y6_11", pregnancy_status: "unknown", medications: [{ input_text: "가나다정", item_seq: null }] },
+      { relation: "child", label: "첫째", age_band: "y6_11", sex: null },
+      { relation: "child", label: "첫째", age_band: "y6_11", sex: "female", pregnancy_status: "unknown", medications: [{ input_text: "가나다정", item_seq: null }] },
     ]);
   });
 
@@ -516,21 +582,32 @@ describe("계정 진입점 스위치(FE-04-02 A·FE-04-05 A)", () => {
 });
 
 describe("대상 선택 → 요청 context", () => {
-  it("고른 프로필의 연령대·임신 여부가 buildChatRequest의 context로 간다(약은 싣지 않는다)", async () => {
+  it("고른 프로필의 연령대·임신 여부가 buildChatRequest의 context로 간다(약·성별은 싣지 않는다)", async () => {
     const store = await loggedIn();
     store.getState().editProfile({ profileId: null, self: true });
-    await store.getState().saveProfile(selfDraft({ health: { pregnancy_status: "pregnant", medications: [med("가나다정")] } }));
+    await store.getState().saveProfile(selfDraft({ sex: "female", health: { pregnancy_status: "pregnant", medications: [med("가나다정")] } }));
     expect(selectTargetProfile(store.getState())).toBeNull(); // 고르기 전
     store.getState().setTarget(store.getState().profiles[0].profile_id);
+    expect(selectTargetProfile(store.getState())?.sex).toBe("female");
     const context = profileToContext(selectTargetProfile(store.getState()), hasHealthConsent(store.getState().me));
-    expect(buildChatRequest("질문", { ...emptyConversationContext, ...context })).toEqual({
+    const request = buildChatRequest("질문", { ...emptyConversationContext, ...context });
+    expect(request).toEqual({
       question: "질문",
       context: { age: { lower: 19, upper: 64, unit: "세" }, pregnant: true, confirmed_drugs: [], prior_drugs: [], took_today: null },
     });
+    // 성별은 `/chat` 요청 본문 어디에도 없다(S10: 외부 AI로 보내지 않는다, FE-11-09 C·PRD-17-13 A)
+    expect(JSON.stringify(request)).not.toMatch(/sex|gender|female|male/);
+  });
+
+  it("`/chat` 요청을 만드는 코드와 요청 모양에는 성별 칸이 없다(S10 불변식, 정적 검사)", () => {
+    const strip = (file: string) => readFileSync(path.resolve(__dirname, file), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+    for (const file of ["./conversation-context.ts", "./profile-context.ts", "../lib/api/schemas.ts"]) expect(strip(file), file).not.toMatch(/\bsex\b|gender/i);
+    expect(Object.keys(profileToContext(null, true))).toEqual(["age", "pregnant"]);
+    expect(Object.keys(buildChatRequest("질문", emptyConversationContext).context ?? {})).toEqual(["age", "pregnant", "confirmed_drugs", "prior_drugs", "took_today"]);
   });
 
   it("연령대·임신 여부 변환: 고르지 않음·모름·null은 null, 건강 정보 동의가 없으면 임신 여부를 보내지 않는다", () => {
-    const profile: Profile = { profile_id: "p", relation: "child", label: "첫째", age_band: "m6_11", pregnancy_status: "pregnant", sort_order: 0, medications: [] };
+    const profile: Profile = { profile_id: "p", relation: "child", label: "첫째", age_band: "m6_11", sex: null, pregnancy_status: "pregnant", sort_order: 0, medications: [] };
     expect(profileToContext(null, true)).toEqual({ age: null, pregnant: null });
     expect(profileToContext(profile, true)).toEqual({ age: AGE_BAND_RANGE.m6_11, pregnant: true });
     expect(profileToContext(profile, false)).toEqual({ age: { lower: 6, upper: 11, unit: "개월" }, pregnant: null });

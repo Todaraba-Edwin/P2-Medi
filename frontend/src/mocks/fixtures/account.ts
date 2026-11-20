@@ -86,6 +86,18 @@ export const MOCK_LEGAL_DOCS: Readonly<Record<LegalDocType, LegalDoc>> = {
       "동의하지 않아도 서비스를 쓸 수 있습니다. 이 문서는 화면 개발용 **합성 목 문서**입니다.",
     ].join("\n"),
   },
+  // 만 14세 이상 확인(PRD-17-12 A): 화면은 별도 필수 체크로 그린다(본문 카드 없음). 제목·본문은 백엔드 시드(`seed_legal_age14.sql`)와 같은 문구(2026-11-20 사용자 확인 "그대로")
+  age_14: {
+    doc_type: "age_14",
+    version: 1,
+    title: "만 14세 이상입니다.",
+    effective_at: EFFECTIVE_AT,
+    required: true,
+    requires_reconsent: false,
+    legal_review: "not_reviewed",
+    body_sha256: fakeSha("5"),
+    body_md: "만 14세 이상입니다.",
+  },
 };
 
 /** 이 글자가 이메일에 있으면 로그인·가입이 실패한다(개발 미리보기용 합성 규칙. 로그인 경로는 백엔드에 없는 목이다) */

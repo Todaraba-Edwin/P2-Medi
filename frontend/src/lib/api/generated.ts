@@ -341,7 +341,7 @@ export interface components {
              * Doc Type
              * @enum {string}
              */
-            doc_type: "terms" | "privacy_consent" | "sensitive_consent";
+            doc_type: "terms" | "privacy_consent" | "sensitive_consent" | "age_14";
             /** Version */
             version: number;
         };
@@ -367,7 +367,7 @@ export interface components {
              * Doc Type
              * @enum {string}
              */
-            doc_type: "terms" | "privacy_consent" | "sensitive_consent";
+            doc_type: "terms" | "privacy_consent" | "sensitive_consent" | "age_14";
             /** Needs Consent */
             needs_consent: boolean;
             /** Needs Reconsent */
@@ -730,7 +730,7 @@ export interface components {
              * Doc Type
              * @enum {string}
              */
-            doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent";
+            doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent" | "age_14";
             /**
              * Effective At
              * Format: date-time
@@ -850,6 +850,8 @@ export interface components {
              * @enum {string}
              */
             relation: "self" | "child" | "parent" | "spouse" | "other";
+            /** Sex */
+            sex?: ("female" | "male") | null;
         };
         /** ProfileOut */
         ProfileOut: {
@@ -868,6 +870,8 @@ export interface components {
              * @enum {string}
              */
             relation: "self" | "child" | "parent" | "spouse" | "other";
+            /** Sex */
+            sex: ("female" | "male") | null;
             /** Sort Order */
             sort_order: number;
         };
@@ -886,6 +890,8 @@ export interface components {
             pregnancy_status?: ("pregnant" | "not_pregnant" | "unknown") | null;
             /** Relation */
             relation?: ("self" | "child" | "parent" | "spouse" | "other") | null;
+            /** Sex */
+            sex?: ("female" | "male") | null;
         };
         /** ProgressEvent */
         ProgressEvent: {
@@ -1207,7 +1213,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent";
+                doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent" | "age_14";
             };
             cookie?: never;
         };

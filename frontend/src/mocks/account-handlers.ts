@@ -6,6 +6,7 @@
 import { HttpResponse, http } from "msw";
 import { z } from "zod";
 import {
+  AGE_14_DOC,
   AgeBandSchema,
   CONSENT_DOC_TYPES,
   ConsentDocTypeSchema,
@@ -16,8 +17,10 @@ import {
   MEDICATION_NAME_MAX_CHARS,
   PROFILE_LABEL_MAX_CHARS,
   PregnancyStatusSchema,
+  REQUIRED_CONSENT_DOCS,
   RelationSchema,
   SOCIAL_PROVIDERS,
+  SexSchema,
 } from "@/lib/api/account";
 import type { ConsentDocType, ConsentState, Me, Medication, OnboardingStep, Profile } from "@/lib/api/account";
 import { MOCK_DRUG_ITEM_SEQS, MOCK_DRUG_SEARCH_ERRORS, MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK, MOCK_SIGNUP_TAKEN_MARK, searchMockDrugs } from "./fixtures/account";
@@ -30,7 +33,7 @@ const ConsentRequestSchema = z.strictObject({
   items: z
     .array(z.strictObject({ doc_type: ConsentDocTypeSchema, version: z.number().int().min(1), action: z.enum(["agree", "withdraw"]) }))
     .min(1)
-    .max(3)
+    .max(CONSENT_DOC_TYPES.length) // 첫 로그인 4종을 한 번에
     .refine((items) => new Set(items.map((item) => item.doc_type)).size === items.length),
   channel: z.enum(["onboarding", "settings", "reconsent"]),
 });
@@ -38,8 +41,12 @@ const MedicationInSchema = z.strictObject({ input_text: z.string().trim().min(1)
 const profileFields = {
   label: z.string().trim().min(1).max(PROFILE_LABEL_MAX_CHARS).nullable().optional(),
   age_band: AgeBandSchema.nullable().optional(),
+  /** 성별(선택, 건강 정보 아님): 잘못된 값은 백엔드처럼 422 `INVALID_REQUEST`(fields=["sex"], 값은 되돌려 주지 않는다) */
+  sex: SexSchema.nullable().optional(),
   pregnancy_status: PregnancyStatusSchema.nullable().optional(),
 };
+/** 본문 전체가 422일 때 백엔드처럼 칸 이름만 돌려준다(`sex`가 잘못됐으면 `["sex"]`, 그 밖은 `["body"]`) */
+const invalidFields = (issues: z.ZodError["issues"]) => (issues.some((issue) => issue.path[0] === "sex") ? ["sex"] : ["body"]);
 const ProfileCreateSchema = z.strictObject({ relation: RelationSchema, ...profileFields, medications: z.array(MedicationInSchema).max(MEDICATIONS_MAX).optional() });
 // `relation`·`medications`는 보낼 수는 있지만 null일 수 없다(백엔드 `_no_null_required`)
 const ProfileUpdateSchema = z.strictObject({ relation: RelationSchema.optional(), ...profileFields, medications: z.array(MedicationInSchema).max(MEDICATIONS_MAX).optional() });
@@ -92,7 +99,8 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
       };
     });
   const agreedTo = (session: Session, docType: ConsentDocType) => session.consents[docType]?.action === "agree";
-  const requiredOk = (session: Session) => agreedTo(session, "terms") && agreedTo(session, "privacy_consent");
+  /** 백엔드 `required_ok`: 약관·개인정보·만 14세 확인(`REQUIRED_CONSENT_DOCS`)에 모두 동의해야 동의 단계를 지난다 */
+  const requiredOk = (session: Session) => REQUIRED_CONSENT_DOCS.every((docType) => agreedTo(session, docType));
   const healthOk = (session: Session) => agreedTo(session, HEALTH_CONSENT_DOC);
 
   /** 백엔드 `next_step`과 같은 규칙 */
@@ -136,18 +144,19 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
     const session: Session = { step: "consent", completedAt: null, consents: {}, profiles: [] };
     if (email.includes(MOCK_ONBOARDED_MARK)) {
       for (const docType of CONSENT_DOC_TYPES) session.consents[docType] = { action: "agree", version: MOCK_LEGAL_DOCS[docType].version, acted_at: NOW };
+      // 성별은 로그인 공급자 정보가 아니라 사용자가 고른 값이다(목에서는 미리 저장돼 있던 값으로 둔다)
       session.profiles = [
-        { profile_id: mockId(1, 9001), relation: "self", label: "나", age_band: "y19_64", pregnancy_status: "not_pregnant", sort_order: 0, medications: [] },
-        { profile_id: mockId(1, 9002), relation: "child", label: "첫째", age_band: "y6_11", pregnancy_status: null, sort_order: 1, medications: [] },
+        { profile_id: mockId(1, 9001), relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: "not_pregnant", sort_order: 0, medications: [] },
+        { profile_id: mockId(1, 9002), relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, sort_order: 1, medications: [] },
       ];
     }
     state.session = session;
   };
 
-  /** 프로필 쓰기 앞의 필수 동의 검사(백엔드 `gate_consents`) */
+  /** 프로필 쓰기 앞의 필수 동의 검사(백엔드 `gate_consents`: 약관·개인정보·만 14세 확인) */
   const gate = (session: Session) => {
-    const missing = (["terms", "privacy_consent"] as const).filter((docType) => !agreedTo(session, docType));
-    return missing.length > 0 ? error(403, "CONSENT_REQUIRED", missing) : null;
+    const missing = REQUIRED_CONSENT_DOCS.filter((docType) => !agreedTo(session, docType));
+    return missing.length > 0 ? error(403, "CONSENT_REQUIRED", [...missing]) : null;
   };
 
   return [
@@ -203,12 +212,13 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
       if (!body.success) return error(422, "INVALID_REQUEST", ["body"]);
       for (const item of body.data.items) {
         if (MOCK_LEGAL_DOCS[item.doc_type].version !== item.version) return error(409, "VERSION_MISMATCH", [item.doc_type]);
-        if (item.action === "withdraw" && item.doc_type === "terms") return error(409, "USE_ACCOUNT_DELETE", ["terms"]); // 약관 철회는 탈퇴로만
+        // 약관·만 14세 확인 철회는 탈퇴로만(백엔드 `WITHDRAW_BLOCKED_DOCS`)
+        if (item.action === "withdraw" && (item.doc_type === "terms" || item.doc_type === AGE_14_DOC)) return error(409, "USE_ACCOUNT_DELETE", [item.doc_type]);
       }
       for (const item of body.data.items) {
         session.consents[item.doc_type] = { action: item.action, version: item.version, acted_at: NOW };
         if (item.action !== "withdraw") continue;
-        // 철회는 즉시 삭제를 일으킨다(설계 6.3절): 건강 동의 → 임신 여부·복용 약, 개인정보 동의 → 프로필 전부
+        // 철회는 즉시 삭제를 일으킨다(설계 6.3절): 건강 동의 → 임신 여부·복용 약(성별은 건강 정보가 아니라 남는다), 개인정보 동의 → 프로필 전부
         if (item.doc_type === HEALTH_CONSENT_DOC) session.profiles = session.profiles.map((profile) => ({ ...profile, pregnancy_status: null, medications: [] }));
         if (item.doc_type === "privacy_consent") session.profiles = [];
       }
@@ -232,7 +242,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
       const session = state.session;
       if (!session) return error(401, "AUTH_REQUIRED");
       const body = ProfileCreateSchema.safeParse(await request.json().catch(() => null));
-      if (!body.success) return error(422, "INVALID_REQUEST", ["body"]);
+      if (!body.success) return error(422, "INVALID_REQUEST", invalidFields(body.error.issues));
       const blocked = gate(session);
       if (blocked) return blocked;
       const draft = body.data;
@@ -247,6 +257,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
         relation: draft.relation,
         label: draft.label ?? null,
         age_band: draft.age_band ?? null,
+        sex: draft.sex ?? null,
         pregnancy_status: draft.pregnancy_status ?? null,
         sort_order: session.profiles.length,
         medications: medications(meds),
@@ -262,7 +273,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
       const profileId = String(params.profileId);
       if (!UUID_SHAPE.test(profileId)) return error(422, "INVALID_REQUEST", ["profile_id"]);
       const body = ProfileUpdateSchema.safeParse(await request.json().catch(() => null));
-      if (!body.success) return error(422, "INVALID_REQUEST", ["body"]);
+      if (!body.success) return error(422, "INVALID_REQUEST", invalidFields(body.error.issues));
       const current = session.profiles.find((profile) => profile.profile_id === profileId);
       if (!current) return error(404, "NOT_FOUND");
       const blocked = gate(session);
@@ -279,6 +290,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
         relation: patch.relation ?? current.relation,
         label: patch.label !== undefined ? patch.label : current.label,
         age_band: patch.age_band !== undefined ? patch.age_band : current.age_band,
+        sex: patch.sex !== undefined ? patch.sex : current.sex, // 보낸 경우에만 바뀐다. null = 지움
         pregnancy_status: patch.pregnancy_status !== undefined ? patch.pregnancy_status : current.pregnancy_status,
         medications: patch.medications !== undefined ? medications(patch.medications) : current.medications,
       };
