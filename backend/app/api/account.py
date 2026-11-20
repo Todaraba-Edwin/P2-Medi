@@ -11,6 +11,10 @@
 - 건강 정보(임신 여부·복용 약)는 `sensitive_consent`가 유효(동의 + 재동의 대기 아님)할 때만 저장한다. 조용히 버리지 않고 422로 알린다.
 - 본문·건강 정보·ID를 로그에 쓰지 않는다. 응답에는 `Cache-Control: no-store`(약관은 `public, max-age=300`).
 - 복용 약의 `item_seq`는 `app.state.account_item_seq_checker`(사전 확인 함수)가 확인한 것만 저장한다. 없으면 원문만 저장(설계 9.3절).
+  확인 함수는 lifespan이 저장소와 따로 붙인다(`set_item_seq_checker`, FE-04-13 남음 ②). `set_repo`는 인자를 주지 않으면 그대로 둔다.
+- 2026-11-20 GROUP-03 B1: 프로필 `sex`(선택, `female`·`male`, null = 미입력)는 건강 정보가 아니라 `privacy_consent`만 있으면 저장한다
+  (PRD-17-13 A). 간편 로그인 공급자 정보에서 채우지 않고 `/chat` 요청에도 없다. 만 14세 확인 `age_14`는 첫 로그인 필수 동의이고
+  철회는 `terms`처럼 409 `USE_ACCOUNT_DELETE`(PRD-17-12 A).
 """
 
 from __future__ import annotations
@@ -34,10 +38,11 @@ from app.db.account_repo import (
     HEALTH_CONSENT_CODE,
     HEALTH_DOC,
     MEDICATION_LIMIT,
-    PROFILE_DOC,
     PROFILE_LIMIT,
+    REQUIRED_CONSENT_DOCS,
     TERMS_DOC,
     UNSET,
+    WITHDRAW_BLOCKED_DOCS,
     AccountRepo,
     AccountRepoError,
     AgeBand,
@@ -57,6 +62,8 @@ from app.db.account_repo import (
     ProfilePatch,
     Relation,
     RepoUnavailable,
+    Sex,
+    _Unset,
     utcnow,
 )
 from app.security.auth import Principal, require_user
@@ -139,7 +146,7 @@ class ConsentItem(_Strict):
 
 
 class ConsentRequest(_Strict):
-    items: list[ConsentItem] = Field(min_length=1, max_length=3)
+    items: list[ConsentItem] = Field(min_length=1, max_length=len(CONSENT_DOC_TYPES))  # 문서 종류당 한 번(첫 로그인 4종)
     channel: ConsentChannel
 
     @model_validator(mode="after")
@@ -173,6 +180,7 @@ class ProfileOut(BaseModel):
     pregnancy_status: PregnancyStatus | None
     sort_order: int
     medications: list[MedicationOut]
+    sex: Sex | None  # 선택. null = 미입력
 
 
 class ProfileCreate(_Strict):
@@ -181,6 +189,7 @@ class ProfileCreate(_Strict):
     age_band: AgeBand | None = None
     pregnancy_status: PregnancyStatus | None = None  # 건강 동의 없이 값이 오면 422 HEALTH_CONSENT_REQUIRED
     medications: list[MedicationIn] = Field(default_factory=list, max_length=MEDICATION_LIMIT)
+    sex: Sex | None = None  # 선택, 건강 동의 불필요(PRD-17-13 A)
 
 
 class ProfileUpdate(_Strict):
@@ -191,6 +200,7 @@ class ProfileUpdate(_Strict):
     age_band: AgeBand | None = None
     pregnancy_status: PregnancyStatus | None = None
     medications: list[MedicationIn] | None = Field(default=None, max_length=MEDICATION_LIMIT)
+    sex: Sex | None = None  # null = 지움
 
     @model_validator(mode="after")
     def _no_null_required(self) -> ProfileUpdate:
@@ -222,10 +232,19 @@ def get_repo(request: Request) -> AccountRepo:
     return repo
 
 
-def set_repo(app: Any, repo: AccountRepo | None, *, item_seq_checker: ItemSeqChecker | None = None) -> None:
-    """계정 저장소(와 선택적으로 품목 확인 함수)를 붙인다. None이면 뗀다 → 계정 API 501."""
+def set_repo(app: Any, repo: AccountRepo | None, *, item_seq_checker: ItemSeqChecker | None | _Unset = UNSET) -> None:
+    """계정 저장소(와 선택적으로 품목 확인 함수)를 붙인다. 저장소가 None이면 뗀다 → 계정 API 501.
+
+    `item_seq_checker`를 주지 않으면 이미 붙은 확인 함수(lifespan의 `set_item_seq_checker`)를 그대로 둔다. None을 주면 뗀다.
+    """
     setattr(app.state, REPO_STATE_KEY, repo)
-    setattr(app.state, ITEM_SEQ_CHECKER_STATE_KEY, item_seq_checker)
+    if not isinstance(item_seq_checker, _Unset):
+        set_item_seq_checker(app, item_seq_checker)
+
+
+def set_item_seq_checker(app: Any, checker: ItemSeqChecker | None) -> None:
+    """복용 약 `item_seq` 재확인 함수를 붙인다(None이면 뗀다 → 원문만 저장). 저장소 연결(BE-11-23 A)과 따로 붙일 수 있다."""
+    setattr(app.state, ITEM_SEQ_CHECKER_STATE_KEY, checker)
 
 
 UserDep = Annotated[Principal, Depends(require_user)]
@@ -278,7 +297,7 @@ def health_writable(states: Sequence[ConsentState]) -> bool:
 
 
 def required_ok(states: Sequence[ConsentState]) -> bool:
-    for t in (TERMS_DOC, PROFILE_DOC):
+    for t in REQUIRED_CONSENT_DOCS:  # terms·privacy_consent·age_14(PRD-17-12 A)
         s = _state(states, t)
         if s is None or s.needs_consent or s.needs_reconsent:
             return False
@@ -336,7 +355,7 @@ async def build_me(repo: AccountRepo, user: AppUser) -> MeResponse:
 def profile_out(p: Profile) -> ProfileOut:
     return ProfileOut(
         profile_id=p.profile_id, relation=p.relation, label=p.label, age_band=p.age_band, pregnancy_status=p.pregnancy_status,
-        sort_order=p.sort_order,
+        sort_order=p.sort_order, sex=p.sex,
         medications=[MedicationOut(medication_id=m.medication_id, input_text=m.input_text, item_seq=m.item_seq,
                                    confirmed_at=m.confirmed_at) for m in p.medications],
     )
@@ -408,8 +427,8 @@ async def post_consents(body: ConsentRequest, principal: UserDep, repo: RepoDep,
             raise AccountError(404, CODE_NOT_FOUND, [it.doc_type])
         if current.version != it.version:
             raise AccountError(409, CODE_VERSION_MISMATCH, [it.doc_type])
-        if it.action == "withdraw" and it.doc_type == TERMS_DOC:
-            raise AccountError(409, CODE_USE_ACCOUNT_DELETE, [TERMS_DOC])  # 약관 철회는 탈퇴(DELETE /me)로만
+        if it.action == "withdraw" and it.doc_type in WITHDRAW_BLOCKED_DOCS:
+            raise AccountError(409, CODE_USE_ACCOUNT_DELETE, [it.doc_type])  # 약관·만 14세 확인 철회는 탈퇴(DELETE /me)로만
     await repo.add_consents(uid, [ConsentInput(i.doc_type, i.version, i.action) for i in body.items], body.channel)
     user = await require_account(repo, uid)
     return await build_me(repo, user)
@@ -434,12 +453,13 @@ async def create_profile(body: ProfileCreate, principal: UserDep, repo: RepoDep,
     uid = user_id_of(principal)
     user = await require_account(repo, uid)
     states = await consent_states(repo, uid)
-    gate_consents(states, (TERMS_DOC, PROFILE_DOC))
+    gate_consents(states, REQUIRED_CONSENT_DOCS)
     health = _health_fields(body.pregnancy_status is not None, bool(body.medications))
     if health and not health_writable(states):
         raise AccountError(422, CODE_HEALTH_CONSENT_REQUIRED, health)
     meds = await _confirmed_meds(request, body.medications)
-    prof = await repo.create_profile(uid, ProfileInput(body.relation, body.label, body.age_band, body.pregnancy_status, meds))
+    prof = await repo.create_profile(uid, ProfileInput(body.relation, body.label, body.age_band, body.pregnancy_status, meds,
+                                                       sex=body.sex))
     await sync_onboarding(repo, user, states)
     return profile_out(prof)
 
@@ -456,7 +476,7 @@ async def update_profile(profile_id: uuid.UUID, body: ProfileUpdate, principal: 
     if cur is None:
         raise AccountError(404, CODE_NOT_FOUND)
     states = await consent_states(repo, uid)
-    gate_consents(states, (TERMS_DOC, PROFILE_DOC))
+    gate_consents(states, REQUIRED_CONSENT_DOCS)
     sent = body.model_fields_set
     if "relation" in sent and body.relation != cur.relation and "self" in (body.relation, cur.relation):
         raise AccountError(409, CODE_SELF_FIXED, ["relation"])
@@ -473,6 +493,7 @@ async def update_profile(profile_id: uuid.UUID, body: ProfileUpdate, principal: 
         age_band=body.age_band if "age_band" in sent else UNSET,
         pregnancy_status=body.pregnancy_status if "pregnancy_status" in sent else UNSET,
         medications=meds,
+        sex=body.sex if "sex" in sent else UNSET,
     )
     prof = await repo.update_profile(uid, pid, patch)
     await sync_onboarding(repo, user, states)
@@ -561,5 +582,5 @@ def validation_fields(exc: RequestValidationError) -> list[str]:
 __all__ = [
     "ACCOUNT_PATH_PREFIXES", "ITEM_SEQ_CHECKER_STATE_KEY", "REPO_STATE_KEY", "AccountError", "ConsentRequest", "ConsentState",
     "LegalDocumentOut", "MeResponse", "ProfileCreate", "ProfileOut", "ProfileUpdate", "account_error_handler", "build_me",
-    "consent_states", "get_repo", "is_account_path", "router", "set_repo", "validation_fields",
+    "consent_states", "get_repo", "is_account_path", "router", "set_item_seq_checker", "set_repo", "validation_fields",
 ]

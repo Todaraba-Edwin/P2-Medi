@@ -179,10 +179,10 @@ class TestStorageContract:
     def _env(self) -> tuple[TestClient, InMemoryAccountRepo]:
         def doc(t: str) -> LegalDoc:
             body = f"> 초안·법률 검토 전입니다.\n\n{t} v1 본문(합성)"
-            return LegalDoc(t, 1, f"{t} v1", body, t in ("terms", "privacy_consent"), False, NOW - timedelta(days=1), "not_reviewed",
+            return LegalDoc(t, 1, f"{t} v1", body, t in ("terms", "privacy_consent", "age_14"), False, NOW - timedelta(days=1), "not_reviewed",
                             body_sha256(body))
 
-        repo = InMemoryAccountRepo([doc(t) for t in ("terms", "privacy_policy", "privacy_consent", "sensitive_consent")], clock=lambda: NOW)
+        repo = InMemoryAccountRepo([doc(t) for t in ("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14")], clock=lambda: NOW)
         app = FastAPI()
         chat_api.register(app)
         me_api.register(app)
@@ -196,7 +196,7 @@ class TestStorageContract:
         c, _ = self._env()
         h = {"Authorization": f"Bearer {TOK}"}
         assert c.get("/me", headers=h).status_code == 200
-        items = [{"doc_type": t, "version": 1, "action": "agree"} for t in ("terms", "privacy_consent", "sensitive_consent")]
+        items = [{"doc_type": t, "version": 1, "action": "agree"} for t in ("terms", "privacy_consent", "sensitive_consent", "age_14")]
         assert c.post("/consents", json={"items": items, "channel": "onboarding"}, headers=h).status_code == 201
         pick = _search(c, "타이레놀콜드-에스정").json()["candidates"][0]
         meds = [{"input_text": pick["name"], "item_seq": pick["item_seq"]},

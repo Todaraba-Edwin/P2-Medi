@@ -30,7 +30,7 @@ from app.db.account_repo import (
     RepoUnavailable,
     body_sha256,
 )
-from app.db.account_repo_pg import PostgresAccountRepo, schema_sql, seed_sql
+from app.db.account_repo_pg import PostgresAccountRepo, schema_sql, seed_age14_sql, seed_sql
 
 SCHEMA = schema_sql()
 NO_COMMENTS = "\n".join(line.split("--", 1)[0] for line in SCHEMA.splitlines())
@@ -91,6 +91,37 @@ def test_triggers_cover_limits_health_and_withdraw():
     withdraw = re.search(r"FUNCTION account\.on_consent_withdraw\(\).*?\$\$;", NO_COMMENTS, re.S)
     assert withdraw and "DELETE FROM account.profiles WHERE user_id = NEW.user_id" in withdraw.group(0)  # 12 A
     assert "app_users" not in withdraw.group(0)  # 철회로 계정을 지우지 않는다
+
+
+def test_schema_sex_column_and_age_14_doc_type():
+    """GROUP-03 B1: 성별 enum(female·male, '기타' 없음)·이미 적용된 DB에도 더하는 ALTER 두 줄·age_14 철회 금지."""
+    assert "CREATE TYPE account.sex AS ENUM ('female', 'male');" in NO_COMMENTS
+    assert "'sensitive_consent', 'age_14');" in NO_COMMENTS  # 새 DB
+    assert "ALTER TYPE account.doc_type ADD VALUE IF NOT EXISTS 'age_14';" in NO_COMMENTS  # 이미 적용된 DB
+    assert "ALTER TABLE account.profiles ADD COLUMN IF NOT EXISTS sex account.sex;" in NO_COMMENTS
+    health = re.search(r"FUNCTION account\.enforce_health_consent_profile\(\).*?\$\$;", NO_COMMENTS, re.S)
+    assert health and "sex" not in health.group(0)  # 성별은 건강 동의 검사 대상이 아니다(PRD-17-13 A)
+    withdraw = re.search(r"FUNCTION account\.on_consent_withdraw\(\).*?\$\$;", NO_COMMENTS, re.S)
+    assert withdraw and "IN ('terms', 'age_14')" in withdraw.group(0)
+
+
+def test_age_14_seed_uses_approved_sentence_and_needs_timezone():
+    sql = seed_age14_sql(datetime(2026, 12, 1, tzinfo=UTC))
+    assert "{{EFFECTIVE_AT}}" not in sql and "'2026-12-01T00:00:00+00:00'" in sql
+    assert "('age_14', 1, '만 14세 이상입니다.', $md$만 14세 이상입니다.$md$, true, false, 'published'," in sql  # PRD-17-09 A 승인 문구
+    assert "ON CONFLICT (doc_type, version) DO NOTHING" in sql
+    pg.assert_publishable(sql)  # 자리표시가 없어 원격 게시를 막지 않는다
+    with pytest.raises(ValueError):
+        seed_age14_sql(datetime(2026, 12, 1))  # noqa: DTZ001 - 시간대 없는 값 거부 확인
+
+
+def test_profile_sex_column_in_select_insert_update():
+    conn = FakeConn(rows=[("p1",), [("p1", "self", None, None, None, 0, "male")], []])
+    prof = asyncio.run(PostgresAccountRepo(lambda: conn).create_profile(UID, ProfileInput("self", sex="male")))
+    assert prof.sex == "male"
+    insert = next((s, a) for s, a in conn.log if s.startswith("INSERT INTO account.profiles"))
+    assert "sort_order, sex)" in insert[0] and insert[1][-1] == "male"
+    assert any("sort_order, sex::text FROM account.profiles" in s for s, _ in conn.log)
 
 
 def test_seed_is_marked_draft_and_needs_timezone():
@@ -244,6 +275,7 @@ def pg_dsn() -> Iterator[str]:
         for _ in range(2):  # 스키마·시드가 멱등인지(두 번 적용해도 오류 없음)도 함께 본다
             conn.execute(schema_sql())
             conn.execute(seed_sql(effective))
+            conn.execute(seed_age14_sql(effective))  # 스키마(ALTER TYPE … ADD VALUE) 커밋 뒤 별도 문장(autocommit)
     try:
         yield LOCAL_PG_DSN
     finally:  # 같은 DB에서 다시 돌려도 통과하도록 시험이 만든 것을 지운다(역할·auth 스텁 구조는 남겨도 멱등)
@@ -272,7 +304,7 @@ def _as_user(dsn: str, uid: str, sql: str, params: Any = ()) -> Any:
 
 def _onboard(repo: PostgresAccountRepo, uid: str, *, health: bool = False) -> None:
     asyncio.run(repo.ensure_user(uid))
-    items = [ConsentInput("terms", 1, "agree"), ConsentInput("privacy_consent", 1, "agree")]
+    items = [ConsentInput("terms", 1, "agree"), ConsentInput("privacy_consent", 1, "agree"), ConsentInput("age_14", 1, "agree")]
     if health:
         items.append(ConsentInput("sensitive_consent", 1, "agree"))
     asyncio.run(repo.add_consents(uid, items, "onboarding"))
@@ -319,20 +351,23 @@ def test_pg_limits_health_withdraw_and_delete(pg_dsn):
     assert info.value.code == "USE_ACCOUNT_DELETE"
     asyncio.run(repo.add_consents(a, [ConsentInput("privacy_consent", 1, "withdraw")], "settings"))
     assert asyncio.run(repo.list_profiles(a)) == [] and asyncio.run(repo.get_user(a)) is not None  # 12 A
-    # 동의 기록 = 온보딩 agree 2 + privacy_consent withdraw 1. 거부된 terms 철회는 트랜잭션째 롤백되어 남지 않는다
+    with pytest.raises(AccountRepoError) as info:
+        asyncio.run(repo.add_consents(a, [ConsentInput("age_14", 1, "withdraw")], "settings"))
+    assert info.value.code == "USE_ACCOUNT_DELETE"  # PRD-17-12 A: 만 14세 확인도 철회 대신 탈퇴
+    # 동의 기록 = 온보딩 agree 3 + privacy_consent withdraw 1. 거부된 terms 철회는 트랜잭션째 롤백되어 남지 않는다
     # (메모리 저장소도 기록 전에 거부, account_repo.py add_consents)
     with psycopg.connect(pg_dsn) as conn:
         rows = conn.execute("SELECT doc_type::text, action::text FROM account.user_consents WHERE user_id = %s ORDER BY consent_id",
                             (a,)).fetchall()
-    assert rows == [("terms", "agree"), ("privacy_consent", "agree"), ("privacy_consent", "withdraw")]
+    assert rows == [("terms", "agree"), ("privacy_consent", "agree"), ("age_14", "agree"), ("privacy_consent", "withdraw")]
     summary = asyncio.run(repo.delete_account(a))
-    assert (summary.profiles, summary.consents) == (0, 3)
+    assert (summary.profiles, summary.consents) == (0, 4)
     assert asyncio.run(repo.get_user(a)) is None
     with psycopg.connect(pg_dsn) as conn:
         assert conn.execute("SELECT count(*) FROM account.user_consents WHERE user_id = %s", (a,)).fetchone()[0] == 0
         row = conn.execute("SELECT accounts, consents FROM account.deletion_log WHERE deleted_on = (now() AT TIME ZONE 'UTC')::date"
                            ).fetchone()
-        assert row is not None and row[0] >= 1 and row[1] >= 3
+        assert row is not None and row[0] >= 1 and row[1] >= 4
 
 
 def test_pg_legal_body_sha256_matches_python(pg_dsn):

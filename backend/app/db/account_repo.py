@@ -5,6 +5,8 @@
   12 A(필수 개인정보 동의 철회 → 프로필만 삭제, 계정 유지), 22 A(탈퇴 시 동의 기록 포함 즉시 전부 파기, 파기 사실은 일자·건수만).
 - `InMemoryAccountRepo`는 SQL(`app/db/schema_account.sql`)의 트리거 규칙(프로필 상한·본인 1행·건강 동의·철회 삭제·약관 철회 거부·
   파기 집계)을 같은 동작으로 흉내 낸다. API 시험과 DB 없는 개발에 쓴다. Postgres 구현은 `app/db/account_repo_pg.py`.
+- 2026-11-20 GROUP-03 B1: 프로필 성별 선택 칸 `sex`(`female`·`male`, None = 미입력, FE-11-09 C·PRD-17-13 A, 건강 정보 아님)와
+  동의 문서 종류 `age_14`(만 14세 이상 확인, PRD-17-12 A, 첫 로그인 필수, 철회는 `terms`처럼 `USE_ACCOUNT_DELETE`).
 - 저장소 메서드는 **호출자가 검증한 사용자 ID만** 받는다(토큰 검증 뒤 `Principal.user_id`). 값(건강 정보 등)을 로그에 쓰지 않는다.
 """
 
@@ -18,21 +20,27 @@ from datetime import UTC, date, datetime
 from typing import Final, Literal, Protocol, runtime_checkable
 
 # --------------------------------------------------------------------------- 값 집합(SQL enum과 같다)
-DocType = Literal["terms", "privacy_policy", "privacy_consent", "sensitive_consent"]
-ConsentDocType = Literal["terms", "privacy_consent", "sensitive_consent"]
+DocType = Literal["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"]
+ConsentDocType = Literal["terms", "privacy_consent", "sensitive_consent", "age_14"]
 ConsentAction = Literal["agree", "withdraw"]
 ConsentChannel = Literal["onboarding", "settings", "reconsent"]
 Relation = Literal["self", "child", "parent", "spouse", "other"]
 PregnancyStatus = Literal["pregnant", "not_pregnant", "unknown"]
+Sex = Literal["female", "male"]  # "기타" 없음, None = 미입력(FE-11-09 C: 남성 프로필만 임신 여부 선택을 숨기는 데 쓴다)
 AgeBand = Literal["m0_2", "m3_5", "m6_11", "y1", "y2", "y3_5", "y6_11", "y12_14", "y15_18", "y19_64", "y65_plus"]
 OnboardingStep = Literal["consent", "profile_self", "family", "done"]
 LegalReview = Literal["not_reviewed", "reviewed"]
 
-DOC_TYPES: Final = ("terms", "privacy_policy", "privacy_consent", "sensitive_consent")
-CONSENT_DOC_TYPES: Final = ("terms", "privacy_consent", "sensitive_consent")  # privacy_policy는 고지 문서(동의 대상 아님)
+DOC_TYPES: Final = ("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14")
+# privacy_policy는 고지 문서(동의 대상 아님)
+CONSENT_DOC_TYPES: Final = ("terms", "privacy_consent", "sensitive_consent", "age_14")
 HEALTH_DOC: Final = "sensitive_consent"
 PROFILE_DOC: Final = "privacy_consent"
 TERMS_DOC: Final = "terms"
+AGE_14_DOC: Final = "age_14"  # 만 14세 이상 확인(PRD-17-12 A). 첫 로그인 필수
+REQUIRED_CONSENT_DOCS: Final = (TERMS_DOC, PROFILE_DOC, AGE_14_DOC)  # 온보딩·프로필 저장에 필요한 동의
+WITHDRAW_BLOCKED_DOCS: Final = (TERMS_DOC, AGE_14_DOC)  # 철회 대신 탈퇴(DELETE /me)로만 → USE_ACCOUNT_DELETE
+SEXES: Final = ("female", "male")
 AGE_BANDS: Final = ("m0_2", "m3_5", "m6_11", "y1", "y2", "y3_5", "y6_11", "y12_14", "y15_18", "y19_64", "y65_plus")
 
 PROFILE_LIMIT: Final = 4  # 본인 1 + 가족 3(BE-11-01 B)
@@ -125,6 +133,7 @@ class Profile:
     pregnancy_status: PregnancyStatus | None
     sort_order: int
     medications: tuple[Medication, ...] = ()
+    sex: Sex | None = None  # 선택(건강 정보 아님)
 
 
 class _Unset:
@@ -152,6 +161,7 @@ class ProfileInput:
     age_band: AgeBand | None = None
     pregnancy_status: PregnancyStatus | None = None
     medications: tuple[MedicationInput, ...] = ()
+    sex: Sex | None = None  # 건강 동의 없이 저장(privacy_consent만 필요)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +171,7 @@ class ProfilePatch:
     age_band: AgeBand | None | _Unset = UNSET
     pregnancy_status: PregnancyStatus | None | _Unset = UNSET
     medications: tuple[MedicationInput, ...] | _Unset = UNSET  # 보내면 목록 전체 교체
+    sex: Sex | None | _Unset = UNSET
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,7 +343,7 @@ class InMemoryAccountRepo:
         for it in items:  # 트랜잭션처럼: 먼저 전부 검사
             if it.doc_type not in CONSENT_DOC_TYPES or (it.doc_type, it.version) not in self._docs:
                 raise AccountRepoError(NOT_FOUND_CODE)
-            if it.action == "withdraw" and it.doc_type == TERMS_DOC:
+            if it.action == "withdraw" and it.doc_type in WITHDRAW_BLOCKED_DOCS:
                 raise AccountRepoError(USE_ACCOUNT_DELETE_CODE)
         now = self._clock()
         for it in items:
@@ -341,7 +352,7 @@ class InMemoryAccountRepo:
                 continue
             if it.doc_type == HEALTH_DOC:  # 임신 여부 NULL, 약 전부 삭제
                 data.profiles = {k: replace(p, pregnancy_status=None, medications=()) for k, p in data.profiles.items()}
-            elif it.doc_type == PROFILE_DOC:  # 프로필 전부 삭제, 계정 유지(BE-11-12 A)
+            elif it.doc_type == PROFILE_DOC:  # 프로필 전부 삭제(성별 포함), 계정 유지(BE-11-12 A)
                 data.profiles = {}
 
     # ---- 프로필
@@ -381,7 +392,7 @@ class InMemoryAccountRepo:
         used = {p.sort_order for p in data.profiles.values()}
         order = 0 if data_in.relation == "self" else min(i for i in range(1, PROFILE_LIMIT) if i not in used)
         prof = Profile(self._new_id(), data_in.relation, data_in.label, data_in.age_band, data_in.pregnancy_status, order,
-                       self._meds(data_in.medications))
+                       self._meds(data_in.medications), sex=data_in.sex)
         data.profiles[prof.profile_id] = prof
         return prof
 
@@ -395,7 +406,7 @@ class InMemoryAccountRepo:
         if not isinstance(patch.relation, _Unset) and patch.relation != cur.relation:
             self._check_relation(data, patch.relation, exclude=profile_id)
             changes["relation"] = patch.relation
-        for name in ("label", "age_band", "pregnancy_status"):
+        for name in ("label", "age_band", "pregnancy_status", "sex"):
             value = getattr(patch, name)
             if not isinstance(value, _Unset):
                 changes[name] = value
@@ -436,8 +447,8 @@ class InMemoryAccountRepo:
 
 
 __all__ = [
-    "AGE_BANDS", "CONSENT_DOC_TYPES", "DOC_TYPES", "FAMILY_LIMIT", "HEALTH_DOC", "MEDICATION_LIMIT", "PROFILE_DOC", "PROFILE_LIMIT",
-    "TERMS_DOC", "UNSET", "AccountRepo", "AccountRepoError", "AppUser", "ConsentInput", "ConsentRecord", "DeletionLogRow",
+    "AGE_14_DOC", "AGE_BANDS", "CONSENT_DOC_TYPES", "DOC_TYPES", "FAMILY_LIMIT", "HEALTH_DOC", "MEDICATION_LIMIT", "PROFILE_DOC",
+    "PROFILE_LIMIT", "REQUIRED_CONSENT_DOCS", "SEXES", "TERMS_DOC", "WITHDRAW_BLOCKED_DOCS", "UNSET", "AccountRepo", "AccountRepoError", "AppUser", "ConsentInput", "ConsentRecord", "DeletionLogRow",
     "DeletionSummary", "InMemoryAccountRepo", "LegalDoc", "Medication", "MedicationInput", "Profile", "ProfileInput", "ProfilePatch",
     "RepoUnavailable", "body_sha256", "utcnow",
 ]

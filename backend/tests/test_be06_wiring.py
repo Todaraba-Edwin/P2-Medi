@@ -31,6 +31,7 @@ import app.main as main_mod  # noqa: E402
 from app.agent.graph.fakes import ScriptedSummary, ScriptedToolModel, tool_call  # noqa: E402
 from app.agent.graph.wiring import build_deps, build_tool_context  # noqa: E402
 from app.agent.tools.context import ToolContext  # noqa: E402
+from app.api import account as account_api  # noqa: E402
 from app.api import chat as chat_api  # noqa: E402
 from app.api import events as ev  # noqa: E402
 from app.api import service  # noqa: E402
@@ -321,6 +322,7 @@ def wired(monkeypatch):
         yield holder
     finally:
         chat_api.set_runner(main_mod.app, None)
+        account_api.set_item_seq_checker(main_mod.app, None)
 
 
 def test_lifespan_without_settings_keeps_501_and_health(wired):
@@ -341,6 +343,22 @@ def test_lifespan_with_settings_attaches_lazy_runner_and_streams(wired):
         assert r.status_code == 200 and r.headers["content-type"].startswith(ev.NDJSON_MEDIA_TYPE)
         # BE-17-01 A: 시작 준비 스레드와 첫 요청이 같은 잠금을 쓰므로 누가 먼저든 자원은 한 번만 만든다
         assert _types(events)[-1] == "done" and events[-1].root.end_reason == "NORMAL" and wired["fake"].calls == 1
+
+
+def test_lifespan_attaches_item_seq_checker_sharing_chat_dict(wired):
+    """FE-04-13 남음 ②(GROUP-03 B2): 프로필 약 `item_seq` 재확인 함수를 채팅 자원의 사전으로 붙인다. 사전에 없는 번호는 버린다.
+
+    계정 저장소는 붙이지 않는다(BE-11-23 A: 원격 적용 뒤). 설정이 없으면 확인 함수도 없다."""
+    with TestClient(main_mod.app):
+        assert getattr(main_mod.app.state, account_api.ITEM_SEQ_CHECKER_STATE_KEY) is None
+    wired["settings"] = _settings(mediagent_warmup=False)
+    with TestClient(main_mod.app):
+        checker = getattr(main_mod.app.state, account_api.ITEM_SEQ_CHECKER_STATE_KEY)
+        assert checker is not None and getattr(main_mod.app.state, account_api.REPO_STATE_KEY, None) is None
+        assert wired["fake"].calls == 0  # 붙이기만 하고 자원은 만들지 않는다(첫 확인 때 만든다)
+        known = next(iter(golden_dict()._by_seq))
+        assert asyncio.run(checker([known, "000000000"])) == {known}
+        assert wired["fake"].calls == 1  # 채팅 자원의 사전을 공유한다(따로 적재 0)
 
 
 def test_lifespan_with_warmup_off_builds_on_first_request(wired):

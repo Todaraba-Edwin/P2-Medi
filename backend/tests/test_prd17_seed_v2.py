@@ -27,6 +27,7 @@ from app.db.account_repo_pg import (
     PostgresAccountRepo,
     assert_publishable,
     schema_sql,
+    seed_age14_sql,
     seed_sql,
     unfilled_placeholders,
 )
@@ -161,9 +162,10 @@ def v2_db() -> Iterator[dict[str, str]]:
         conn.execute(AUTH_STUB)
         conn.execute(schema_sql())
         conn.execute(seed_sql(now - timedelta(minutes=2), version=1))
+        conn.execute(seed_age14_sql(now - timedelta(minutes=2)))  # PRD-17-12 A: 필수 동의 판정에 age_14가 들어간다
     repo = PostgresAccountRepo.from_dsn(LOCAL_PG_DSN)
     a, b = _new_user(LOCAL_PG_DSN), _new_user(LOCAL_PG_DSN)
-    for uid, items in ((a, ("terms", "privacy_consent", "sensitive_consent")), (b, ("terms", "privacy_consent"))):
+    for uid, items in ((a, ("terms", "privacy_consent", "sensitive_consent", "age_14")), (b, ("terms", "privacy_consent", "age_14"))):
         asyncio.run(repo.ensure_user(uid))
         asyncio.run(repo.add_consents(uid, [ConsentInput(t, 1, "agree") for t in items], "onboarding"))
     with psycopg.connect(LOCAL_PG_DSN, autocommit=True) as conn:
@@ -183,7 +185,7 @@ def test_pg_v1_and_v2_applied_and_published_rows_frozen(v2_db):
     dsn = v2_db["dsn"]
     with psycopg.connect(dsn) as conn:
         rows = conn.execute("SELECT doc_type::text, version, required, requires_reconsent, legal_review FROM account.legal_documents "
-                            "ORDER BY doc_type, version").fetchall()
+                            "WHERE doc_type <> 'age_14' ORDER BY doc_type, version").fetchall()  # age_14 v1은 별도 시드
     assert len(rows) == 8 and {r[1] for r in rows} == {1, 2}
     assert all(r[4] == "not_reviewed" for r in rows)
     assert all(r[3] is False for r in rows if r[1] == 1)  # v1은 열 기본값 그대로

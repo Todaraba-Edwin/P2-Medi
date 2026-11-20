@@ -5,6 +5,9 @@
 --   * 부록 A와 다른 점: user_consents FK가 ON DELETE CASCADE(익명화 보관 대신 즉시 삭제, 22 A)이고 anonymized_at 열·익명화 트리거가 없다.
 --     파기 집계 표 deletion_log(일자별 건수, 식별자 열 없음)와 본인 탈퇴 함수 delete_my_account()를 더했다. 가족은 3행 상한(본인 1 + 가족 3).
 --     signup_provider는 NULL 허용(검증기가 sub만 돌려준다. 채우는 일은 후속).
+--   * 2026-11-20 GROUP-03 B1: 프로필 성별 선택 칸 `sex`(enum account.sex 'female'·'male', NULL = 미입력, FE-11-09 C·PRD-17-13 A,
+--     건강 정보 아님 → 건강 동의 트리거 대상 아님, privacy_consent 철회 때 프로필과 함께 삭제)와 동의 문서 종류 `age_14`
+--     (만 14세 이상 확인, PRD-17-12 A·09 A, 철회는 terms처럼 USE_ACCOUNT_DELETE). 이미 적용된 DB에는 ALTER … IF NOT EXISTS로 더한다.
 --   * 멱등: CREATE ... IF NOT EXISTS, enum은 DO 블록에서 존재 확인, 함수는 CREATE OR REPLACE, 트리거·정책은 DROP IF EXISTS 뒤 CREATE.
 --   * account 스키마 밖(public 판정·코퍼스·사전, auth)은 건드리지 않는다. auth.users·auth.uid()는 Supabase가 제공한다
 --     (로컬 시험은 스텁, backend/tests/test_be11_account_pg.py).
@@ -34,7 +37,11 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
                    WHERE n.nspname = 'account' AND t.typname = 'doc_type') THEN
-        CREATE TYPE account.doc_type AS ENUM ('terms', 'privacy_policy', 'privacy_consent', 'sensitive_consent');
+        CREATE TYPE account.doc_type AS ENUM ('terms', 'privacy_policy', 'privacy_consent', 'sensitive_consent', 'age_14');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+                   WHERE n.nspname = 'account' AND t.typname = 'sex') THEN
+        CREATE TYPE account.sex AS ENUM ('female', 'male');  -- "기타" 없음, NULL = 미입력(FE-11-09 C, 가정)
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
                    WHERE n.nspname = 'account' AND t.typname = 'doc_status') THEN
@@ -46,6 +53,10 @@ BEGIN
     END IF;
 END
 $$;
+
+-- 이미 적용된 DB(age_14 이전 enum)에 값을 더한다. PG 12+는 트랜잭션 안에서도 되지만 **새 값은 커밋 뒤에만 쓸 수 있다**:
+-- 이 파일 안에서는 'age_14'를 실행 시점에 쓰지 않는다(plpgsql 본문은 호출 때 평가). 시드(seed_legal_age14.sql)는 이 파일을 커밋한 뒤 따로 실행한다
+ALTER TYPE account.doc_type ADD VALUE IF NOT EXISTS 'age_14';
 
 -- 문서 본문 해시(생성 열 body_sha256용). convert_to()가 STABLE이라 생성 열에 바로 쓰면 "generation expression is not immutable"로
 -- CREATE TABLE이 실패한다(2026-11-19 로컬 PG 17 재현). 결과는 입력 문자열의 UTF-8 바이트에만 달려 IMMUTABLE로 선언한다.
@@ -79,6 +90,8 @@ CREATE TABLE IF NOT EXISTS account.profiles (
     created_at       timestamptz NOT NULL DEFAULT now(),
     updated_at       timestamptz NOT NULL DEFAULT now()
 );
+-- 성별(선택, 2026-11-20 GROUP-03 B1). 새 DB와 이미 적용된 DB 모두 이 한 줄로 더한다(재실행 안전)
+ALTER TABLE account.profiles ADD COLUMN IF NOT EXISTS sex account.sex;
 CREATE INDEX IF NOT EXISTS idx_profiles_user ON account.profiles (user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_profiles_self ON account.profiles (user_id) WHERE relation = 'self';
 
@@ -225,13 +238,13 @@ BEGIN
     IF NEW.action <> 'withdraw' THEN
         RETURN NEW;
     END IF;
-    IF NEW.doc_type = 'terms' THEN
+    IF NEW.doc_type IN ('terms', 'age_14') THEN  -- 만 14세 확인 철회도 탈퇴로만(PRD-17-12 A)
         RAISE EXCEPTION 'USE_ACCOUNT_DELETE' USING ERRCODE = 'P0001';
     ELSIF NEW.doc_type = 'sensitive_consent' THEN
         UPDATE account.profiles SET pregnancy_status = NULL WHERE user_id = NEW.user_id AND pregnancy_status IS NOT NULL;
         DELETE FROM account.profile_medications WHERE user_id = NEW.user_id;
     ELSIF NEW.doc_type = 'privacy_consent' THEN
-        DELETE FROM account.profiles WHERE user_id = NEW.user_id;  -- 약은 CASCADE. 계정은 남는다(BE-11-12 A)
+        DELETE FROM account.profiles WHERE user_id = NEW.user_id;  -- 약은 CASCADE, 성별도 함께. 계정은 남는다(BE-11-12 A)
     END IF;
     RETURN NEW;
 END
