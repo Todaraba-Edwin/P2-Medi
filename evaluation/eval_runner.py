@@ -804,6 +804,9 @@ def save(result: dict[str, Any], out: Path | None = None) -> Path:
 
 GRAPH_AGENT = "graph"
 GRAPH_REQUIRED_ENV = ("OPENAI_API_KEY", "SUPABASE_DB_URL")  # 평가 모드는 API 병기를 끄므로 DUR 변수는 요구하지 않는다
+# judge 키(AG-11 `:52` 정리, 2026-11-20): `ANTHROPIC_API_KEY`는 `GRAPH_REQUIRED_ENV`에 넣지 않는다. `--judge none`(기본) 실행은 judge를
+# 부르지 않으므로 키 없이 돌아야 한다. `--judge sonnet`일 때만 필요하며 `default_judge`가 자원(원격 DB)을 만들기 전에 확인해 종료 코드 2로 멈춘다.
+JUDGE_REQUIRED_ENV = ("ANTHROPIC_API_KEY",)
 # 고를 수 있는 표시 칸. dev_reliability_core = 개발 안전 핵심 40, reliability_core = 시험셋 안전 핵심 40(9.4절 신뢰성 대상, AG-04 표시).
 # 시험셋 표시는 세트를 읽는 가드(`--allow-sealed` + 환경변수)를 거친 뒤에만 고를 수 있다(문장은 결과에 남지 않는다). 시험셋 `golden`은 고르지 않는다
 SUBSETS = {"dev_golden": "dev_golden", "dev_reliability_core": "dev_reliability_core", "reliability_core": "reliability_core"}
@@ -1499,7 +1502,7 @@ def default_judge(settings: Any, max_usd: float) -> Any:
 
     key = getattr(settings, "anthropic_api_key", None)
     if not key:
-        raise JudgeSetupError("judge에 필요한 환경변수가 없다: ANTHROPIC_API_KEY")
+        raise JudgeSetupError(f"judge에 필요한 환경변수가 없다: {', '.join(JUDGE_REQUIRED_ENV)}")
     # AG-11-09 A·AG-12-06~08 A(2026-11-18): 본 측정 judge 프롬프트는 채택·동결한 v2(J5는 보조 지표). 결과 meta에 파일·sha256이 남는다.
     return SJ.SonnetJudge(SJ.AnthropicTransport(api_key=reveal(key)), ledger=CostLedger(), max_usd=max_usd,
                           prompt_path=SJ.HERE / "judge_rubric@v2.md")

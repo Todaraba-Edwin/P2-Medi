@@ -10,7 +10,7 @@
   싣지 않는다(로그는 예외 **종류 이름**만, PRD-07-01 A). `TIMEOUT`·`UPSTREAM_UNAVAILABLE`은 내는 규칙이 문서에 없어 아직 내지 않는다.
 - 연결이 끊기면 생성기가 닫히며 `stop`을 세운다. 스레드는 다음 노드 경계에서 멈춘다(진행 중인 노드 하나는 끝까지 돈다).
 - 서비스 집계 지표 L4(RFP-34-01·03 A, H13): 요청이 끝나면 **내용 없는 값만** `metrics.log(...)`에 넘긴다 — 요청 한 건(`node="chat"`,
-  지연, 종료 사유 또는 오류 유형)과 하네스 **차단** 이벤트의 규칙 ID. 질문·약 이름·프로필·모델 출력은 넘기지 않는다. 분 단위 합산과 표준 출력은
+  지연, 종료 사유 또는 오류 유형)과 하네스 **차단** 이벤트의 규칙 ID, H2 폴백·근거 원문 미확보 사유 **코드별 개수**. 질문·약 이름·프로필·모델 출력은 넘기지 않는다. 분 단위 합산과 표준 출력은
   L1 `SpanLogger(mode="service")`·`Aggregator`가 한다(앱은 파일로 저장하지 않는다). 토큰·비용(BE-06-36 A)은 요청 단위 합계(`RequestUsage`)를
   그래프 스레드 맥락(`REQUEST_USAGE`)에 넣어 서비스 실행기(`service.LazyGraphRunner`)의 요청 전용 모델 래퍼(`UsageMeter`)가 숫자만 더하고,
   끝에 `tokens_in`·`tokens_out`·`cost_usd` 칸으로 넘긴다. 그 래퍼를 쓰지 않는 실행기(시험용 `GraphRunner` 등)는 칸이 없다.
@@ -31,6 +31,7 @@ from app.api.events import AnswerEvent, AnyEvent, ErrorEvent, EventSequence
 from app.api.runner import ChatRunner, ConfirmedInput
 from app.api.schemas import response_from_state
 from app.api.service import REQUEST_USAGE, RequestUsage
+from app.logging.spans import LABEL_MISSING_REASONS
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +67,26 @@ def _fallback_reasons(events: Sequence[Any]) -> list[str]:
     return out
 
 
+def _missing_reasons(answer: Any) -> list[str]:
+    """`finalize` 응답의 `events`에서 H27 `MISSING_REASON`의 미확보 사유 **코드**만 꺼낸다(AG-08, PRD-11-04 A).
+
+    라벨 미확보 사유 코드(`LABEL_MISSING_REASONS` 4종)만 남기고 `NO_EVIDENCE`·목록 밖 값·문자열 아닌 값은 버린다
+    (`finalize.log_missing_events`와 같은 거르기). 응답이 dict가 아니면 빈 목록."""
+    if not isinstance(answer, dict):
+        return []
+    return [e["code"] for e in answer.get("events") or []
+            if isinstance(e, dict) and e.get("event") == "MISSING_REASON" and e.get("code") in LABEL_MISSING_REASONS]
+
+
 def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reason: str | None, error_type: str | None,
-                    block_rules: list[str], usage: RequestUsage | None = None, fallback_reasons: Sequence[str] = ()) -> None:
+                    block_rules: list[str], usage: RequestUsage | None = None, fallback_reasons: Sequence[str] = (),
+                    missing_reasons: Sequence[str] = ()) -> None:
     """요청 한 건의 내용 없는 값을 집계기에 넘긴다. 기록 실패가 응답을 망치지 않게 예외는 종류 이름만 로그에 남긴다.
 
     `usage`(요청 단위 모델 사용량, BE-06-36 A)는 숫자 칸 `tokens_in`·`tokens_out`·`cost_usd`로만 더한다(모델 호출이 없었으면 칸 없음).
-    `fallback_reasons`(H2 폴백 사유 코드, BE-17-10 A)는 서비스 집계기의 `h2_fallback`으로 **코드별 개수만** 더한다(목록 밖 값은 `OTHER`)."""
+    `fallback_reasons`(H2 폴백 사유 코드, BE-17-10 A)는 서비스 집계기의 `h2_fallback`으로 **코드별 개수만** 더한다(목록 밖 값은 `OTHER`).
+    `missing_reasons`(근거 원문 미확보 사유 코드, AG-08·PRD-11-04 A)는 서비스 집계기의 `label_missing`으로 **코드별 개수만** 더한다
+    (`label_missing.<코드>`, 질문·약 이름·모델 출력 없음). 둘 다 service 모드 집계기가 있을 때만 센다."""
     if metrics is None:
         return
     try:
@@ -89,6 +104,10 @@ def _record_metrics(metrics: MetricsSink | None, *, latency_ms: float, end_reaso
         if fallback_reasons and getattr(metrics, "mode", "service") == "service" and hasattr(agg, "h2_fallback"):
             for reason in fallback_reasons:
                 agg.h2_fallback(reason)  # type: ignore[union-attr]
+        if missing_reasons and getattr(metrics, "mode", "service") == "service" and hasattr(agg, "label_missing"):
+            for code in missing_reasons:
+                if code in LABEL_MISSING_REASONS:  # 집계기는 목록 밖 값을 거부한다(예외로 다른 칸을 잃지 않게 한 번 더 거른다)
+                    agg.label_missing(code)  # type: ignore[union-attr]
     except Exception as exc:  # noqa: BLE001
         logger.error("chat metrics failed: %s", type(exc).__name__)
 
@@ -143,6 +162,7 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
     started = time.monotonic()
     block_rules: list[str] = []  # 하네스 차단 이벤트의 규칙 ID(내용 없음)
     fallback_reasons: list[str] = []  # H2 폴백 사유 코드(내용 없음, BE-17-10 A)
+    missing_reasons: list[str] = []  # 근거 원문 미확보 사유 코드(내용 없음, AG-08·PRD-11-04 A)
     error_type: str | None = None
     finished = False
     seq = EventSequence()
@@ -182,6 +202,7 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
                             yield seq.progress(stage)
                 elif node == "finalize":
                     final.update({k: update[k] for k in ("answer", "end_reason") if k in update})
+                    missing_reasons.extend(_missing_reasons(update.get("answer")))
         yield seq.answer(response_from_state(final))
         yield seq.done()
         finished = True
@@ -200,7 +221,8 @@ async def chat_events(runner: ChatRunner, question: str, profile: dict[str, Any]
             error_type = ERROR_CLIENT_GONE
         _record_metrics(metrics, latency_ms=(time.monotonic() - started) * 1000,
                         end_reason=answered.response.end_reason if answered and error_type is None else None,
-                        error_type=error_type, block_rules=block_rules, usage=usage, fallback_reasons=fallback_reasons)
+                        error_type=error_type, block_rules=block_rules, usage=usage, fallback_reasons=fallback_reasons,
+                        missing_reasons=missing_reasons)
 
 
 __all__ = ["METRICS_NODE", "TOOL_STAGE", "MetricsSink", "chat_events"]

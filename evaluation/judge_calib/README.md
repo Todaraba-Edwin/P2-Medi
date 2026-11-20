@@ -102,7 +102,7 @@ backend/.venv/bin/python evaluation/judge_calib/calib_agreement.py \
 - 가상 약 이름에 후보를 보여 주며 되묻는 답(`CLARIFY`)은 "확인하지 못함"을 밝힌 것으로 R1·R3 pass가 보통이다. 후보 중 하나를 골라 판정까지 해 버리면 R3 fail.
 
 ## 5. 라벨이 끝난 뒤
-1. judge 실행은 AG-11 구현(`evaluation/eval_runner.py`의 `SonnetJudge`, 모델 `claude-sonnet-5-5`, 루브릭 `J*@v1`)에서 **같은 40문항**(`calib40-items.jsonl`)을 채점해 `calib40-judge.json`으로 저장한다(형식은 `calib_agreement.py` 머리말). 비용 상한 지시서가 필요하다.
+1. judge 실행은 AG-11 구현(`evaluation/judge/sonnet_judge.py`의 `SonnetJudge`, 보정 실행은 같은 파일의 `calib_result`, 모델 `claude-sonnet-5-5`, 루브릭 `J*@v1`)에서 **같은 40문항**(`calib40-items.jsonl`)을 채점해 `calib40-judge.json`으로 저장한다(형식은 `calib_agreement.py` 머리말). 비용 상한 지시서가 필요하다.
 2. `calib_agreement.py`로 항목별·루브릭별 일치율(k/n, Wilson 95%)·Cohen's κ·불일치 목록을 낸다. 잠정 기준 일치율 ≥ 85%·κ ≥ 0.6(RFP-26 §7.3 2번). n ≤ 8인 항목은 유의성을 주장하지 않는다.
 3. 미달이면 루브릭·프롬프트를 고치고 **라벨에 쓰지 않은 다른 문항**으로 다시 잰다(같은 문항 재사용 금지, §7.3 3번). 불일치 유형은 리포트 한계에 적는다(§7.3 4번).
 4. 결과(일치율·κ·불일치 사례)는 AG-12 §2 RFP-26-03 완료 조건의 근거로 기록한다. judge 모델 ID·루브릭 버전은 평가 기간 중 바꾸지 않는다.

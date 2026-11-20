@@ -336,3 +336,21 @@ def test_search_chunk_body_reaches_the_judge_but_not_the_result_file():
 def test_old_run_record_without_evidence_order_keeps_its_shape():
     rec = M.RunRecord(answer={})
     assert "evidence_order" not in rec.to_json() and M.RunRecord.from_json({"answer": {}}).evidence_order is None
+
+
+# --------------------------------------------------------------------------- AG-11 `:52` 정리(2026-11-20): judge 키·옛 참조
+def test_judge_key_is_not_a_graph_requirement():
+    """`--judge none`(기본)은 judge 키 없이 돈다: `ANTHROPIC_API_KEY`는 그래프 필수 목록이 아니라 judge 전용 목록에만 있다."""
+    assert "ANTHROPIC_API_KEY" not in R.GRAPH_REQUIRED_ENV
+    assert R.JUDGE_REQUIRED_ENV == ("ANTHROPIC_API_KEY",)
+    with pytest.raises(R.JudgeSetupError, match="ANTHROPIC_API_KEY"):
+        R.default_judge(_settings(anthropic_api_key=None), 0.5)
+
+
+def test_calib_docs_point_to_sonnet_judge_module():
+    """`judge_calib` README·`calib_agreement.py`의 judge 참조가 실제 위치(`evaluation/judge/sonnet_judge.py`)를 가리킨다."""
+    for rel in ("evaluation/judge_calib/calib_agreement.py", "evaluation/judge_calib/README.md"):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "eval_runner.SonnetJudge" not in text and "eval_runner.py`의 `SonnetJudge" not in text, rel
+        assert "evaluation/judge/sonnet_judge.py" in text, rel
+    assert hasattr(SJ, "SonnetJudge") and callable(SJ.calib_result)
