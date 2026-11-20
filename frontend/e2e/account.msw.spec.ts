@@ -202,14 +202,16 @@ for (const width of [360, 1280]) {
       await expectModalFits(page);
       await shot(page, "consent");
       const agree = (docType: string) => modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox");
-      // 고지 문서(처리방침: 외부 AI 전송 안내)는 체크 없는 고지다(FE-04-03 A). 동의 대상은 셋뿐이다
+      // 고지 문서(처리방침: 외부 AI 전송 안내)는 체크 없는 고지다(FE-04-03 A). 동의 대상은 문서 셋 + 만 14세 확인 체크다
       await expect(agree("privacy_policy")).toHaveCount(0);
-      await expect(modal(page).getByRole("checkbox")).toHaveCount(3);
-      await expect(modal(page).getByTestId("legal-not-reviewed")).toHaveCount(4); // 초안·법률 검토 전 표지
+      await expect(modal(page).getByRole("checkbox")).toHaveCount(4);
+      await expect(modal(page).getByTestId("legal-not-reviewed")).toHaveCount(4); // 초안·법률 검토 전 표지(문서 카드만)
       await agree("terms").check();
       await expect(submit).toBeDisabled();
       await agree("privacy_consent").check();
       await agree("sensitive_consent").check();
+      await expect(submit).toBeDisabled(); // 만 14세 확인(별도 필수 체크, PRD-17-12 A)이 빠지면 진행 불가
+      await agree("age_14").check();
       await expect(submit).toBeEnabled();
       await submit.click();
 
@@ -221,6 +223,7 @@ for (const width of [360, 1280]) {
       expect(await modalSize(page)).toEqual(size);
       await modal(page).getByLabel("이름(별명)").fill("나");
       await modal(page).getByLabel("연령대").selectOption("y19_64");
+      await modal(page).getByLabel("성별").selectOption("female"); // 성별(선택)은 `/chat` 요청에 실리지 않는다(아래 bodies)
       await modal(page).getByRole("radio", { name: "예" }).check();
       // 약은 후보를 고르지 않고 `추가`로 글자 그대로 넣는다(확인 안 된 약 표지가 붙는다). 후보 고르기는 `fedrug.msw.spec.ts`가 본다
       await modal(page).getByLabel("복용 중인 약(선택)").fill("가나다정 100밀리그램");
@@ -279,6 +282,7 @@ for (const width of [360, 1280]) {
         { ...child, confirmed_drugs: [], prior_drugs: [pick], took_today: null },
         { age: null, pregnant: null, confirmed_drugs: [], prior_drugs: [], took_today: null },
       ]);
+      expect(JSON.stringify(bodies)).not.toMatch(/sex|gender|female/); // 성별은 외부 AI로 가는 `/chat` 본문에 없다(S10)
 
       // ---- 로그인·프로필·건강 정보·질문을 브라우저 저장소·쿠키에 남기지 않는다
       const stored = await page.evaluate(async () => {
@@ -311,7 +315,7 @@ for (const width of [360, 1280]) {
       await modal(page).getByTestId("social-kakao").click(); // 목: 페이지를 옮기지 않고 목 세션만 만든다
       await expect(modal(page)).toHaveAttribute("data-step", "consent");
       const agree = (docType: string) => modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox");
-      for (const docType of ["terms", "privacy_consent", "sensitive_consent"]) await agree(docType).check();
+      for (const docType of ["terms", "privacy_consent", "sensitive_consent", "age_14"]) await agree(docType).check();
       await modal(page).getByTestId("consent-submit").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profiles");
       await expect(page.getByTestId("confirm-dialog")).toHaveCount(0); // 새로 동의할 때는 확인 모달이 없다
@@ -418,7 +422,7 @@ test.describe("금기 결과 위에서 여는 계정 모달 360px(ISSUE-006 상�
     // (목의 미리 만든 사용자로 바로 들어오는 경로는 스토어 단위 시험 `stores/account.test.ts`가 본다)
     await modal(page).getByTestId("social-google").click();
     await expect(modal(page)).toHaveAttribute("data-step", "consent");
-    for (const docType of ["terms", "privacy_consent"]) await modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox").check();
+    for (const docType of ["terms", "privacy_consent", "age_14"]) await modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox").check();
     await modal(page).getByTestId("consent-submit").click();
     await expect(modal(page)).toHaveAttribute("data-step", "profiles");
     await modal(page).getByTestId("add-self").click();

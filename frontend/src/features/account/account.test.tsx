@@ -61,9 +61,11 @@ async function login(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(modal().querySelectorAll('[data-testid="legal-doc"]')).toHaveLength(4));
 }
 
+/** 필수 동의 셋(약관·개인정보·만 14세 확인)을 체크하고 넘어간다. `health`면 건강 정보 동의도 */
 async function consent(user: ReturnType<typeof userEvent.setup>, { health }: { health: boolean }) {
   await user.click(check("terms"));
   await user.click(check("privacy_consent"));
+  await user.click(check("age_14"));
   if (health) await user.click(check("sensitive_consent"));
   await user.click(screen.getByTestId("consent-submit"));
   await waitFor(() => expect(step()).toBe("profiles"));
@@ -237,6 +239,7 @@ describe("약관 동의 화면", () => {
     await login(user);
     const tags = { terms: "필수", privacy_policy: "안내", privacy_consent: "필수", sensitive_consent: "선택" } as const;
     for (const doc of Object.values(MOCK_LEGAL_DOCS)) {
+      if (doc.doc_type === "age_14") continue; // 카드가 아니라 별도 체크(아래)
       const item = docItem(doc.doc_type);
       expect(item).toHaveAttribute("data-required", String(doc.required));
       expect(within(item).getByRole("heading", { level: 3 })).toHaveTextContent(`[${tags[doc.doc_type]}] ${doc.title}`);
@@ -244,6 +247,18 @@ describe("약관 동의 화면", () => {
       expect(within(item).getByTestId("legal-not-reviewed")).toHaveTextContent("초안·법률 검토 전"); // legal_review: not_reviewed
     }
     expect(docItem("terms")).toHaveTextContent("이 문서는 화면 개발용 합성 목 문서이며 실제 약관이 아닙니다.");
+    // 만 14세 이상 확인(PRD-17-09 A·12 A): 문서 카드가 아니라 목록 맨 아래의 별도 필수 체크 한 줄이다. 라벨은 화면 상수, 본문·버전 줄은 없다
+    const age = screen.getByTestId("age-14-check");
+    expect(age).toHaveAttribute("data-doc-type", "age_14");
+    expect(age).toHaveAttribute("data-required", "true");
+    expect(modal().querySelectorAll('[data-testid="legal-doc"]')).toHaveLength(4);
+    expect(within(age).queryByRole("heading")).toBeNull();
+    expect(age).not.toHaveTextContent("버전");
+    expect(within(age).getByRole("checkbox")).toHaveAccessibleName(`[필수] ${copy.AGE_14_CHECK_LABEL}`);
+    expect(copy.AGE_14_CHECK_LABEL).toBe("만 14세 이상입니다.");
+    expect(within(age).getByRole("checkbox").closest("label")!.className).toContain("min-h-11"); // 44px 터치 대상
+    expect(age.compareDocumentPosition(docItem("sensitive_consent")) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy(); // 문서 카드 뒤
+    expect(age.compareDocumentPosition(screen.getByTestId("consent-submit")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // 버튼 앞
     // 외부 AI 전송 고지: 화면이 기존 시작 화면 고지 문구를 한 번 더 넣지 않는다(문서 본문은 서버 값뿐이다)
     expect(modal().textContent).not.toContain(START_EXTERNAL_AI_NOTICE);
     expect(MOCK_LEGAL_DOCS.privacy_policy.body_md).not.toContain(START_EXTERNAL_AI_NOTICE);
@@ -265,7 +280,7 @@ describe("약관 동의 화면", () => {
     expect(notice).toHaveAttribute("data-consent", "false");
     expect(within(notice).queryByRole("checkbox")).toBeNull();
     expect(notice).toHaveTextContent("외부 AI 전송"); // 본문(서버 값)은 그대로 읽을 수 있다
-    expect(within(modal()).getAllByRole("checkbox")).toHaveLength(3); // 동의 대상은 약관·개인정보·건강 정보 셋뿐
+    expect(within(modal()).getAllByRole("checkbox")).toHaveLength(4); // 동의 대상은 약관·개인정보·건강 정보 + 만 14세 확인
     expect(modal().querySelector('[data-doc-type="external_ai"]')).toBeNull();
     server.events.on("request:start", async ({ request }) => {
       if (request.method === "POST" && new URL(request.url).pathname.endsWith("/api/consents")) bodies.push(await request.clone().json());
@@ -279,12 +294,13 @@ describe("약관 동의 화면", () => {
           { doc_type: "terms", version: 1, action: "agree" },
           { doc_type: "privacy_consent", version: 1, action: "agree" },
           { doc_type: "sensitive_consent", version: 1, action: "agree" },
+          { doc_type: "age_14", version: 1, action: "agree" },
         ],
       },
     ]);
   });
 
-  it("필수 두 문서에 모두 동의하기 전에는 다음 버튼이 비활성이고 이유가 보인다", async () => {
+  it("필수 두 문서와 만 14세 확인에 모두 동의하기 전에는 다음 버튼이 비활성이고 이유가 보인다", async () => {
     const { user } = setup();
     await login(user);
     const submit = screen.getByTestId("consent-submit");
@@ -294,10 +310,39 @@ describe("약관 동의 화면", () => {
     await user.click(check("sensitive_consent"));
     expect(submit).toBeDisabled(); // 선택만으로는 안 된다
     await user.click(check("privacy_consent"));
+    expect(submit).toBeDisabled(); // 만 14세 확인(age_14)이 빠지면 진행 불가(PRD-17-12 A)
+    expect(screen.getByTestId("consent-hint")).toBeVisible();
+    await user.click(check("age_14"));
     expect(submit).toBeEnabled();
     expect(screen.queryByTestId("consent-hint")).toBeNull();
+    await user.click(check("age_14"));
+    expect(submit).toBeDisabled(); // 다시 끄면 막힌다
+    await user.click(check("age_14"));
     await user.click(check("terms"));
     expect(submit).toBeDisabled();
+  });
+
+  it("만 14세 확인을 체크하지 않으면 동의를 보내지 않고, 체크하면 age_14 동의가 함께 간다. 프로필에서 다시 보면 체크돼 있다", async () => {
+    const posts: unknown[] = [];
+    server.events.on("request:start", async ({ request }) => {
+      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/api/consents")) posts.push(await request.clone().json());
+    });
+    const { user, store } = setup();
+    await login(user);
+    await user.click(check("terms"));
+    await user.click(check("privacy_consent"));
+    await user.click(screen.getByTestId("consent-submit")); // 비활성이라 아무 일도 없다
+    expect(posts).toEqual([]);
+    expect(step()).toBe("consent");
+    await user.click(check("age_14"));
+    await user.click(screen.getByTestId("consent-submit"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    server.events.removeAllListeners();
+    expect(posts).toEqual([{ channel: "onboarding", items: [{ doc_type: "terms", version: 1, action: "agree" }, { doc_type: "privacy_consent", version: 1, action: "agree" }, { doc_type: "age_14", version: 1, action: "agree" }] }]);
+    expect(store.getState().me?.consents.find((consent) => consent.doc_type === "age_14")).toMatchObject({ required: true, needs_consent: false });
+    await user.click(screen.getByRole("button", { name: "동의 내용 보기" }));
+    await waitFor(() => expect(step()).toBe("consent"));
+    expect(check("age_14")).toBeChecked();
   });
 
   it("동의해 둔 건강 정보 동의를 끄면 삭제 경고가 보이고, 확인 모달을 거쳐야 철회되어 건강 정보가 지워진다(FE-04-06 A)", async () => {
@@ -311,7 +356,7 @@ describe("약관 동의 화면", () => {
     await waitFor(() => expect(step()).toBe("profiles"));
     await user.click(screen.getByRole("button", { name: "동의 내용 보기" }));
     await waitFor(() => expect(step()).toBe("consent"));
-    for (const docType of ["terms", "privacy_consent", "sensitive_consent"]) expect(check(docType)).toBeChecked(); // 지금 동의 상태가 채워져 있다
+    for (const docType of ["terms", "privacy_consent", "sensitive_consent", "age_14"]) expect(check(docType)).toBeChecked(); // 지금 동의 상태가 채워져 있다
     expect(screen.queryByTestId("health-withdraw-warning")).toBeNull();
     await user.click(check("sensitive_consent"));
     expect(screen.getByTestId("health-withdraw-warning")).toHaveTextContent(copy.HEALTH_WITHDRAW_WARNING);
@@ -383,7 +428,60 @@ describe("프로필 화면", () => {
     await user.selectOptions(screen.getByLabelText("연령대"), "y6_11");
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
-    expect(store.getState().profiles).toEqual([expect.objectContaining({ label: "첫째", relation: "child", age_band: "y6_11", pregnancy_status: null, medications: [] })]);
+    expect(store.getState().profiles).toEqual([expect.objectContaining({ label: "첫째", relation: "child", age_band: "y6_11", sex: null, pregnancy_status: null, medications: [] })]);
+  });
+
+  it("성별(선택, FE-11-09 C)은 연령대 아래 기본 칸이다: 처음엔 '선택 안 함'(로그인 정보로 채우지 않음), 건강 정보 동의 없이도 저장·수정·지우기가 되고 목록에 보인다", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    server.events.on("request:start", async ({ request }) => {
+      if ((request.method === "POST" || request.method === "PATCH") && new URL(request.url).pathname.includes("/api/profiles")) bodies.push(await request.clone().json());
+    });
+    const { user, store } = setup();
+    await login(user);
+    await consent(user, { health: false }); // 건강 정보 동의 없음
+    await user.click(screen.getByTestId("add-self"));
+    const sex = screen.getByLabelText("성별");
+    expect(sex).toBeEnabled(); // 건강 정보 묶음 밖이다
+    expect(screen.getByTestId("health-fields")).not.toContainElement(sex);
+    expect(sex).toHaveValue(""); // 간편 로그인 공급자 정보로 미리 채우지 않는다
+    expect(within(sex).getAllByRole("option").map((option) => option.textContent)).toEqual(["선택 안 함", "여성", "남성"]);
+    expect(within(sex).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(["", "female", "male"]);
+    // 연령대 아래, 건강 정보 묶음 위
+    expect(screen.getByLabelText("연령대").compareDocumentPosition(sex) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sex.compareDocumentPosition(screen.getByTestId("health-fields")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 미입력으로 저장
+    await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(store.getState().profiles[0]).toMatchObject({ sex: null });
+    expect(screen.getByTestId("profile-item")).toHaveTextContent("본인");
+    expect(screen.getByTestId("profile-item")).not.toHaveTextContent(/여성|남성/);
+    // 수정: 여성으로
+    await user.click(screen.getByRole("button", { name: "나 수정" }));
+    expect(screen.getByLabelText("성별")).toHaveValue("");
+    await user.selectOptions(screen.getByLabelText("성별"), "female");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(store.getState().profiles[0]).toMatchObject({ sex: "female", pregnancy_status: null });
+    expect(screen.getByTestId("profile-item")).toHaveTextContent("본인 · 여성");
+    // 다시 열면 저장된 값이 채워져 있고, '선택 안 함'으로 지운다
+    await user.click(screen.getByRole("button", { name: "나 수정" }));
+    expect(screen.getByLabelText("성별")).toHaveValue("female");
+    await user.selectOptions(screen.getByLabelText("성별"), "");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(store.getState().profiles[0]).toMatchObject({ sex: null });
+    // 가족 프로필에도 같은 칸
+    await user.click(screen.getByTestId("add-family"));
+    await user.type(screen.getByLabelText("이름(별명)"), "첫째");
+    await user.selectOptions(screen.getByLabelText("성별"), "male");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(screen.getAllByTestId("profile-item")).toHaveLength(2));
+    server.events.removeAllListeners();
+    expect(screen.getAllByTestId("profile-item")[1]).toHaveTextContent("자녀 · 남성");
+    // 요청 본문: 성별만 바뀌고 건강 정보 칸은 없다(동의가 없으니 싣지 않는다)
+    expect(bodies.map((body) => body.sex)).toEqual([null, "female", null, "male"]);
+    for (const body of bodies) expect(Object.keys(body)).toEqual(["relation", "label", "age_band", "sex"]);
   });
 
   it("건강 정보 동의가 있으면 임신 여부·복용 약(입력 원문)을 넣어 저장하고, 수정·삭제할 수 있다", async () => {
@@ -625,8 +723,8 @@ describe("대상 선택 '누가 먹나요'", () => {
   it("프로필마다 고를 수 있고 '선택 안 함'으로 되돌린다", async () => {
     const onChange = vi.fn();
     const profiles: Profile[] = [
-      { profile_id: "a", relation: "self", label: "나", age_band: "y19_64", pregnancy_status: null, sort_order: 0, medications: [] },
-      { profile_id: "b", relation: "child", label: "첫째", age_band: "y6_11", pregnancy_status: null, sort_order: 1, medications: [] },
+      { profile_id: "a", relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: null, sort_order: 0, medications: [] },
+      { profile_id: "b", relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, sort_order: 1, medications: [] },
     ];
     const { rerender } = render(<TargetPicker profiles={profiles} value={null} onChange={onChange} />);
     expect(screen.getByRole("radiogroup", { name: "누가 먹나요" })).toBeInTheDocument();
@@ -641,7 +739,7 @@ describe("대상 선택 '누가 먹나요'", () => {
   });
 
   it("별명이 없는 프로필(서버는 label null을 허용한다)은 관계 글자로 보인다", () => {
-    render(<TargetPicker profiles={[{ profile_id: "c", relation: "parent", label: null, age_band: null, pregnancy_status: null, sort_order: 0, medications: [] }]} value={null} onChange={() => {}} />);
+    render(<TargetPicker profiles={[{ profile_id: "c", relation: "parent", label: null, age_band: null, sex: null, pregnancy_status: null, sort_order: 0, medications: [] }]} value={null} onChange={() => {}} />);
     expect(screen.getByRole("radio", { name: "부모" })).toBeInTheDocument();
   });
 });

@@ -50,7 +50,7 @@ async function openSelfForm(page: Page) {
   await page.getByTestId("login-entry").click();
   await modal(page).getByTestId("social-kakao").click();
   await expect(modal(page)).toHaveAttribute("data-step", "consent");
-  for (const docType of ["terms", "privacy_consent", "sensitive_consent"]) await modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox").check();
+  for (const docType of ["terms", "privacy_consent", "sensitive_consent", "age_14"]) await modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox").check();
   await modal(page).getByTestId("consent-submit").click();
   await expect(modal(page)).toHaveAttribute("data-step", "profiles");
   await modal(page).getByTestId("add-self").click();

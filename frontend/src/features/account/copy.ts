@@ -4,7 +4,7 @@
 // 그 뒤 로그인 연결(FE-04c)에서 생긴 안내·오류 문구 7줄은 FE-04-08 A(2026-11-19)로 승인됐다. 이메일 숨김(PRD-01-10 A) 문구 4줄만
 // "승인 전(FE-04c)" 표시를 남겨 두고 이메일 로그인 재검토 때 다시 묻는다. 로그인 제목은 FE-04-17 A(2026-11-19) "간편 로그인"이다.
 // 약관 문서 자체는 법률 검토 전이라 `LEGAL_NOT_REVIEWED_TAG` 표지는 그대로 붙인다.
-import type { AgeBand, DrugMatchedBy, PregnancyStatus, Profile, Relation, SocialProvider } from "@/lib/api/account";
+import type { AgeBand, DrugMatchedBy, PregnancyStatus, Profile, Relation, Sex, SocialProvider } from "@/lib/api/account";
 
 // ---------------------------------------------------------------- 시작 화면 진입(할 일 1)
 /** 주 버튼(지시서 할 일 1, tickets/frontend/FE-04.md §2 "게스트로 시작") */
@@ -73,6 +73,12 @@ export const HEALTH_WITHDRAW_CONFIRM_BODY = "저장해 둔 임신 여부와 복�
 export const HEALTH_WITHDRAW_CONFIRM_LABEL = "철회하기";
 /** 문서별 체크 글자. 제목은 서버 값 그대로다 */
 export const agreeLabel = (title: string) => `${title}에 동의해요`;
+/**
+ * 만 14세 이상 확인의 별도 필수 체크(PRD-17-09 A·PRD-17-12 A, GROUP-03 2단계 F1). 동의서 본문 안이 아니라 동의 화면의 체크 한 줄이며
+ * 동의 기록 종류는 `age_14`다. 원문 승인(2026-11-19 밤 m36 "체크 위치 A", 로컬 `reports/legal-review.md` §3 표 "[필수 체크] 만 14세 이상입니다.";
+ * 2026-11-20 사용자 확인 "그대로"). 앞의 "[필수 체크]"는 화면 표기 설명이라 `REQUIRED_TAG`로 대신한다
+ */
+export const AGE_14_CHECK_LABEL = "만 14세 이상입니다.";
 export const CONSENT_SUBMIT_LABEL = "동의하고 계속";
 /** 필수 항목을 다 고르지 않았을 때의 한 줄 */
 export const CONSENT_REQUIRED_HINT = "필수 항목에 모두 동의해야 다음으로 갈 수 있어요.";
@@ -115,6 +121,8 @@ export const AGE_BAND_LABELS: Readonly<Record<AgeBand, string>> = {
 };
 /** 임신 여부(사용자 결정 2026-11-18: 모름·아니오·예) */
 export const PREGNANCY_LABELS: Readonly<Record<PregnancyStatus, string>> = { unknown: "모름", not_pregnant: "아니오", pregnant: "예" };
+/** 성별(FE-11-09 C·PRD-17-13 A, 선택 입력). 글자 "여성"·"남성"은 FE-11-11 A(2026-11-20) 원문 승인. 미입력은 `NOT_SELECTED` */
+export const SEX_LABELS: Readonly<Record<Sex, string>> = { female: "여성", male: "남성" };
 /** 프로필에 보일 이름: 별명이 없으면(서버는 null을 허용한다) 관계 글자 */
 export const profileName = (profile: Pick<Profile, "label" | "relation">) => profile.label ?? RELATION_LABELS[profile.relation];
 
@@ -125,6 +133,8 @@ export const PROFILE_NAME_LABEL = "이름(별명)";
 export const PROFILE_NAME_HINT = "질문할 때 보일 이름이에요. 예: 나, 엄마, 첫째";
 export const RELATION_LABEL = "관계";
 export const AGE_BAND_LABEL = "연령대";
+/** 성별 칸 이름(FE-11-11 A, 2026-11-20 원문 승인 "성별"). 연령대처럼 선택 입력이고 고르지 않으면 `NOT_SELECTED`가 보인다 */
+export const SEX_LABEL = "성별";
 export const NOT_SELECTED = "선택 안 함";
 export const PREGNANCY_LABEL = "임신 여부";
 export const MEDICATIONS_LABEL = "복용 중인 약(선택)";
