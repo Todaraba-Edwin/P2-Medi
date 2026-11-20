@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { HEALTH_CONSENT_DOC, isConsentDocType } from "@/lib/api/account";
+import { AGE_14_DOC, HEALTH_CONSENT_DOC, isConsentDocType } from "@/lib/api/account";
 import { consentActive, requiredAgreed, useAccountStore } from "@/stores/account";
 import type { ConsentChoices } from "@/stores/account";
 import {
+  AGE_14_CHECK_LABEL,
   CONSENT_DESCRIPTION,
   CONSENT_REQUIRED_HINT,
   CONSENT_SUBMIT_LABEL,
@@ -34,6 +35,8 @@ type Agreed = ConsentChoices;
  * 고지 문서(`privacy_policy` 처리방침: 외부 AI 전송 안내가 여기 있다)는 **체크 없는 고지**로만 보이고 동의 항목에 들어가지 않는다(FE-04-03 A).
  * 법률 검토 전 문서(`legal_review: "not_reviewed"`)에는 "초안·법률 검토 전" 표지를 붙인다.
  * 동의해 둔 건강 정보 동의를 끄고 보내려 하면 확인 모달을 먼저 띄운다(FE-04-06 A): 철회하면 서버가 건강 정보를 즉시 지우고 되돌릴 수 없다.
+ * 만 14세 이상 확인(`age_14`, PRD-17-12 A)은 문서 카드가 아니라 목록 아래의 **별도 필수 체크 한 줄**이다(PRD-17-09 A "체크 위치 A"):
+ * 라벨은 화면 상수(`AGE_14_CHECK_LABEL`)이고 버전·필수 여부는 서버 문서 값을 쓴다. 체크하지 않으면 필수 미동의라 다음으로 갈 수 없다.
  */
 export function ConsentStep() {
   const { store } = useAccountModal();
@@ -60,6 +63,9 @@ export function ConsentStep() {
   const withdrawingHealth = consentActive(me, HEALTH_CONSENT_DOC) && agreed[HEALTH_CONSENT_DOC] === false;
   const ready = status === "ready";
   const canSubmit = ready && requiredAgreed(docs, agreed) && !pending;
+  /** 만 14세 확인은 카드 목록에서 빼고 별도 체크로 그린다 */
+  const ageDoc = docs.find((doc) => doc.doc_type === AGE_14_DOC) ?? null;
+  const cards = docs.filter((doc) => doc.doc_type !== AGE_14_DOC);
 
   return (
     <StepBody data-testid="consent-step">
@@ -80,7 +86,7 @@ export function ConsentStep() {
         </div>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-3 p-0">
-          {docs.map((doc) => {
+          {cards.map((doc) => {
             const docType = doc.doc_type;
             const consentable = isConsentDocType(docType);
             return (
@@ -120,6 +126,23 @@ export function ConsentStep() {
             </li>
             );
           })}
+          {/* 만 14세 이상 확인: 본문 없는 별도 필수 체크(PRD-17-09 A). 서버 문서가 없으면(아직 게시 전) 그리지 않는다 */}
+          {ageDoc && (
+            <li data-testid="age-14-check" data-doc-type={AGE_14_DOC} data-required={ageDoc.required} data-consent="true" className="rounded-2xl border border-line p-3">
+              <label htmlFor={`${id}-${AGE_14_DOC}`} className="flex min-h-11 cursor-pointer items-center gap-2.5 text-sm font-semibold">
+                <input
+                  id={`${id}-${AGE_14_DOC}`}
+                  type="checkbox"
+                  checked={agreed[AGE_14_DOC] === true}
+                  onChange={(event) => setTouched((prev) => ({ ...prev, [AGE_14_DOC]: event.target.checked }))}
+                  className="size-5 flex-none accent-ink"
+                />
+                <span className="min-w-0 [word-break:keep-all]">
+                  <span className={ageDoc.required ? "text-red-ink" : "text-mute"}>[{ageDoc.required ? REQUIRED_TAG : OPTIONAL_TAG}]</span> {AGE_14_CHECK_LABEL}
+                </span>
+              </label>
+            </li>
+          )}
         </ul>
       )}
       {ready && withdrawingHealth && (

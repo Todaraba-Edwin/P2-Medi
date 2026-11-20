@@ -75,6 +75,17 @@ export type ContractChecks = [
   Expect<Extends<Gen["ProfileOut"]["relation"], A.Relation>>,
   Expect<Extends<NonNullable<Gen["ProfileOut"]["age_band"]>, A.AgeBand>>,
   Expect<Extends<NonNullable<Gen["ProfileOut"]["pregnancy_status"]>, A.PregnancyStatus>>,
+  // 성별(FE-11-09 C): 값 목록이 양쪽 같고, 요청 모델 두 개에도 같은 칸이 있다
+  Expect<Extends<NonNullable<Gen["ProfileOut"]["sex"]>, A.Sex>>,
+  Expect<Extends<A.Sex, NonNullable<Gen["ProfileOut"]["sex"]>>>,
+  Expect<Extends<A.Sex | null, Gen["ProfileCreate"]["sex"]>>,
+  Expect<Extends<A.Sex | null, Gen["ProfileUpdate"]["sex"]>>,
+  // 만 14세 확인(PRD-17-12 A)은 동의 대상 문서 목록에 있다
+  Expect<Extends<"age_14", Gen["ConsentState"]["doc_type"]>>,
+  Expect<Extends<A.ConsentDocType, Gen["ConsentItem"]["doc_type"]>>,
+  // `/chat` 요청에는 성별 칸이 없다(S10: 성별을 외부 AI로 보내지 않는다). 칸이 생기면 여기서 걸린다
+  Expect<Extends<"sex" extends keyof Gen["ConversationContext"] ? false : true, true>>,
+  Expect<Extends<"sex" extends keyof Gen["ChatRequest"] ? false : true, true>>,
   // 프로필 약 검색(FE-04-13 A, `POST /drugs/search`)
   Expect<Conforms<typeof A.DrugCandidateSchema, Gen["DrugCandidateOut"]>>,
   Expect<Conforms<typeof A.DrugSearchResultSchema, Gen["DrugSearchOut"]>>,

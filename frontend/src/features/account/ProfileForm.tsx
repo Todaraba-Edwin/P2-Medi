@@ -2,8 +2,8 @@
 
 import { useId, useState } from "react";
 import { XIcon } from "lucide-react";
-import { AGE_BANDS, MEDICATIONS_MAX, PREGNANCY_STATUSES, PROFILE_LABEL_MAX_CHARS, RELATIONS } from "@/lib/api/account";
-import type { AgeBand, MedicationInput, PregnancyStatus, ProfileDraft, Relation } from "@/lib/api/account";
+import { AGE_BANDS, MEDICATIONS_MAX, PREGNANCY_STATUSES, PROFILE_LABEL_MAX_CHARS, RELATIONS, SEXES } from "@/lib/api/account";
+import type { AgeBand, MedicationInput, PregnancyStatus, ProfileDraft, Relation, Sex } from "@/lib/api/account";
 import { hasHealthConsent, useAccountStore } from "@/stores/account";
 import {
   AGE_BAND_LABEL,
@@ -23,6 +23,8 @@ import {
   RELATION_LABEL,
   RELATION_LABELS,
   SAVE_LABEL,
+  SEX_LABEL,
+  SEX_LABELS,
   removeMedicationLabel,
 } from "./copy";
 import { MedicationPicker } from "./MedicationPicker";
@@ -36,7 +38,9 @@ const LABEL_CLASS = "text-xs font-bold text-ink-2";
 const sameMedication = (a: MedicationInput, b: MedicationInput) => (a.item_seq && b.item_seq ? a.item_seq === b.item_seq : a.input_text === b.input_text);
 
 /**
- * 프로필 추가·수정 폼. 관계·연령대·임신 여부·복용 중인 약(선택).
+ * 프로필 추가·수정 폼. 관계·연령대·성별(선택)·임신 여부·복용 중인 약(선택).
+ * 성별(FE-11-09 C·PRD-17-13 A)은 연령대 아래 기본 단계의 선택 칸이다: "여성 | 남성" + 선택 안 함(null). 건강 정보가 아니라 건강 정보 동의 없이도 저장되고,
+ * 온보딩에서 사용자가 직접 고른다(간편 로그인 공급자 정보로 미리 채우지 않는다. 처음 열면 늘 "선택 안 함"이다). `/chat` 요청에는 싣지 않는다(S10).
  * 건강 정보(임신 여부·복용 약)는 건강 정보 동의가 있을 때만 입력·저장할 수 있다: 동의가 없으면 두 칸이 비활성이고 이유 한 줄이 보이며,
  * 저장할 때도 건강 정보 칸을 요청에 싣지 않는다(실으면 서버가 422 `HEALTH_CONSENT_REQUIRED`로 막는다).
  * 약은 사전 검색 후보를 골라 `{input_text, item_seq}`로 보내고(FE-04-13 A), 사전에 없거나 고르지 않고 확정하면 `{input_text}`만 보낸다
@@ -57,6 +61,8 @@ export function ProfileForm() {
   const [label, setLabel] = useState(existing?.label ?? "");
   const [relation, setRelation] = useState<Relation>(existing?.relation ?? (self ? "self" : "child"));
   const [ageBand, setAgeBand] = useState<AgeBand | "">(existing?.age_band ?? "");
+  // 성별: 저장된 값만 채운다(새 프로필은 늘 미선택. 로그인 공급자 정보는 읽지 않는다)
+  const [sex, setSex] = useState<Sex | "">(existing?.sex ?? "");
   const [pregnancy, setPregnancy] = useState<PregnancyStatus>(existing?.pregnancy_status ?? "unknown");
   const [medications, setMedications] = useState<MedicationInput[]>(() => (existing?.medications ?? []).map((item) => ({ input_text: item.input_text, item_seq: item.item_seq })));
   const [nameMissing, setNameMissing] = useState(false);
@@ -75,6 +81,7 @@ export function ProfileForm() {
       relation: self ? "self" : relation,
       label: name,
       age_band: ageBand === "" ? null : ageBand,
+      sex: sex === "" ? null : sex,
       // 건강 정보 동의가 없으면 건강 정보 칸을 보내지 않는다
       health: healthConsent ? { pregnancy_status: pregnancy, medications } : null,
     };
@@ -130,6 +137,19 @@ export function ProfileForm() {
           {AGE_BANDS.map((value) => (
             <option key={value} value={value}>
               {AGE_BAND_LABELS[value]}
+            </option>
+          ))}
+        </select>
+
+        {/* 성별(선택): 건강 정보 묶음 밖이라 동의와 상관없이 고를 수 있다 */}
+        <label htmlFor={`${id}-sex`} className={LABEL_CLASS}>
+          {SEX_LABEL}
+        </label>
+        <select id={`${id}-sex`} data-testid="profile-sex" value={sex} onChange={(event) => setSex(event.target.value as Sex | "")} className={FIELD_CLASS}>
+          <option value="">{NOT_SELECTED}</option>
+          {SEXES.map((value) => (
+            <option key={value} value={value}>
+              {SEX_LABELS[value]}
             </option>
           ))}
         </select>

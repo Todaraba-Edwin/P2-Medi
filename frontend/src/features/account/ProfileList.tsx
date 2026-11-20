@@ -22,6 +22,7 @@ import {
   PROFILES_TITLE,
   RELATION_LABELS,
   REVIEW_CONSENT_LABEL,
+  SEX_LABELS,
   WITHDRAW_CONFIRM_BODY,
   WITHDRAW_CONFIRM_LABEL,
   WITHDRAW_CONFIRM_TITLE,
@@ -35,10 +36,11 @@ import {
 } from "./copy";
 import { ConfirmDialog, DANGER_TEXT_BUTTON, EmergencyEntrySlot, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, TEXT_BUTTON, useAccountModal } from "./parts";
 
-/** 프로필 한 줄 요약. 건강 정보(임신 여부·복용 약)는 건강 정보 동의가 있을 때만 보인다 */
+/** 프로필 한 줄 요약. 성별(선택)은 건강 정보가 아니라 동의와 상관없이 보이고, 건강 정보(임신 여부·복용 약)는 건강 정보 동의가 있을 때만 보인다 */
 export function profileSummary(profile: Profile, healthConsent: boolean): string {
   const parts = [RELATION_LABELS[profile.relation]];
   if (profile.age_band) parts.push(AGE_BAND_LABELS[profile.age_band]);
+  if (profile.sex) parts.push(SEX_LABELS[profile.sex]);
   if (healthConsent && profile.pregnancy_status !== null && profile.pregnancy_status !== "unknown") parts.push(`${PREGNANCY_LABEL} ${PREGNANCY_LABELS[profile.pregnancy_status]}`);
   if (healthConsent && profile.medications.length > 0) parts.push(medicationCount(profile.medications.length));
   return parts.join(" · ");
