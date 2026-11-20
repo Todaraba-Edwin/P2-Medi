@@ -230,8 +230,10 @@ PRD-11-03은 2026-11-09 **A + 사용자 수정 조건**(오독 방지, 약국·�
 | `NO_EVIDENCE` + 사유 `SEARCH_MISS`(c) | 검색 도구(AG-03)가 코드 검사로 맞는 청크 없음 | 구역 권고 박스 1개 + 미확보 항목 목록 | `MISSING_SEARCH_MISS`: "허가사항에서 관련 문장을 찾지 못했어요" | 〃 | 코드(AG-03 판정) |
 | `NO_EVIDENCE`(답변 근거 전체), `UNIDENTIFIED` | 검색·식별 도구 항목 | "근거 문장을 찾지 못함"·"약을 찾지 못해 확인하지 못함" + 약국·약사 안내 | AG-09·PJ2-Agent-Harness.md 3.4절 문구 | 해당 항목 | 코드 |
 | 꼬리표 `API_FAIL`·`API_PAIR_INCOMPLETE`(DUR API) | 병기 실패 | "실시간 확인을 하지 못함"(파일 판정 그대로) | PJ2-RFP.md 5.1절 (7) 문구 | 출처 표 행, 결과 | 코드 |
+| 등급 정의 블록 미확보 `GRADE_DEF_MISSING`(후보, PRD-15-03) + 사유 `FETCH_FAIL`·`OUT_OF_SCOPE` | 등급 정의(고시 원문) 청크 ID 조회 실패·미적재(`SEARCH_MISS` 없음) | 등급 정의 블록 자리에 미확보 안내 + 약사 확인 권고(원문 없어 조항 출처 줄 없음) | `GRADE_DEF_MISSING_TEXT`: `FETCH_FAIL` "지금은 임부금기 {N}등급의 뜻(고시 원문)을 불러오지 못했어요. 잠시 뒤 다시 시도해 보세요." / `OUT_OF_SCOPE` "임부금기 {N}등급의 뜻(고시 원문)을 아직 준비하지 못했어요."(`backend/app/agent/fixed_phrases.py:130`, 후보) | 임부금기 결과의 등급 정의 블록(제목 "임부금기 {N}등급이란?") | 코드 |
 | 출처 종류(`source_kind`) | `API_DIRECT`·`FILE`·`CORPUS_QUOTE` | 근거 박스 표지 | `SOURCE_KIND_LABEL_*` 3종(§7.2) | 소제목 오른쪽 | 코드 |
 
+- 등급 정의 블록 미확보 행(2026-11-20 추가, AG-08 정렬): 값은 `P2-doc/PJ2-Agent-Harness.md:227`·`backend/app/agent/fixed_phrases.py:130` 그대로이며 문구·규칙을 새로 정한 것이 아니다.
 - 가정: 사유가 겹치면 `FETCH_FAIL` > `OUT_OF_SCOPE` > `SEARCH_MISS` > `ABSENT` 순으로 하나만 쓴다(구현 때 확정).
 - **이지렉트정 사례**: 전문의약품이라 e약은요 쉬운 설명이 없다(`EASY_TEXT_MISSING`). BE-12가 허가정보 상세를 수집했으면 허가사항 원문 박스(미확보 아님), 수집하지 않았으면 `OUT_OF_SCOPE`로 `MISSING_OUT_OF_SCOPE` + 약사 확인 권고다. 수집 여부는 BE-12 완료 조건으로 이관했다(§9).
 - **폐기 대상**: 프로토타입의 "원문을 가져오지 못했어요"는 이 표에 없는 문구다. (b)로 읽히면 "잠시 뒤 다시 하면 되는 일"로, (a)로 읽히면 "원래 없음"으로 오독된다. 코드·fixture·화면·mock에서 모두 없애고 위 상수로 바꾼다.
