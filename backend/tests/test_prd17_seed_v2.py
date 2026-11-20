@@ -86,6 +86,20 @@ def test_v2_bodies_keep_draft_header_and_approval_line():
     assert "Naver" not in V2_ROWS["privacy_policy"]["body"]  # A-2: S2 전에는 적지 않는다
 
 
+def test_v2_sex_optional_item_in_policy_and_profile_consent():
+    """PRD-17 ⑭(PRD-17-13 A, 2026-11-20 사용자 "성별 문구 승인"): 성별(선택)을 처리방침·프로필 동의 두 문서에 적는다."""
+    policy = V2_ROWS["privacy_policy"]["body"]
+    assert "| 프로필(동의한 경우): 관계, 표시 이름(선택), 연령대, 성별(선택) | 질문할 때 연령대를 자동으로 채워 연령금기를 확인. " \
+           "성별은 질문 화면에 임신 여부 선택을 보여 줄지 정하는 데만 씁니다 |" in policy
+    assert "가족 구성원의 관계, 표시 이름, 연령대, 성별(선택)(건강 정보는 위와 같음)" in policy
+    consent = V2_ROWS["privacy_consent"]["body"]
+    assert "- 수집 항목: 관계, 표시 이름(선택), 연령대, 성별(선택, 직접 고른 경우에만). 로그인 정보(" in consent
+    assert consent.count("성별은 질문 화면에서 임신 여부 선택을 보여 줄지 정하는 데만 쓰며, 외부 AI 서비스로 전송하지 않습니다. "
+                         "간편 로그인 공급자에게서 성별을 받지 않습니다.") == 1
+    # 성별은 건강 정보가 아니다: 민감정보 동의서와 약관에는 넣지 않는다
+    assert "성별" not in V2_ROWS["sensitive_consent"]["body"] and "성별" not in V2_ROWS["terms"]["body"]
+
+
 def test_v2_seed_substitutes_effective_at_only():
     sql = seed_sql(datetime(2026, 12, 1, tzinfo=UTC), version=2)
     assert "{{EFFECTIVE_AT}}" not in sql and sql.count("'2026-12-01T00:00:00+00:00'") == 4
