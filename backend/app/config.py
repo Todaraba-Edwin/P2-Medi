@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     mediagent_api_cache_ttl_seconds: float = 86400.0
     mediagent_api_max_calls: int = 1000
 
+    # 에이전트(도구 선택·요약) 모델 이름(AG-01 `:31`, 비밀 아님, 환경변수 `MEDIAGENT_AGENT_MODEL`). 기본은 `llm.MODEL`과 같은 값이다
+    # (시험이 맞춘다). 서비스 경로(`build_deps(service=True)`)만 이 칸을 따른다. 평가·개발 경로는 평가 고정(PJ2-RFP.md 5장·9장)이라
+    # 이 칸과 무관하게 `llm.MODEL`을 쓰고, 다른 모델이 필요하면 `build_deps(model_name=...)`를 명시한다. 비용 단가는 `gpt-6-luna` 기준이다.
+    mediagent_agent_model: str = "gpt-6-luna"
+
     # 서버 시작 직후 백그라운드 자원 준비(BE-17-01·02 A). 기본 켬. `MEDIAGENT_WARMUP=0`(false·off)이면 지금처럼 첫 요청에서 만든다
     mediagent_warmup: bool = True
 
