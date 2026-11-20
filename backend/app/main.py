@@ -24,7 +24,7 @@ from .api import service
 from .config import Settings, get_settings
 from .logging.console import install_app_console_logging
 from .logging.redact_filter import install_log_redaction
-from .security import auth
+from .security import auth, auth_admin
 
 install_log_redaction()  # 서버 로그(uvicorn·httpx 포함)의 비밀값 가리기, httpx INFO URL 차단(S-05·S-06)
 install_app_console_logging()  # BE-17 후속: `app.*` INFO 줄을 stderr에(uvicorn은 루트 처리기를 두지 않아 INFO가 버려졌다). 멱등
@@ -50,6 +50,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 붙이지 않으므로(BE-11-23 A, 원격 적용 뒤 `set_repo`) 확인 함수만 먼저 붙인다. `set_repo(app, repo)`는 이 값을 그대로 둔다
     account_api.set_item_seq_checker(app, drugs_api.dict_item_seq_checker(dict_provider) if dict_provider is not None else None)
     auth.set_verifier(app, auth.build_verifier(settings_now))  # 접속 0. 설정이 모자라면 None → 토큰이 온 /me는 501
+    # BE-11-24 A: 탈퇴 때 auth.users 삭제(Admin API). 접속 0. SUPABASE_URL·SUPABASE_SECRET_KEY가 없으면 None → 탈퇴 502
+    auth_admin.set_auth_admin(app, auth_admin.build_auth_admin(settings_now))
     yield
 
 

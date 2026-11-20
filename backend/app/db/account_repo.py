@@ -260,8 +260,11 @@ class InMemoryAccountRepo:
     """메모리 가짜 저장소. SQL 트리거 규칙을 같은 순서로 흉내 낸다. 프로세스 안에서만 살고 스레드 안전을 보장하지 않는다(시험·개발용)."""
 
     def __init__(self, documents: Sequence[LegalDoc] = (), *, clock: Callable[[], datetime] = utcnow,
-                 id_factory: Callable[[], str] = lambda: str(uuid.uuid4())) -> None:
+                 id_factory: Callable[[], str] = lambda: str(uuid.uuid4()), auth_users: set[str] | None = None) -> None:
         self._docs: dict[tuple[str, int], LegalDoc] = {(d.doc_type, d.version): d for d in documents}
+        # `app_users.user_id → auth.users(id)` FK 흉내(BE-11-24 A 시험). 주면 이 집합에 없는 사용자는 ensure_user가 NO_ACCOUNT
+        # (PG의 ForeignKeyViolation과 같은 결과). None이면 검사하지 않는다(이전 동작)
+        self.auth_users = auth_users
         self._users: dict[str, _UserData] = {}
         self._clock = clock
         self._new_id = id_factory
@@ -308,6 +311,8 @@ class InMemoryAccountRepo:
         self.calls += 1
         data = self._users.get(user_id)
         if data is None:
+            if self.auth_users is not None and user_id not in self.auth_users:
+                raise AccountRepoError(NO_ACCOUNT_CODE)
             data = self._users[user_id] = _UserData(AppUser(user_id, "consent", None))
         return data.user
 

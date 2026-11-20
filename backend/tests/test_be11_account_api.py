@@ -28,7 +28,7 @@ from app.db.account_repo import (
     RepoUnavailable,
     body_sha256,
 )
-from app.security import auth
+from app.security import auth, auth_admin
 from app.security.auth import TokenInvalid
 
 NOW = datetime(2026, 11, 18, 12, 0, tzinfo=UTC)
@@ -67,14 +67,29 @@ class TokenMap:
         raise TokenInvalid("rejected")
 
 
+class FakeAuthAdmin:
+    """가짜 Auth 관리(BE-11-24 A). 삭제하면 저장소의 `auth_users`(FK 흉내)에서 뺀다. HTTP 수준 시험은 `test_be11_auth_admin.py`."""
+
+    def __init__(self, repo: Any) -> None:
+        self.repo = repo
+        self.deleted: list[str] = []
+
+    async def delete_user(self, user_id: str) -> None:
+        self.deleted.append(user_id)
+        if getattr(self.repo, "auth_users", None) is not None:
+            self.repo.auth_users.discard(user_id)
+
+
 class Env:
     def __init__(self, repo: Any = None, checker: Any = None) -> None:
-        self.repo = repo if repo is not None else InMemoryAccountRepo(_docs(), clock=lambda: NOW)
+        self.repo = repo if repo is not None else InMemoryAccountRepo(_docs(), clock=lambda: NOW, auth_users={UID_A, UID_B})
         self.verifier = TokenMap()
+        self.admin = FakeAuthAdmin(self.repo)
         app = FastAPI()
         chat_api.register(app)
         me_api.register(app)
         auth.set_verifier(app, self.verifier)
+        auth_admin.set_auth_admin(app, self.admin)
         account_api.set_repo(app, self.repo, item_seq_checker=checker)
         self.app = app
         self.c = TestClient(app)
@@ -409,10 +424,12 @@ def test_delete_me_erases_everything_and_logs_counts_only(env, caplog):
     assert set(vars(row)) == {"deleted_on", "accounts", "profiles", "medications", "consents"}  # 식별자 칸 없음
     assert "계정 파기: 프로필 2건, 복용 약 1건, 동의 기록 4건" in caplog.text and UID_A not in caplog.text
     assert _err(env.req("GET", "/profiles")) == (401, "AUTH_INVALID", [])  # 남은 토큰으로 다른 API는 401
+    assert env.admin.deleted == [UID_A]  # auth.users 삭제까지(BE-11-24 A)
     assert env.req("DELETE", "/me").status_code == 204  # 멱등
     assert next(iter(env.repo.deletion_log.values())).accounts == 1  # 없는 계정은 집계하지 않는다
-    me = env.req("GET", "/me").json()  # auth.users 삭제 전(후속)이라 다시 부르면 빈 계정
-    assert me["onboarding_step"] == "consent" and all(s["needs_consent"] for s in me["consents"])
+    # BE-11-24 A: 남은 토큰(만료 전)으로 /me를 불러도 빈 계정이 다시 생기지 않는다(auth.users FK → NO_ACCOUNT → 401)
+    assert _err(env.req("GET", "/me")) == (401, "AUTH_INVALID", [])
+    assert env.repo.user_count() == 0
 
 
 # --------------------------------------------------------------------------- 저장소 장애·알 수 없는 규칙

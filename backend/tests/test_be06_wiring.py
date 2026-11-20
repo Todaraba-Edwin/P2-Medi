@@ -438,7 +438,7 @@ def test_openapi_matches_committed_export_shape():
     assert set(paths) == {"/health", "/chat", *ACCOUNT_PATHS}
     assert set(paths["/chat"]["post"]["responses"]) == {"200", "422", "501"}
     assert set(paths["/me"]["get"]["responses"]) == {"200", "401", "501", "503"}
-    assert set(paths["/me"]["delete"]["responses"]) == {"204", "401", "501", "503"}
+    assert set(paths["/me"]["delete"]["responses"]) == {"204", "401", "501", "502", "503"}  # 502 AUTH_DELETE_FAILED(BE-11-24 A)
     assert set(paths["/me"]) == {"get", "delete"} and set(paths["/legal/{doc_type}"]) == {"get"}
     assert set(paths["/consents"]) == {"post"} and set(paths["/profiles"]) == {"get", "post"}
     assert set(paths["/profiles/{profile_id}"]) == {"patch", "delete"}

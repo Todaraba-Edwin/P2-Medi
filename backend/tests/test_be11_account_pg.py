@@ -370,6 +370,20 @@ def test_pg_limits_health_withdraw_and_delete(pg_dsn):
         assert row is not None and row[0] >= 1 and row[1] >= 4
 
 
+def test_pg_deleted_auth_user_cannot_recreate_account(pg_dsn):
+    # BE-11-24 A: 탈퇴(앱 데이터 삭제 → auth.users 삭제) 뒤 남은 토큰으로 /me를 불러도 FK 때문에 빈 계정이 다시 생기지 않는다
+    repo = PostgresAccountRepo.from_dsn(pg_dsn)
+    a = _new_user(pg_dsn)
+    _onboard(repo, a)
+    asyncio.run(repo.delete_account(a))
+    with psycopg.connect(pg_dsn, autocommit=True) as conn:  # Admin API 삭제 대신 auth.users 스텁 행을 지운다(로컬만)
+        conn.execute("DELETE FROM auth.users WHERE id = %s", (a,))
+    with pytest.raises(AccountRepoError) as info:
+        asyncio.run(repo.ensure_user(a))
+    assert info.value.code == "NO_ACCOUNT"  # API에서는 401 AUTH_INVALID
+    assert asyncio.run(repo.get_user(a)) is None
+
+
 def test_pg_legal_body_sha256_matches_python(pg_dsn):
     # 생성 열 body_sha256(account.utf8_sha256_hex)이 API가 쓰는 Python 해시와 같다. anon으로 게시 문서를 읽는다
     repo = PostgresAccountRepo.from_dsn(pg_dsn)
