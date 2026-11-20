@@ -10,7 +10,7 @@ import { ErrorState, MessageBubble, ProgressSteps } from "@/features/chat";
 import { FixedNoticeBox } from "@/features/emergency";
 import { EvidenceEntryButton } from "@/features/evidence";
 import type { EvidenceMode } from "@/features/evidence";
-import { PickCapsule, ResultView, groupCandidates } from "@/features/result";
+import { PREGNANCY_PICK_HINT, PickCapsule, ResultView, groupCandidates } from "@/features/result";
 import type { CandidatePicks } from "@/features/result";
 import { cn } from "@/lib/utils";
 import type { ChatTurn } from "@/stores/chat";
@@ -64,6 +64,9 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
     const multiple = groups.length > 1;
     // 묶음이 하나면 고른 뒤에, 둘 이상이면 처음부터 확인 줄을 둔다(남은 묶음 수를 보인다)
     const showResend = groups.length > 0 && (multiple || chosen.length > 0);
+    // 일반인으로 보내 받은 판정 결과 아래의 작은 한 줄(FE-11-03 A): 임부금기를 확인하지 않았음을 알린다. 임부금기 줄이 실제로 있으면(질문 문장의
+    // "임신 중"을 서버가 우선한 경우) 두지 않는다. 임산부(true)·값 없음(null, 토글 없는 조립)에는 두지 않는다
+    const showPregnancyHint = turn.pregnant === false && response.findings.length > 0 && !response.findings.some((finding) => finding.kind === "pregnancy");
     const resendButton = (className: string) => (
       // 모든 묶음을 골라야 보낼 수 있다. 비활성일 때도 초점은 받고(`aria-disabled`) 남은 수 안내를 읽어 준다
       <button
@@ -104,6 +107,13 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
           // 여러 약 되묻기의 안내 줄은 아래 확인 줄 첫 행에 그린다(FE-10)
           hideCandidatesLine={showResend && multiple}
         />
+        {showPregnancyHint && (
+          <NoMascotZone>
+            <p data-testid="pregnancy-pick-hint" className="m-0 px-1 text-xs leading-[17px] break-words text-mute">
+              {PREGNANCY_PICK_HINT}
+            </p>
+          </NoMascotZone>
+        )}
         {showResend && multiple && (
           <NoMascotZone>
             {/* 여러 약 확인 줄(FE-10, 디자인 "FE-09 r2" `.cf`). 캡슐을 가로로 둘지는 이 칸의 폭(640px)으로 정한다 */}

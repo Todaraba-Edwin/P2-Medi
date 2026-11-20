@@ -1,4 +1,7 @@
 export { ChatInput } from "./ChatInput";
+export type { PregnancyControl } from "./ChatInput";
+export { PregnancyToggle } from "./PregnancyToggle";
+export { PREGNANCY_SAVE_CONSENT_HINT } from "./copy";
 export { ChatScreen } from "./ChatScreen";
 export { ChatThread } from "./ChatThread";
 export { EmergencySlot } from "./EmergencySlot";

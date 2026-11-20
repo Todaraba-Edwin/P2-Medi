@@ -5,7 +5,8 @@ import { UserIcon } from "lucide-react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
 import { AccountMenu, AccountModal, EntryChoice, LOGIN_ENTRY_LABEL, MANAGE_PROFILES_LABEL, TargetPicker, isAccountEntryEnabled, openAccountModal } from "@/features/account";
-import { ChatInput, ExampleChips, HomeHero } from "@/features/chat";
+import { failureMessage } from "@/features/account/parts";
+import { ChatInput, ExampleChips, HomeHero, PREGNANCY_SAVE_CONSENT_HINT } from "@/features/chat";
 import { EmergencyBanner, ExternalAiNotice, FixedNoticeBox, LegalFooter, StartEmergencyLink } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
 import { groupCandidates } from "@/features/result";
@@ -13,7 +14,7 @@ import { DISCLAIMER, START_EMERGENCY_119, START_EXTERNAL_AI_NOTICE } from "@/lib
 import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation } from "@/lib/supabase/callback";
 import { cn } from "@/lib/utils";
 import { accountStore, hasHealthConsent, selectTargetProfile, useAccountStore } from "@/stores/account";
-import type { AccountStore } from "@/stores/account";
+import type { AccountFailure, AccountStore } from "@/stores/account";
 import { chatStore, useChatStore } from "@/stores/chat";
 import type { ChatStore } from "@/stores/chat";
 import { profileToContext } from "@/stores/profile-context";
@@ -34,6 +35,10 @@ import { useViewportWidth } from "./useViewportWidth";
  * - 사이드바 상태는 사용자 토글이 원천이다. 근거 상세가 새로 열리는 순간의 판정만 예외다(`layout-rules.ts`).
  * - 계정(FE-04): 시작 화면의 진입 선택(게스트로 시작 / 로그인·가입), 사이드바의 계정 자리, 계정 모달, 입력창 위의 대상 선택.
  *   게스트는 지금처럼 바로 질문한다. 계정 모달도 배너 아래 영역에만 그린다(119 배너를 덮지 않는다).
+ * - 임신 여부(FE-11 §7.1, 2026-11-20): 입력창 안 왼쪽 토글 "일반인 | 임산부"가 `context.pregnant`의 원천이다(일반인 false·임산부 true, FE-11-12 A).
+ *   시작값은 고른 대상 프로필의 임신 여부(건강 정보 동의가 있을 때, 임신 중이면 임산부)이고 대상을 바꾸면 그 값으로 바뀐다. 게스트는 일반인.
+ *   토글을 바꾸면 로그인 + 건강 정보 동의 + 대상 프로필이 있을 때만 그 프로필의 `pregnancy_status`를 PATCH한다(FE-11-13, 양방향);
+ *   동의 없음·게스트는 저장하지 않고 이 대화에만 적용하며 안내 한 줄을 둔다(FE-11-14 A). 저장 실패는 대화 값을 유지하고 짧게 알린다
  */
 export function AppShell({ store = chatStore, account = accountStore }: { store?: ChatStore; account?: AccountStore }) {
   const width = useViewportWidth();
@@ -43,6 +48,19 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const profiles = useAccountStore((state) => state.profiles, account);
   const targetProfileId = useAccountStore((state) => state.targetProfileId, account);
   const entryDismissed = useAccountStore((state) => state.entryDismissed, account);
+  /** 고른 대상 프로필의 임신 여부(건강 정보 동의가 있을 때만 읽는다). 토글의 시작값이고 대상·프로필이 바뀌면 토글이 이 값으로 돌아간다 */
+  const profilePregnant = useAccountStore((state) => profileToContext(selectTargetProfile(state), hasHealthConsent(state.me)).pregnant === true, account);
+  /** 임신 여부 토글 값(대화 묶음 `context.pregnant`, 메모리). null(아직 정하지 않음)은 일반인으로 본다 */
+  const pregnant = useChatStore((state) => state.context.pregnant === true, store);
+  /**
+   * 토글 근처 안내: 동의 없음·게스트가 토글을 바꿨다(이 대화에만 적용, FE-11-14 A) / 프로필 저장 실패. 대상(또는 그 프로필의 임신 여부)이 바뀌면
+   * 안내는 그 대상에만 붙어 있던 것이라 보이지 않는다(`key`가 지금 대상과 다르면 숨김. 효과 안에서 상태를 지우지 않는다)
+   */
+  const pregnancyNoteKey = `${targetProfileId ?? ""}|${profilePregnant}`;
+  const [pregnancyNote, setPregnancyNote] = useState<{ key: string; hint: boolean; error: AccountFailure | null }>({ key: "", hint: false, error: null });
+  const pregnancyHint = pregnancyNote.key === pregnancyNoteKey && pregnancyNote.hint;
+  const pregnancyError = pregnancyNote.key === pregnancyNoteKey ? pregnancyNote.error : null;
+  const pregnancySaveSeq = useRef(0);
   const turns = useChatStore((state) => state.turns, store);
   const emergency = useChatStore((state) => state.emergency, store);
   const [shell, dispatch] = useReducer(shellReducer, initialShellState);
@@ -79,6 +97,12 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     [store],
   );
 
+  // 대상(또는 그 프로필의 임신 여부)이 바뀌면 토글(대화 묶음)은 그 프로필 값으로 시작한다(§7.1 규칙 ①·②).
+  // 저장에 실패해 프로필이 그대로면 이 값이 바뀌지 않으므로 대화 값(토글)은 유지된다(FE-11-13 "실패 시 대화 값 유지")
+  useEffect(() => {
+    store.getState().setContext({ pregnant: profilePregnant });
+  }, [store, targetProfileId, profilePregnant]);
+
   const evidenceTurn = turns.find((turn) => turn.id === shell.evidenceTurnId);
   const evidenceResponse = evidenceTurn?.stream.response ?? null;
   const layout = width === null ? null : computeLayout(shell, width);
@@ -114,10 +138,13 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
 
   if (layout === null || width === null) return <div data-testid="app-shell" data-ready="false" className="h-dvh" />;
 
-  /** 고른 대상("누가 먹나요")의 연령대·임신 여부. 게스트이거나 고르지 않았으면 두 칸은 비어 있다(값 전달만, 대화는 저장하지 않는다) */
+  /**
+   * 요청 `context`의 나이·임신 칸: 나이는 고른 대상("누가 먹나요")의 연령대(게스트·미선택은 비움), 임신 여부는 토글 값이다
+   * (일반인 false·임산부 true, FE-11-12 A: null을 보내지 않는다). 값 전달만 하고 대화는 저장하지 않는다
+   */
   const targetContext = () => {
     const state = account.getState();
-    return profileToContext(selectTargetProfile(state), hasHealthConsent(state.me));
+    return { age: profileToContext(selectTargetProfile(state), hasHealthConsent(state.me)).age, pregnant: store.getState().context.pregnant === true };
   };
   // 새 질문: 이번 질문의 되묻기 답은 없다(`confirmed_drugs=[]`, AG-21-02 A). 이전 차례의 선택(`priorDrugs`)은 그대로 실린다
   const send = (question: string) => {
@@ -126,8 +153,30 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   };
   const newChat = () => {
     store.getState().reset();
+    // 새 대화의 토글은 다시 대상 프로필 값으로(게스트는 일반인)
+    store.getState().setContext({ pregnant: profilePregnant });
+    setPregnancyNote({ key: "", hint: false, error: null });
     setPicked({});
     dispatch({ type: "newChat" });
+  };
+  /**
+   * 임신 여부 토글 변경(FE-11-13·14 A): 대화 값은 바로 바꾼다. 로그인 + 건강 정보 동의 + 대상 프로필이 있으면 그 프로필의 `pregnancy_status`를
+   * PATCH(임산부 → pregnant, 일반인 → not_pregnant). 동의 없음·게스트는 저장하지 않고 안내 한 줄. 서버가 422 `HEALTH_CONSENT_REQUIRED`를 주면 같은 동작.
+   * 그 밖의 실패는 대화 값을 유지하고 짧게 알린다. 대상이 없는 로그인 사용자는 저장할 프로필이 없어 이 대화에만 적용한다(안내 없음)
+   */
+  const changePregnant = (next: boolean) => {
+    store.getState().setContext({ pregnant: next });
+    const state = account.getState();
+    const consented = state.status === "member" && hasHealthConsent(state.me);
+    const target = selectTargetProfile(state);
+    const key = pregnancyNoteKey;
+    setPregnancyNote({ key, hint: !consented, error: null });
+    if (!consented || target === null) return;
+    const seq = (pregnancySaveSeq.current += 1);
+    void state.savePregnancy(target.profile_id, next ? "pregnant" : "not_pregnant").then((failure) => {
+      if (!failure || seq !== pregnancySaveSeq.current) return; // 더 나중 변경이 있으면 지난 결과는 무시한다
+      setPregnancyNote(failure.code === "HEALTH_CONSENT_REQUIRED" ? { key, hint: true, error: null } : { key, hint: false, error: failure });
+    });
   };
   // 대상이 바뀌면 이전 선택 힌트를 비운다(AG-21-03 A: 다른 사람의 약을 같은 이름으로 확인하지 않게)
   const changeTarget = (profileId: string | null) => {
@@ -248,7 +297,15 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               {!lastFailed && <LegalFooter disclaimer={dockResponse ? dockResponse.disclaimer : DISCLAIMER} />}
               {/* 대상 선택 "누가 먹나요": 로그인하고 프로필이 있을 때만(게스트는 숨김) */}
               {member && profiles.length > 0 && <TargetPicker profiles={profiles} value={targetProfileId} onChange={changeTarget} />}
-              <ChatInput onSend={(question) => send(question)} />
+              <ChatInput
+                onSend={(question) => send(question)}
+                pregnancy={{
+                  value: pregnant,
+                  onChange: changePregnant,
+                  hint: pregnancyHint ? PREGNANCY_SAVE_CONSENT_HINT : null,
+                  error: pregnancyError ? failureMessage(pregnancyError) : null,
+                }}
+              />
             </div>
           </div>
         </main>

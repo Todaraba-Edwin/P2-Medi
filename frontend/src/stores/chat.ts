@@ -16,6 +16,12 @@ export interface ChatTurn {
    * 서버로는 항상 `question`(원 질문)을 보낸다. 다른 값과 같이 메모리에만 있다
    */
   display?: string;
+  /**
+   * 이 차례를 보낼 때의 임신 여부 선택 값(`context.pregnant` 스냅샷, FE-11-03 A): 일반인(false)으로 받은 결과 아래에
+   * "임부금기는 '임산부'를 고르면 확인해요" 한 줄을 두기 위해서다. 응답은 요청 context를 돌려주지 않으므로 보낼 때 적어 둔다. 메모리에만 있다.
+   * 스토어가 보내는 차례에는 늘 있고, 부품 시험이 만드는 차례에는 없을 수 있다(없으면 한 줄을 두지 않는다)
+   */
+  pregnant?: boolean | null;
   stream: StreamState;
 }
 
@@ -61,7 +67,8 @@ export function createChatStore({ run = runChatStream, contextStorage = createMe
       controller?.abort();
       const own = new AbortController();
       controller = own;
-      set({ activeTurnId: id });
+      // 보내는 순간의 임신 여부 선택을 그 차례에 적어 둔다(다시 시도도 지금 값으로 보낸다)
+      set((state) => ({ activeTurnId: id, turns: state.turns.map((turn) => (turn.id === id ? { ...turn, pregnant: state.context.pregnant } : turn)) }));
       const previous = get().turns.find((turn) => turn.id === id)?.stream ?? initialStreamState;
       // 답(`answer`)을 받는 즉시 이번 질문의 되묻기 답을 이전 선택으로 옮긴다(AG-21-03 A). 스트림이 끝나기를 기다리지 않는다:
       // 사용자가 답을 보고 바로 다음 질문을 보내면 남은 스트림(done)이 끊기므로, 끝난 뒤에 옮기면 이전 선택을 잃는다.
@@ -97,7 +104,7 @@ export function createChatStore({ run = runChatStream, contextStorage = createMe
         if (!text) return;
         sequence += 1;
         const id = `turn-${sequence}`;
-        set((state) => ({ turns: [...state.turns, { id, question: text, ...(display ? { display } : {}), stream: initialStreamState }] }));
+        set((state) => ({ turns: [...state.turns, { id, question: text, ...(display ? { display } : {}), pregnant: state.context.pregnant, stream: initialStreamState }] }));
         await execute(id, text, false);
       },
 

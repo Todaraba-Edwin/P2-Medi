@@ -3,6 +3,7 @@
 import { ChatResponseSchema } from "@/lib/api/schemas";
 import type { ChatResponse, ChatResponseInput } from "@/lib/api/types";
 import {
+  API_NO_CODE_NOTE,
   BADGE_SOURCE_TAIL,
   CAUTION_DUP_INGREDIENT,
   CLARIFY_TAIL,
@@ -865,14 +866,17 @@ export const codeNotLinkedResponse = make(
   [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
 );
 
-/** 공공 API 실패: 상단 배너(`notice`의 새 값)와 파일 기준 결과 */
+/**
+ * 공공 API 실패: 상단 배너(`notice`의 새 값)와 파일 기준 결과. 서버 모양 그대로 줄에도 실시간 확인 노트(`notes[]`, `finalize._notes` →
+ * `provenance.api_flag_note`)가 붙고 근거 항목에는 꼬리표 `API_FAIL`이 있다. 화면은 배너·노트를 본문에 그리지 않고 근거 상세에만 둔다(FE-11-10 A)
+ */
 export const apiFailResponse = make({
   route: "AGENT",
   end_reason: "NORMAL",
   notice: PHRASES.NOTICE_API_FAIL,
   summary: `${DRUG_A}과 ${DRUG_B}은 병용금기 목록에 함께 올라 있어요.`,
-  findings: [pairFinding],
-  detail: [pairDetail],
+  findings: [{ ...pairFinding, notes: [API_NO_CODE_NOTE] }],
+  detail: [{ ...pairDetail, flags: ["API_FAIL"] }],
   citations: [pairCitation],
 });
 
