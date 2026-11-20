@@ -3,6 +3,7 @@
 실제 `.env`는 읽지 않는다. `config.REPO_ROOT`를 monkeypatch로 tmp 폴더로 바꾸고 cwd도 tmp 아래로 옮긴다. 값은 모두 가짜다.
 """
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -77,6 +78,28 @@ def test_local_pg_dsn_line_in_env_does_not_break_settings(fake_repo: Path, monke
     assert s.next_public_supabase_url == "http://front.example"
     assert reveal(s.next_public_supabase_publishable_key) == "sb_publishable_fakefront"
     assert "fake_db" not in repr(s) and "fakefront" not in repr(s)
+
+
+@pytest.mark.parametrize("source", ["env_file", "environ"])
+def test_tester_id_loads_and_is_not_exposed(
+    fake_repo: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, source: str
+) -> None:
+    # 2026-11-20: 루트 `.env`(또는 환경변수)에 TESTER_ID가 있어도 기동이 깨지지 않고, 원문이 repr·str·dump·로그에 나오지 않는다.
+    # 값은 가짜다
+    fake = "fake-tester-0000"
+    monkeypatch.delenv("TESTER_ID", raising=False)
+    if source == "env_file":
+        with (fake_repo / ".env").open("a", encoding="utf-8") as f:
+            f.write(f"TESTER_ID={fake}\n")
+    else:
+        monkeypatch.setenv("TESTER_ID", fake)
+    monkeypatch.chdir(fake_repo)
+    s = get_settings()
+    assert reveal(s.tester_id) == fake
+    assert fake not in repr(s) and fake not in str(s) and fake not in str(s.model_dump())
+    with caplog.at_level("DEBUG"):
+        logging.getLogger("test.config").info("settings=%s tester=%s", s, s.tester_id)
+    assert fake not in caplog.text
 
 
 def test_no_env_files_anywhere(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

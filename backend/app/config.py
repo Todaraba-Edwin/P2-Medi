@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     next_public_supabase_url: str | None = None
     next_public_supabase_publishable_key: SecretStr | None = None
 
+    # 사용자 본인 테스트 계정 식별자(개인정보, 2026-11-20). 서비스 동작에 쓰지 않고 로그·응답에 남기지 않는다. 루트 `.env`에
+    # 있어 선언이 없으면 extra="forbid"로 `get_settings()`가 실패한다(2026-11-20 메인 재현). 원문 비노출로 SecretStr
+    tester_id: SecretStr | None = None
+
     # hide_input_in_errors: 검증 오류(ValidationError)에 .env 입력 값(input_value=…)을 담지 않는다(sec-guard)
     model_config = SettingsConfigDict(env_file=default_env_files(), case_sensitive=False, hide_input_in_errors=True)
 
