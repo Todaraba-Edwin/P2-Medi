@@ -101,6 +101,34 @@ def test_v2_sex_optional_item_in_policy_and_profile_consent():
     assert "성별" not in V2_ROWS["sensitive_consent"]["body"] and "성별" not in V2_ROWS["terms"]["body"]
 
 
+def test_v2_policy_recap45_facts():
+    """Recap 45(2026-11-20 사용자 "초안 승인·⑧ B"): 로그인 저장 항목·쿠키·안전성 조치·보존 정보 문장을 승인 초안 그대로 둔다.
+    사진은 필수 기능(2026-11-20 사용자 정정, 축소는 음성만)이므로 ⑦ 사진 전송 문장((a) 2절·(b) 3절 OpenAI 줄)도 넣는다."""
+    policy = V2_ROWS["privacy_policy"]["body"]
+    assert "| 로그인 정보: 소셜 로그인 공급자(Google·Kakao)가 넘기는 계정 식별자·이메일·이름(Kakao는 닉네임)·프로필 사진 주소" \
+           "(Kakao는 선택 동의한 경우), 가입·마지막 로그인 시각. 로그인 처리(Supabase)가 보관하며, 이 서비스는 이 중 계정 식별자만 씁니다 |" in policy
+    assert "로그인하면 로그인 상태를 유지하기 위한 쿠키(`sb-…-auth-token`)를 사용합니다. 이 쿠키에는 로그인 토큰과 사용자 정보(이메일 포함)가 " \
+           "담기며, 로그아웃하지 않으면 최대 400일 동안 이 브라우저에 남습니다. 로그아웃하면 이 브라우저에서 삭제됩니다. " \
+           "브라우저 설정에서 쿠키를 거부할 수 있으나 로그인이 되지 않을 수 있습니다." in policy
+    assert "세션 쿠키" not in policy  # 지속 쿠키(maxAge 400일)라 "세션 쿠키"는 사실과 다르다
+    assert "본인 계정만 읽고 수정·삭제할 수 있도록 행 수준 보안을 적용하고, 서버도 같은 규칙 아래에서 데이터베이스를 읽고 씁니다. " \
+           "로그인 토큰은 서버가 서명과 만료를 확인한 뒤에만 받아들입니다. 비밀값(키·토큰)은 코드와 로그에 남기지 않고, " \
+           "계정 정보 응답은 브라우저에 캐시하지 않습니다.\n" in policy
+    assert "HTTPS" not in policy  # 배포 주소가 모두 https인지 확인한 뒤 더한다
+    # ⑧ B: 서버 접근 로그를 끄므로 보존 정보는 없다는 문장만, 2절 서버 로그 문장은 그대로 사실이다
+    assert "\n법령에 따라 보존해야 하는 정보는 없습니다.\n" in policy
+    assert "서버 로그에는 시각·걸린 시간·종료 사유·개수만 남고 질문 문장은 남지 않습니다." in policy
+    assert "약봉투 사진과 음성은 저장하지 않습니다. 약봉투 사진을 올리면 약 이름을 읽기 위해 사진이 외부 AI 서비스(OpenAI)로 전송되며, " \
+           "그곳의 보관은 3절과 같습니다.\n" in policy
+    openai_row = next(line for line in policy.splitlines() if line.startswith("| OpenAI"))
+    cells = [c.strip() for c in openai_row.strip("|").split(" | ")]
+    assert len(cells) == 6 and cells[1] == "답변 생성, 약봉투 사진에서 약 이름 읽기"
+    assert cells[2].endswith("로그인하지 않고 질문에 적은 내용도 같습니다. 약봉투 사진을 올린 경우 그 사진(사진에 인쇄된 이름·약국 정보 등이 함께 담길 수 있음)")
+    assert cells[3] == "미국 / 질문하거나 사진을 올릴 때마다 / 인터넷 전송"
+    assert cells[5].endswith("사진을 올리지 않으면 사진은 전송되지 않으며, 약 이름을 직접 입력할 수 있습니다.")
+    assert "{{확인 필요" not in policy.replace("Supabase {{확인 필요: 법인 명칭·연락처}}", "")
+
+
 def test_v2_seed_substitutes_effective_at_only():
     sql = seed_sql(datetime(2026, 12, 1, tzinfo=UTC), version=2)
     assert "{{EFFECTIVE_AT}}" not in sql and sql.count("'2026-12-01T00:00:00+00:00'") == 4
@@ -112,13 +140,13 @@ def test_v2_seed_substitutes_effective_at_only():
 def test_placeholders_block_remote_publish_but_not_v1():
     sql_v2 = seed_sql(datetime(2026, 12, 1, tzinfo=UTC), version=2)
     left = unfilled_placeholders(sql_v2)
-    assert {"{{PRIVACY_CONTACT}}", "{{SUPABASE_REGION}}", "{{BACKUP_RETENTION_DAYS}}"} <= set(left)
-    assert any(p.startswith("{{확인 필요:") for p in left)
+    # Recap 45(2026-11-20 사용자 승인, ⑧ B) 뒤 남는 자리표시는 ① 리전 ② 연락처 ③ 백업 일수 + Supabase 법인뿐이다
+    assert set(left) == {"{{PRIVACY_CONTACT}}", "{{SUPABASE_REGION}}", "{{BACKUP_RETENTION_DAYS}}", "{{확인 필요: 법인 명칭·연락처}}"}
     # PRD-17 ⑫(2026-11-20, Recap 58): OpenAI 줄의 법인·연락처·국가·보관 기간은 채웠다. 다른 자리표시가 남아 게시 차단은 그대로다
     assert "{{COUNTRY_OPENAI}}" not in left and "{{확인 필요: 기간}}" not in left
     openai_row = next(line for line in V2_ROWS["privacy_policy"]["body"].splitlines() if line.startswith("| OpenAI"))
     assert "{{" not in openai_row
-    assert "OpenAI OpCo, L.L.C." in openai_row and "| 미국 / 질문할 때마다 / 인터넷 전송 |" in openai_row and "최대 30일" in openai_row
+    assert "OpenAI OpCo, L.L.C." in openai_row and "| 미국 / 질문하거나 사진을 올릴 때마다 / 인터넷 전송 |" in openai_row and "최대 30일" in openai_row
     assert "{{…}}" not in left  # 승인 원문 머리의 안내 문구는 자리표시가 아니다
     with pytest.raises(ValueError, match="PRIVACY_CONTACT"):
         assert_publishable(sql_v2)

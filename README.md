@@ -67,8 +67,10 @@ backend/.venv/bin/python -m pip install -e "backend[dev]"
 `backend/app/main.py`의 FastAPI 앱 `app`을 uvicorn으로 띄운다. 가정: 진입점 모듈 경로는 `app.main:app`이며 `backend/`를 작업 디렉터리로 쓴다.
 
 ```bash
-backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --port 8000
+backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --port 8000 --no-access-log
 ```
+
+- `--no-access-log`: 접속 IP·요청 경로를 서버 로그에 남기지 않는다(개인정보 처리방침 v2 §4, PRD-17 ⑫ ⑧ B). 빼지 않는다.
 
 - 상태 확인: `GET /health`
 - 질문 1건: `POST /chat`(게스트 허용). 요청·응답 스키마는 서버가 띄우는 `/docs`(OpenAPI)에서 확인한다. 필요한 환경변수(5)가 갖춰지지 않으면 `/chat`은 501을 돌려준다(의도된 상태, `backend/app/main.py` 머리 설명).

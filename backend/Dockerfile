@@ -32,4 +32,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"
 
 # 프록시(로드밸런서·Caddy 등) 뒤에서 HTTPS를 끝낸다. 워커 1개(요청별 그래프, 지연 자원은 프로세스당 1회 생성)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--workers", "1"]
+# --no-access-log: 접속 IP·요청 경로를 남기지 않는다(PRD-17 ⑫ ⑧ B, 2026-11-20 처리방침 §4 "보존해야 하는 정보는 없습니다")
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--workers", "1", "--no-access-log"]
