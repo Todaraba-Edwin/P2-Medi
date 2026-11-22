@@ -31,7 +31,7 @@ function SheetContent({
   const position = container ? "absolute" : "fixed";
   return (
     <SheetPrimitive.Portal container={container ?? undefined}>
-      <SheetPrimitive.Overlay data-testid="sheet-scrim" className={cn(position, "inset-0 z-50 bg-ink/50")} />
+      <SheetPrimitive.Overlay data-testid="sheet-scrim" className={cn(position, "inset-0 z-50 bg-scrim/50")} />
       <SheetPrimitive.Content className={cn(position, "z-50 bg-bg p-4 shadow-lg", sideClass, className)} {...props}>
         {children}
         {/* 누르는 영역 44px(FE-IMPL-06, 지시서 A7) */}

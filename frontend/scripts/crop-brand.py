@@ -9,6 +9,7 @@
 3. 배경과 맞닿은 테두리 2px은 안쪽 색을 기준으로 알파를 계산하고 색을 안쪽 색으로 바꾼다(흰 테두리 할로 방지).
 4. 그림마다 연결 성분의 외접 사각형 + 여백으로 잘라 public/brand/에 저장하고, 로고 심볼로 favicon·앱 아이콘을 만든다.
 5. 부품이 쓸 크기 표를 src/components/brand/assets.generated.ts로 쓴다.
+6. 다크 모드용 워드마크 logo-dark.png: 같은 로고에서 갈색 글자만 흰색(#FFFFFF)으로 바꾼다(FE-12-06 A). 말풍선 테두리·파랑 획·밑줄은 그대로다.
 """
 
 from __future__ import annotations
@@ -192,6 +193,38 @@ def build_rgba(sheet: Image.Image) -> tuple[Image.Image, bytearray]:
     return Image.frombytes("RGBA", (width, height), bytes(out)), bg
 
 
+def is_brown(p: tuple[int, int, int, int]) -> bool:
+    """로고의 갈색 획(글자·말풍선 테두리). 파랑(b>r)과 흰·크림은 아니다. 알파가 있는 칸만 본다"""
+    r, g, b, a = p
+    return a >= 40 and r >= g >= b and r - b >= 12 and r + g + b <= 330
+
+
+def dark_logo(rgba: Image.Image, logo_comps: list[dict]) -> Image.Image:
+    """다크 모드용 워드마크(FE-12-06 A): 로고의 갈색 글자만 흰색(#FFFFFF)으로 바꾼다.
+    말풍선 심볼 테두리(갈색)·파랑 획·밑줄은 그대로 둔다. 말풍선 테두리는 글자와 이어진 성분이 아니어서 가장 왼쪽 성분으로 가려낸다."""
+    width, height = rgba.size
+    px = rgba.load()
+    mask = bytearray(width * height)
+    for comp in logo_comps:
+        for i in comp["cells"]:
+            if is_brown(px[i % width, i // width]):
+                mask[i] = 1
+    brown = [c for c in components(width, height, mask, eight=True) if len(c["cells"]) >= MIN_COMPONENT]
+    capsule = min(brown, key=lambda c: c["box"][0])  # 말풍선 테두리는 왼쪽 끝에서 시작한다
+    out = rgba.copy()
+    opx = out.load()
+    changed = 0
+    for comp in brown:
+        if comp is capsule:
+            continue
+        for i in comp["cells"]:
+            x, y = i % width, i // width
+            opx[x, y] = (255, 255, 255, opx[x, y][3])
+        changed += 1
+    print(f"다크 워드마크: 갈색 글자 성분 {changed}개를 흰색으로(말풍선 테두리 1개 유지)")
+    return out
+
+
 def crop_union(rgba: Image.Image, comps: list[dict]) -> Image.Image:
     """성분들의 외접 사각형 + 여백으로 자르고, 고른 성분 밖의 칸(잡음·이웃 그림)은 지운다."""
     width, height = rgba.size
@@ -257,6 +290,8 @@ def main() -> int:
         used.update(k for k, _ in mine)
         results[name] = crop_union(rgba, [c for _, c in mine])
         if name == "logo":
+            # 다크 모드용 워드마크(FE-12-06 A): 같은 그림에서 글자만 흰색으로 바꾼다
+            results["logo-dark"] = crop_union(dark_logo(rgba, [c for _, c in mine]), [c for _, c in mine])
             symbol = [c for _, c in mine if inside(c["box"], SYMBOL_BOX)]
             if len(symbol) != 1:
                 print(f"로고에서 심볼을 하나로 집지 못했다(SYMBOL_BOX 확인): {len(symbol)}개")

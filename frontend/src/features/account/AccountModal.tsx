@@ -78,7 +78,7 @@ export function AccountModal({ store = accountStore, container = null, hasEmerge
   return (
     <Dialog.Root open={step !== undefined} onOpenChange={(open) => !open && store.getState().close()}>
       <Dialog.Portal container={container}>
-        <Dialog.Overlay data-testid="account-scrim" className="absolute inset-0 z-40 bg-ink/50" />
+        <Dialog.Overlay data-testid="account-scrim" className="absolute inset-0 z-40 bg-scrim/50" />
         <Dialog.Content
           ref={content}
           aria-describedby={undefined}

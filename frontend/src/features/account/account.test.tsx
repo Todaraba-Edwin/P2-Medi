@@ -710,12 +710,17 @@ describe("시작 화면 진입 선택·사이드바 계정 자리", () => {
     expect(onLogin).toHaveBeenCalledTimes(1);
   });
 
-  it("게스트는 '로그인/가입', 로그인하면 상태 글자·프로필 관리·로그아웃(서버는 이름·이메일을 주지 않는다)", () => {
-    const { rerender } = render(<AccountMenu member={false} onOpen={() => {}} onLogout={() => {}} />);
-    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["로그인/가입"]);
-    rerender(<AccountMenu member onOpen={() => {}} onLogout={() => {}} />);
+  it("게스트는 '로그인/가입'·'설정', 로그인하면 상태 글자·프로필 관리·설정·로그아웃(서버는 이름·이메일을 주지 않는다)", () => {
+    const { rerender } = render(<AccountMenu member={false} accountEnabled onOpen={() => {}} onLogout={() => {}} onSettings={() => {}} />);
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["로그인/가입", "설정"]);
+    rerender(<AccountMenu member accountEnabled onOpen={() => {}} onLogout={() => {}} onSettings={() => {}} />);
     expect(screen.getByTestId("account-name")).toHaveTextContent("로그인됨");
-    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["프로필 관리", "로그아웃"]);
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["프로필 관리", "설정", "로그아웃"]);
+  });
+
+  it("계정 기능이 꺼져 있으면 게스트에게 '로그인/가입'을 그리지 않고 '설정'만 남는다", () => {
+    render(<AccountMenu member={false} accountEnabled={false} onOpen={() => {}} onLogout={() => {}} onSettings={() => {}} />);
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["설정"]);
   });
 });
 

@@ -156,7 +156,7 @@ export function ConfirmDialog({ open, onOpenChange, title, body, confirmLabel, o
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialog.Portal container={container}>
-        <AlertDialog.Overlay className="absolute inset-0 z-50 bg-ink/50" />
+        <AlertDialog.Overlay className="absolute inset-0 z-50 bg-scrim/50" />
         <AlertDialog.Content
           data-testid="confirm-dialog"
           className="absolute top-1/2 left-1/2 z-50 flex w-[calc(100%-48px)] max-w-[360px] -translate-x-1/2 -translate-y-1/2 flex-col gap-2 rounded-3xl bg-bg p-5 shadow-lg outline-none"

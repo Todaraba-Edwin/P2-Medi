@@ -19,10 +19,11 @@ function png(file: string) {
   return { width: head.readUInt32BE(16), height: head.readUInt32BE(20), colorType: head[25], bytes: statSync(full).size };
 }
 
-const EXPECTED = ["mascot-question", "mascot-search", "icon-pill", "icon-pill-square", "face", "face-square", "logo", "symbol"];
+// logo-dark: 다크 모드용 워드마크(FE-12-06 A, 갈색 글자를 흰색으로 바꾼 같은 그림)
+const EXPECTED = ["mascot-question", "mascot-search", "icon-pill", "icon-pill-square", "face", "face-square", "logo", "logo-dark", "symbol"];
 
 describe("브랜드 이미지 파일", () => {
-  it("배정된 그림 8개가 크기 표에 있다", () => {
+  it("배정된 그림 8개와 다크 워드마크 1개가 크기 표에 있다", () => {
     expect(Object.keys(BRAND_ASSETS).sort()).toEqual([...EXPECTED].sort());
   });
 

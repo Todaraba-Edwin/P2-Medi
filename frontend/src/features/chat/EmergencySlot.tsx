@@ -12,12 +12,12 @@ export function EmergencySlot({ emergency }: { emergency: Emergency }) {
       <div
         role="alert"
         data-testid="emergency-slot"
-        className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-2xl bg-red px-3.5 py-3 text-bg"
+        className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-2xl bg-red px-3.5 py-3 text-on-solid"
       >
         <p className="m-0 min-w-0 flex-1 basis-44 text-base leading-6 font-bold break-words">{emergency.text}</p>
         <a
           href={EMERGENCY_TEL_HREF}
-          className="flex min-h-11 items-center rounded-full bg-bg px-4 font-extrabold text-red no-underline"
+          className="flex min-h-11 items-center rounded-full bg-bg px-4 font-extrabold text-red-ink no-underline"
         >
           {EMERGENCY_TEL_TEXT}
         </a>
