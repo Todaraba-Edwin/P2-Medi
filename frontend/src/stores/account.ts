@@ -159,6 +159,15 @@ export function selectTargetProfile(state: Pick<AccountState, "status" | "profil
   return state.profiles.find((profile) => profile.profile_id === state.targetProfileId) ?? null;
 }
 
+/**
+ * 질문 입력창의 임신 여부 토글을 숨기는가(FE-11-09 C, GROUP-03 3단계): **대상 프로필의 성별이 남성일 때만** 숨긴다.
+ * 여성·성별 미입력·대상 없음(게스트·선택 안 함)은 보인다. 숨겼을 때 `context.pregnant`는 false다(FE-11-12 A, `AppShell`이 보장).
+ * 성별은 여기서 토글 표시에만 쓰고 `/chat` 요청에는 싣지 않는다(S10). 요청을 만드는 `profile-context.ts`에는 두지 않는다(정적 검사)
+ */
+export function hidesPregnancyToggle(profile: Profile | null): boolean {
+  return profile?.sex === "male";
+}
+
 // ---------------------------------------------------------------- 스토어
 export function createAccountStore({ api = accountApi }: { api?: AccountApi } = {}): AccountStore {
   return createStore<AccountState>()((set, get) => {

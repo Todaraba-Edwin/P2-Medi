@@ -16,7 +16,7 @@ import { groupCandidates } from "@/features/result";
 import { DISCLAIMER, START_EMERGENCY_119 } from "@/lib/fixed/phrases.generated";
 import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation } from "@/lib/supabase/callback";
 import { cn } from "@/lib/utils";
-import { accountStore, hasHealthConsent, selectTargetProfile, useAccountStore } from "@/stores/account";
+import { accountStore, hasHealthConsent, hidesPregnancyToggle, selectTargetProfile, useAccountStore } from "@/stores/account";
 import type { AccountFailure, AccountStore } from "@/stores/account";
 import { chatStore, useChatStore } from "@/stores/chat";
 import type { ChatStore } from "@/stores/chat";
@@ -42,6 +42,8 @@ import { useViewportWidth } from "./useViewportWidth";
  *   시작값은 고른 대상 프로필의 임신 여부(건강 정보 동의가 있을 때, 임신 중이면 임산부)이고 대상을 바꾸면 그 값으로 바뀐다. 게스트는 일반인.
  *   토글을 바꾸면 로그인 + 건강 정보 동의 + 대상 프로필이 있을 때만 그 프로필의 `pregnancy_status`를 PATCH한다(FE-11-13, 양방향);
  *   동의 없음·게스트는 저장하지 않고 이 대화에만 적용하며 안내 한 줄을 둔다(FE-11-14 A). 저장 실패는 대화 값을 유지하고 짧게 알린다
+ * - 성별 숨김(FE-11-09 C, GROUP-03 3단계): 대상 프로필의 성별이 **남성일 때만** 토글을 그리지 않고 `context.pregnant`는 false로 고정한다(FE-11-12 A).
+ *   여성·성별 미입력·게스트(대상 없음)는 그대로 보인다. 가족 프로필을 고르면 그 프로필의 성별을 따른다. 토글이 빠져도 입력창 높이는 같다(textarea `min-h-11`이 44px를 유지)
  */
 export function AppShell({ store = chatStore, account = accountStore }: { store?: ChatStore; account?: AccountStore }) {
   const width = useViewportWidth();
@@ -51,8 +53,13 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const profiles = useAccountStore((state) => state.profiles, account);
   const targetProfileId = useAccountStore((state) => state.targetProfileId, account);
   const entryDismissed = useAccountStore((state) => state.entryDismissed, account);
-  /** 고른 대상 프로필의 임신 여부(건강 정보 동의가 있을 때만 읽는다). 토글의 시작값이고 대상·프로필이 바뀌면 토글이 이 값으로 돌아간다 */
-  const profilePregnant = useAccountStore((state) => profileToContext(selectTargetProfile(state), hasHealthConsent(state.me)).pregnant === true, account);
+  /** 대상 프로필이 남성이면 토글을 숨긴다(FE-11-09 C). 게스트·선택 안 함·여성·미입력은 false */
+  const pregnancyHidden = useAccountStore((state) => hidesPregnancyToggle(selectTargetProfile(state)), account);
+  /**
+   * 고른 대상 프로필의 임신 여부(건강 정보 동의가 있을 때만 읽는다). 토글의 시작값이고 대상·프로필이 바뀌면 토글이 이 값으로 돌아간다.
+   * 토글을 숨기는 대상(남성)은 저장된 값과 상관없이 false다(FE-11-12 A)
+   */
+  const profilePregnant = useAccountStore((state) => !hidesPregnancyToggle(selectTargetProfile(state)) && profileToContext(selectTargetProfile(state), hasHealthConsent(state.me)).pregnant === true, account);
   /** 임신 여부 토글 값(대화 묶음 `context.pregnant`, 메모리). null(아직 정하지 않음)은 일반인으로 본다 */
   const pregnant = useChatStore((state) => state.context.pregnant === true, store);
   /**
@@ -149,11 +156,12 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
 
   /**
    * 요청 `context`의 나이·임신 칸: 나이는 고른 대상("누가 먹나요")의 연령대(게스트·미선택은 비움), 임신 여부는 토글 값이다
-   * (일반인 false·임산부 true, FE-11-12 A: null을 보내지 않는다). 값 전달만 하고 대화는 저장하지 않는다
+   * (일반인 false·임산부 true, FE-11-12 A: null을 보내지 않는다). 토글을 숨긴 대상(남성, FE-11-09 C)은 늘 false다. 값 전달만 하고 대화는 저장하지 않는다
    */
   const targetContext = () => {
     const state = account.getState();
-    return { age: profileToContext(selectTargetProfile(state), hasHealthConsent(state.me)).age, pregnant: store.getState().context.pregnant === true };
+    const target = selectTargetProfile(state);
+    return { age: profileToContext(target, hasHealthConsent(state.me)).age, pregnant: !hidesPregnancyToggle(target) && store.getState().context.pregnant === true };
   };
   // 새 질문: 이번 질문의 되묻기 답은 없다(`confirmed_drugs=[]`, AG-21-02 A). 이전 차례의 선택(`priorDrugs`)은 그대로 실린다
   const send = (question: string) => {
@@ -334,15 +342,20 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               {!lastFailed && <LegalFooter disclaimer={dockResponse ? dockResponse.disclaimer : DISCLAIMER} />}
               {/* 대상 선택 "누가 먹나요": 로그인하고 프로필이 있을 때만(게스트는 숨김) */}
               {member && profiles.length > 0 && <TargetPicker profiles={profiles} value={targetProfileId} onChange={changeTarget} />}
+              {/* 임신 여부 토글은 대상이 남성 프로필이면 그리지 않는다(FE-11-09 C). 안내·오류 줄도 토글과 함께 빠진다 */}
               <ChatInput
                 onSend={(question) => send(question)}
                 onPhoto={openPhoto}
-                pregnancy={{
-                  value: pregnant,
-                  onChange: changePregnant,
-                  hint: pregnancyHint ? PREGNANCY_SAVE_CONSENT_HINT : null,
-                  error: pregnancyError ? failureMessage(pregnancyError) : null,
-                }}
+                pregnancy={
+                  pregnancyHidden
+                    ? undefined
+                    : {
+                        value: pregnant,
+                        onChange: changePregnant,
+                        hint: pregnancyHint ? PREGNANCY_SAVE_CONSENT_HINT : null,
+                        error: pregnancyError ? failureMessage(pregnancyError) : null,
+                      }
+                }
               />
             </div>
           </div>

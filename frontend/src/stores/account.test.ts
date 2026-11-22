@@ -31,7 +31,7 @@ import type { Me, Profile, ProfileDraft } from "@/lib/api/account";
 import { AGE_BAND_LABELS } from "@/features/account/copy";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK } from "@/mocks/fixtures/account";
-import { canAddFamily, canAddSelf, consentChannel, consentItems, createAccountStore, hasHealthConsent, needsConsentStep, requiredAgreed, selectTargetProfile } from "./account";
+import { canAddFamily, canAddSelf, consentChannel, consentItems, createAccountStore, hasHealthConsent, hidesPregnancyToggle, needsConsentStep, requiredAgreed, selectTargetProfile } from "./account";
 import type { ConsentChoices } from "./account";
 import { buildChatRequest, emptyConversationContext } from "./conversation-context";
 import { AGE_BAND_RANGE, profileToContext } from "./profile-context";
@@ -630,5 +630,16 @@ describe("대상 선택 → 요청 context", () => {
     const store = createAccountStore();
     store.getState().setTarget("anything");
     expect(selectTargetProfile(store.getState())).toBeNull();
+  });
+
+  it("임신 여부 토글 숨김(FE-11-09 C, GROUP-03 3단계): 대상 프로필이 남성일 때만 true, 여성·미입력·대상 없음(게스트)은 false", () => {
+    const profile: Profile = { profile_id: "p", relation: "self", label: "나", age_band: "y19_64", sex: "male", pregnancy_status: null, sort_order: 0, medications: [] };
+    expect(hidesPregnancyToggle(profile)).toBe(true);
+    expect(hidesPregnancyToggle({ ...profile, pregnancy_status: "pregnant" })).toBe(true); // 저장 값이 어긋나 있어도 성별이 남성이면 숨긴다
+    expect(hidesPregnancyToggle({ ...profile, sex: "female" })).toBe(false);
+    expect(hidesPregnancyToggle({ ...profile, sex: null })).toBe(false);
+    expect(hidesPregnancyToggle(null)).toBe(false);
+    const store = createAccountStore();
+    expect(hidesPregnancyToggle(selectTargetProfile(store.getState()))).toBe(false); // 게스트
   });
 });
