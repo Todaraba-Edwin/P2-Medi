@@ -44,10 +44,14 @@ export interface MedicationPickerProps {
 /**
  * 프로필 약 입력(FE-04-13 A): 글자를 적으면 사전 후보(제품명 → 성분명, 최대 10)를 보여 주고 고르게 하는 콤보박스(WAI-ARIA combobox + listbox).
  * - 입력이 멈춘 뒤 300ms에 한 번 검색한다(1글자 이상, 100자 이하). 검색어가 바뀌면 앞 요청은 끊고 결과를 버린다
- * - ↑↓로 후보를 옮기고 Enter로 고른다. 고른 후보가 없을 때의 Enter·`추가`는 적은 글자를 **그대로**(`item_seq` 없음 = 확인 안 된 약) 넣는다.
- *   후보가 하나뿐이어도 자동으로 고르지 않는다(비슷한 이름 후보를 조용히 확정하지 않게). Esc는 목록만 닫는다(목록이 닫혀 있으면 모달의 Esc다)
- * - 검색이 실패해도(401·422·네트워크) 적은 글자는 그대로 남고 `추가`로 저장할 수 있다. 검색어는 콘솔·로그·오류 객체에 남기지 않는다
- * - 한글 조합 중의 Enter·화살표는 넘긴다(`isComposing`)
+ * - ↑↓로 후보를 옮기고 Enter로 고른다. 후보가 하나뿐이어도 자동으로 고르지 않는다(FE-04-22 A, 비슷한 이름 후보를 조용히 확정하지 않게).
+ *   Esc는 목록만 닫는다(목록이 닫혀 있으면 모달의 Esc다)
+ * - 고르지 않은 채 저장하는 길(FE-04-24 A, 2026-11-22):
+ *   · 검색 중(입력이 멈추기 전 디바운스 대기·요청 중)에는 `그대로 추가`가 비활성이고 Enter도 저장하지 않는다(후보를 보기 전에 확인 안 된 약으로 들어가지 않게)
+ *   · 지금 글자의 후보가 1개 이상 있으면 Enter는 **첫 후보로 활성만 옮기고** 저장하지 않는다. 한 번 더 Enter를 누르면 그 후보가 들어간다
+ *   · 후보가 없거나 검색이 실패했을 때의 Enter와, 언제든 누르는 `그대로 추가` 버튼은 적은 글자를 **그대로**(`item_seq` 없음 = 확인 안 된 약) 넣는다
+ * - 검색이 실패해도(401·422·네트워크) 적은 글자는 그대로 남고 `그대로 추가`로 저장할 수 있다. 검색어는 콘솔·로그·오류 객체에 남기지 않는다
+ * - 한글 조합 중의 Enter·화살표는 넘긴다(`isComposing`, 조합을 끝내는 Enter를 `keyCode 229`로 보내는 브라우저도 같이 본다)
  */
 export function MedicationPicker({ id, count, onAdd, search = searchDrugs }: MedicationPickerProps) {
   const listId = useId();
@@ -64,6 +68,10 @@ export function MedicationPicker({ id, count, onAdd, search = searchDrugs }: Med
   const q = query.trim();
   const candidates = result?.candidates ?? [];
   const listed = open && candidates.length > 0;
+  /** 검색할 글자인데 아직 이 글자의 결과가 없다(디바운스 대기·요청 중). 실패(`error`)는 끝난 것으로 쳐서 글자 저장을 막지 않는다 */
+  const awaiting = !!q && !full && q.length <= DRUG_QUERY_MAX_CHARS && status !== "error" && result?.q !== q;
+  /** 지금 글자로 찾은 후보가 1개 이상 있다(목록이 닫혀 있어도) */
+  const hasCandidates = !awaiting && result?.q === q && candidates.length > 0;
 
   // 입력이 멈춘 뒤 300ms에 검색한다. 그 사이 입력이 바뀌면 예약을 지우고 진행 중 요청은 끊는다(끊은 요청의 결과·오류는 버린다)
   useEffect(() => {
@@ -108,16 +116,17 @@ export function MedicationPicker({ id, count, onAdd, search = searchDrugs }: Med
     input.current?.focus();
   };
 
-  /** 후보 없이 적은 글자 그대로(확인 안 된 약) */
+  /** 후보 없이 적은 글자 그대로(확인 안 된 약). 검색 중에는 넣지 않는다(FE-04-24 A) */
   const confirmText = () => {
-    if (!q || full) return;
+    if (!q || full || awaiting) return;
     onAdd({ input_text: q, item_seq: null });
     reset();
     input.current?.focus();
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    // 한글 조합 중이면 넘긴다. 일부 브라우저(Safari)는 조합을 끝내는 Enter를 `isComposing=false`·`keyCode 229`로 보내므로 함께 본다
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     switch (event.key) {
       case "ArrowDown":
         if (candidates.length === 0) return;
@@ -131,10 +140,14 @@ export function MedicationPicker({ id, count, onAdd, search = searchDrugs }: Med
         setActive((current) => Math.max(current - 1, -1));
         return;
       case "Enter":
-        // 폼을 저장하지 않는다(폼 submit은 저장 버튼만). 고른 후보가 있으면 그 후보, 없으면 적은 글자 그대로
+        // 폼을 저장하지 않는다(폼 submit은 저장 버튼만).
+        // 고른 후보가 있으면 그 후보 → 후보가 있는데 안 골랐으면 첫 후보로 활성만(저장 없음, FE-04-24 A) → 검색 중이면 아무것도 안 함 → 그 밖(후보 없음·실패)은 글자 그대로
         event.preventDefault();
         if (listed && active >= 0 && candidates[active]) pick(candidates[active]);
-        else confirmText();
+        else if (hasCandidates) {
+          setOpen(true);
+          setActive(0);
+        } else confirmText();
         return;
       case "Escape":
         // 목록이 열려 있을 때만 여기서 먹는다(모달의 Esc 닫기는 `AccountModal`이 열린 콤보박스를 보고 막는다)
@@ -155,7 +168,8 @@ export function MedicationPicker({ id, count, onAdd, search = searchDrugs }: Med
   /** 상태 한 줄: 상한 → 찾는 중 → 실패 → 후보 없음 순서. 없으면 null(후보가 보일 때는 개수만 보조기기에 읽힌다) */
   const line = ((): { text: string; testId: string } | null => {
     if (full) return { text: ERROR_MEDICATION_LIMIT, testId: "medication-limit" };
-    if (status === "searching") return { text: MEDICATION_SEARCHING, testId: "medication-searching" };
+    // 디바운스 대기 중에도 "찾는 중"으로 둔다: 이 동안 `그대로 추가`가 비활성인 이유가 보여야 한다(FE-04-24 A)
+    if (awaiting) return { text: MEDICATION_SEARCHING, testId: "medication-searching" };
     if (status === "error") return { text: authExpired ? MEDICATION_SEARCH_AUTH_EXPIRED : MEDICATION_SEARCH_FAILED, testId: "medication-search-error" };
     if (status === "ready" && result !== null && candidates.length === 0) return { text: MEDICATION_NO_CANDIDATES, testId: "medication-no-candidates" };
     return null;
@@ -201,7 +215,8 @@ export function MedicationPicker({ id, count, onAdd, search = searchDrugs }: Med
           }}
           className={FIELD_CLASS}
         />
-        <button type="button" data-testid="medication-add" disabled={full || !q} onClick={confirmText} className={`${SECONDARY_BUTTON} flex-none`}>
+        {/* 검색 중에는 비활성(FE-04-24 A): 후보를 보기 전에 확인 안 된 약으로 저장되지 않게 한다 */}
+        <button type="button" data-testid="medication-add" disabled={full || !q || awaiting} onClick={confirmText} className={`${SECONDARY_BUTTON} flex-none`}>
           {MEDICATION_ADD_LABEL}
         </button>
       </div>

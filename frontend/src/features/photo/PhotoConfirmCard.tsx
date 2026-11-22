@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { canConfirm } from "./build-chat-input";
 import type { PhotoRow } from "./build-chat-input";
 import {
+  DRUG_DATA_SCOPE_NOTICE,
   PHOTO_ADD_DRUG_LABEL,
   PHOTO_CANDIDATES_GUIDE,
   PHOTO_CANDIDATES_LABEL,
@@ -58,6 +59,10 @@ export function PhotoConfirmCard({ rows, question, emergency, onEditName, onPick
       <NoMascotZone>
         <p data-testid="photo-confirm-guide" className="m-0 text-sm leading-5 text-ink-2 [word-break:keep-all]">
           {PHOTO_CONFIRM_GUIDE}
+        </p>
+        {/* 자료 밖 약 고지(FE-04-25 A): 프로필 복용 약 입력과 같은 상수·같은 모양. 색은 토큰만(라이트·다크 AA) */}
+        <p data-testid="drug-data-scope-notice" className="m-0 mt-2 rounded-xl bg-bg-soft px-3 py-2 text-xs leading-[17px] text-ink-2 [word-break:keep-all]">
+          {DRUG_DATA_SCOPE_NOTICE}
         </p>
       </NoMascotZone>
       <ul aria-label={PHOTO_DRUG_LIST_LABEL} data-testid="photo-rows" className="m-0 flex list-none flex-col gap-2 p-0">

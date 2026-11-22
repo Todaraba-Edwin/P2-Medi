@@ -9,6 +9,7 @@ import {
   AGE_BAND_LABEL,
   AGE_BAND_LABELS,
   CANCEL_LABEL,
+  DRUG_DATA_SCOPE_NOTICE,
   ERROR_NAME_EMPTY,
   MEDICATIONS_LABEL,
   MEDICATION_UNCONFIRMED_NOTE,
@@ -178,6 +179,10 @@ export function ProfileForm() {
             {MEDICATIONS_LABEL}
           </label>
           <MedicationPicker id={`${id}-medication`} count={medications.length} onAdd={addMedication} />
+          {/* 자료 밖 약 고지(FE-04-25 A): 사진 확인 카드와 같은 상수·같은 모양. 색은 토큰만(라이트·다크 AA) */}
+          <p data-testid="drug-data-scope-notice" className="m-0 rounded-xl bg-bg-soft px-3 py-2 text-xs leading-[17px] text-ink-2 [word-break:keep-all]">
+            {DRUG_DATA_SCOPE_NOTICE}
+          </p>
           {healthConsent && medications.length > 0 && (
             <>
               <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
