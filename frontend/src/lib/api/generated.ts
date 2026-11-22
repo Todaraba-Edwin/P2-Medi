@@ -73,6 +73,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ingest/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 약봉투 사진에서 약 이름 후보를 읽는다(gpt-6-luna 1회, 판정 없음, 게스트 허용, 사진·질문 비저장) */
+        post: operations["ingest_image_ingest_image_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/legal/{doc_type}": {
         parameters: {
             query?: never;
@@ -104,7 +121,7 @@ export interface paths {
         get: operations["me_me_get"];
         put?: never;
         post?: never;
-        /** 계정 삭제(프로필·복용 약·동의 기록 즉시 전부 파기) */
+        /** 계정 삭제(프로필·복용 약·동의 기록 즉시 전부 파기 뒤 로그인 계정 삭제) */
         delete: operations["delete_me_me_delete"];
         options?: never;
         head?: never;
@@ -700,6 +717,50 @@ export interface components {
             title: string;
         };
         /**
+         * IngestDrugOut
+         * @description 사진에서 읽은 약 하나. 읽은 글자와 사전 후보를 병기한다. 기본 선택·확신도 칸은 없다.
+         */
+        IngestDrugOut: {
+            /** Candidates */
+            candidates: components["schemas"]["DrugCandidateOut"][];
+            /** Read Ingredient */
+            read_ingredient: string | null;
+            /** Read Name */
+            read_name: string | null;
+            /** Strength Or Form */
+            strength_or_form: string | null;
+        };
+        /**
+         * IngestImageIn
+         * @description 요청 본문. 길이·형식은 핸들러가 검사해 칸 이름(`image`·`question`)을 422 `fields`에 싣는다.
+         */
+        IngestImageIn: {
+            /** Image */
+            image: string;
+            /** Question */
+            question?: string | null;
+        };
+        /**
+         * IngestImageOut
+         * @description `POST /ingest/image` 응답. 판정·설명·요약 칸은 없다.
+         */
+        IngestImageOut: {
+            /** Dict Unavailable */
+            dict_unavailable: boolean;
+            /** Dict Version */
+            dict_version: string;
+            /** Drugs */
+            drugs: components["schemas"]["IngestDrugOut"][];
+            emergency: components["schemas"]["Emergency"] | null;
+            /** Reason */
+            reason: ("NONE_READ" | "MODEL_ERROR" | "REFUSED" | "PARSE_ERROR" | "CAP_REACHED") | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "OK" | "UNREADABLE" | "UNAVAILABLE";
+        };
+        /**
          * Ingredient
          * @description 제품 줄의 성분 하나(PRD-09-05). 성분명으로만 식별한 약은 그 성분 하나만 담는다.
          */
@@ -1206,6 +1267,39 @@ export interface operations {
             };
         };
     };
+    ingest_image_ingest_image_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestImageIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestImageOut"];
+                };
+            };
+            /** @description INVALID_REQUEST(fields=["image"] 형식·크기·픽셀, ["question"] 500자 초과). 입력 값은 되돌려 주지 않는다. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_legal_legal__doc_type__get: {
         parameters: {
             query?: {
@@ -1340,6 +1434,15 @@ export interface operations {
             };
             /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_DELETE_FAILED: 앱 데이터는 지웠고 로그인 계정 삭제가 실패했다. 다시 요청하면 이어서 지운다(멱등). */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };
