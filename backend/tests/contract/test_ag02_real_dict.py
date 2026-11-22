@@ -31,7 +31,10 @@ DATA = Path(__file__).resolve().parents[3] / "data"
 AGE_CSV = DATA / "한국의약품안전관리원_연령금기_20260721.csv"
 PREG_CSV = DATA / "한국의약품안전관리원_임부금기약물_20260721.csv"
 
-pytestmark = pytest.mark.skipif(not Path(DEFAULT_DICT_PATH).is_file(), reason="data/mock/dict/drug_dict.json 없음(로컬 전용)")
+pytestmark = pytest.mark.skipif(
+    not (Path(DEFAULT_DICT_PATH).is_file() and AGE_CSV.is_file() and PREG_CSV.is_file()),
+    reason="실사전·KIDS CSV 로컬 데이터 없음(data/mock/dict/drug_dict.json, 연령·임부금기 CSV, 로컬 전용)",
+)
 
 
 class _KeepOpen:
