@@ -58,7 +58,7 @@ export function ProgressSteps({ stage, label, hideMascot = false }: ProgressStep
               className={cn("flex items-center gap-2.5 text-[15px]", state === "now" && "font-bold", state === "todo" && "text-mute")}
             >
               {state === "done" && (
-                <span aria-hidden="true" className="grid size-5 flex-none place-items-center rounded-full bg-yellow text-ink">
+                <span aria-hidden="true" className="grid size-5 flex-none place-items-center rounded-full bg-yellow text-on-yellow">
                   <CheckIcon className="size-3" strokeWidth={3} />
                 </span>
               )}

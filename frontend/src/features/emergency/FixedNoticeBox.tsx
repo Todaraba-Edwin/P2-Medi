@@ -13,7 +13,11 @@ export function FixedNoticeBox({ lines, className }: { lines: readonly string[];
       <div
         role="note"
         data-testid="fixed-notice"
-        className={cn("rounded-xl bg-fixed px-3 py-2 text-xs leading-[17px] break-words text-ink-2", className)}
+        // 다크에서는 테두리와 앞의 "!"로 띠를 구분한다(FE-12 §3 ③: 색만으로 구분하지 않는다). 글자 내용은 그대로다(CSS 장식)
+        className={cn(
+          "rounded-xl bg-fixed px-3 py-2 text-xs leading-[17px] break-words text-ink-2 dark:border dark:border-fixed-edge dark:[&>p:first-child]:before:mr-1 dark:[&>p:first-child]:before:font-bold dark:[&>p:first-child]:before:content-['!']",
+          className,
+        )}
       >
         {lines.map((line, index) => (
           <p key={index} className="m-0">

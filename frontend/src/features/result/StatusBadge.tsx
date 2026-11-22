@@ -4,9 +4,9 @@ import { cn } from "@/lib/utils";
 // 금기 종류 키 → 색 토큰(PRD-09-07·08: 병용금기 빨강, 임부금기 보라 계열·등급 1·2·M 같은 색, 연령금기 빨강).
 // 그 밖의 종류(용량 주의 등 금기가 아닌 주의)는 주의 색이다. 색은 종류를 고르는 데만 쓰고 글자는 응답 값이다.
 const KIND_CLASS: Record<string, string> = {
-  contra_pair: "bg-red text-bg",
-  pregnancy: "bg-preg text-bg",
-  age: "bg-red text-bg",
+  contra_pair: "bg-red text-on-solid",
+  pregnancy: "bg-preg text-on-solid",
+  age: "bg-red text-on-solid",
 };
 const CAUTION_CLASS = "bg-warn-bg text-warn-ink";
 

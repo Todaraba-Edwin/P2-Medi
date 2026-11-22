@@ -1,0 +1,4 @@
+// 깜빡임 방지(FE-12-02 ④): 첫 화면을 그리기 전에 `<html data-theme>`을 정하는 인라인 스크립트다(`app/layout.tsx`의 `<head>`).
+// `src/lib/theme.ts`와 같은 규칙을 쓴다: 저장값이 "light"·"dark"면 그 값, 아니면 시스템 설정을 따르고 시스템이 바뀌면 따라간다.
+// 저장소를 읽을 수 없으면(개인정보 보호 모드 등) 시스템 설정을 따른다. 이 문자열은 시험(theme.test.ts)이 실제로 실행해 본다.
+export const THEME_BOOT_SCRIPT = `(function(){var key="ppiyak:ui:theme";var query="(prefers-color-scheme: dark)";var root=document.documentElement;function saved(){try{return localStorage.getItem(key)}catch(e){return null}}function apply(){var mode=saved();var dark=window.matchMedia(query).matches;root.setAttribute("data-theme",mode==="light"||mode==="dark"?mode:(dark?"dark":"light"))}apply();try{window.matchMedia(query).addEventListener("change",function(){var mode=saved();if(mode!=="light"&&mode!=="dark")apply()})}catch(e){}})();`;

@@ -77,7 +77,7 @@ export function ChatInput({ onSend, disabled = false, pregnancy }: ChatInputProp
         />
         {/* 터치 영역 44px(버튼 크기), 보이는 원은 36px */}
         <button type="submit" disabled={!canSend} aria-label={SEND_LABEL} className="group grid size-11 flex-none place-items-center">
-          <span className={`grid size-9 place-items-center rounded-full bg-yellow text-ink group-disabled:bg-line group-disabled:text-faint ${HOVER_INNER_PRIMARY}`}>
+          <span className={`grid size-9 place-items-center rounded-full bg-yellow text-on-yellow group-disabled:bg-line group-disabled:text-faint ${HOVER_INNER_PRIMARY}`}>
             <ArrowUpIcon className="size-5" aria-hidden="true" />
           </span>
         </button>

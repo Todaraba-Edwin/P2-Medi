@@ -14,7 +14,7 @@ export function EmergencyBanner({ emergency }: { emergency: Emergency }) {
       <div
         role="alert"
         data-testid="emergency-banner"
-        className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-2xl bg-red px-3.5 py-3 text-bg"
+        className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-2xl bg-red px-3.5 py-3 text-on-solid"
       >
         <div className="min-w-0 flex-1 basis-44">
           <p className="m-0 text-[17px] leading-6 font-bold break-words">{emergency.text}</p>
@@ -25,7 +25,7 @@ export function EmergencyBanner({ emergency }: { emergency: Emergency }) {
         </div>
         <a
           href={EMERGENCY_TEL_HREF}
-          className="flex min-h-11 flex-none items-center gap-1.5 rounded-full bg-bg px-4 font-extrabold whitespace-nowrap text-red no-underline"
+          className="flex min-h-11 flex-none items-center gap-1.5 rounded-full bg-bg px-4 font-extrabold whitespace-nowrap text-red-ink no-underline"
         >
           <PhoneIcon className="size-4" strokeWidth={2.5} aria-hidden="true" />
           {EMERGENCY_CALL_LABEL}

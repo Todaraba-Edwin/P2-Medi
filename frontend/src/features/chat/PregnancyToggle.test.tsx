@@ -28,7 +28,8 @@ describe("PregnancyToggle", () => {
     const [general, pregnant] = screen.getAllByRole("radio");
     expect(general.className).toMatch(/\bbg-yellow\b/);
     expect(general.className).toMatch(/\bfont-extrabold\b/);
-    expect(general.className).toMatch(/\btext-ink\b/);
+    expect(general.className).toMatch(/\btext-on-yellow\b/); // 노랑 바탕 전용 글자 토큰(다크에서 text-ink는 크림이라 안 보인다, FE-12)
+    expect(general.className).not.toMatch(/\btext-ink\b/);
     expect(pregnant.className).toMatch(/\bbg-bg-soft\b/);
     expect(pregnant.className).toMatch(/\btext-mute\b/);
     expect(pregnant.className).not.toMatch(/\bfont-extrabold\b/);
