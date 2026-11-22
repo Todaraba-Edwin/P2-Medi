@@ -114,6 +114,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | 에이전트 모델 설정(2026-11-20 AG-01 `:31`) | `MEDIAGENT_AGENT_MODEL` | 선택, 비밀값 아님, 기본 `gpt-6-luna`. 서비스 경로 전용이며 평가 대상 모델은 바꾸지 않음(평가 기준 유지) |
 | 개인정보 보호책임자(2026-11-20 사용자 추가, PRD-17 ⑫) | `PRIVACY_OFFICER_NAME`, `PRIVACY_OFFICER_EMAIL` | 약관 v2 `{{PRIVACY_CONTACT}}`를 원격 게시(apply) 때 채우는 데만 씀. 저장소에 값을 두지 않음, `Settings`에 `SecretStr` 선택 칸, 로그·plan 출력에 값 비노출 |
 | 테스트 계정(2026-11-20 사용자 추가) | `TESTER_ID` | 사용자 본인 테스트 계정 식별자(개인정보). 백엔드 `Settings`에 `SecretStr` 선택 칸으로만 선언, 서비스 동작·로그·응답에 쓰지 않음 |
+| OpenAI 관리자 키(2026-11-22 DevOps 검토) | `OPENAI_ADMIN_KEY` | 사용량·비용 조회(Costs/Usage API) 전용 관리자 키. 서비스·평가 호출에는 쓰지 않고(일반 `OPENAI_API_KEY`와 다른 키) 백엔드 `Settings`에 `SecretStr` 선택 칸으로만 선언, 로그·응답에 남기지 않음. 일 사용량 알림 스크립트(W3 이후)에서만 사용 |
 | 백엔드 서버 시작 준비(2026-11-19 BE-17-01 A) | `MEDIAGENT_WARMUP` | 선택, 비밀값 아님, 기본 켬. `0`·`false`·`off`면 서버 시작 뒤 백그라운드 자원 준비를 끄고 첫 요청에서 만든다(BE-06-27 A 동작) |
 - 루트 `.env`에 새 변수를 넣으면 백엔드 `Settings`(`backend/app/config.py`, extra 금지)에도 선언해야 설정 로드가 실패하지 않는다(2026-11-19 재현).
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.

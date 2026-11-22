@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     privacy_officer_name: SecretStr | None = None
     privacy_officer_email: SecretStr | None = None
 
+    # OpenAI 관리자 키(사용량·비용 조회 Costs/Usage API 전용, DevOps 사용량 보고, 2026-11-22). 서비스·평가 호출에는 쓰지 않고
+    # (일반 `OPENAI_API_KEY`와 다른 키) 로그·응답에 남기지 않는다. 루트 `.env`에 있어 선언이 없으면 extra="forbid"로
+    # `get_settings()`가 실패한다. 원문 비노출로 SecretStr
+    openai_admin_key: SecretStr | None = None
+
     # hide_input_in_errors: 검증 오류(ValidationError)에 .env 입력 값(input_value=…)을 담지 않는다(sec-guard)
     model_config = SettingsConfigDict(env_file=default_env_files(), case_sensitive=False, hide_input_in_errors=True)
 
