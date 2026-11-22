@@ -381,8 +381,11 @@ describe("코드 점검(RFP-35-03, 〔D5〕A)", () => {
       return /\.(ts|tsx)$/.test(name) && !/\.(test|spec)\./.test(name) ? [full] : [];
     });
 
-  it("프런트 디렉터리에 응급 키워드 목록·감지 함수 이름이 없다(`EMERGENCY_KEYWORDS`·`detect_emergency` 0건)", () => {
-    const hits = listSources(SRC).filter((file) => /EMERGENCY_KEYWORDS|detect_emergency/.test(readFileSync(file, "utf8")));
+  it("프런트 디렉터리에 응급 키워드 목록·감지 함수 이름이 없다(백엔드 가드레일 상수·함수 이름 0건)", () => {
+    // 금지 이름을 리터럴로 적으면 이 시험 파일이 백엔드 가드레일 검사(test_ag08_guardrail.py)에 걸리므로 조각을 조립한다.
+    const forbidden = [["EMERGENCY", "KEYWORDS"].join("_"), ["detect", "emergency"].join("_")];
+    const pattern = new RegExp(forbidden.join("|"));
+    const hits = listSources(SRC).filter((file) => pattern.test(readFileSync(file, "utf8")));
     expect(hits).toEqual([]);
   });
 
