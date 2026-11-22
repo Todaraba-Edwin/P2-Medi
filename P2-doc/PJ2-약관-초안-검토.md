@@ -35,7 +35,7 @@
 | `age_14` 만 14세 이상 확인 | v1(`seed_legal_age14.sql`) | 필수(첫 로그인 동의 화면의 별도 체크, PRD-17-09 A) | false | 원격 게시 전 |
 
 - **v2 원격 게시 전**: 원격 `account` 스키마 적용(BE-11-23 A) 전이라 원격 DB에는 약관 행이 없다고 티켓이 기록하고 있다(PRD-17 §1.3). 이 문서를 쓰면서 원격은 다시 읽지 않았다(원격 읽기 전용 확인 결과는 별도로 기록해야 한다, PRD-17 §2 첫 완료 조건 미충족).
-- **게시 차단**: `account_repo_pg.assert_publishable`가 `{{…}}` 자리표시(말줄임표 하나인 `{{…}}`는 제외)가 남은 시드의 원격 게시를 막는다(PRD-17-11 A, 허용 목록 없음). 현재 v2 시드에는 `{{PRIVACY_CONTACT}}`·`{{SUPABASE_REGION}}`·`{{BACKUP_RETENTION_DAYS}}`·Supabase 법인 `{{확인 필요: …}}`가 남아 있어 게시가 차단된다(시드 머리 주석 `seed_legal_v2.sql:9-14`와 본문 39·63·76행 등에서 확인). `{{EFFECTIVE_AT}}`는 적용 스크립트가 시행 시각으로 채운다.
+- **게시 차단**: `account_repo_pg.assert_publishable`가 `{{…}}` 자리표시(말줄임표 하나인 `{{…}}`는 제외)가 남은 시드의 원격 게시를 막는다(PRD-17-11 A, 허용 목록 없음). 현재 v2 시드에 남은 자리표시는 `{{PRIVACY_CONTACT}}` 하나다(2026-11-20 리전·백업·Supabase 법인 반영, 시드 머리 주석 `seed_legal_v2.sql:9-21`). 이 칸은 저장소에 값을 넣지 않고 원격 적용 스크립트(`backend/scripts/be11_account_migrate.py`)가 apply 직전에 env `PRIVACY_OFFICER_NAME`·`PRIVACY_OFFICER_EMAIL`에서 채운다(`account_repo_pg.render_privacy_contact`). 값이 없으면 자리표시가 남아 게시가 차단된다. `{{EFFECTIVE_AT}}`는 적용 스크립트가 시행 시각으로 채운다.
 - `age_14` 제목·본문은 "만 14세 이상입니다."이며 사용자 확인으로 확정됐다(PRD-17 §3 ⑬). `[필수 체크]`는 화면 표기라 본문에 넣지 않았다.
 - v2 4종은 2026-11-19 밤(m36) 사용자가 문서별로 원문 승인했다(PRD-17 §3 ②). 이후 2026-11-20 성별 문구·OpenAI 줄·Recap 45 항목 반영도 사용자가 승인했다(4장).
 
@@ -71,15 +71,13 @@ PRD-17-11·12는 사용자 답 원문이 "PRD-17-11, PRD-17-A"였고 메인이 �
 | 쿠키 | 로그인 상태 유지용 쿠키(`sb-…-auth-token`), 로그인 토큰·사용자 정보(이메일 포함), 로그아웃하지 않으면 최대 400일 | 2026-11-20 사용자 승인(반영 진행 중). 근거 `@supabase/ssr` 설치본 소스(`recap45.md` 확신도 상) |
 | 보안 조치 | 행 수준 보안, 서버도 같은 규칙으로 DB 접근, 토큰 서명·만료 확인, 비밀값 비노출, 계정 응답 캐시 금지. HTTPS 문장은 배포 확정 뒤 더하기로 하고 지금은 넣지 않음 | 2026-11-20 사용자 승인(반영 진행 중) |
 | 성별(선택) | 처리방침 수집 항목 표·가족 프로필, 수집·이용 동의 수집 항목·목적에 "성별(선택)" 추가. 성별은 질문 화면에서 임신 여부 선택을 보여 줄지 정하는 데만 쓰고 외부 AI로 전송하지 않으며 간편 로그인 공급자에게서 받지 않는다 | 2026-11-20 사용자 "성별 문구 승인"(PRD-17-13 A, 커밋 `4386b21`·병합 `9d878dd`). 로컬 PG 시험은 `LOCAL_PG_DSN` 없는 셸이라 미실행(`prd17-sex.md`) |
+| Supabase 줄(Recap 45 ①③④) | 받는 자 `Supabase(Supabase Pte. Ltd. · 문의 privacy@supabase.com)`, 국가 `대한민국(서울, Supabase 리전 ap-northeast-2)`, 보유 기간 "백업은 7일 뒤 순환 삭제, Supabase Pro 일간 백업, Supabase 정책에 따름" | 2026-11-20 사용자 승인, 시드 반영(`seed_legal_v2.sql` privacy_policy §3). 출처 https://supabase.com/privacy, https://supabase.com/docs/guides/platform/backups, https://supabase.com/docs/guides/platform/regions(2026-11-20 읽음) |
 | 서버 접속 기록 끄기(⑧ B) | 접근 로그를 남기지 않는 방향(`uvicorn --no-access-log`)으로 정했고 본문은 "법령에 따라 보존해야 하는 정보는 없습니다"로 정리했다. 코드 변경 여부는 이 문서에서 확인하지 못했다 | 2026-11-20 사용자 승인(`seed_legal_v2.sql:14`의 "접근 로그 끔"). 선택지 A/B 원안은 `recap45.md` §2 ⑧. 백엔드 반영 상태는 확인 필요 |
 
 ### 4.2 남은 것
 | 자리표시 | 내용 | 맡은 쪽 |
 |---|---|---|
-| `{{SUPABASE_REGION}}` | Supabase 리전(대시보드 Project Settings) | 사용자(Recap 45 ①) |
-| `{{PRIVACY_CONTACT}}`, 보호책임자 | 역할 명칭 + 서비스 전용 이메일, 주소는 나중 | 사용자(PRD-17-04 A, Recap 45 ②) |
-| `{{BACKUP_RETENTION_DAYS}}` | 백업 보존 일수(Supabase Pro 백업) | 사용자(Recap 45 ③) |
-| Supabase 법인 명칭·연락처 | `{{확인 필요: 법인 명칭·연락처}}`. 값을 지어내지 않았고 supabase.com 처리방침에서 확인이 필요하다 | 사용자 또는 별도 조사 |
+| `{{PRIVACY_CONTACT}}`, 보호책임자 | 저장소에는 자리표시로 둔다. env `PRIVACY_OFFICER_NAME`·`PRIVACY_OFFICER_EMAIL`에서 게시 때 채움(`개인정보 보호책임자: <이름>, 문의: <이메일>` 형태, plan 출력은 `<설정됨>`) | 사용자(PRD-17-04 A, Recap 45 ②, env 방식 2026-11-20 승인) |
 
 확인하지 못한 것(`recap45.md` §3): Supabase Auth가 실제로 저장한 열·값, `auth.sessions`·감사 기록의 IP 보관 기간, Vercel 요청 로그, 백엔드 운영 로그 보관 기간(BE-13 배포 방식 미정, 2026-11-20 보류).
 
