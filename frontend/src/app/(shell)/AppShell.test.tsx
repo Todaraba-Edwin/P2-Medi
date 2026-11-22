@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
@@ -15,6 +15,7 @@ import { createPhotoHandlers } from "@/mocks/photo-handlers";
 import { createAccountStore } from "@/stores/account";
 import { createChatStore } from "@/stores/chat";
 import { AppShell } from "./AppShell";
+import { SYNTHETIC_DEMO_NOTICE } from "./copy";
 
 // 화면 조립(AppShell)을 MSW 목(대화 + 계정)에 붙여 본다(실제 서버 호출 0). GROUP-01 5a(FE-11, 2026-11-20):
 // - F3(FE-11-10 A): 본문 고지 개수 고정 — "실시간 확인" 0회(근거 상세에만), 안전 고지 1회, 법적 고지 1회, 입력창 고지 1회
@@ -388,5 +389,26 @@ describe("사진 입력(FE-05 사진 부분, 〔D5〕·〔D6〕·〔D7〕A)", ()
     await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
     expect(document.activeElement).toBe(screen.getByRole("textbox"));
     expect(chatBodies).toHaveLength(0);
+  });
+});
+
+describe("합성 데이터 데모 표시(BE-13-07 A)", () => {
+  it("목 모드(NEXT_PUBLIC_API_MOCKING=enabled)에서만 머리줄 아래 승인 원문 한 줄이 보이고, 일반(실서버) 모드에서는 DOM에 없다", () => {
+    setup({ width: 393 });
+    const notice = screen.getByTestId("demo-notice");
+    expect(notice.textContent).toBe(SYNTHETIC_DEMO_NOTICE);
+    expect(SYNTHETIC_DEMO_NOTICE).toBe("합성 데이터 데모예요. 화면의 약 이름·판정은 실제 의약품 정보가 아니에요.");
+    expect(notice.getAttribute("role")).toBe("note");
+    // 머리줄 바로 아래(머리줄의 다음 형제 안)
+    const topBar = screen.getByTestId("top-bar");
+    expect(topBar.nextElementSibling?.contains(notice)).toBe(true);
+    expect(notice.querySelector("img, svg")).toBeNull(); // 마스코트 없음
+    expect(screen.getAllByTestId("demo-notice")).toHaveLength(1);
+    cleanup();
+
+    vi.stubEnv("NEXT_PUBLIC_API_MOCKING", "");
+    setup({ width: 393 });
+    expect(screen.queryByTestId("demo-notice")).toBeNull();
+    expect(document.body.textContent).not.toContain("합성 데이터 데모");
   });
 });
