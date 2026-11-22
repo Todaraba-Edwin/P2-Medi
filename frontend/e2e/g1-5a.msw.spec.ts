@@ -47,7 +47,10 @@ async function loginAndSaveSelf(page: Page, { healthConsent, pregnancy }: { heal
   await expect(modal(page)).toHaveAttribute("data-step", "profiles");
   await modal(page).getByTestId("add-self").click();
   await modal(page).getByLabel("이름(별명)").fill("나");
-  if (pregnancy) await modal(page).getByRole("radio", { name: pregnancy }).check();
+  if (pregnancy) {
+    await modal(page).getByLabel("성별").selectOption("female"); // 임신 여부 칸은 여성일 때만 보인다(작업 B, 2026-11-22)
+    await modal(page).getByRole("radio", { name: pregnancy }).check();
+  }
   await modal(page).getByTestId("profile-save").click();
   await expect(modal(page).getByTestId("profile-item")).toHaveCount(1);
   await modal(page).getByRole("button", { name: "닫기" }).click();
