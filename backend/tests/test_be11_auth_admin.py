@@ -243,10 +243,29 @@ def test_secret_token_and_user_id_not_in_logs_or_bodies(caplog, monkeypatch):
     assert FAKE_SECRET not in redact(f"Authorization: Bearer {FAKE_SECRET}")  # 기존 가드도 이 변수를 가린다
 
 
+def test_httpx_admin_path_filter_masks_user_id_even_at_info(caplog):
+    """httpx 로거 수준이 INFO로 내려가도(caplog·다른 설정) Admin 경로의 사용자 ID는 `<user>`로 남는다. 상태 줄은 남긴다."""
+    caplog.set_level(logging.INFO, logger="httpx")
+    server = FakeAuthServer({UID})
+    asyncio.run(server.admin().delete_user(UID))
+    lines = [r.getMessage() for r in caplog.records if r.name == "httpx"]
+    assert lines and all(UID not in m for m in lines)
+    assert any("/auth/v1/admin/users/<user>" in m and "200" in m for m in lines)
+
+
 # --------------------------------------------------------------------------- 4. lifespan 연결
+def _clear_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`Settings` 칸 이름의 환경변수를 모두 비운다. 앞선 시험(`load_dotenv`로 실제 `.env`를 올리는 평가 모듈 import 등)이 남긴
+    `SUPABASE_URL`·`SUPABASE_SECRET_KEY`·`SUPABASE_DB_URL`이 `Settings(_env_file=None)`에 섞이지 않게 한다(순서 의존 제거, BE-11-24 후속)."""
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+        monkeypatch.delenv(name, raising=False)
+
+
 def test_lifespan_attaches_admin_only_with_url_and_secret(monkeypatch):
     from app import main
 
+    _clear_settings_env(monkeypatch)
     try:
         monkeypatch.setattr(main, "load_settings",
                             lambda: Settings(_env_file=None, supabase_url=BASE, supabase_secret_key=FAKE_SECRET))
@@ -258,4 +277,4 @@ def test_lifespan_attaches_admin_only_with_url_and_secret(monkeypatch):
     finally:  # 다른 시험에 새지 않게 뗀다
         auth_admin.set_auth_admin(main.app, None)
         auth.set_verifier(main.app, None)
-        account_api.set_item_seq_checker(main.app, None)
+        account_api.set_repo(main.app, None, item_seq_checker=None)
