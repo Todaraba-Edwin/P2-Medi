@@ -331,7 +331,7 @@ def test_lifespan_without_settings_keeps_501_and_health(wired):
         assert r.status_code == 501 and r.json() == {"code": "NOT_IMPLEMENTED", "fields": []}
         assert client.get("/health").json() == {"status": "ok"}
         paths = set(client.get("/openapi.json").json()["paths"])
-        assert paths == {"/health", "/chat", *ACCOUNT_PATHS} and client.get("/docs").status_code == 200  # §2-6 스모크(계정: BE-11)
+        assert paths == {"/health", "/chat", *ACCOUNT_PATHS, *INGEST_PATHS} and client.get("/docs").status_code == 200  # §2-6 스모크(계정: BE-11)
     assert wired["fake"].calls == 0
 
 
@@ -430,12 +430,13 @@ def test_runner_does_not_leak_after_fixture_and_openapi_is_unchanged(wired):
 
 ACCOUNT_PATHS = {"/me", "/legal/{doc_type}", "/consents", "/profiles", "/profiles/{profile_id}",  # BE-11 계정 API(2026-11-18)
                  "/drugs/search"}  # FE-04-13 A 프로필 약 사전 검색(2026-11-20)
+INGEST_PATHS = {"/ingest/image"}  # BE-14 사진 약 이름 추출(2026-11-22, 게스트 허용)
 
 
 def test_openapi_matches_committed_export_shape():
     schema = main_mod.app.openapi()
     paths = schema["paths"]
-    assert set(paths) == {"/health", "/chat", *ACCOUNT_PATHS}
+    assert set(paths) == {"/health", "/chat", *ACCOUNT_PATHS, *INGEST_PATHS}
     assert set(paths["/chat"]["post"]["responses"]) == {"200", "422", "501"}
     assert set(paths["/me"]["get"]["responses"]) == {"200", "401", "501", "503"}
     assert set(paths["/me"]["delete"]["responses"]) == {"204", "401", "501", "502", "503"}  # 502 AUTH_DELETE_FAILED(BE-11-24 A)
@@ -447,6 +448,8 @@ def test_openapi_matches_committed_export_shape():
     assert "security" not in paths["/legal/{doc_type}"]["get"]  # 게스트 허용
     assert set(paths["/drugs/search"]) == {"post"}  # 질문을 URL 쿼리에 싣지 않는다(access 로그)
     assert set(paths["/drugs/search"]["post"]["responses"]) == {"200", "401", "422", "501", "503"}
+    assert set(paths["/ingest/image"]) == {"post"} and set(paths["/ingest/image"]["post"]["responses"]) == {"200", "422"}
+    assert "security" not in paths["/ingest/image"]["post"]  # 게스트 허용(BE-14 〔D3〕 A)
 
 
 def test_default_resources_is_not_called_by_tests_and_psycopg_is_imported_lazily():

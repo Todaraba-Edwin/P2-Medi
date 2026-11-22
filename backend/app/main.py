@@ -2,6 +2,7 @@
 
 /health: 서비스 상태 확인 → 200 {"status":"ok"}
 /chat: BE-06 채팅(NDJSON 스트림 계약 `chat_event@v1`). 설정이 갖춰지지 않으면 501(의도된 상태, `app.api.chat`)
+/ingest/image: BE-14 약봉투 사진 약 이름 추출(게스트 허용, gpt-6-luna 1회, 판정 없음, 사진·질문 비저장, `app.api.ingest`).
 /me·/legal/{doc_type}·/consents·/profiles: BE-11 계정 API(`app.api.me`·`app.api.account`, 토큰 검증 `app.security.auth`).
   검증기가 없으면 토큰이 온 요청은 501, 계정 저장소(`account.set_repo`)가 없으면 계정 API는 501.
   BE-11-23 A(2026-11-22 원격 `account` 스키마·약관 시드 적용 뒤): `SUPABASE_DB_URL`이 있으면 lifespan이 `PostgresAccountRepo.from_dsn`
@@ -22,6 +23,7 @@ from fastapi import FastAPI
 from .api import account as account_api
 from .api import chat as chat_api
 from .api import drugs as drugs_api
+from .api import ingest as ingest_api
 from .api import me as me_api
 from .api import service
 from .config import Settings, get_settings, reveal
@@ -89,6 +91,7 @@ settings = get_settings()
 chat_api.register(app)  # POST /chat(BE-06, 설정이 갖춰지지 않으면 501), 요청 형식 오류 422. 게스트 허용, 토큰을 읽지 않는다
 me_api.register(app)  # BE-11 계정 API(chat 뒤에 등록: 요청 형식 오류 처리기를 계정 경로 분기로 바꾼다), 인증 오류 401·501·503
 drugs_api.register(app)  # POST /drugs/search 프로필 약 사전 검색(FE-04-13 A, 로그인 필요, 계정 오류 처리기 공유)
+ingest_api.register(app)  # POST /ingest/image BE-14 사진 약 이름 추출(게스트 허용, LLM gpt-6-luna 1회, 사전은 /drugs/search와 같은 공급자)
 
 
 @app.get("/health")
