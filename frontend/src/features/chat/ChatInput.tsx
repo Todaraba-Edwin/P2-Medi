@@ -1,9 +1,10 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ArrowUpIcon } from "lucide-react";
-import { HOVER_INNER_PRIMARY } from "@/components/button";
+import { ArrowUpIcon, CameraIcon } from "lucide-react";
+import { HOVER_INNER_PRIMARY, HOVER_INNER_TEXT } from "@/components/button";
 import { NoMascotZone } from "@/components/NoMascotZone";
+import { PHOTO_ENTRY_LABEL } from "@/features/photo/copy";
 import { INPUT_LABEL, INPUT_NOTICE, INPUT_PLACEHOLDER, SEND_LABEL } from "./copy";
 import { PregnancyToggle } from "./PregnancyToggle";
 
@@ -23,6 +24,8 @@ export interface ChatInputProps {
   /** 입력을 막을 때만 쓴다. 답을 기다리는 중에도 새 질문을 보낼 수 있어야 하므로 기본은 false다 */
   disabled?: boolean;
   pregnancy?: PregnancyControl;
+  /** 사진 입력 입구(FE-05, PJ2-PRD.md 15.4 "사진 올리기" 행 "버튼이 입력창 옆, 첫 화면"). 주지 않으면(미리보기·시험) 버튼을 그리지 않는다 */
+  onPhoto?: () => void;
 }
 
 /**
@@ -30,7 +33,7 @@ export interface ChatInputProps {
  * 입력창 바로 아래에 저장하지 않음·외부 AI 전송 고지 한 줄을 둔다(PRD-17-07 A, 게스트 포함). 고지는 `aria-describedby`로 입력창에 연결한다.
  * 입력창 안 왼쪽에 임신 여부 선택 "일반인 | 임산부"를 둔다(FE-11 §7.1 `Rdd-Toggle`, 393·1280 같은 모양). 값과 저장 여부는 조립하는 쪽(`AppShell`)이 정한다
  */
-export function ChatInput({ onSend, disabled = false, pregnancy }: ChatInputProps) {
+export function ChatInput({ onSend, disabled = false, pregnancy, onPhoto }: ChatInputProps) {
   const id = useId();
   const noticeId = `${id}-notice`;
   const pregnancyNoteId = `${id}-pregnancy-note`;
@@ -75,6 +78,14 @@ export function ChatInput({ onSend, disabled = false, pregnancy }: ChatInputProp
             }
           }}
         />
+        {/* 사진 입력 입구(FE-05 사진 부분, 〔D5〕A: 입구는 여기 하나). 터치 영역 44px, 보이는 원은 36px. 누르면 조립하는 쪽이 사진 모달을 연다 */}
+        {onPhoto && (
+          <button type="button" data-testid="photo-entry" disabled={disabled} aria-label={PHOTO_ENTRY_LABEL} onClick={onPhoto} className="group grid size-11 flex-none place-items-center">
+            <span className={`grid size-9 place-items-center rounded-full text-ink-2 group-disabled:text-faint ${HOVER_INNER_TEXT}`}>
+              <CameraIcon className="size-5" aria-hidden="true" />
+            </span>
+          </button>
+        )}
         {/* 터치 영역 44px(버튼 크기), 보이는 원은 36px */}
         <button type="submit" disabled={!canSend} aria-label={SEND_LABEL} className="group grid size-11 flex-none place-items-center">
           <span className={`grid size-9 place-items-center rounded-full bg-yellow text-on-yellow group-disabled:bg-line group-disabled:text-faint ${HOVER_INNER_PRIMARY}`}>

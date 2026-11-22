@@ -11,6 +11,7 @@ import { createAccountHandlers } from "@/mocks/account-handlers";
 import type { AccountMockState } from "@/mocks/account-handlers";
 import { API_NO_CODE_NOTE, PHRASES } from "@/mocks/fixtures/phrases";
 import { handlers } from "@/mocks/handlers";
+import { createPhotoHandlers } from "@/mocks/photo-handlers";
 import { createAccountStore } from "@/stores/account";
 import { createChatStore } from "@/stores/chat";
 import { AppShell } from "./AppShell";
@@ -253,5 +254,68 @@ describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
     expect(await screen.findByTestId("pregnancy-hint")).toHaveTextContent(PREGNANCY_SAVE_CONSENT_HINT);
     expect(screen.queryByTestId("pregnancy-save-error")).toBeNull();
     expect(checkedLabel()).toBe("일반인");
+  });
+});
+
+describe("사진 입력(FE-05 사진 부분, 〔D5〕·〔D6〕·〔D7〕A)", () => {
+  // jsdom에는 createImageBitmap·URL.createObjectURL이 없다: 디코드만 가짜로 두고 파일 읽기(FileReader)·요청·화면은 실제 경로다
+  const realCreateObjectURL = URL.createObjectURL;
+  const realRevokeObjectURL = URL.revokeObjectURL;
+  beforeEach(() => {
+    vi.stubGlobal("createImageBitmap", async () => ({ width: 120, height: 90, close: () => {} }));
+    URL.createObjectURL = () => "blob:mock-preview";
+    URL.revokeObjectURL = () => {};
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    URL.createObjectURL = realCreateObjectURL;
+    URL.revokeObjectURL = realRevokeObjectURL;
+  });
+  const pouch = () => new File([new Uint8Array([1, 2, 3, 4])], "pouch.png", { type: "image/png" });
+  type ChatBody = { question: string; context: { confirmed_drugs: unknown[]; prior_drugs: unknown[] } };
+
+  it("입력창 옆 사진 버튼 하나(두 번째 입구 없음) → 모달 → 승인 전 /chat 0회 → `이대로 확인` → /chat 1회(고른 후보만 confirmed_drugs)", async () => {
+    const { user } = setup({ width: 393 });
+    server.use(...createPhotoHandlers());
+    expect(screen.getAllByTestId("photo-entry")).toHaveLength(1);
+    expect(main().textContent).not.toContain("약 사진 올리기");
+    await user.click(screen.getByTestId("photo-entry"));
+    const modal = await screen.findByTestId("photo-modal");
+    expect(within(modal).getByTestId("layer-emergency-entry")).toHaveAttribute("href", "tel:119");
+    await user.upload(within(modal).getByTestId("photo-file"), pouch());
+    const card = await within(modal).findByTestId("photo-confirm-card");
+    expect(chatBodies).toHaveLength(0);
+    await user.click(within(card).getAllByTestId("photo-candidate")[0]);
+    await user.type(within(card).getByTestId("photo-question"), "같이 먹어도 돼요?");
+    expect(chatBodies).toHaveLength(0);
+    await user.click(within(card).getByTestId("photo-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    await waitFor(() => expect(chatBodies).toHaveLength(1));
+    const body = chatBodies[0] as unknown as ChatBody;
+    expect(body.question).toBe("가나다정 100밀리그램, 라마바캡슐 같이 먹어도 돼요?");
+    expect(body.context.confirmed_drugs).toEqual([{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다정 100밀리그램" }]);
+    expect(body.context.prior_drugs).toEqual([]);
+    await waitFor(() => expect(screen.getAllByTestId("result-card")).toHaveLength(1));
+    // 말풍선에는 승인한 질문이 보인다
+    expect(main().textContent).toContain("가나다정 100밀리그램, 라마바캡슐 같이 먹어도 돼요?");
+  });
+
+  it("`닫기`는 /chat을 부르지 않고 초점이 사진 버튼으로 돌아온다. `글자로 입력`은 입력창으로 간다", async () => {
+    const { user } = setup({ width: 393 });
+    server.use(...createPhotoHandlers({ scenario: "unreadable" }));
+    await user.click(screen.getByTestId("photo-entry"));
+    let modal = await screen.findByTestId("photo-modal");
+    await user.click(within(modal).getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByTestId("photo-entry"));
+    expect(chatBodies).toHaveLength(0);
+    await user.click(screen.getByTestId("photo-entry"));
+    modal = await screen.findByTestId("photo-modal");
+    await user.upload(within(modal).getByTestId("photo-file"), pouch());
+    await within(modal).findByTestId("photo-failed");
+    await user.click(within(modal).getByTestId("photo-type-instead"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole("textbox"));
+    expect(chatBodies).toHaveLength(0);
   });
 });

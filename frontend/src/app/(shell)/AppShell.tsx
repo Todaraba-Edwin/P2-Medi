@@ -9,6 +9,8 @@ import { failureMessage } from "@/features/account/parts";
 import { ChatInput, ExampleChips, HomeHero, PREGNANCY_SAVE_CONSENT_HINT } from "@/features/chat";
 import { EmergencyBanner, FixedNoticeBox, LegalFooter, StartEmergencyLink } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
+import { PhotoModal } from "@/features/photo";
+import type { ChatInputFromPhoto } from "@/features/photo";
 import { SETTINGS_LABEL, SettingsDialog } from "@/features/settings";
 import { groupCandidates } from "@/features/result";
 import { DISCLAIMER, START_EMERGENCY_119 } from "@/lib/fixed/phrases.generated";
@@ -72,6 +74,10 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   /** 사이드바 오버레이·드로어를 그릴 자리(119 배너 아래 영역) */
   const [layer, setLayer] = useState<HTMLElement | null>(null);
   const main = useRef<HTMLElement>(null);
+  /** 사진 입력 모달(FE-05 사진 부분). 사진·읽은 목록은 모달 안 메모리에만 있다 */
+  const [photoOpen, setPhotoOpen] = useState(false);
+  /** 사진 모달이 닫힌 뒤 초점을 둘 곳: 기본은 사진 버튼, `글자로 입력`이면 입력창 */
+  const photoCloseFocus = useRef<"entry" | "input">("entry");
 
   // 화면을 떠나면 진행 중인 요청을 끊는다
   useEffect(() => () => store.getState().abort(), [store]);
@@ -206,6 +212,26 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     void store.getState().send(turn.question, resendBubbleText(names));
   };
   const focusInput = () => main.current?.querySelector("textarea")?.focus();
+  /**
+   * 사진 확인 카드 승인(FE-05, 〔D7〕A): 승인 전에는 `/chat`을 부르지 않고, 승인하면 `buildChatInput` 결과로 기존 전송을 한 번 부른다.
+   * 후보를 고른 약만 이번 질문의 `confirmedDrugs`로 싣고(FE-09-05 A 모양), 고르지 않은 약은 질문 글자로만 들어가 기존 식별·되묻기 경로를 탄다
+   */
+  const sendFromPhoto = (input: ChatInputFromPhoto) => {
+    store.getState().setContext({ ...targetContext(), confirmedDrugs: input.confirmedDrugs });
+    void store.getState().send(input.question);
+  };
+  const openPhoto = () => {
+    photoCloseFocus.current = "entry";
+    setPhotoOpen(true);
+  };
+  const photoTypeInstead = () => {
+    photoCloseFocus.current = "input";
+    setPhotoOpen(false);
+  };
+  const photoClosed = () => {
+    if (photoCloseFocus.current === "input") focusInput();
+    else main.current?.querySelector<HTMLElement>('[data-testid="photo-entry"]')?.focus();
+  };
   // 계정 모달을 열 때 드로어·사이드바 오버레이는 닫는다(층을 겹치지 않는다)
   const openAccount = () => {
     dispatch({ type: "closeDrawer" });
@@ -310,6 +336,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               {member && profiles.length > 0 && <TargetPicker profiles={profiles} value={targetProfileId} onChange={changeTarget} />}
               <ChatInput
                 onSend={(question) => send(question)}
+                onPhoto={openPhoto}
                 pregnancy={{
                   value: pregnant,
                   onChange: changePregnant,
@@ -340,6 +367,18 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
           </EvidencePanel>
         )}
         {accountEnabled && <AccountModal store={account} container={layer} hasEmergency={emergency !== null} emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />} />}
+        {/* 사진 입력 모달(FE-05 사진 부분): 배너 아래 영역에만 그린다. 승인(`이대로 확인`)만 `/chat`을 부르고 `닫기`·Esc·`글자로 입력`은 버린다(H19) */}
+        <PhotoModal
+          open={photoOpen}
+          onOpenChange={setPhotoOpen}
+          onConfirm={sendFromPhoto}
+          onTypeInstead={photoTypeInstead}
+          onCloseAutoFocus={photoClosed}
+          container={layer}
+          hasEmergency={emergency !== null}
+          emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />}
+        />
+        {/* 설정 화면(FE-12 화면 모드): 배너 아래 영역에만 그린다. 게스트도 연다 */}
         <SettingsDialog
           open={settingsOpen}
           onOpenChange={setSettingsOpen}

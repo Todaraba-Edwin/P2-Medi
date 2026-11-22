@@ -2,5 +2,6 @@
 import { setupServer } from "msw/node";
 import { createAccountHandlers } from "./account-handlers";
 import { handlers } from "./handlers";
+import { createPhotoHandlers } from "./photo-handlers";
 
-export const server = setupServer(...handlers, ...createAccountHandlers());
+export const server = setupServer(...handlers, ...createAccountHandlers(), ...createPhotoHandlers());

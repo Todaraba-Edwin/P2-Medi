@@ -6,6 +6,7 @@
 // 2. 모델마다 칸 이름 집합이 같다(백엔드가 칸을 더하거나 빼면 여기서 걸린다. zod가 `.strict()`라 모르는 칸은 런타임에도 오류다).
 import type { z } from "zod";
 import type { components } from "./generated";
+import type * as P from "@/features/photo/types";
 import type * as A from "./account";
 import type * as S from "./schemas";
 
@@ -92,4 +93,12 @@ export type ContractChecks = [
   Expect<Extends<Gen["DrugCandidateOut"]["matched_by"], A.DrugMatchedBy>>,
   Expect<Extends<A.DrugMatchedBy, Gen["DrugCandidateOut"]["matched_by"]>>,
   Expect<SameKeys<A.DrugSearchBody, { q: string }>>,
+  // 사진 약 이름 추출(BE-14 `POST /ingest/image`, FE-05): 응답 두 모델과 상태·이유 값 목록, 요청 칸(`image`·`question`)
+  Expect<Conforms<typeof P.IngestDrugSchema, Gen["IngestDrugOut"]>>,
+  Expect<Conforms<typeof P.IngestImageOutSchema, Gen["IngestImageOut"]>>,
+  Expect<Extends<Gen["IngestImageOut"]["status"], P.IngestStatus>>,
+  Expect<Extends<P.IngestStatus, Gen["IngestImageOut"]["status"]>>,
+  Expect<Extends<NonNullable<Gen["IngestImageOut"]["reason"]>, z.infer<typeof P.IngestReasonSchema>>>,
+  Expect<Extends<z.infer<typeof P.IngestReasonSchema>, NonNullable<Gen["IngestImageOut"]["reason"]>>>,
+  Expect<SameKeys<Required<P.IngestImageIn>, { image: string; question: string | null }>>,
 ];
