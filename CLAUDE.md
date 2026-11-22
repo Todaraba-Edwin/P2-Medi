@@ -116,6 +116,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | 테스트 계정(2026-11-20 사용자 추가) | `TESTER_ID` | 사용자 본인 테스트 계정 식별자(개인정보). 백엔드 `Settings`에 `SecretStr` 선택 칸으로만 선언, 서비스 동작·로그·응답에 쓰지 않음 |
 | OpenAI 관리자 키(2026-11-22 DevOps 검토) | `OPENAI_ADMIN_KEY` | 사용량·비용 조회(Costs/Usage API) 전용 관리자 키. 서비스·평가 호출에는 쓰지 않고(일반 `OPENAI_API_KEY`와 다른 키) 백엔드 `Settings`에 `SecretStr` 선택 칸으로만 선언, 로그·응답에 남기지 않음. 일 사용량 알림 스크립트(W3 이후)에서만 사용 |
 | 백엔드 서버 시작 준비(2026-11-19 BE-17-01 A) | `MEDIAGENT_WARMUP` | 선택, 비밀값 아님, 기본 켬. `0`·`false`·`off`면 서버 시작 뒤 백그라운드 자원 준비를 끄고 첫 요청에서 만든다(BE-06-27 A 동작) |
+| 사진 판독 제공자 선택(2026-11-22 BE-14, 사용자 Upstage 전환 결정) | `MEDIAGENT_VISION_PROVIDER` | 선택, 비밀값 아님, `upstage` 또는 `openai`, **기본 `openai`**(키 요금제 확인·약관 v4 게시·사진 고지 승인 뒤 기본값을 `upstage`로 전환). `upstage`면 Document OCR + `solar-pro4`(`UPSTAGE_API_KEY`), `openai`면 `gpt-6-luna` 비전. 사진은 서버에 저장하지 않음 |
 - 루트 `.env`에 새 변수를 넣으면 백엔드 `Settings`(`backend/app/config.py`, extra 금지)에도 선언해야 설정 로드가 실패하지 않는다(2026-11-19 재현).
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
 
