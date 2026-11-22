@@ -8,11 +8,15 @@
 - **키·요청 헤더·응답 본문을 로그·예외 메시지·repr에 남기지 않는다**(sec-guard). 예외에는 상태 번호나 예외 종류 이름만 담고,
   httpx 예외 체인(요청 객체·헤더 포함)은 `from None`으로 끊는다.
 - 시험은 `httpx.MockTransport`를 넣은 클라이언트로만 돈다(원격 호출 0). 앱 시작 때는 접속하지 않는다.
+- 요청 URL 경로에 사용자 ID가 들어가므로 httpx INFO 줄(`HTTP Request: DELETE …/admin/users/<id>`)에서 ID를 가린다
+  (`AdminPathFilter`, 이 모듈을 import하면 `httpx` 로거에 붙는다·멱등). 서버는 `install_log_redaction()`이 httpx를 WARNING으로도
+  올리지만, 로거 수준이 바뀐 환경(시험의 caplog 등)에서도 ID가 남지 않게 하는 이중 장치다(BE-11-24 후속, 2026-11-22).
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any, Protocol, runtime_checkable
 
@@ -24,6 +28,32 @@ logger = logging.getLogger(__name__)
 
 AUTH_ADMIN_STATE_KEY = "auth_admin"  # `app.state`의 자리. 없으면 탈퇴는 앱 데이터만 지우고 502 `AUTH_DELETE_FAILED`
 CODE_AUTH_DELETE_FAILED = "AUTH_DELETE_FAILED"
+
+_ADMIN_USER_PATH_RE = re.compile(r"(/auth/v1/admin/users/)[^\s/?#\"']+")
+_MASKED_USER = r"\1<user>"
+
+
+class AdminPathFilter(logging.Filter):
+    """`httpx` 로거 필터: Admin API 경로의 사용자 ID를 `<user>`로 바꾼다. 레코드는 버리지 않는다(상태 번호는 남긴다)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001 - 서식이 맞지 않는 레코드는 그대로 둔다(우리 경로가 아니다)
+            return True
+        if "/auth/v1/admin/users/" in msg:
+            record.msg, record.args = _ADMIN_USER_PATH_RE.sub(_MASKED_USER, msg), ()
+        return True
+
+
+def install_admin_path_filter() -> None:
+    """`httpx` 로거에 `AdminPathFilter`를 한 번만 붙인다(멱등)."""
+    target = logging.getLogger("httpx")
+    if not any(isinstance(f, AdminPathFilter) for f in target.filters):
+        target.addFilter(AdminPathFilter())
+
+
+install_admin_path_filter()
 
 
 class AuthAdminError(Exception):
@@ -103,6 +133,6 @@ def get_auth_admin(app: Any) -> AuthAdmin | None:
 
 
 __all__ = [
-    "AUTH_ADMIN_STATE_KEY", "CODE_AUTH_DELETE_FAILED", "AuthAdmin", "AuthAdminError", "SupabaseAuthAdmin", "build_auth_admin",
-    "get_auth_admin", "set_auth_admin",
+    "AUTH_ADMIN_STATE_KEY", "CODE_AUTH_DELETE_FAILED", "AdminPathFilter", "AuthAdmin", "AuthAdminError", "SupabaseAuthAdmin", "build_auth_admin",
+    "get_auth_admin", "install_admin_path_filter", "set_auth_admin",
 ]
