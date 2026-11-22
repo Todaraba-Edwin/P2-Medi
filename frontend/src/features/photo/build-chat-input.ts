@@ -2,7 +2,8 @@
 // - 질문 = "{약 이름들 ', '로} {질문}". 약 이름은 후보를 골랐으면 후보 `name`, 아니면 (고친) 읽은 글자
 // - 후보를 고른 약만 `confirmedDrugs`에 `{name, item_seq, input_name: name}`로 싣는다(FE-09-05 A 모양). 고르지 않은 약은 글자로만 들어가
 //   기존 식별·되묻기·미식별 경로를 탄다. 확신도는 어디에도 없다
-import type { DrugCandidate } from "@/lib/api/account";
+import { sameMedication } from "@/lib/api/account";
+import type { DrugCandidate, MedicationInput } from "@/lib/api/account";
 import type { ConfirmedDrug } from "@/stores/conversation-context";
 import type { IngestDrug } from "./types";
 
@@ -60,4 +61,27 @@ export function buildChatInput(rows: readonly PhotoRow[], question: string): Cha
     row.picked ? [{ name: row.picked.name, itemSeq: row.picked.item_seq, inputName: row.picked.name }] : [],
   );
   return { question: `${names.join(PHOTO_NAME_JOIN)} ${question.trim()}`.trim(), confirmedDrugs };
+}
+
+// ---------------------------------------------------------------- 프로필 복용 약 등록 목적지(FE-04-27 A, 2026-11-22)
+/** 프로필 등록 목적지에는 질문칸이 없다: 이름이 있는 줄이 1개 이상이면 `이대로 확인`이 켜진다 */
+export function canRegister(rows: readonly PhotoRow[]): boolean {
+  return rows.some((row) => rowName(row).length > 0);
+}
+
+/**
+ * 확인 카드 → 프로필 복용 약 목록 항목(FE-04-27 A). 사진·data URL·읽은 성분·용량 글자는 싣지 않고 **이름만** 간다.
+ * - 후보를 고른 줄 → 확인된 약 `{input_text: 후보.name, item_seq}`
+ * - 후보 없이(또는 고르지 않고) 글자만 있는 줄 → 확인 안 된 약 `{input_text: 글자, item_seq: null}`(FE-04-24 A "그대로 추가"와 같은 규칙. 금기 확인에서 빠진다는 안내는 폼이 보인다)
+ * - 빈 줄은 빠지고, 같은 약(번호가 같거나 번호 없이 글자가 같음)은 한 번만 들어간다. 폼 쪽 목록과의 중복·10개 상한은 폼이 다시 거른다
+ */
+export function buildProfileMedications(rows: readonly PhotoRow[]): MedicationInput[] {
+  const items: MedicationInput[] = [];
+  for (const row of rows) {
+    const name = rowName(row);
+    if (!name) continue;
+    const item: MedicationInput = row.picked ? { input_text: row.picked.name, item_seq: row.picked.item_seq } : { input_text: name, item_seq: null };
+    if (!items.some((other) => sameMedication(other, item))) items.push(item);
+  }
+  return items;
 }

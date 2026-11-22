@@ -23,6 +23,15 @@ export function openAccountModal(store: AccountStore = accountStore) {
   store.getState().open();
 }
 
+/**
+ * 완료 안내의 `질문하러 가기`(FE-04-15 A): 모달을 닫고 초점을 연 버튼 대신 **질문 입력창**에 둔다(다음 행동이 바로 이어지게).
+ * 입력창이 없으면(화면 준비 전) 기존 복귀 규칙대로 연 버튼으로 간다
+ */
+export function closeAccountModalToQuestion(store: AccountStore = accountStore) {
+  opener = document.querySelector<HTMLElement>('[data-testid="main"] textarea') ?? opener;
+  store.getState().close();
+}
+
 function restoreFocus(event: Event) {
   event.preventDefault();
   // 연 버튼이 사라졌으면(드로어 안 버튼 등) 메뉴·사이드바 버튼으로 돌아간다

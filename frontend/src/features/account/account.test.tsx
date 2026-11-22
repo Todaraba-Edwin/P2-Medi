@@ -9,6 +9,15 @@ import { INPUT_NOTICE } from "@/features/chat/copy";
 import type { Profile } from "@/lib/api/account";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { MOCK_DRUG_DICT, MOCK_LEGAL_DOCS, searchMockDrugs } from "@/mocks/fixtures/account";
+import { createPhotoHandlers } from "@/mocks/photo-handlers";
+import { PHOTO_EXTERNAL_AI_NOTICE, PHOTO_PRIVACY_NOTICE } from "@/features/photo/copy";
+import { mergeMedications } from "./ProfileForm";
+
+// 사진 등록(FE-04-27 A) 시험: jsdom에는 canvas가 없어 사진 준비(`prepareImage`)만 합성 data URL로 바꿔 끼운다(실제 사진 0). 그 밖은 실제 모듈 그대로
+vi.mock("@/features/photo/image", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/photo/image")>()),
+  prepareImage: async () => ({ dataUrl: "data:image/png;base64,iVBORw0KGgo=", width: 10, height: 10, resized: false, bytes: 8 }),
+}));
 import { AccountApiError, DRUG_CANDIDATES_MAX, MEDICATIONS_MAX, accountApi, searchDrugs } from "@/lib/api/account";
 import { createAccountStore } from "@/stores/account";
 import type { AccountStore } from "@/stores/account";
@@ -1278,5 +1287,308 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
     controller.abort();
     await expect(searchDrugs("가나다", controller.signal)).rejects.not.toBeInstanceOf(AccountApiError);
     await expect(searchDrugs("가나다")).resolves.toMatchObject({ candidates: expect.any(Array), needs_confirmation: true });
+  });
+});
+
+// ---------------------------------------------------------------- 복용 약 사진으로 등록(FE-04-27 A, 2026-11-22)
+describe("복용 약 사진으로 등록(FE-04-27 A): 확인한 이름만 지금 편집 중인 프로필 목록에, 사진은 저장하지 않음", () => {
+  const chips = () => screen.queryAllByTestId("medication").map((chip) => ({ name: within(chip).getByTestId("medication-name").textContent, confirmed: chip.getAttribute("data-confirmed") }));
+  const photoButton = () => screen.getByTestId("medication-photo") as HTMLButtonElement;
+  const photoModal = () => screen.getByTestId("photo-modal");
+  const photoCard = () => within(photoModal()).findByTestId("photo-confirm-card");
+  const pngFile = () => new File([new Uint8Array([1, 2, 3, 4])], "pouch.png", { type: "image/png" });
+  /** 요청 기록: `/api/chat` 횟수와 프로필 저장 본문 */
+  function watch() {
+    const log = { chat: 0, ingest: 0, saves: [] as Record<string, unknown>[], bodies: [] as string[] };
+    server.events.on("request:start", async ({ request }) => {
+      const pathname = new URL(request.url).pathname;
+      if (pathname.endsWith("/api/chat")) log.chat += 1;
+      if (pathname.endsWith("/api/ingest/image")) log.ingest += 1;
+      if (/\/api\/profiles(\/|$)/.test(pathname) && request.method !== "GET") {
+        const text = await request.clone().text();
+        log.bodies.push(text);
+        if (request.method === "POST") log.saves.push(JSON.parse(text));
+      }
+    });
+    return log;
+  }
+  async function openForm(user: ReturnType<typeof userEvent.setup>, { health = true } = {}) {
+    await login(user);
+    await consent(user, { health });
+    await user.click(screen.getByTestId("add-self"));
+    await user.type(screen.getByLabelText("이름(별명)"), "나");
+  }
+  /** `사진으로 등록` → 합성 PNG → 확인 카드(목 `ok`: 가나다정[후보 2]·라마바캡슐[후보 없음]) */
+  async function toCard(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(photoButton());
+    await waitFor(() => expect(photoModal()).toHaveAttribute("data-step", "pick"));
+    await user.upload(within(photoModal()).getByTestId("photo-file"), pngFile());
+    return photoCard();
+  }
+
+  beforeEach(() => {
+    server.use(...createPhotoHandlers(), http.post("*/api/chat", () => HttpResponse.json({ code: "NOT_IMPLEMENTED", fields: [] }, { status: 501 })));
+  });
+  afterEach(() => server.events.removeAllListeners());
+
+  it("mergeMedications: 같은 약은 넣지 않고 10개를 넘기지 않는다(글자 입력·사진 등록이 같은 규칙)", () => {
+    const a = { input_text: "가나다정 100밀리그램", item_seq: "200000001" };
+    const b = { input_text: "라마바", item_seq: null };
+    expect(mergeMedications([a], [a, b, { ...b }, { input_text: "다른 글자", item_seq: "200000001" }])).toEqual([a, b]);
+    const ten = Array.from({ length: MEDICATIONS_MAX }, (_, i) => ({ input_text: `약${i}`, item_seq: null }));
+    expect(mergeMedications(ten.slice(0, 9), [ten[9], { input_text: "열한번째", item_seq: null }])).toEqual(ten);
+    expect(mergeMedications(ten, [{ input_text: "열한번째", item_seq: null }])).toEqual(ten);
+  });
+
+  it("버튼 `사진으로 등록`(새 글자, 승인 전)이 약 입력 아래·고지 위에 있고 건강 정보 묶음 안이라 동의가 없으면 비활성이다. 누르면 사진 모달이 계정 모달 위에 프로필 목적지로 열린다", async () => {
+    const { user } = setup();
+    await openForm(user, { health: false });
+    expect(copy.MEDICATION_PHOTO_LABEL).toBe("사진으로 등록");
+    expect(photoButton().textContent).toBe(copy.MEDICATION_PHOTO_LABEL);
+    expect(photoButton()).toBeDisabled(); // fieldset disabled
+    expect(screen.getByTestId("health-fields")).toContainElement(photoButton());
+    const input = screen.getByRole("combobox", { name: "복용 중인 약(선택)" });
+    const notice = screen.getByTestId("drug-data-scope-notice");
+    expect(input.compareDocumentPosition(photoButton()) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(photoButton().compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(screen.queryByTestId("photo-modal")).toBeNull();
+  });
+
+  it("열린 사진 모달: 가림 안내·외부 전송 고지(기존 글자 그대로)·119 진입점이 보이고, 계정 모달(z-40) 위 한 층(z-50)이며 초점은 사진 모달 제목에 있다. 닫으면 폼 입력은 그대로이고 초점은 버튼으로 돌아온다", async () => {
+    const { user } = setup();
+    await openForm(user);
+    await user.type(screen.getByRole("combobox", { name: "복용 중인 약(선택)" }), "없는약");
+    await waitFor(() => expect(screen.getByTestId("medication-add")).toBeEnabled()); // 검색이 끝나야 `그대로 추가`가 켜진다(FE-04-24 A)
+    await user.click(screen.getByTestId("medication-add"));
+    expect(chips()).toEqual([{ name: "없는약", confirmed: "false" }]);
+    await user.click(photoButton());
+    const box = photoModal();
+    expect(box).toHaveAttribute("data-destination", "profile");
+    expect(box.className).toMatch(/\bz-50\b/);
+    expect(modal().className).toMatch(/\bz-40\b/);
+    expect(within(box).getByTestId("photo-privacy-notice").textContent).toBe(PHOTO_PRIVACY_NOTICE);
+    expect(within(box).getByTestId("photo-external-ai-notice").textContent).toBe(PHOTO_EXTERNAL_AI_NOTICE);
+    expect(within(box).getByTestId("photo-external-ai-notice").textContent).toContain("외부 AI(Upstage)"); // 제공자 전환(작업 D) 반영, 프로필 진입점에서도
+    expect(within(box).getByRole("link", { name: "119 전화" })).toHaveAttribute("href", "tel:119");
+    expect(document.activeElement).toBe(within(box).getByRole("heading", { name: "사진으로 약 이름 읽기" }));
+    expect(modal()).toBeInTheDocument(); // 계정 모달은 그대로 아래에 있다
+    await user.click(within(box).getByTestId("photo-close"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(step()).toBe("profile-form");
+    expect(screen.getByLabelText("이름(별명)")).toHaveValue("나");
+    expect(chips()).toEqual([{ name: "없는약", confirmed: "false" }]); // 취소 뒤 변화 없음
+    expect(document.activeElement).toBe(photoButton());
+    // Esc도 같다
+    await user.click(photoButton());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(step()).toBe("profile-form"); // 계정 모달은 닫히지 않는다(Esc 한 번에 한 층)
+    expect(chips()).toEqual([{ name: "없는약", confirmed: "false" }]);
+  });
+
+  it("확인 카드 `이대로 확인`: 후보를 고른 약은 확인된 약(item_seq), 글자만 있는 약은 확인 안 된 약으로 목록에 들어간다. /chat 0회, 저장 요청 0회, 사진·이미지는 저장 요청에 없다", async () => {
+    const log = watch();
+    const { user, store } = setup();
+    await openForm(user);
+    const card = await toCard(user);
+    expect(within(card).queryByTestId("photo-question")).toBeNull();
+    const radios = within(within(card).getAllByTestId("photo-row")[0]).getAllByRole("radio");
+    await user.click(radios[0]);
+    await user.click(within(card).getByTestId("photo-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(step()).toBe("profile-form");
+    expect(chips()).toEqual([
+      { name: "가나다정 100밀리그램", confirmed: "true" },
+      { name: "라마바캡슐", confirmed: "false" },
+    ]);
+    expect(screen.getByTestId("medication-unconfirmed-note")).toHaveTextContent(copy.MEDICATION_UNCONFIRMED_NOTE);
+    expect(document.activeElement).toBe(photoButton());
+    expect(log).toMatchObject({ chat: 0, ingest: 1, saves: [] }); // 저장은 `저장`을 눌러야
+    expect(setItem).not.toHaveBeenCalled();
+    // 같은 사진을 다시 등록해도 중복은 들어가지 않는다
+    const again = await toCard(user);
+    await user.click(within(within(again).getAllByTestId("photo-row")[0]).getAllByRole("radio")[0]);
+    await user.click(within(again).getByTestId("photo-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(chips()).toHaveLength(2);
+    // 저장: 이름만 간다. 사진 data URL·읽은 성분·용량 글자는 요청 어디에도 없다
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(log.saves).toHaveLength(1);
+    expect(log.saves[0].medications).toEqual([
+      { input_text: "가나다정 100밀리그램", item_seq: "200000001" },
+      { input_text: "라마바캡슐", item_seq: null },
+    ]);
+    for (const body of log.bodies) expect(body).not.toMatch(/data:image|base64|가나다성분|100mg|image/);
+    expect(JSON.stringify(store.getState())).not.toMatch(/data:image|base64/);
+    expect(log.chat).toBe(0);
+  });
+
+  it("후보를 고르지 않고 확인하면 읽은 글자 모두 확인 안 된 약으로 들어간다(FE-04-24 A 규칙). `글자로 입력`(실패 화면)은 닫고 약 입력 칸에 초점", async () => {
+    const { user } = setup();
+    await openForm(user);
+    const card = await toCard(user);
+    await user.click(within(card).getByTestId("photo-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(chips()).toEqual([
+      { name: "가나다정", confirmed: "false" },
+      { name: "라마바캡슐", confirmed: "false" },
+    ]);
+    // 인식 실패 → 글자로 입력
+    server.use(...createPhotoHandlers({ scenario: "unreadable" }));
+    await user.click(photoButton());
+    await user.upload(within(photoModal()).getByTestId("photo-file"), pngFile());
+    await user.click(await within(photoModal()).findByTestId("photo-type-instead"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "복용 중인 약(선택)" }));
+    expect(chips()).toHaveLength(2);
+  });
+
+  it("프로필별 도착지: 본인 프로필에 등록한 약은 가족 프로필 폼에 보이지 않고, 가족 폼에서 등록한 약은 그 가족 프로필에만 저장된다", async () => {
+    const log = watch();
+    const { user, store } = setup();
+    await openForm(user);
+    const card = await toCard(user);
+    await user.click(within(within(card).getAllByTestId("photo-row")[0]).getAllByRole("radio")[0]);
+    await user.click(within(card).getByTestId("photo-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    await user.click(screen.getByTestId("add-family"));
+    await waitFor(() => expect(step()).toBe("profile-form"));
+    expect(chips()).toEqual([]); // 가족 폼은 비어서 시작
+    await user.type(screen.getByLabelText("이름(별명)"), "첫째");
+    const familyCard = await toCard(user);
+    await user.click(within(within(familyCard).getAllByTestId("photo-row")[0]).getAllByRole("radio")[1]); // 500밀리그램
+    await user.click(within(familyCard).getAllByTestId("photo-row-remove")[1]); // 라마바캡슐 줄은 지운다
+    await user.click(within(familyCard).getByTestId("photo-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(chips()).toEqual([{ name: "가나다정 500밀리그램", confirmed: "true" }]);
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(log.saves.map((save) => save.medications)).toEqual([
+      [
+        { input_text: "가나다정 100밀리그램", item_seq: "200000001" },
+        { input_text: "라마바캡슐", item_seq: null },
+      ],
+      [{ input_text: "가나다정 500밀리그램", item_seq: "200000002" }],
+    ]);
+    const [self, child] = store.getState().profiles;
+    expect(self.medications.map((item) => item.input_text)).toEqual(["가나다정 100밀리그램", "라마바캡슐"]);
+    expect(child.medications.map((item) => item.input_text)).toEqual(["가나다정 500밀리그램"]);
+    expect(log.chat).toBe(0);
+  });
+
+  it("약이 10개면 버튼이 비활성이고, 9개일 때 사진으로 2개를 더하면 10개까지만 들어간다", async () => {
+    const { user } = setup();
+    await openForm(user);
+    const input = screen.getByRole("combobox", { name: "복용 중인 약(선택)" });
+    for (let i = 0; i < 9; i += 1) {
+      await user.type(input, `없는약${i}`);
+      await waitFor(() => expect(screen.getByTestId("medication-add")).toBeEnabled());
+      await user.click(screen.getByTestId("medication-add"));
+    }
+    expect(chips()).toHaveLength(9);
+    expect(photoButton()).toBeEnabled();
+    const card = await toCard(user);
+    await user.click(within(within(card).getAllByTestId("photo-row")[0]).getAllByRole("radio")[0]);
+    await user.click(within(card).getByTestId("photo-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    expect(chips()).toHaveLength(MEDICATIONS_MAX);
+    expect(chips()[9]).toEqual({ name: "가나다정 100밀리그램", confirmed: "true" });
+    expect(photoButton()).toBeDisabled();
+    expect(screen.getByTestId("medication-limit")).toHaveTextContent(copy.ERROR_MEDICATION_LIMIT);
+  });
+});
+
+// ---------------------------------------------------------------- 프로필 저장 완료 안내(FE-04-15 A·FE-04-26, 2026-11-22)
+describe("프로필 저장 완료 안내(FE-04-15 A): 저장 뒤 목록 위에 한 줄(role=status) + `질문하러 가기`", () => {
+  function setupWithInput(store: AccountStore = createAccountStore()) {
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button" onClick={() => openAccountModal(store)}>
+          프로필 저장
+        </button>
+        <main data-testid="main">
+          <textarea aria-label="질문 입력" />
+        </main>
+        <AccountModal store={store} />
+      </>,
+    );
+    return { user, store };
+  }
+  const notice = () => screen.queryByTestId("profile-saved-notice");
+
+  it("저장이 끝나면 목록 맨 위(설명 아래)에 안내(초안·승인 전)와 버튼이 보이고 보조기기용 role=status다. 초점은 제목, 마스코트 없음. 처음 열 때는 없다", async () => {
+    const { user } = setup();
+    await login(user);
+    await consent(user, { health: true });
+    expect(notice()).toBeNull();
+    await user.click(screen.getByTestId("add-self"));
+    await user.type(screen.getByLabelText("이름(별명)"), "나");
+    expect(modal().querySelector("form")!).toHaveAttribute("aria-busy", "false");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    const box = notice()!;
+    expect(box).toHaveAttribute("role", "status");
+    expect(box).toHaveTextContent(copy.PROFILE_SAVED_NOTICE);
+    expect(within(box).getByRole("button", { name: copy.GO_ASK_LABEL })).toBeInTheDocument();
+    expect(copy.GO_ASK_LABEL).toBe("질문하러 가기");
+    expect(within(box).queryByTestId("mascot")).toBeNull();
+    expect(box.textContent).not.toMatch(/119|응급|금기/);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "프로필" }));
+    // 설명 바로 아래, 목록 위
+    expect(screen.getByText(copy.PROFILES_DESCRIPTION).compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(box.compareDocumentPosition(screen.getByTestId("profile-item")) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    // 다른 화면으로 가면 사라지고, 돌아와도 다시 보이지 않는다
+    await user.click(screen.getByRole("button", { name: "나 수정" }));
+    expect(notice()).toBeNull();
+    await user.click(screen.getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(notice()).toBeNull();
+  });
+
+  it("`질문하러 가기`는 모달을 닫고 초점을 질문 입력창에 둔다", async () => {
+    const { user } = setupWithInput();
+    await login(user);
+    await consent(user, { health: false });
+    await user.click(screen.getByTestId("add-self"));
+    await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    await user.click(screen.getByTestId("go-ask"));
+    await waitFor(() => expect(screen.queryByTestId("account-modal")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "질문 입력" }));
+    // 다시 열면 안내는 없다
+    await user.click(screen.getByRole("button", { name: "프로필 저장" }));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(notice()).toBeNull();
+  });
+
+  it("저장이 실패하면(422) 폼에 남아 오류(role=alert)만 보이고 완료 안내는 없다. 저장 중에는 폼이 aria-busy다", async () => {
+    let release: () => void = () => {};
+    server.use(
+      http.post("*/api/profiles", async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return HttpResponse.json({ code: "INVALID_REQUEST", fields: ["label"] }, { status: 422 });
+      }),
+    );
+    const { user } = setup();
+    await login(user);
+    await consent(user, { health: false });
+    await user.click(screen.getByTestId("add-self"));
+    await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(modal().querySelector("form")!).toHaveAttribute("aria-busy", "true"));
+    expect(screen.getByTestId("profile-save")).toBeDisabled();
+    release();
+    await waitFor(() => expect(screen.getByTestId("account-error")).toHaveTextContent(copy.ERROR_INVALID_REQUEST));
+    expect(step()).toBe("profile-form");
+    expect(screen.getByTestId("account-error")).toHaveAttribute("role", "alert");
+    expect(notice()).toBeNull();
+    expect(modal().querySelector("form")!).toHaveAttribute("aria-busy", "false");
   });
 });

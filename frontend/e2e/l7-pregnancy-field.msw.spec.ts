@@ -34,7 +34,7 @@ for (const width of [393, 1280]) {
     test.describe(`프로필 임신 여부 칸 ${width}px ${scheme}`, () => {
       test.use({ viewport: { width, height: HEIGHT }, colorScheme: scheme });
 
-      test("성별을 여성으로 고르면 칸이 나타나고(예 | 아니오 | 모름), 남성·선택 안 함이면 사라진다. 숨겨질 때 값은 모름으로 돌아간다", async ({ page }) => {
+      test("성별을 여성으로 고르면 칸이 나타나고(예 | 아니오 | 모름), 남성·선택 안 함이면 사라진다. 여성이 아니면 아니오로 저장된다(작업 C, 2026-11-22)", async ({ page }) => {
         const bodies: Record<string, unknown>[] = [];
         page.on("request", (request) => {
           if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/api/profiles")) bodies.push(request.postDataJSON());
@@ -67,14 +67,23 @@ for (const width of [393, 1280]) {
         await expect(option(page, "모름")).toHaveAttribute("aria-checked", "true");
         await modal(page).getByLabel("성별").selectOption("");
         await expect(field(page)).toHaveCount(0);
-        // 남성으로 저장하면 모름으로 간다
+        // 남성으로 저장하면 아니오로 간다(사용자 결정 2026-11-22: 여성이 아니면 '아니오' 저장)
         await modal(page).getByLabel("이름(별명)").fill("나");
         await modal(page).getByLabel("성별").selectOption("male");
         await modal(page).getByTestId("profile-save").click();
         await expect(modal(page).getByTestId("profile-item")).toHaveCount(1);
         expect(bodies).toHaveLength(1);
-        expect(bodies[0]).toMatchObject({ sex: "male", pregnancy_status: "unknown" });
-        await expect(modal(page).getByTestId("profile-item")).not.toContainText("임신 여부");
+        expect(bodies[0]).toMatchObject({ sex: "male", pregnancy_status: "not_pregnant" });
+        await expect(modal(page).getByTestId("profile-item")).toContainText("임신 여부 아니오");
+        // 성별 미입력 가족 프로필도 아니오(2026-11-22 정정 '미입력도 아니오로 저장')
+        await modal(page).getByTestId("add-family").click();
+        await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
+        await modal(page).getByLabel("이름(별명)").fill("첫째");
+        await expect(field(page)).toHaveCount(0);
+        await modal(page).getByTestId("profile-save").click();
+        await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
+        expect(bodies).toHaveLength(2);
+        expect(bodies[1]).toMatchObject({ sex: null, pregnancy_status: "not_pregnant" });
       });
 
       test("키보드: 여성을 고른 뒤 ←/→로 옮기며 선택·초점이 따라가고, 여성 프로필의 '예'가 저장돼 수정 화면에 다시 채워진다", async ({ page }) => {

@@ -5,6 +5,7 @@ import { Mascot } from "@/components/Mascot";
 import { FAMILY_PROFILE_MAX } from "@/lib/api/account";
 import type { Profile } from "@/lib/api/account";
 import { accountUnavailable, canAddFamily, canAddSelf, familyProfiles, hasHealthConsent, useAccountStore } from "@/stores/account";
+import { closeAccountModalToQuestion } from "./AccountModal";
 import {
   ADD_SELF_LABEL,
   AGE_BAND_LABELS,
@@ -13,12 +14,14 @@ import {
   EDIT_LABEL,
   ERROR_NOT_IMPLEMENTED,
   FAMILY_FULL_NOTE,
+  GO_ASK_LABEL,
   HEALTH_CONSENT_REQUIRED_FALLBACK,
   LOGOUT_LABEL,
   PREGNANCY_LABEL,
   PREGNANCY_LABELS,
   PROFILES_DESCRIPTION,
   PROFILES_EMPTY,
+  PROFILE_SAVED_NOTICE,
   PROFILES_TITLE,
   RELATION_LABELS,
   REVIEW_CONSENT_LABEL,
@@ -63,6 +66,7 @@ export function ProfileList() {
   const me = useAccountStore((state) => state.me, store);
   const pending = useAccountStore((state) => state.pending, store);
   const failure = useAccountStore((state) => state.failure, store);
+  const notice = useAccountStore((state) => state.notice, store);
   const healthConsent = hasHealthConsent(me);
   const unavailable = useAccountStore(accountUnavailable, store);
   const healthNotice = useHealthConsentNotice();
@@ -75,6 +79,16 @@ export function ProfileList() {
     <StepBody data-testid="profile-list">
       <StepTitle>{PROFILES_TITLE}</StepTitle>
       <p className="m-0 text-sm leading-5 text-ink-2">{PROFILES_DESCRIPTION}</p>
+      {/* 저장 완료 안내(FE-04-15 A·FE-04-26 A, 문구 승인 2026-11-22): 저장 직후 한 번, 보조기기가 바로 읽는다(`role="status"`). 초점은 제목에 있고 다음 행동 `질문하러 가기`가 옆에 있다.
+          마스코트·응급·금기 문구는 두지 않는다. 다른 단계로 옮기거나 닫으면 스토어가 지운다 */}
+      {notice === "profile-saved" && (
+        <div role="status" data-testid="profile-saved-notice" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl bg-bg-soft px-3 py-2">
+          <p className="m-0 min-w-0 flex-1 basis-40 text-sm leading-5 font-semibold text-ink [word-break:keep-all]">{PROFILE_SAVED_NOTICE}</p>
+          <button type="button" data-testid="go-ask" onClick={() => closeAccountModalToQuestion(store)} className={PRIMARY_BUTTON}>
+            {GO_ASK_LABEL}
+          </button>
+        </div>
+      )}
       {unavailable && !failure && (
         <p role="status" data-testid="account-unavailable" className="m-0 rounded-xl bg-bg-softer px-3 py-2 text-sm leading-5 text-ink-2 [word-break:keep-all]">
           {ERROR_NOT_IMPLEMENTED}

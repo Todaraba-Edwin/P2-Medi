@@ -6,8 +6,9 @@ import { HOVER_TEXT, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/butto
 import { Mascot } from "@/components/Mascot";
 import { NoMascotZone } from "@/components/NoMascotZone";
 import { cn } from "@/lib/utils";
+import type { MedicationInput } from "@/lib/api/account";
 import { postIngestImage } from "./api";
-import { buildChatInput } from "./build-chat-input";
+import { buildChatInput, buildProfileMedications } from "./build-chat-input";
 import type { ChatInputFromPhoto } from "./build-chat-input";
 import {
   PHOTO_CLOSE_LABEL,
@@ -25,20 +26,32 @@ import {
 import { initialPhotoFlow, photoFlowReducer } from "./flow";
 import { PHOTO_ACCEPT, PhotoImageError, prepareImage } from "./image";
 import { PhotoConfirmCard } from "./PhotoConfirmCard";
+import type { PhotoDestination } from "./PhotoConfirmCard";
+
+export type { PhotoDestination };
 
 /** 코너 버튼(PRD-13-01 A, 계정 모달과 같은 모양): 모달 상자 기준 `position: absolute`, 누르는 영역 44px 이상, 불투명 바탕 */
 const CORNER_CLASS = `absolute top-2 z-10 grid min-h-11 min-w-11 place-items-center rounded-full border border-line bg-bg text-sm font-bold text-link ${HOVER_TEXT}`;
-/** 모달 상자: 단계가 바뀌어도 같은 크기(계정 모달과 같은 규칙). 넘치는 내용은 본문 안에서만 스크롤한다 */
+/** 모달 상자: 단계가 바뀌어도 같은 크기(계정 모달과 같은 규칙). 넘치는 내용은 본문 안에서만 스크롤한다. 층(z)은 `stacked`가 정한다 */
 const MODAL_BOX_CLASS =
-  "@container absolute top-1/2 left-1/2 z-40 flex h-[calc(100%-24px)] w-[calc(100%-24px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-3xl bg-bg shadow-lg outline-none sm:h-[min(642px,calc(100%-24px))] sm:w-[min(560px,calc(100%-24px))]";
+  "@container absolute top-1/2 left-1/2 flex h-[calc(100%-24px)] w-[calc(100%-24px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-3xl bg-bg shadow-lg outline-none sm:h-[min(642px,calc(100%-24px))] sm:w-[min(560px,calc(100%-24px))]";
 
 export interface PhotoModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** `이대로 확인`: 승인한 목록과 질문으로 조립하는 쪽이 기존 `/chat` 전송을 한 번 부른다. 모달은 닫힌다 */
+  /**
+   * 확인 카드 결과의 도착지(FE-04-27 A). 기본 `chat`: `이대로 확인`이 `onConfirm`으로 질문·확인 약을 넘긴다.
+   * `profile`: 질문칸 없이 약 이름만 받아 `onRegister`로 프로필 복용 약 항목을 넘긴다(`onConfirm`은 부르지 않는다). 두 길은 섞이지 않는다
+   */
+  destination?: PhotoDestination;
+  /** `이대로 확인`(채팅 목적지): 승인한 목록과 질문으로 조립하는 쪽이 기존 `/chat` 전송을 한 번 부른다. 모달은 닫힌다 */
   onConfirm: (input: ChatInputFromPhoto) => void;
+  /** `이대로 확인`(프로필 목적지): 확인된 약(`item_seq`)과 확인 안 된 글자(`item_seq` null)를 폼이 목록에 더한다. 모달은 닫힌다 */
+  onRegister?: (items: MedicationInput[]) => void;
   /** `글자로 입력`: 모달을 닫고 입력창으로 간다(초점은 조립하는 쪽이 준다) */
   onTypeInstead: () => void;
+  /** 다른 모달(계정 모달) 위에 겹쳐 열 때 true: 스크림·상자를 한 층 위(z-50)에 둔다(확인 모달 `ConfirmDialog`와 같은 층) */
+  stacked?: boolean;
   /** 닫힌 뒤 초점을 돌려줄 곳(Radix는 `Dialog.Trigger`가 없으면 돌려주지 않는다). 없으면 그대로 둔다 */
   onCloseAutoFocus?: () => void;
   /** 층을 그릴 자리(119 배너 아래 영역). 배너는 덮지 않는다 */
@@ -59,13 +72,18 @@ export interface PhotoModalProps {
  * - 사진은 브라우저 메모리에서만 준비해(`image.ts`) `POST /api/ingest/image`로 보내고, data URL은 보낸 뒤 참조를 버린다. 미리보기는 object URL이며 인식이 끝나면 놓아준다
  * - 응답 `status`로 분기: OK → 카드, UNAVAILABLE → P8, 그 밖(UNREADABLE·오류) → P4. 응답의 `emergency`는 카드 맨 위에 서버 값 그대로
  * - 미식별 결과 카드 아래의 두 번째 입구(`약 사진 올리기`)는 이번에 만들지 않는다(〔D5〕A)
+ * - 프로필 등록 목적지(FE-04-27 A): 온보딩·프로필 폼의 `사진으로 등록`이 같은 모달을 `destination="profile"`로 연다. 사진 고르기·인식·실패·고지(P1·P2)는 그대로이고
+ *   확인 카드에 질문칸이 없으며 `이대로 확인`은 `onRegister`로 이름만 넘긴다. 사진·data URL은 여기서도 상태에 두지 않는다
  */
 export function PhotoModal({
   open,
   onOpenChange,
+  destination = "chat",
   onConfirm,
+  onRegister,
   onTypeInstead,
   onCloseAutoFocus,
+  stacked = false,
   container = null,
   hasEmergency = false,
   emergencyEntry = null,
@@ -122,6 +140,13 @@ export function PhotoModal({
 
   const confirm = () => {
     if (flow.step !== "confirm") return;
+    if (destination === "profile") {
+      // 프로필 목적지: 약 이름만 넘긴다(질문 없음). 채팅 전송(`onConfirm`)은 부르지 않는다
+      const items = buildProfileMedications(flow.rows);
+      onOpenChange(false);
+      onRegister?.(items);
+      return;
+    }
     const input = buildChatInput(flow.rows, flow.question);
     onOpenChange(false);
     onConfirm(input);
@@ -130,12 +155,13 @@ export function PhotoModal({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal container={container}>
-        <Dialog.Overlay data-testid="photo-scrim" className="absolute inset-0 z-40 bg-ink/50" />
+        <Dialog.Overlay data-testid="photo-scrim" className={cn("absolute inset-0 bg-ink/50", stacked ? "z-50" : "z-40")} />
         <Dialog.Content
           ref={content}
           aria-describedby={undefined}
           data-testid="photo-modal"
           data-step={flow.step}
+          data-destination={destination}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             focusTitle();
@@ -146,7 +172,7 @@ export function PhotoModal({
           }}
           // 바깥을 눌러도 닫지 않는다: 고치던 목록이 실수로 사라지지 않게 닫기·Esc로만 닫는다
           onPointerDownOutside={(event) => event.preventDefault()}
-          className={MODAL_BOX_CLASS}
+          className={cn(MODAL_BOX_CLASS, stacked ? "z-50" : "z-40")}
         >
           <Dialog.Close data-testid="photo-close" className={cn(CORNER_CLASS, "right-2 px-3")}>
             {PHOTO_CLOSE_LABEL}
@@ -241,6 +267,7 @@ export function PhotoModal({
                 <PhotoConfirmCard
                   rows={flow.rows}
                   question={flow.question}
+                  destination={destination}
                   emergency={flow.emergency}
                   onEditName={(id, value) => dispatch({ type: "editName", id, value })}
                   onPick={(id, candidate) => dispatch({ type: "pick", id, candidate })}

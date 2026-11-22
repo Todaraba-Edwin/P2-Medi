@@ -209,6 +209,8 @@ export const FAMILY_PROFILE_MAX = 3;
 export const PROFILE_LABEL_MAX_CHARS = 20;
 export const MEDICATION_NAME_MAX_CHARS = 100;
 export const MEDICATIONS_MAX = 10;
+/** 같은 약인가: 품목 번호가 있으면 번호로, 없으면 적은 글자로 본다(프로필 복용 약 목록의 중복 규칙. 글자 입력·사진 등록이 같은 규칙을 쓴다) */
+export const sameMedication = (a: MedicationInput, b: MedicationInput) => (a.item_seq && b.item_seq ? a.item_seq === b.item_seq : a.input_text === b.input_text);
 /** 약 이름 검색(`DrugSearchIn.q`) 글자 상한·후보 상한(백엔드 `drugs.py`: 프로필 약 `input_text` 상한과 같다, 후보 최대 10) */
 export const DRUG_QUERY_MAX_CHARS = MEDICATION_NAME_MAX_CHARS;
 export const DRUG_CANDIDATES_MAX = 10;

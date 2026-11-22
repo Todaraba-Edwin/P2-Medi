@@ -7,7 +7,7 @@ import { createAccountStore } from "@/stores/account";
 import { AccountModal } from "./AccountModal";
 import { PREGNANCY_LABELS } from "./copy";
 import { PREGNANCY_SELECT_ORDER, PregnancySelect } from "./PregnancySelect";
-import { pregnancyToSave, showsPregnancyField } from "./ProfileForm";
+import { PREGNANCY_WHEN_NOT_FEMALE, pregnancyToSave, showsPregnancyField } from "./ProfileForm";
 
 // 프로필 폼의 임신 여부(작업 B, 사용자 지시 2026-11-22): 성별이 여성일 때만 보이는 선택 버튼 "예 | 아니오 | 모름".
 // 글자는 기존 `PREGNANCY_LABELS`만 쓴다. 입력창의 "일반인 | 임산부" 토글(FE-11)은 건드리지 않는다(`features/chat/PregnancyToggle.test.tsx`).
@@ -127,13 +127,17 @@ describe("프로필 폼의 임신 여부 칸(여성일 때만)", () => {
     return { store, user };
   }
 
-  it("순수 규칙: 여성만 보이고, 여성이 아니면 저장 값은 모름이다", () => {
+  it("순수 규칙(사용자 결정 2026-11-22 작업 C): 여성만 보이고 여성은 고른 값, 여성이 아니면(남성·미입력) 저장 값은 아니오(`not_pregnant`)다", () => {
     expect(showsPregnancyField("female")).toBe(true);
     expect(showsPregnancyField("male")).toBe(false);
     expect(showsPregnancyField("")).toBe(false);
+    expect(PREGNANCY_WHEN_NOT_FEMALE).toBe("not_pregnant");
     expect(pregnancyToSave("female", "pregnant")).toBe("pregnant");
-    expect(pregnancyToSave("male", "pregnant")).toBe("unknown");
-    expect(pregnancyToSave("", "not_pregnant")).toBe("unknown");
+    expect(pregnancyToSave("female", "unknown")).toBe("unknown");
+    expect(pregnancyToSave("male", "pregnant")).toBe("not_pregnant");
+    expect(pregnancyToSave("male", "unknown")).toBe("not_pregnant");
+    expect(pregnancyToSave("", "pregnant")).toBe("not_pregnant"); // 미입력도 아니오(2026-11-22 정정)
+    expect(pregnancyToSave("", "unknown")).toBe("not_pregnant");
   });
 
   it("처음(성별 선택 안 함)에는 없고, 여성을 고르면 나타나며, 남성·선택 안 함으로 바꾸면 사라진다", async () => {
@@ -152,7 +156,7 @@ describe("프로필 폼의 임신 여부 칸(여성일 때만)", () => {
     expect(field()).toBeNull();
   });
 
-  it("여성에서 '예'를 고른 뒤 남성으로 바꾸면 값이 모름으로 돌아가고(다시 여성으로 돌려도 모름), 저장 요청의 pregnancy_status도 모름이다", async () => {
+  it("여성에서 '예'를 고른 뒤 남성으로 바꾸면 칸이 숨겨지고(다시 여성으로 돌리면 모름에서 고른다), 남성으로 저장하면 요청의 pregnancy_status는 아니오다", async () => {
     const bodies: Record<string, unknown>[] = [];
     server.events.on("request:start", async ({ request }) => {
       if (request.method === "POST" && new URL(request.url).pathname.endsWith("/api/profiles")) bodies.push(await request.clone().json());
@@ -170,9 +174,26 @@ describe("프로필 폼의 임신 여부 칸(여성일 때만)", () => {
     await waitFor(() => expect(step()).toBe("profiles"));
     server.events.removeAllListeners();
     expect(bodies).toHaveLength(1);
-    expect(bodies[0]).toMatchObject({ sex: "male", pregnancy_status: "unknown" });
-    expect(store.getState().profiles[0]).toMatchObject({ sex: "male", pregnancy_status: "unknown" });
-    expect(screen.getByTestId("profile-item")).not.toHaveTextContent("임신 여부");
+    expect(bodies[0]).toMatchObject({ sex: "male", pregnancy_status: "not_pregnant" });
+    expect(store.getState().profiles[0]).toMatchObject({ sex: "male", pregnancy_status: "not_pregnant" });
+    expect(screen.getByTestId("profile-item")).toHaveTextContent("임신 여부 아니오"); // 저장 값이 모름이 아니라 요약에 보인다
+  });
+
+  it("성별 미입력(선택 안 함)으로 저장해도 요청의 pregnancy_status는 아니오다(2026-11-22 정정 '미입력도 아니오로 저장')", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    server.events.on("request:start", async ({ request }) => {
+      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/api/profiles")) bodies.push(await request.clone().json());
+    });
+    const { user, store } = await openForm({ health: true });
+    await user.type(screen.getByLabelText("이름(별명)"), "나");
+    expect(screen.getByLabelText("성별")).toHaveValue("");
+    expect(field()).toBeNull();
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    server.events.removeAllListeners();
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({ sex: null, pregnancy_status: "not_pregnant" });
+    expect(store.getState().profiles[0]).toMatchObject({ sex: null, pregnancy_status: "not_pregnant" });
   });
 
   it("여성이면 고른 값(예)이 그대로 저장되고 수정 화면에 다시 채워진다", async () => {
@@ -190,7 +211,7 @@ describe("프로필 폼의 임신 여부 칸(여성일 때만)", () => {
     expect(screen.getByRole("radio", { name: "예" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("저장된 프로필이 여성이 아닌데 임신 상태가 남아 있으면(입력창 토글로 저장된 값) 수정 화면에서 숨기고, 저장하면 모름으로 정리한다", async () => {
+  it("저장된 프로필이 여성이 아닌데 임신 상태가 남아 있으면(입력창 토글로 저장된 값) 수정 화면에서 숨기고, 저장하면 아니오로 정리한다", async () => {
     const { user, store } = await openForm({ health: true });
     await user.type(screen.getByLabelText("이름(별명)"), "나");
     await user.click(screen.getByTestId("profile-save")); // 성별 미입력
@@ -203,7 +224,7 @@ describe("프로필 폼의 임신 여부 칸(여성일 때만)", () => {
     expect(field()).toBeNull();
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
-    expect(store.getState().profiles[0]).toMatchObject({ sex: null, pregnancy_status: "unknown" });
+    expect(store.getState().profiles[0]).toMatchObject({ sex: null, pregnancy_status: "not_pregnant" });
   });
 
   it("건강 정보 동의가 없으면 여성이어도 칸은 비활성(모름 고정)이고 저장 요청에 건강 칸이 없다. 가족 프로필도 같은 부품·독립 값이다", async () => {

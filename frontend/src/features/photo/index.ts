@@ -1,7 +1,7 @@
 export { PhotoModal } from "./PhotoModal";
-export type { PhotoModalProps } from "./PhotoModal";
+export type { PhotoDestination, PhotoModalProps } from "./PhotoModal";
 export { PhotoConfirmCard } from "./PhotoConfirmCard";
-export { buildChatInput, canConfirm, rowsFromResponse } from "./build-chat-input";
+export { buildChatInput, buildProfileMedications, canConfirm, canRegister, rowsFromResponse } from "./build-chat-input";
 export type { ChatInputFromPhoto, PhotoRow } from "./build-chat-input";
 export { PHOTO_ENTRY_LABEL } from "./copy";
 export { prepareImage, isHeicFile, PhotoImageError, HEIC_MIME_TYPES, PHOTO_ACCEPT, PHOTO_MAX_EDGE_PX, PHOTO_MAX_UPLOAD_BYTES } from "./image";

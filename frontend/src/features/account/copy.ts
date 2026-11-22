@@ -145,6 +145,11 @@ export const MEDICATION_HINT = "봉투나 상자에 적힌 이름을 그대로 �
  */
 export const MEDICATION_ADD_LABEL = "그대로 추가";
 /**
+ * 약 입력 아래의 사진 등록 진입 버튼(FE-04-27 A, 2026-11-22 사용자 승인). 기존 사진 흐름(`PhotoModal`, 프로필 목적지)을 연다.
+ * 글자 "사진으로 등록"은 사용자 요청 원문("사진으로 등록하기가 필요")에서 가져왔고 **원문 승인(2026-11-22, 사용자 커밋·병합 지시로 확정)**. 다른 새 글자는 없다
+ */
+export const MEDICATION_PHOTO_LABEL = "사진으로 등록";
+/**
  * 자료 밖 약 고지(FE-04-25 A, 2026-11-22 사용자 답, 원문 승인): 약 이름을 넣는 화면 두 곳(프로필 복용 약 입력, 사진 확인 카드)이 **이 상수 하나**를 같이 쓴다.
  * 채팅 답변·에이전트 고정 문구와는 별개다(채팅은 기존 '찾지 못함' 고정 문구 그대로)
  */
@@ -182,6 +187,14 @@ export const MEDICATION_SEARCH_FAILED = "지금은 후보를 찾지 못했어요
 export const MEDICATION_UNCONFIRMED_ASK_NOTICE_DRAFT = "이 약은 자료에서 찾지 못해 금기 확인에서 빠져요. 약봉투의 제품명·성분명을 약사에게 확인하세요.";
 export const SAVE_LABEL = "저장";
 export const CANCEL_LABEL = "취소";
+/**
+ * 프로필 저장 완료 안내(FE-04-15 A·FE-04-26 A, 2026-11-22): 저장이 끝나 프로필 목록으로 돌아온 화면 맨 위에 한 줄(`role="status"`)과 `질문하러 가기` 버튼.
+ * 문장은 구현 때 올린 초안 1안을 **승인(2026-11-22, 사용자 커밋·병합 지시로 확정)**. 바꾸려면 이 상수 하나만 고친다(e2e `l8-save-notice.msw.spec.ts`의 같은 글자도 함께).
+ * 다른 안내(`SIGNUP_CONFIRM_NOTICE`·`PROFILES_DESCRIPTION`)와 같은 어조(쉬운 말, 마스코트 없음)이고 응급·금기 고정 문구와 섞지 않는다
+ */
+export const PROFILE_SAVED_NOTICE = "프로필을 저장했어요. 질문할 때 누가 먹는지 고를 수 있어요.";
+/** 완료 안내 옆 버튼: 모달을 닫고 질문 입력창으로 간다. 글자는 FE-04-15 A(2026-11-19)에서 이미 확정된 이름이다 */
+export const GO_ASK_LABEL = "질문하러 가기";
 /** 건강 정보 동의가 없을 때의 이유 한 줄(서버는 이 문구를 주지 않는다). 422 `HEALTH_CONSENT_REQUIRED`의 화면 문구로도 쓴다 */
 export const HEALTH_CONSENT_REQUIRED_FALLBACK = "건강 정보 동의를 해야 임신 여부와 복용 중인 약을 입력할 수 있어요.";
 
