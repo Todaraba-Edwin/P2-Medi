@@ -257,6 +257,77 @@ describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
   });
 });
 
+describe("GROUP-03 3단계 성별 숨김(FE-11-09 C·FE-11-12 A)", () => {
+  /** 본인은 남성, 첫째는 여성(둘 다 건강 정보 동의 범위 안의 임신 값 포함) */
+  function sexedSession(healthConsent: boolean, { selfSex, childSex, selfPregnancy = null as "pregnant" | "not_pregnant" | null }: { selfSex: "male" | "female" | null; childSex: "male" | "female" | null; selfPregnancy?: "pregnant" | "not_pregnant" | null }) {
+    const session = onboardedSession(healthConsent, selfPregnancy);
+    session.profiles = session.profiles.map((profile) => (profile.profile_id === SELF_ID ? { ...profile, sex: selfSex } : { ...profile, sex: childSex, pregnancy_status: "pregnant" }));
+    return session;
+  }
+  const toggleOrNull = () => screen.queryByRole("radiogroup", { name: "임신 여부" });
+  const form = () => screen.getByRole("textbox").closest("form")!;
+
+  it("남성 프로필이 대상이면 토글이 없고 context.pregnant=false를 보낸다. 저장 값이 임신이어도 같다. 대상 바꾸기 전(선택 안 함)과 게스트는 보인다", async () => {
+    const { user, store } = setup({ session: sexedSession(true, { selfSex: "male", childSex: "female", selfPregnancy: "pregnant" }), width: 1280 });
+    const picker = await screen.findByTestId("target-picker");
+    expect(toggleOrNull()).not.toBeNull(); // 대상을 고르기 전(선택 안 함)은 보인다
+    const formBefore = form();
+    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    expect(toggleOrNull()).toBeNull();
+    expect(screen.queryByTestId("pregnancy-hint")).toBeNull();
+    expect(screen.queryByTestId("pregnancy-save-error")).toBeNull();
+    expect(form()).toBe(formBefore); // 입력창 틀은 그대로다(토글만 빠진다)
+    expect(store.getState().context.pregnant).toBe(false);
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(chatBodies[0].context).toMatchObject({ pregnant: false, age: { lower: 19, upper: 64, unit: "세" } });
+    expect(JSON.stringify(chatBodies[0])).not.toMatch(/sex|gender|male/);
+    expect(patches).toEqual([]); // 토글이 없으니 저장도 없다
+  });
+
+  it("가족 프로필을 고르면 그 프로필의 성별을 따른다: 남성(숨김) → 여성(보임, 임신 값으로 시작) → 남성(다시 숨김, false)", async () => {
+    const { user, store } = setup({ session: sexedSession(true, { selfSex: "male", childSex: "female" }), width: 1280 });
+    const picker = await screen.findByTestId("target-picker");
+    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    expect(toggleOrNull()).toBeNull();
+    await user.click(within(picker).getByRole("radio", { name: "첫째" }));
+    expect(toggleOrNull()).not.toBeNull();
+    expect(checkedLabel()).toBe("임산부"); // 첫째는 임신으로 저장돼 있다(§7.1 규칙 ①)
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(chatBodies[0].context.pregnant).toBe(true);
+    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    expect(toggleOrNull()).toBeNull();
+    expect(store.getState().context.pregnant).toBe(false);
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(chatBodies[1].context.pregnant).toBe(false);
+    // 선택 안 함으로 돌아가면 다시 보이고 일반인이다
+    await user.click(within(picker).getByRole("radio", { name: "선택 안 함" }));
+    expect(toggleOrNull()).not.toBeNull();
+    expect(checkedLabel()).toBe("일반인");
+  });
+
+  it("여성·성별 미입력 프로필과 게스트는 토글이 보이고 동작한다(동의 없음은 안내 한 줄)", async () => {
+    const { user } = setup({ session: sexedSession(false, { selfSex: "female", childSex: null }), width: 393 });
+    const picker = await screen.findByTestId("target-picker");
+    await user.click(within(picker).getByRole("radio", { name: "나" })); // 여성
+    expect(toggleOrNull()).not.toBeNull();
+    expect(checkedLabel()).toBe("일반인");
+    await user.click(within(picker).getByRole("radio", { name: "첫째" })); // 미입력
+    expect(toggleOrNull()).not.toBeNull();
+    await user.click(radio("임산부"));
+    expect(checkedLabel()).toBe("임산부");
+    expect(screen.getByTestId("pregnancy-hint").textContent).toBe(PREGNANCY_SAVE_CONSENT_HINT);
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(chatBodies[0].context.pregnant).toBe(true);
+  });
+
+  it("게스트는 토글이 보인다", async () => {
+    setup({ session: null, width: 393 });
+    await screen.findByTestId("app-shell");
+    expect(toggleOrNull()).not.toBeNull();
+    expect(checkedLabel()).toBe("일반인");
+  });
+});
+
 describe("사진 입력(FE-05 사진 부분, 〔D5〕·〔D6〕·〔D7〕A)", () => {
   // jsdom에는 createImageBitmap·URL.createObjectURL이 없다: 디코드만 가짜로 두고 파일 읽기(FileReader)·요청·화면은 실제 경로다
   const realCreateObjectURL = URL.createObjectURL;
