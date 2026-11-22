@@ -6,7 +6,7 @@ CLAUDE.md §3의 변수 이름을 필드로 선언. 값은 기본값 없이 선�
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,6 +22,9 @@ def default_env_files() -> tuple[str, ...]:
     `REPO_ROOT`는 호출할 때 읽는다(시험에서 monkeypatch로 가짜 폴더로 바꿀 수 있게).
     """
     return (str(REPO_ROOT / ".env"), ".env")
+
+
+DEFAULT_VISION_PROVIDER: Literal["upstage", "openai"] = "openai"  # 전환 시 "upstage"로 한 줄만 바꾼다
 
 
 class Settings(BaseSettings):
@@ -44,6 +47,11 @@ class Settings(BaseSettings):
 
     # 서버 시작 직후 백그라운드 자원 준비(BE-17-01·02 A). 기본 켬. `MEDIAGENT_WARMUP=0`(false·off)이면 지금처럼 첫 요청에서 만든다
     mediagent_warmup: bool = True
+
+    # 사진 약 이름 판독 제공자(BE-14, 비밀 아님, 환경변수 `MEDIAGENT_VISION_PROVIDER`). `upstage`는 OCR + solar-pro4, `openai`는 gpt-6-luna 비전.
+    # 사용자 결정 2026-11-22 Upstage 전환 — 키 요금제 확인·약관 v4 게시·사진 고지 승인 뒤 기본값을 upstage로 전환(메인이 별도 커밋).
+    # 전환 때는 아래 DEFAULT_VISION_PROVIDER 한 줄만 고친다.
+    mediagent_vision_provider: Literal["upstage", "openai"] = DEFAULT_VISION_PROVIDER
 
     # 식약처 DUR 품목정보 OpenAPI
     durprdlstinfoservice03_end_point: str | None = None
