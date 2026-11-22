@@ -4,6 +4,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { SettingsIcon, UserIcon } from "lucide-react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
+import { NoMascotZone } from "@/components/NoMascotZone";
 import { AccountMenu, AccountModal, EntryChoice, LOGIN_ENTRY_LABEL, MANAGE_PROFILES_LABEL, TargetPicker, isAccountEntryEnabled, openAccountModal } from "@/features/account";
 import { failureMessage } from "@/features/account/parts";
 import { ChatInput, ExampleChips, HomeHero, PREGNANCY_SAVE_CONSENT_HINT } from "@/features/chat";
@@ -15,6 +16,7 @@ import { SETTINGS_LABEL, SettingsDialog } from "@/features/settings";
 import { groupCandidates } from "@/features/result";
 import { DISCLAIMER, START_EMERGENCY_119 } from "@/lib/fixed/phrases.generated";
 import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation } from "@/lib/supabase/callback";
+import { isApiMockingEnabled } from "@/mocks";
 import { cn } from "@/lib/utils";
 import { accountStore, hasHealthConsent, hidesPregnancyToggle, selectTargetProfile, useAccountStore } from "@/stores/account";
 import type { AccountFailure, AccountStore } from "@/stores/account";
@@ -23,7 +25,7 @@ import type { ChatStore } from "@/stores/chat";
 import { profileToContext } from "@/stores/profile-context";
 import { Conversation } from "./Conversation";
 import { EmergencyEntry } from "./EmergencyEntry";
-import { NOT_SAVED_SHORT, resendBubbleText } from "./copy";
+import { NOT_SAVED_SHORT, SYNTHETIC_DEMO_NOTICE, resendBubbleText } from "./copy";
 import { computeLayout, initialShellState, isDesktopWidth, shellReducer } from "./layout-rules";
 import { IconButton, MenuButton, MenuDrawer, SidebarColumn, SidebarOverlay } from "./Sidebar";
 import { useViewportWidth } from "./useViewportWidth";
@@ -309,6 +311,16 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
             {/* 119 접근: 배너가 떠 있지 않을 때의 진입점(배너가 뜨면 119는 배너 하나뿐이다) */}
             {!emergency && <EmergencyEntry testId="emergency-entry" />}
           </header>
+          {/* 합성 데이터 데모 표시(BE-13-07 A): 목(MSW) 빌드에서만 머리줄 아래 한 줄. 실서버 모드에서는 DOM에 없다. 마스코트 금지 영역, 색은 토큰만 */}
+          {isApiMockingEnabled() && (
+            <NoMascotZone>
+              <div className="flex-none px-3 pb-1">
+                <p role="note" data-testid="demo-notice" className="m-0 rounded-xl bg-fixed px-3 py-1.5 text-center text-xs leading-[17px] text-ink-2 [word-break:keep-all]">
+                  {SYNTHETIC_DEMO_NOTICE}
+                </p>
+              </div>
+            </NoMascotZone>
+          )}
           <div className={cn("mx-auto flex min-h-0 w-full flex-1 flex-col gap-2", layout.desktop ? "max-w-[880px] px-6" : "max-w-[760px] px-3")}>
             {turns.length === 0 ? (
               <div data-testid="home" className="flex min-h-0 flex-1 flex-col justify-center gap-4 overflow-y-auto py-2">
