@@ -34,7 +34,7 @@
 //   (`src/mocks/account-handlers.ts`, 핸들러 메모리의 세션)로 로그인 여부를 흉내 낸다. 이 주소들은 실제 백엔드에 없다
 // - 계정 진입점은 목 모드이거나 Supabase 설정이 있을 때만 보인다(FE-04-02 A·FE-04-05 A, `isAccountEntryEnabled`)
 import { z } from "zod";
-import { AuthError, authMode, getAccessToken, hasAuthSession, signInWithEmail, signInWithProvider, signOut, signUpWithEmail } from "./auth";
+import { AuthError, authMode, getAccessToken, getSocialIdentity, hasAuthSession, signInWithEmail, signInWithProvider, signOut, signUpWithEmail } from "./auth";
 import { apiClient, resolveApiBase } from "./client";
 import type { components } from "./generated";
 import { ErrorBodySchema } from "./schemas";
@@ -217,6 +217,19 @@ export const DRUG_CANDIDATES_MAX = 10;
 
 export const SOCIAL_PROVIDERS = ["google", "kakao"] as const;
 export type SocialProvider = (typeof SOCIAL_PROVIDERS)[number];
+
+/** 본인 프로필 이름 칸의 초기값을 공급자 이름으로 채우는 로그인 공급자: 카카오 닉네임만(FE-04-28 B). 구글 실명은 가져오지 않는다 */
+export const NAME_PREFILL_PROVIDER: SocialProvider = "kakao";
+
+/**
+ * 공급자가 준 닉네임을 이름(별명) 칸 규칙에 맞춘다(FE-04-28 B): 앞뒤 공백을 지우고 `PROFILE_LABEL_MAX_CHARS`(20자, 글자 단위)로 자른다.
+ * 문자열이 아니거나 자르고 나서 비면 null(채우지 않는다). 순수 함수이며 값을 남기지 않는다
+ */
+export function selfNameFromNickname(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = [...value.trim()].slice(0, PROFILE_LABEL_MAX_CHARS).join("").trim();
+  return name.length > 0 ? name : null;
+}
 
 // ---------------------------------------------------------------- 오류
 export type AccountErrorKind = "network" | "http" | "invalid";
@@ -407,6 +420,29 @@ export async function hasSession(): Promise<boolean> {
   return hasAuthSession();
 }
 
+/** 목 전용 응답(`GET /api/auth/identity`, 실제 백엔드에 없다): 공급자와 공급자가 준 표시 이름 */
+const MockIdentitySchema = z.object({ provider: z.string().nullable(), name: z.string().nullable() });
+
+/**
+ * 본인 프로필을 **처음 만들 때** 이름(별명) 칸의 초기값(FE-04-28 B, 2026-11-22): 로그인 공급자가 카카오(`NAME_PREFILL_PROVIDER`)일 때만 카카오 닉네임을
+ * 이름 규칙(`selfNameFromNickname`)에 맞춰 돌려준다. 구글·이메일·게스트·읽기 실패는 null(채우지 않는다).
+ * - Supabase: 세션 쿠키의 사용자 정보(`app_metadata.provider`·`user_metadata.name`, `auth.ts` `getSocialIdentity`)만 읽는다(네트워크 0)
+ * - MSW 목: 목 주소 `GET /api/auth/identity`
+ * 값은 초기값일 뿐이다: 화면에서 고치거나 지울 수 있고, 저장 버튼을 누르기 전에는 서버로 가지 않으며 저장 요청에는 폼에 남은 값만 간다.
+ * 닉네임은 어디에도 따로 저장하지 않는다(브라우저 저장소·스토어 영속화·로그·콘솔 금지). 성별 등 다른 칸은 공급자 정보로 채우지 않는다
+ */
+export async function fetchSelfNameDefault(): Promise<string | null> {
+  const mode = authMode();
+  if (mode === "none") return null;
+  try {
+    const identity = mode === "supabase" ? await getSocialIdentity() : MockIdentitySchema.parse(await (await call("get", "auth/identity")).json());
+    if (identity?.provider !== NAME_PREFILL_PROVIDER) return null;
+    return selfNameFromNickname(identity.name);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 계정 진입점(`로그인/가입`·사이드바 계정 자리·시작 화면 진입 선택·`GET /api/me` 부트스트랩)을 켤지(FE-04-02 A·FE-04-05 A).
  * 로그인할 길이 있을 때만 켠다: 목 모드(`NEXT_PUBLIC_API_MOCKING=enabled`)이거나 Supabase 설정 두 값이 모두 있을 때다.
@@ -432,6 +468,7 @@ export interface AccountApi {
   logout: typeof logout;
   startSocialLogin: typeof startSocialLogin;
   hasSession: typeof hasSession;
+  fetchSelfNameDefault: typeof fetchSelfNameDefault;
 }
 
 export const accountApi: AccountApi = {
@@ -449,4 +486,5 @@ export const accountApi: AccountApi = {
   logout,
   startSocialLogin,
   hasSession,
+  fetchSelfNameDefault,
 };

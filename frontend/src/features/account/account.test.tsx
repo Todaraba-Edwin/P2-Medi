@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { INPUT_NOTICE } from "@/features/chat/copy";
 import type { Profile } from "@/lib/api/account";
 import { createAccountHandlers } from "@/mocks/account-handlers";
-import { MOCK_DRUG_DICT, MOCK_LEGAL_DOCS, searchMockDrugs } from "@/mocks/fixtures/account";
+import { MOCK_DRUG_DICT, MOCK_KAKAO_NICKNAME, MOCK_LEGAL_DOCS, searchMockDrugs } from "@/mocks/fixtures/account";
 import { createPhotoHandlers } from "@/mocks/photo-handlers";
 import { PHOTO_EXTERNAL_AI_NOTICE, PHOTO_PRIVACY_NOTICE } from "@/features/photo/copy";
 import { mergeMedications } from "./ProfileForm";
@@ -65,8 +65,9 @@ function setup(store: AccountStore = createAccountStore()) {
 
 async function login(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "프로필 저장" }));
-  // S1 로그인은 소셜만이다(PRD-01-10 A). 목은 페이지를 옮기지 않고 목 세션만 만든다
-  await user.click(screen.getByRole("button", { name: "카카오 로그인" }));
+  // S1 로그인은 소셜만이다(PRD-01-10 A). 목은 페이지를 옮기지 않고 목 세션만 만든다.
+  // 공용 로그인은 Google이다: 카카오로 들어오면 본인 프로필 이름 칸에 닉네임이 미리 들어가(FE-04-28 B) 이름을 적는 시험이 달라진다. 카카오 초기값은 아래 전용 describe가 본다
+  await user.click(screen.getByRole("button", { name: "Google로 계속하기" }));
   await waitFor(() => expect(step()).toBe("consent"));
   await waitFor(() => expect(modal().querySelectorAll('[data-testid="legal-doc"]')).toHaveLength(4));
 }
@@ -1598,5 +1599,104 @@ describe("프로필 저장 완료 안내(FE-04-15 A): 저장 뒤 목록 위에 �
     expect(screen.getByTestId("account-error")).toHaveAttribute("role", "alert");
     expect(notice()).toBeNull();
     expect(modal().querySelector("form")!).toHaveAttribute("aria-busy", "false");
+  });
+});
+
+describe("본인 프로필 이름 초기값 = 카카오 닉네임(FE-04-28 B, 2026-11-22)", () => {
+  const nameField = () => screen.getByLabelText("이름(별명)");
+  /** 목이 받은 프로필 쓰기 요청의 본문(저장 전에는 비어 있어야 한다) */
+  let written: { method: string; label: unknown }[] = [];
+  beforeEach(() => {
+    written = [];
+    server.use(
+      http.post("*/api/profiles", async ({ request }) => {
+        const body = (await request.clone().json()) as { label?: unknown };
+        written.push({ method: "POST", label: body.label });
+        return HttpResponse.json(
+          { profile_id: "00000000-0000-4000-8000-000000000077", relation: "self", label: String(body.label), age_band: null, sex: null, pregnancy_status: null, sort_order: 0, medications: [] } satisfies Profile,
+          { status: 201 },
+        );
+      }),
+    );
+  });
+
+  async function loginWith(user: ReturnType<typeof userEvent.setup>, name: "카카오 로그인" | "Google로 계속하기") {
+    await user.click(screen.getByRole("button", { name: "프로필 저장" }));
+    await user.click(screen.getByRole("button", { name }));
+    await waitFor(() => expect(step()).toBe("consent"));
+    await waitFor(() => expect(modal().querySelectorAll('[data-testid="legal-doc"]')).toHaveLength(4));
+    await consent(user, { health: false });
+  }
+
+  it("카카오 로그인 → 본인 프로필 만들기: 이름 칸에 닉네임이 미리 들어 있고, 그때까지 프로필 쓰기 요청은 없다. 그대로 저장하면 그 값이 간다", async () => {
+    const { user } = setup();
+    await loginWith(user, "카카오 로그인");
+    await user.click(screen.getByTestId("add-self"));
+    await waitFor(() => expect(nameField()).toHaveValue(MOCK_KAKAO_NICKNAME));
+    expect(screen.getByLabelText("성별")).toHaveValue(""); // 다른 칸은 공급자 정보로 채우지 않는다
+    expect(screen.getByLabelText("연령대")).toHaveValue("");
+    expect(written).toEqual([]); // 저장 전에는 서버로 가지 않는다
+    expect(setItem).not.toHaveBeenCalled(); // 닉네임을 브라우저 저장소에 남기지 않는다
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(written).toEqual([{ method: "POST", label: MOCK_KAKAO_NICKNAME }]);
+  });
+
+  it("사용자가 고친 값이 우선이다: 고치면 고친 값이, 지우면 빈 값이 남고(초기값으로 되돌아가지 않는다) 저장 요청에는 폼에 남은 값만 간다", async () => {
+    const { user } = setup();
+    await loginWith(user, "카카오 로그인");
+    await user.click(screen.getByTestId("add-self"));
+    await waitFor(() => expect(nameField()).toHaveValue(MOCK_KAKAO_NICKNAME));
+    await user.clear(nameField());
+    expect(nameField()).toHaveValue("");
+    await user.click(screen.getByTestId("profile-save"));
+    expect(screen.getByRole("alert")).toHaveTextContent(copy.ERROR_NAME_EMPTY); // 지운 채 저장하면 기존 검증 그대로
+    expect(written).toEqual([]);
+    await user.type(nameField(), "나");
+    expect(nameField()).toHaveValue("나");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(written).toEqual([{ method: "POST", label: "나" }]);
+  });
+
+  it("초기값이 늦게 와도 그 전에 적은 값을 덮지 않는다", async () => {
+    let finish: (value: string | null) => void = () => {};
+    const { user } = setup(createAccountStore({ api: { ...accountApi, fetchSelfNameDefault: () => new Promise((resolve) => (finish = resolve)) } }));
+    await loginWith(user, "카카오 로그인");
+    await user.click(screen.getByTestId("add-self"));
+    expect(nameField()).toHaveValue("");
+    await user.type(nameField(), "나");
+    finish(MOCK_KAKAO_NICKNAME);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(nameField()).toHaveValue("나");
+  });
+
+  it("Google 로그인은 비어 있다(구글 실명은 가져오지 않는다)", async () => {
+    const { user } = setup();
+    await loginWith(user, "Google로 계속하기");
+    await user.click(screen.getByTestId("add-self"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(nameField()).toHaveValue("");
+  });
+
+  it("가족 프로필 추가와 본인 프로필 수정은 비어 있거나 저장된 값이다(닉네임을 읽지 않는다)", async () => {
+    const read = vi.fn(accountApi.fetchSelfNameDefault);
+    const { user } = setup(createAccountStore({ api: { ...accountApi, fetchSelfNameDefault: read } }));
+    await loginWith(user, "카카오 로그인");
+    await user.click(screen.getByTestId("add-family"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(nameField()).toHaveValue("");
+    expect(read).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: copy.CANCEL_LABEL }));
+    await user.click(await screen.findByTestId("add-self"));
+    await waitFor(() => expect(nameField()).toHaveValue(MOCK_KAKAO_NICKNAME));
+    await user.clear(nameField());
+    await user.type(nameField(), "본인");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(read).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "본인 수정" }));
+    expect(nameField()).toHaveValue("본인"); // 저장된 값. 닉네임으로 바꾸지 않는다
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });

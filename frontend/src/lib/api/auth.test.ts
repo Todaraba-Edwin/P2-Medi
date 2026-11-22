@@ -3,9 +3,9 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MOCK_LEGAL_DOCS } from "@/mocks/fixtures/account";
 import { createAccountStore } from "@/stores/account";
-import { accountApi, deleteMe, fetchLegalDoc, fetchMe, fetchProfiles, isAccountEntryEnabled, loginWithEmail, logout, signupWithEmail, startSocialLogin } from "./account";
+import { accountApi, deleteMe, fetchLegalDoc, fetchMe, fetchProfiles, fetchSelfNameDefault, isAccountEntryEnabled, loginWithEmail, logout, signupWithEmail, startSocialLogin } from "./account";
 import type { Me } from "./account";
-import { authMode, getAccessToken } from "./auth";
+import { authMode, getAccessToken, getSocialIdentity } from "./auth";
 
 // 실제 로그인 방식(Supabase, MSW 목 꺼짐)을 가짜 Supabase 클라이언트로 본다. 실제 Supabase·백엔드 호출은 0이다.
 // 값은 모두 합성이다(주소·키·토큰·이메일).
@@ -350,5 +350,46 @@ describe("토큰·이메일을 남기지 않는다", () => {
     for (const log of logs) expect(log).not.toHaveBeenCalled();
     expect(document.cookie).toBe(""); // 세션 쿠키는 `@supabase/ssr` 클라이언트만 쓴다(여기서는 가짜 클라이언트라 없다)
     vi.restoreAllMocks();
+  });
+});
+
+describe("본인 프로필 이름 초기값(FE-04-28 B): Supabase 세션의 공급자·이름만 읽는다", () => {
+  type Session = { access_token: string; user: { email: string; app_metadata?: Record<string, unknown>; user_metadata?: Record<string, unknown> } };
+  const withUser = (user: Session["user"]) => auth.getSession.mockImplementation(async () => ({ data: { session: { access_token: TOKEN, user } }, error: null }));
+
+  it("카카오(app_metadata.provider) + user_metadata.name → 닉네임(이름 규칙에 맞춰 자름). 네트워크 호출 0", async () => {
+    withUser({ email: EMAIL, app_metadata: { provider: "kakao", providers: ["kakao"] }, user_metadata: { name: "  삐약이 ", full_name: "삐약이", preferred_username: "삐약이" } });
+    expect(await getSocialIdentity()).toEqual({ provider: "kakao", name: "  삐약이 " });
+    expect(await fetchSelfNameDefault()).toBe("삐약이");
+    withUser({ email: EMAIL, app_metadata: { provider: "kakao" }, user_metadata: { name: "가".repeat(30) } });
+    expect(await fetchSelfNameDefault()).toBe("가".repeat(20));
+    expect(seen).toEqual([]);
+  });
+
+  it("구글·이메일·이름 없음·이름이 문자열 아님·세션 없음 → null(구글 실명은 가져오지 않는다)", async () => {
+    withUser({ email: EMAIL, app_metadata: { provider: "google" }, user_metadata: { name: "Google Real Name", full_name: "Google Real Name" } });
+    expect(await getSocialIdentity()).toEqual({ provider: "google", name: "Google Real Name" });
+    expect(await fetchSelfNameDefault()).toBeNull();
+    withUser({ email: EMAIL, app_metadata: { provider: "email" }, user_metadata: {} });
+    expect(await fetchSelfNameDefault()).toBeNull();
+    withUser({ email: EMAIL, app_metadata: { provider: "kakao" }, user_metadata: {} });
+    expect(await getSocialIdentity()).toEqual({ provider: "kakao", name: null });
+    expect(await fetchSelfNameDefault()).toBeNull();
+    withUser({ email: EMAIL, app_metadata: { provider: "kakao" }, user_metadata: { name: 7 } });
+    expect(await fetchSelfNameDefault()).toBeNull();
+    withUser({ email: EMAIL, app_metadata: { provider: "kakao" }, user_metadata: { name: "   " } });
+    expect(await fetchSelfNameDefault()).toBeNull();
+    session = null;
+    auth.getSession.mockImplementation(async () => ({ data: { session }, error: null }));
+    expect(await getSocialIdentity()).toBeNull();
+    expect(await fetchSelfNameDefault()).toBeNull();
+    auth.getSession.mockRejectedValueOnce(new Error("synthetic"));
+    expect(await getSocialIdentity()).toBeNull();
+  });
+
+  it("로그인 방식이 없으면(none) 아무것도 읽지 않고 null", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    expect(await fetchSelfNameDefault()).toBeNull();
+    expect(auth.getSession).not.toHaveBeenCalled();
   });
 });

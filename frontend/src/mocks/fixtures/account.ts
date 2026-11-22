@@ -111,6 +111,12 @@ export const MOCK_LOGIN_FAIL_MARK = "mock-fail";
 export const MOCK_SIGNUP_TAKEN_MARK = "mock-taken";
 /** 이 글자가 이메일에 있으면 이미 동의·프로필을 마친 사용자로 로그인한다 */
 export const MOCK_ONBOARDED_MARK = "mock-onboarded";
+/**
+ * 목 소셜 로그인 사용자의 표시 이름(합성, FE-04-28 B). 카카오 닉네임만 본인 프로필 이름 칸의 **초기값**으로 쓰고
+ * 구글 이름은 받아도 쓰지 않는다(화면 규칙은 `lib/api/account.ts`의 `fetchSelfNameDefault`). 어디에도 저장하지 않는다
+ */
+export const MOCK_KAKAO_NICKNAME = "삐약이";
+export const MOCK_GOOGLE_NAME = "mock-google-name";
 
 // ---------------------------------------------------------------- 약 이름 사전(합성, `POST /api/drugs/search` 목. FE-04-13 A)
 // 실제 사전(DB의 제품 47,773·성분 1,581)이 아니라 화면 개발용 합성 이름이다. 제품명은 채팅 목(`responses.ts`의 되묻기 후보)과 같은 이름·번호를 쓴다.

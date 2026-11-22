@@ -22,8 +22,20 @@ import {
   SOCIAL_PROVIDERS,
   SexSchema,
 } from "@/lib/api/account";
-import type { ConsentDocType, ConsentState, Me, Medication, OnboardingStep, Profile } from "@/lib/api/account";
-import { MOCK_DRUG_ITEM_SEQS, MOCK_DRUG_SEARCH_ERRORS, MOCK_DRUG_SEARCH_SLOW_MARK, MOCK_DRUG_SEARCH_SLOW_MS, MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK, MOCK_SIGNUP_TAKEN_MARK, searchMockDrugs } from "./fixtures/account";
+import type { ConsentDocType, ConsentState, Me, Medication, OnboardingStep, Profile, SocialProvider } from "@/lib/api/account";
+import {
+  MOCK_DRUG_ITEM_SEQS,
+  MOCK_DRUG_SEARCH_ERRORS,
+  MOCK_DRUG_SEARCH_SLOW_MARK,
+  MOCK_DRUG_SEARCH_SLOW_MS,
+  MOCK_GOOGLE_NAME,
+  MOCK_KAKAO_NICKNAME,
+  MOCK_LEGAL_DOCS,
+  MOCK_LOGIN_FAIL_MARK,
+  MOCK_ONBOARDED_MARK,
+  MOCK_SIGNUP_TAKEN_MARK,
+  searchMockDrugs,
+} from "./fixtures/account";
 
 const CredentialsSchema = z.object({ email: z.string().min(1), password: z.string().min(1) });
 /** `DrugSearchIn`(백엔드 `drugs.py`): 앞뒤 공백 제거 뒤 1~100자, 다른 칸은 422 */
@@ -66,7 +78,11 @@ interface ConsentRecord {
   acted_at: string;
 }
 
+/** 목 세션의 로그인 공급자(실제는 Supabase `app_metadata.provider`). 이메일 로그인·가입은 `email` */
+export type MockProvider = SocialProvider | "email";
+
 interface Session {
+  provider: MockProvider;
   step: OnboardingStep;
   completedAt: string | null;
   consents: Partial<Record<ConsentDocType, ConsentRecord>>;
@@ -83,9 +99,11 @@ export type MockSessionKind = "new" | "onboarded";
 
 /** 페이지를 열 때 목 세션을 미리 만드는 주소 표시(브라우저 워커 전용, `browser.ts`): `?mock_session=new|onboarded`. 로그인 콜백 복귀 e2e가 쓴다 */
 export const MOCK_SESSION_PARAM = "mock_session";
+/** 미리 만드는 목 세션의 공급자 `?mock_provider=google|kakao`(없으면 `email`). 카카오 닉네임 초기값(FE-04-28 B) e2e가 쓴다 */
+export const MOCK_PROVIDER_PARAM = "mock_provider";
 
-export function mockSession(kind: MockSessionKind): Session {
-  const session: Session = { step: "consent", completedAt: null, consents: {}, profiles: [] };
+export function mockSession(kind: MockSessionKind, provider: MockProvider = "email"): Session {
+  const session: Session = { provider, step: "consent", completedAt: null, consents: {}, profiles: [] };
   if (kind === "onboarded") {
     for (const docType of CONSENT_DOC_TYPES) session.consents[docType] = { action: "agree", version: MOCK_LEGAL_DOCS[docType].version, acted_at: NOW };
     // 성별은 로그인 공급자 정보가 아니라 사용자가 고른 값이다(목에서는 미리 저장돼 있던 값으로 둔다)
@@ -99,8 +117,11 @@ export function mockSession(kind: MockSessionKind): Session {
 
 /** 주소의 `mock_session` 값으로 시작 세션을 정한다. 없거나 모르는 값이면 게스트 */
 export function initialMockAccountState(search: string): AccountMockState {
-  const value = new URLSearchParams(search).get(MOCK_SESSION_PARAM);
-  return { session: value === "new" || value === "onboarded" ? mockSession(value) : null };
+  const params = new URLSearchParams(search);
+  const value = params.get(MOCK_SESSION_PARAM);
+  const provider = params.get(MOCK_PROVIDER_PARAM);
+  const mockProvider: MockProvider = (SOCIAL_PROVIDERS as readonly string[]).includes(provider ?? "") ? (provider as SocialProvider) : "email";
+  return { session: value === "new" || value === "onboarded" ? mockSession(value, mockProvider) : null };
 }
 
 /** 핸들러 묶음 하나가 세션 하나를 갖는다(시험마다 새로 만들면 서로 섞이지 않는다) */
@@ -165,8 +186,8 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
       return { medication_id: nextId(2), input_text: item.input_text, item_seq: confirmed ? item.item_seq! : null, confirmed_at: confirmed ? NOW : null };
     });
 
-  const login = (email = "") => {
-    state.session = mockSession(email.includes(MOCK_ONBOARDED_MARK) ? "onboarded" : "new");
+  const login = (email = "", provider: MockProvider = "email") => {
+    state.session = mockSession(email.includes(MOCK_ONBOARDED_MARK) ? "onboarded" : "new", provider);
   };
 
   /** 프로필 쓰기 앞의 필수 동의 검사(백엔드 `gate_consents`: 약관·개인정보·만 14세 확인) */
@@ -216,8 +237,17 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
     // 소셜 로그인 시작: 실제로는 페이지 이동이다. 목에서는 fetch로 불려 세션만 만든다(Naver는 준비 중이라 없다)
     http.get("*/api/auth/:provider/start", ({ params }) => {
       if (!(SOCIAL_PROVIDERS as readonly string[]).includes(String(params.provider))) return error(404, "NOT_FOUND");
-      login();
+      login("", params.provider as SocialProvider);
       return noContent();
+    }),
+
+    // 목 전용(실제 백엔드에 없다): 로그인 공급자와 공급자가 준 표시 이름. 실제는 Supabase 세션의 `app_metadata.provider`·`user_metadata.name`이다.
+    // 카카오만 닉네임을 본인 프로필 이름 칸 초기값으로 쓰는 규칙(FE-04-28 B)은 여기가 아니라 `lib/api/account.ts`에 있다(구글 이름도 돌려주되 화면은 쓰지 않는다)
+    http.get("*/api/auth/identity", () => {
+      const session = state.session;
+      if (!session) return error(401, "AUTH_REQUIRED");
+      const name = session.provider === "kakao" ? MOCK_KAKAO_NICKNAME : session.provider === "google" ? MOCK_GOOGLE_NAME : null;
+      return HttpResponse.json({ provider: session.provider, name }, { headers: NO_STORE });
     }),
 
     // ---- 동의·철회 기록 → 201 Me

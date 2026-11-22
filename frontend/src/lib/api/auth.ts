@@ -76,6 +76,34 @@ export async function getAccessToken(): Promise<string | null> {
   }
 }
 
+/** 로그인 공급자와 공급자가 준 표시 이름(둘 다 없을 수 있다). 값은 부르는 쪽이 화면 초기값으로만 쓰고 어디에도 남기지 않는다 */
+export interface SocialIdentity {
+  provider: string | null;
+  name: string | null;
+}
+
+/**
+ * 지금 세션 사용자의 공급자와 표시 이름(FE-04-28 B). 세션 쿠키의 사용자 정보만 읽고 네트워크를 부르지 않는다.
+ * - 공급자: `user.app_metadata.provider`(처음 가입한 공급자, `@supabase/auth-js` `UserAppMetadata.provider`)
+ * - 이름: `user.user_metadata.name`. Supabase Auth(GoTrue) `internal/api/provider/kakao.go`가 카카오 `kakao_account.profile.nickname`을
+ *   `Claims.Name`(`json:"name"`)에 넣고 `external.go`가 그 claims를 `user_metadata`에 복사한다(2026-11-22 읽음). `name`이 문자열이 아니면 null
+ * 세션이 없거나 읽지 못하면 null이다(목·미설정도 null)
+ */
+export async function getSocialIdentity(): Promise<SocialIdentity | null> {
+  if (authMode() !== "supabase") return null;
+  try {
+    const supabase = await getBrowserSupabase();
+    const { data } = (await supabase?.auth.getSession()) ?? { data: { session: null } };
+    const user = data.session?.user;
+    if (!user) return null;
+    const provider = user.app_metadata?.provider;
+    const name = user.user_metadata?.name;
+    return { provider: typeof provider === "string" ? provider : null, name: typeof name === "string" ? name : null };
+  } catch {
+    return null;
+  }
+}
+
 /** Supabase 세션이 있는가(목·미설정은 늘 false: 목의 로그인 여부는 `GET /api/me`만 안다) */
 export async function hasAuthSession(): Promise<boolean> {
   return (await getAccessToken()) !== null;

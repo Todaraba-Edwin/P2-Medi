@@ -27,6 +27,11 @@ export interface ProfileFormTarget {
   profileId: string | null;
   /** 본인 프로필인지(관계가 `self`로 고정된다) */
   self: boolean;
+  /**
+   * 이름(별명) 칸의 초기값(FE-04-28 B): 본인 프로필을 처음 만들 때 카카오 닉네임만, 읽은 뒤에 채워진다(그 전·그 밖은 null).
+   * 화면이 초기값으로만 쓰고 사용자가 적은 값이 늘 우선한다. 저장 요청에는 폼에 남은 값만 간다
+   */
+  labelDefault?: string | null;
 }
 
 export type LegalDocsStatus = "idle" | "loading" | "ready" | "failed";
@@ -281,7 +286,19 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
       close: () => set({ flow: [], failure: null, notice: null, form: null }),
       back: () => set((state) => (state.flow.length > 1 ? { flow: state.flow.slice(0, -1), failure: null, notice: null } : state)),
       go: (step) => set((state) => ({ flow: [...state.flow, step], failure: null, notice: null })),
-      editProfile: (target) => set((state) => ({ form: target, flow: [...state.flow, "profile-form"], failure: null, notice: null })),
+      editProfile: (target) => {
+        const form: ProfileFormTarget = { ...target, labelDefault: null };
+        set((state) => ({ form, flow: [...state.flow, "profile-form"], failure: null, notice: null }));
+        // 본인 프로필을 처음 만들 때만(FE-04-28 B): 카카오 닉네임을 읽어 초기값으로 붙인다. 가족 추가·수정은 읽지 않는다.
+        // 그 사이 폼을 떠났으면(다른 대상·닫힘) 붙이지 않는다. 실패는 조용히 비워 둔다(값은 어디에도 남기지 않는다)
+        if (!target.self || target.profileId !== null) return;
+        void api
+          .fetchSelfNameDefault()
+          .catch(() => null)
+          .then((labelDefault) => {
+            if (labelDefault !== null && get().form === form) set({ form: { ...form, labelDefault } });
+          });
+      },
 
       loginEmail: (email, password) =>
         run(async () => {

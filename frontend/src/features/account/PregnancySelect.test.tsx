@@ -114,7 +114,7 @@ describe("프로필 폼의 임신 여부 칸(여성일 때만)", () => {
     const user = userEvent.setup();
     render(<AccountModal store={store} />);
     store.getState().open();
-    await user.click(await screen.findByRole("button", { name: "카카오 로그인" }));
+    await user.click(await screen.findByRole("button", { name: "Google로 계속하기" })); // 카카오면 이름 칸에 닉네임이 미리 들어간다(FE-04-28 B)
     await waitFor(() => expect(step()).toBe("consent"));
     await waitFor(() => expect(modal().querySelectorAll('[data-testid="legal-doc"]')).toHaveLength(4));
     for (const docType of ["terms", "privacy_consent", "age_14", ...(health ? ["sensitive_consent"] : [])]) {
