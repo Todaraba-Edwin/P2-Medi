@@ -139,7 +139,16 @@ export const NOT_SELECTED = "선택 안 함";
 export const PREGNANCY_LABEL = "임신 여부";
 export const MEDICATIONS_LABEL = "복용 중인 약(선택)";
 export const MEDICATION_HINT = "봉투나 상자에 적힌 이름을 그대로 적어 주세요.";
-export const MEDICATION_ADD_LABEL = "추가";
+/**
+ * 적은 글자를 후보 없이 그대로(확인 안 된 약) 넣는 버튼. "추가" → "그대로 추가"(FE-04-24 A, 2026-11-22 사용자 답, 새 글자 원문 승인):
+ * 후보가 떠 있어도 고르지 않고 누르면 확인 안 된 약으로 들어간다는 것을 버튼 이름이 드러낸다
+ */
+export const MEDICATION_ADD_LABEL = "그대로 추가";
+/**
+ * 자료 밖 약 고지(FE-04-25 A, 2026-11-22 사용자 답, 원문 승인): 약 이름을 넣는 화면 두 곳(프로필 복용 약 입력, 사진 확인 카드)이 **이 상수 하나**를 같이 쓴다.
+ * 채팅 답변·에이전트 고정 문구와는 별개다(채팅은 기존 '찾지 못함' 고정 문구 그대로)
+ */
+export const DRUG_DATA_SCOPE_NOTICE = "국내 허가 의약품 자료만 확인할 수 있어요. 조제약·해외 약 등 자료에 없는 약은 금기를 확인하지 못하니, 이름을 그대로 적고 약사에게 확인하세요.";
 export const removeMedicationLabel = (name: string) => `${name} 삭제`;
 export const medicationCount = (count: number) => `약 ${count}개`;
 

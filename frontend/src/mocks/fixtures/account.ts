@@ -150,6 +150,9 @@ export const MOCK_DRUG_SEARCH_ERRORS: ReadonlyArray<readonly [mark: string, stat
   ["mock-422", 422, "INVALID_REQUEST"],
   ["mock-503", 503, "DICT_UNAVAILABLE"],
 ];
+/** 검색어에 이 글자가 있으면 응답을 `MOCK_DRUG_SEARCH_SLOW_MS`만큼 늦춘다(FE-04-24 A "검색 중에는 저장 막힘" 확인용 합성 규칙. 실제 서버에는 없다) */
+export const MOCK_DRUG_SEARCH_SLOW_MARK = "mock-slow";
+export const MOCK_DRUG_SEARCH_SLOW_MS = 1500;
 
 const normalize = (text: string) => text.normalize("NFC").toLowerCase().replace(/\s+/g, "");
 

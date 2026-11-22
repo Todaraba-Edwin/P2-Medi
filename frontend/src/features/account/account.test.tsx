@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
@@ -18,6 +18,7 @@ import { HEALTH_CONSENT_REQUIRED_FALLBACK } from "./copy";
 import { failureMessage } from "./parts";
 import { AccountMenu, EntryChoice } from "./EntryChoice";
 import { Markdown, parseMarkdown } from "./Markdown";
+import { MEDICATION_SEARCH_DEBOUNCE_MS } from "./MedicationPicker";
 import { TargetPicker } from "./TargetPicker";
 
 // 계정 화면(모달·진입 선택·대상 선택)을 MSW 목에 붙여 그린다(실제 서버 호출 0).
@@ -494,8 +495,11 @@ describe("프로필 화면", () => {
     await user.type(screen.getByLabelText("이름(별명)"), "나");
     await user.selectOptions(screen.getByLabelText("연령대"), "y19_64");
     await user.click(screen.getByRole("radio", { name: "예" }));
-    await user.type(screen.getByLabelText("복용 중인 약(선택)"), "가나다정 100밀리그램{Enter}");
-    expect(step()).toBe("profile-form"); // Enter는 저장이 아니라 약 추가
+    await user.type(screen.getByLabelText("복용 중인 약(선택)"), "가나다정 100밀리그램");
+    // 검색이 끝난 뒤 후보를 고르지 않고 `그대로 추가`(FE-04-24 A: 검색 중에는 막히고, 후보가 있으면 Enter는 저장이 아니다)
+    await waitFor(() => expect(screen.getByTestId("medication-add")).toBeEnabled());
+    await user.click(screen.getByTestId("medication-add"));
+    expect(step()).toBe("profile-form"); // 폼 저장이 아니라 약 추가
     expect(screen.getAllByTestId("medication")).toHaveLength(1);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
@@ -973,7 +977,7 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
     expect(chips()).toEqual([{ name: "가나다정 500밀리그램", confirmed: "true" }]);
   });
 
-  it("후보가 없으면 안내가 보이고, `추가`나 고르지 않은 Enter는 글자 그대로 확인 안 된 약(`item_seq` 없음)으로 넣는다. 성분명 후보도 번호가 없어 확인 안 된 약이다", async () => {
+  it("후보가 없으면 안내가 보이고, `그대로 추가`나 Enter는 글자 그대로 확인 안 된 약(`item_seq` 없음)으로 넣는다. 성분명 후보도 번호가 없어 확인 안 된 약이다", async () => {
     const requests = watchSearch();
     const { user, store } = setup();
     await openForm(user);
@@ -987,13 +991,13 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
     expect(screen.getByTestId("medication-unconfirmed")).toHaveTextContent(copy.MEDICATION_UNCONFIRMED_TAG);
     expect(screen.getByTestId("medication-unconfirmed-note")).toHaveTextContent(copy.MEDICATION_UNCONFIRMED_NOTE);
     expect(screen.queryByTestId("medication-no-candidates")).toBeNull(); // 넣고 나면 안내도 지운다
-    // 후보가 있어도 고르지 않은 Enter는 글자 그대로(자동 확정 없음)
-    await user.type(input, "가나다정 100밀리그램");
-    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    // 후보가 없을 때(FE-04-24 A의 "후보가 있으면"에 해당하지 않음)의 Enter도 글자 그대로
+    await user.type(input, "가나다정 100밀리그램 없는약");
+    await waitFor(() => expect(screen.getByTestId("medication-no-candidates")).toBeVisible());
     await user.keyboard("{Enter}");
     expect(chips()).toEqual([
       { name: "없는약", confirmed: "false" },
-      { name: "가나다정 100밀리그램", confirmed: "false" },
+      { name: "가나다정 100밀리그램 없는약", confirmed: "false" },
     ]);
     // 성분명 후보를 마우스로 고르면 이름은 후보 글자이고 번호는 없다
     await user.type(input, "라마바펜");
@@ -1002,14 +1006,14 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
     await user.click(options()[0]);
     expect(chips()).toEqual([
       { name: "없는약", confirmed: "false" },
-      { name: "가나다정 100밀리그램", confirmed: "false" },
+      { name: "가나다정 100밀리그램 없는약", confirmed: "false" },
       { name: "라마바펜", confirmed: "false" },
     ]);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(store.getState().profiles[0].medications.map((item) => [item.input_text, item.item_seq, item.confirmed_at])).toEqual([
       ["없는약", null, null],
-      ["가나다정 100밀리그램", null, null],
+      ["가나다정 100밀리그램 없는약", null, null],
       ["라마바펜", null, null],
     ]);
     expect(requests.every((request) => request.method === "POST" && new URL(request.url).search === "")).toBe(true);
@@ -1114,6 +1118,7 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
     const input = medicationInput();
     for (let index = 0; index < MEDICATIONS_MAX; index += 1) {
       await user.type(input, `약${index}`);
+      await waitFor(() => expect(screen.getByTestId("medication-add")).toBeEnabled()); // 검색이 끝나야 `그대로 추가`가 켜진다(FE-04-24 A)
       await user.click(screen.getByTestId("medication-add"));
     }
     expect(screen.getAllByTestId("medication")).toHaveLength(MEDICATIONS_MAX);
@@ -1132,6 +1137,133 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
     await user.click(screen.getByTestId("add-family"));
     expect(medicationInput()).toBeDisabled();
     expect(screen.getByTestId("medication-add")).toBeDisabled();
+  });
+
+  // ---- FE-04-24 A(2026-11-22): 검색 중 저장 막음, 후보가 있으면 Enter는 첫 후보로 이동만, 버튼 글자 "그대로 추가"
+  it("FE-04-24 A: 검색 중(디바운스 대기·요청 중)에는 `그대로 추가`가 비활성이고 Enter도 저장하지 않는다. 결과가 오면 다시 켜진다", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post("*/api/drugs/search", async ({ request }) => {
+        const { q } = (await request.json()) as { q: string };
+        await held; // 요청을 붙잡아 "요청 중" 상태를 만든다
+        return HttpResponse.json(searchMockDrugs(q));
+      }),
+    );
+    const { user } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    const add = () => screen.getByTestId("medication-add");
+    expect(add()).toBeDisabled(); // 빈 입력
+    // 디바운스 대기 중(300ms 안): 버튼 비활성, "찾는 중" 한 줄, Enter 무시
+    await user.type(input, "가나다");
+    expect(add()).toBeDisabled();
+    expect(screen.getByTestId("medication-searching")).toHaveTextContent(copy.MEDICATION_SEARCHING);
+    await user.keyboard("{Enter}");
+    expect(screen.queryAllByTestId("medication")).toHaveLength(0);
+    expect(input).toHaveValue("가나다");
+    // 요청 중(300ms 뒤, 응답 전): 그대로 막혀 있다
+    await new Promise((resolve) => setTimeout(resolve, MEDICATION_SEARCH_DEBOUNCE_MS + 50));
+    expect(add()).toBeDisabled();
+    expect(screen.getByTestId("medication-searching")).toBeVisible();
+    await user.click(add());
+    await user.keyboard("{Enter}");
+    expect(screen.queryAllByTestId("medication")).toHaveLength(0);
+    expect(step()).toBe("profile-form");
+    // 응답이 오면 켜진다
+    release();
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    expect(add()).toBeEnabled();
+    expect(screen.queryByTestId("medication-searching")).toBeNull();
+  });
+
+  it("FE-04-24 A: 후보가 있을 때 고르지 않은 Enter는 첫 후보로 활성만 옮기고 저장하지 않는다. 한 번 더 Enter면 그 후보가 `item_seq`와 함께 들어간다", async () => {
+    const { user, store } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    await user.type(input, "가나다");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+    await user.keyboard("{Enter}");
+    expect(screen.queryAllByTestId("medication")).toHaveLength(0); // 저장 없음
+    expect(input).toHaveValue("가나다"); // 입력도 그대로
+    expect(input).toHaveAttribute("aria-expanded", "true");
+    expect(input).toHaveAttribute("aria-activedescendant", options()[0].id);
+    expect(options()[0]).toHaveAttribute("aria-selected", "true");
+    expect(input).toHaveFocus(); // 초점은 입력에 남는다(combobox 패턴)
+    // Esc로 목록을 닫은 뒤의 Enter도 저장이 아니라 목록을 다시 열고 첫 후보로 간다
+    await user.keyboard("{Escape}");
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    await user.keyboard("{Enter}");
+    expect(screen.queryAllByTestId("medication")).toHaveLength(0);
+    expect(input).toHaveAttribute("aria-expanded", "true");
+    expect(input).toHaveAttribute("aria-activedescendant", options()[0].id);
+    // 한 번 더 Enter: 첫 후보(제품명, item_seq 있음)가 확인된 약으로 들어간다
+    await user.keyboard("{Enter}");
+    expect(chips()).toEqual([{ name: "가나다정 100밀리그램", confirmed: "true" }]);
+    expect(input).toHaveValue("");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(store.getState().profiles[0].medications.map((item) => [item.input_text, item.item_seq])).toEqual([["가나다정 100밀리그램", "200000001"]]);
+  });
+
+  it("FE-04-24 A: 버튼 글자는 \"그대로 추가\"이고, 후보가 떠 있어도 누르면 확인 안 된 약(`item_seq` 없음)으로 들어간다. 마우스로 후보를 고르면 `item_seq`가 붙는다", async () => {
+    const { user, store } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    const add = screen.getByTestId("medication-add");
+    expect(copy.MEDICATION_ADD_LABEL).toBe("그대로 추가");
+    expect(add).toHaveTextContent("그대로 추가");
+    expect(screen.getByRole("button", { name: "그대로 추가" })).toBe(add);
+    await user.type(input, "가나다");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    expect(options().length).toBeGreaterThan(0);
+    await user.click(add);
+    expect(chips()).toEqual([{ name: "가나다", confirmed: "false" }]);
+    expect(screen.getByTestId("medication-unconfirmed")).toHaveTextContent(copy.MEDICATION_UNCONFIRMED_TAG);
+    expect(screen.getByTestId("medication-unconfirmed-note")).toHaveTextContent(copy.MEDICATION_UNCONFIRMED_NOTE);
+    // 후보를 고르면 확인된 약
+    await user.type(input, "라마바");
+    await waitFor(() => expect(input).toHaveAttribute("aria-expanded", "true"));
+    await user.click(options()[0]);
+    expect(chips()).toEqual([
+      { name: "가나다", confirmed: "false" },
+      { name: "라마바캡슐 10밀리그램", confirmed: "true" },
+    ]);
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    expect(store.getState().profiles[0].medications.map((item) => [item.input_text, item.item_seq])).toEqual([
+      ["가나다", null],
+      ["라마바캡슐 10밀리그램", "200000006"],
+    ]);
+  });
+
+  it("FE-04-24 A: 한글 조합을 끝내는 Enter(`isComposing` 또는 `keyCode 229`)는 저장도 후보 이동도 아니다", async () => {
+    const { user } = setup();
+    await openForm(user);
+    const input = medicationInput();
+    await user.type(input, "없는약");
+    await waitFor(() => expect(screen.getByTestId("medication-no-candidates")).toBeVisible());
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+    expect(screen.queryAllByTestId("medication")).toHaveLength(0);
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(screen.queryAllByTestId("medication")).toHaveLength(0);
+    fireEvent.keyDown(input, { key: "Enter" }); // 조합이 끝난 보통 Enter는 후보가 없으니 글자 그대로
+    expect(chips()).toEqual([{ name: "없는약", confirmed: "false" }]);
+  });
+
+  // ---- FE-04-25 A(2026-11-22): 자료 밖 약 고지 한 줄(프로필 복용 약 입력 화면). 사진 확인 카드 쪽은 `photo.test.tsx`
+  it("FE-04-25 A: 프로필 약 입력 아래에 자료 밖 약 고지가 승인 원문 그대로 한 줄 보인다(건강 정보 동의와 무관)", async () => {
+    const { user } = setup();
+    await openForm(user);
+    const notice = screen.getByTestId("drug-data-scope-notice");
+    expect(copy.DRUG_DATA_SCOPE_NOTICE).toBe("국내 허가 의약품 자료만 확인할 수 있어요. 조제약·해외 약 등 자료에 없는 약은 금기를 확인하지 못하니, 이름을 그대로 적고 약사에게 확인하세요.");
+    expect(notice.textContent).toBe(copy.DRUG_DATA_SCOPE_NOTICE);
+    // 입력 칸 바로 아래(라벨 → 입력 → 고지 순서)
+    expect(medicationInput().compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(screen.getAllByTestId("drug-data-scope-notice")).toHaveLength(1);
   });
 
   it("searchDrugs: 끊은 요청은 연결 오류로 바꾸지 않고 그대로 던진다(호출자가 버린다)", async () => {

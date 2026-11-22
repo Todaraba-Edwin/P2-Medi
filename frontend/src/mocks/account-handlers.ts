@@ -3,7 +3,7 @@
 // 오류 본문 `{code, fields}`와 코드, 본인 1 + 가족 3, 건강 정보 동의, 철회 시 즉시 삭제.
 // **백엔드 없음**: `/api/auth/*`(이메일 로그인·가입, 로그아웃, 소셜 시작)과 세션. 실제는 Bearer 토큰이고 여기서는 핸들러 메모리의 세션으로 흉내 낸다
 // (세션·동의·프로필은 이 핸들러 묶음의 메모리에만 있다. 페이지를 새로 열면 사라진다).
-import { HttpResponse, http } from "msw";
+import { HttpResponse, delay, http } from "msw";
 import { z } from "zod";
 import {
   AGE_14_DOC,
@@ -23,7 +23,7 @@ import {
   SexSchema,
 } from "@/lib/api/account";
 import type { ConsentDocType, ConsentState, Me, Medication, OnboardingStep, Profile } from "@/lib/api/account";
-import { MOCK_DRUG_ITEM_SEQS, MOCK_DRUG_SEARCH_ERRORS, MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK, MOCK_SIGNUP_TAKEN_MARK, searchMockDrugs } from "./fixtures/account";
+import { MOCK_DRUG_ITEM_SEQS, MOCK_DRUG_SEARCH_ERRORS, MOCK_DRUG_SEARCH_SLOW_MARK, MOCK_DRUG_SEARCH_SLOW_MS, MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK, MOCK_SIGNUP_TAKEN_MARK, searchMockDrugs } from "./fixtures/account";
 
 const CredentialsSchema = z.object({ email: z.string().min(1), password: z.string().min(1) });
 /** `DrugSearchIn`(백엔드 `drugs.py`): 앞뒤 공백 제거 뒤 1~100자, 다른 칸은 422 */
@@ -232,6 +232,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
       if (!body.success) return error(422, "INVALID_REQUEST", ["q"]);
       const forced = MOCK_DRUG_SEARCH_ERRORS.find(([mark]) => body.data.q.includes(mark));
       if (forced) return error(forced[1], forced[2], forced[2] === "INVALID_REQUEST" ? ["q"] : []);
+      if (body.data.q.includes(MOCK_DRUG_SEARCH_SLOW_MARK)) await delay(MOCK_DRUG_SEARCH_SLOW_MS); // 느린 서버 흉내(FE-04-24 A e2e)
       return HttpResponse.json(searchMockDrugs(body.data.q), { headers: NO_STORE });
     }),
     http.get("*/api/drugs/search", () => new HttpResponse(null, { status: 405, headers: NO_STORE })),

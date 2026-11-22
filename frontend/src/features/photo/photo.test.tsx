@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { DRUG_DATA_SCOPE_NOTICE as ACCOUNT_DRUG_DATA_SCOPE_NOTICE } from "@/features/account/copy";
 import { PHRASES } from "@/mocks/fixtures/phrases";
 import { PHOTO_SCENARIO_PNG_WIDTH, createPhotoHandlers, pickPhotoScenario, pngWidth } from "@/mocks/photo-handlers";
 import type { PhotoScenarioName } from "@/mocks/photo-handlers";
@@ -236,6 +237,18 @@ describe("확인·수정 카드(P5·P6, 〔D6〕A, H19)", () => {
     expect(within(card).getByRole("button", { name: copy.PHOTO_ADD_DRUG_LABEL })).toBeInTheDocument();
     expect(confirmButton().textContent).toBe(copy.PHOTO_CONFIRM_LABEL);
     expect(within(card).getByLabelText(copy.PHOTO_QUESTION_LABEL)).toBe(question());
+  });
+
+  it("FE-04-25 A: 카드 안내 바로 아래에 자료 밖 약 고지가 승인 원문 그대로 한 줄 보인다(프로필 약 입력과 같은 상수, 마스코트 없음)", async () => {
+    const { user } = setup();
+    const card = await toCard(user);
+    const notice = within(card).getByTestId("drug-data-scope-notice");
+    expect(copy.DRUG_DATA_SCOPE_NOTICE).toBe(ACCOUNT_DRUG_DATA_SCOPE_NOTICE); // 원본은 계정 copy 하나
+    expect(notice.textContent).toBe("국내 허가 의약품 자료만 확인할 수 있어요. 조제약·해외 약 등 자료에 없는 약은 금기를 확인하지 못하니, 이름을 그대로 적고 약사에게 확인하세요.");
+    expect(before(within(card).getByTestId("photo-confirm-guide"), notice)).toBe(true);
+    expect(before(notice, rows()[0])).toBe(true);
+    expect(within(card).getAllByTestId("drug-data-scope-notice")).toHaveLength(1);
+    expect(within(card).queryByTestId("mascot")).toBeNull();
   });
 
   it("질문이 비면 `이대로 확인`이 비활성이고, 약이 모두 비어도 비활성이다", async () => {

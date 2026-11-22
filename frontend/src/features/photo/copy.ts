@@ -30,6 +30,10 @@ export const PHOTO_CONFIRM_LABEL = "이대로 확인";
 /** `닫기`는 승인 없이 버리는 동작이며 `/chat`을 부르지 않는다(PRD-13-03 A, H19). 계정 모달의 `CLOSE_LABEL`과 같은 글자다 */
 export const PHOTO_CLOSE_LABEL = "닫기";
 
+// ---------------------------------------------------------------- 공용 고지(원본은 계정 화면 copy. 두 화면이 한 상수를 쓴다)
+/** 자료 밖 약 고지(FE-04-25 A, 원문 승인 2026-11-22). 원본은 `@/features/account/copy`의 `DRUG_DATA_SCOPE_NOTICE`이고 여기서는 다시 내보내기만 한다 */
+export { DRUG_DATA_SCOPE_NOTICE } from "@/features/account/copy";
+
 // ---------------------------------------------------------------- 자리표시(보조기기 전용 이름. 화면에 보이지 않는다. 승인 전)
 /** 읽은 약 이름 입력칸의 이름(sr-only). 칸 자체는 읽은 글자로 채워져 보인다 */
 export const PHOTO_READ_NAME_LABEL = "읽은 약 이름";
