@@ -151,7 +151,7 @@ function returnFocus(container: HTMLElement | null, selector: string) {
   };
 }
 
-const SCRIM_CLASS = "absolute inset-0 z-40 bg-ink/30";
+const SCRIM_CLASS = "absolute inset-0 z-40 bg-scrim/30";
 
 /**
  * 본문 위 오버레이로 펼친 사이드바(지시서 §9): 스크림이 근거 상세 패널까지 덮고, 스크림 클릭·Esc로 사이드바만 닫힌다.

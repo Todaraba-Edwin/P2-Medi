@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useReducer, useRef, useState } from "react";
-import { UserIcon } from "lucide-react";
+import { SettingsIcon, UserIcon } from "lucide-react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
 import { AccountMenu, AccountModal, EntryChoice, LOGIN_ENTRY_LABEL, MANAGE_PROFILES_LABEL, TargetPicker, isAccountEntryEnabled, openAccountModal } from "@/features/account";
@@ -11,6 +11,7 @@ import { EmergencyBanner, ExternalAiNotice, FixedNoticeBox, LegalFooter, StartEm
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
 import { PhotoModal } from "@/features/photo";
 import type { ChatInputFromPhoto } from "@/features/photo";
+import { SETTINGS_LABEL, SettingsDialog } from "@/features/settings";
 import { groupCandidates } from "@/features/result";
 import { DISCLAIMER, START_EMERGENCY_119, START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
 import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation } from "@/lib/supabase/callback";
@@ -66,6 +67,8 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const turns = useChatStore((state) => state.turns, store);
   const emergency = useChatStore((state) => state.emergency, store);
   const [shell, dispatch] = useReducer(shellReducer, initialShellState);
+  /** 설정 화면(화면 모드) 열림 여부. 계정과 상관없이 게스트도 연다(FE-12-03 B) */
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /** 되묻기에서 고른 후보(차례별 → 묶음 `input_name`별, 메모리) */
   const [picked, setPicked] = useState<Record<string, Record<string, Candidate>>>({});
   /** 사이드바 오버레이·드로어를 그릴 자리(119 배너 아래 영역) */
@@ -235,11 +238,18 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     if (layout.sidebarOverlay) dispatch({ type: "collapseSidebar" });
     openAccountModal(account);
   };
+  // 설정 화면을 열 때도 드로어·사이드바 오버레이는 닫는다(층을 겹치지 않는다)
+  const openSettings = () => {
+    dispatch({ type: "closeDrawer" });
+    if (layout.sidebarOverlay) dispatch({ type: "collapseSidebar" });
+    setSettingsOpen(true);
+  };
   const startGuest = () => {
     account.getState().startGuest();
     focusInput();
   };
-  const accountMenu = accountEnabled ? <AccountMenu member={member} onOpen={openAccount} onLogout={() => void account.getState().logout()} /> : null;
+  // 계정 자리는 항상 그린다: 게스트도 "설정"으로 화면 모드를 고를 수 있다(계정 기능이 꺼져 있으면 "로그인/가입"만 빠진다)
+  const accountMenu = <AccountMenu member={member} accountEnabled={accountEnabled} onOpen={openAccount} onLogout={() => void account.getState().logout()} onSettings={openSettings} />;
 
   const first = turns[0];
   const last = turns[turns.length - 1];
@@ -266,11 +276,16 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               {...sidebar}
               onToggle={() => dispatch({ type: "toggleSidebar" })}
               railAccount={
-                accountEnabled && (
-                  <IconButton label={member ? MANAGE_PROFILES_LABEL : LOGIN_ENTRY_LABEL} data-testid="account-entry" className="mt-auto" onClick={openAccount}>
-                    <UserIcon className="size-5" aria-hidden="true" />
+                <div className="mt-auto flex flex-col items-center gap-1.5">
+                  {accountEnabled && (
+                    <IconButton label={member ? MANAGE_PROFILES_LABEL : LOGIN_ENTRY_LABEL} data-testid="account-entry" onClick={openAccount}>
+                      <UserIcon className="size-5" aria-hidden="true" />
+                    </IconButton>
+                  )}
+                  <IconButton label={SETTINGS_LABEL} data-testid="settings-entry" onClick={openSettings}>
+                    <SettingsIcon className="size-5" aria-hidden="true" />
                   </IconButton>
-                )
+                </div>
               }
             />
           </div>
@@ -365,6 +380,18 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
           onCloseAutoFocus={photoClosed}
           container={layer}
           hasEmergency={emergency !== null}
+          emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />}
+        />
+        {/* 설정 화면(FE-12 화면 모드): 배너 아래 영역에만 그린다. 게스트도 연다 */}
+        <SettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          container={layer}
+          showLogin={accountEnabled && !member}
+          onLogin={() => {
+            setSettingsOpen(false);
+            openAccount();
+          }}
           emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />}
         />
         <SidebarOverlay open={layout.sidebarOverlay} onClose={() => dispatch({ type: "collapseSidebar" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />

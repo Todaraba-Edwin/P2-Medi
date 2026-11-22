@@ -34,6 +34,7 @@ from app.agent.fixed_phrases import (
     CLARIFY_PRIOR_PICK,
 )
 from app.agent.intake import is_intake, is_redose
+from app.agent.open_question import open_lookup as _open_lookup
 from app.tools.drug_dict import (
     MATCH_BM25,
     MATCH_CONTAINS,
@@ -72,6 +73,10 @@ NOT_FOUND_SCORE_MAX = 0.0
 # `intake_question`·`redose_question`은 AG-22(2026-11-19): 복용 관련·재복용 질문 신호(bool만, `intake.py`).
 ROUTER_WRITABLE_KEYS = frozenset({"profile", "drug_mentions", "intent", "entities", "branch_label", "ambiguous", "clarify", "truncated",
                                   "required_claims", "intake_question", "redose_question"})
+# 조건이 맞을 때만 쓰는 키(늘 쓰는 위 집합과 따로 둔다: 조건 밖이면 `state_update()` 키 집합이 지금과 같다).
+# `open_lookup`은 AG-15(축소, 〔D10〕A): 약 이름 없는 열린 질문의 사전 효능군 조회 결과(`open_question.OpenLookup.to_dict()`). 판정이 아니다
+ROUTER_OPTIONAL_KEYS = frozenset({"open_lookup"})
+_GUARDRAIL_REFUSE = "REFUSE"  # `guardrail.ROUTE_REFUSE`와 같은 값(Router import 허용 범위를 늘리지 않으려고 값으로 둔다. 같음은 AG-15 시험이 확인)
 
 # 분기 라벨(AG-04 평가 세트 composition 어휘와 같다: 정상·오탈자·모호·근거 없음)
 BRANCH_NORMAL = "정상"
@@ -222,6 +227,9 @@ class RouterResult(BaseModel):
     emergency: bool = False  # 입력 통과(AG-08이 쓴 값, Router는 읽기만)
     guardrail_route: str | None = None  # 입력 통과
     dict_version: str = ""
+    # AG-15(축소, 〔D10〕A·〔D11〕A): 약 이름 없는 열린 질문의 사전 효능군 조회(`open_question.OpenLookup.to_dict()`). 조건(`open_lookup_applies`)이
+    # 맞을 때만 값이 있고, 없으면 `state_update()`에 키가 없다(기존 출력 불변). 금기 판정이 아니다
+    open_lookup: dict[str, Any] | None = None
 
     def state_update(self) -> dict[str, Any]:
         """그래프 상태에 쓸 dict. `ROUTER_WRITABLE_KEYS`에 든 키만 담는다(emergency·route는 담지 않는다)."""
@@ -238,7 +246,9 @@ class RouterResult(BaseModel):
             "intake_question": self.intake_question,
             "redose_question": self.redose_question,
         }
-        if not set(out) <= ROUTER_WRITABLE_KEYS:
+        if self.open_lookup is not None:
+            out["open_lookup"] = dict(self.open_lookup)
+        if not set(out) <= ROUTER_WRITABLE_KEYS | ROUTER_OPTIONAL_KEYS:
             raise RuntimeError("Router가 쓸 수 없는 상태 키")
         return out
 
@@ -1050,7 +1060,18 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
         ents.append(e)
 
     prof = extract_profile(text, profile)
-    return assemble(text, ents, prof, truncated=truncated, emergency=emergency, guardrail_route=guardrail_route, dict_version=dd.version)
+    res = assemble(text, ents, prof, truncated=truncated, emergency=emergency, guardrail_route=guardrail_route, dict_version=dd.version)
+    if open_lookup_applies(res):
+        res.open_lookup = _open_lookup(text, dd).to_dict()
+    return res
+
+
+def open_lookup_applies(res: RouterResult) -> bool:
+    """AG-15(축소, 〔D11〕A): 사전 분류 안내로 끝낼 질문인가. 엔티티 0개 · `open` · `document` 아님 · 응급 아님 · 되묻기 아님 · 입구 거절 아님.
+    응급 + 약 없음은 지금 경로(`emergency_no_drug`, AG-09)를 그대로 쓴다. 입구 거절(`guardrail_route == REFUSE`)은 그래프에서 Router에 오지 않지만
+    Router만 따로 부를 때도 같은 답이 나오게 막는다. 찾음/찾을 수 없음은 여기서 가르지 않는다(둘 다 코드 안내)."""
+    return (not res.entities and INTENT_OPEN in res.intent and INTENT_DOCUMENT not in res.intent
+            and not res.emergency and not res.ambiguous and res.guardrail_route != _GUARDRAIL_REFUSE)
 
 
 def branch_label_of(ents: list[Entity], clarify: Clarify | None) -> str:

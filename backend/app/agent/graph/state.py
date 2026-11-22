@@ -14,7 +14,7 @@ from typing import Annotated, Any, TypedDict
 from langgraph.graph.message import add_messages
 
 from app.agent.guardrail import ROUTE_REFUSE
-from app.agent.router import ROUTER_WRITABLE_KEYS
+from app.agent.router import ROUTER_OPTIONAL_KEYS, ROUTER_WRITABLE_KEYS
 from app.agent.tools.schemas import POST_WRITABLE_KEYS
 
 MAX_MODEL_CALLS = 8  # RFP-22-05 A: 모델 호출 상한. 하네스 차단 뒤 재호출·요약 호출·되감기 호출도 센다
@@ -84,6 +84,9 @@ class AgentState(TypedDict, total=False):
     required_claims: list[str]  # AG-05: 필요한 주장 유형(코드 규칙 부분). 쓰는 쪽은 router뿐이다
     intake_question: bool  # AG-22-06 A: 복용 관련 질문(주의 조회 규칙·용량주의 되묻기 조건). 쓰는 쪽은 router뿐이다
     redose_question: bool  # AG-22-01 A: 재복용 질문(재복용 고지 조건). 쓰는 쪽은 router뿐이다
+    # AG-15(축소, 〔D10〕A): 약 이름 없는 열린 질문의 사전 효능군 조회(`{found, class_code, class_name, n_products}`). 조건이 맞을 때만 router가 쓴다.
+    # 있으면 `after_router`가 finalize로 보내고 `finalize`가 코드 문장으로 끝낸다(모델·도구 호출 0). 금기 판정이 아니다
+    open_lookup: dict[str, Any] | None
     # model ⇄ tools
     messages: Annotated[list[Any], add_messages]
     call_count: int
@@ -105,7 +108,7 @@ class AgentState(TypedDict, total=False):
 # 노드가 쓸 수 있는 키(이 밖의 키는 `restrict_update`가 버린다)
 NODE_WRITABLE: dict[str, frozenset[str]] = {
     "guardrail_in": frozenset({"emergency", "route", "refuse_reason", "refuse_reasons", "injection", "proceed_tools", "events"}),
-    "router": frozenset(ROUTER_WRITABLE_KEYS | {"events"}),
+    "router": frozenset(ROUTER_WRITABLE_KEYS | ROUTER_OPTIONAL_KEYS | {"events"}),
     "model": frozenset({"messages", "call_count", "limit_reached", "draft", "events"}),
     "tools": frozenset(POST_WRITABLE_KEYS | {"messages"}),
     "validator": frozenset({"validation", "rewind_count", "final_sentences", "draft", "messages", "events"}),

@@ -9,6 +9,7 @@ export const BRAND_ASSETS = {
   "face": { src: "/brand/face.png", width: 295, height: 270 },
   "face-square": { src: "/brand/face-square.png", width: 301, height: 302 },
   "logo": { src: "/brand/logo.png", width: 428, height: 260 },
+  "logo-dark": { src: "/brand/logo-dark.png", width: 428, height: 260 },
   "symbol": { src: "/brand/symbol.png", width: 160, height: 114 },
 } as const;
 

@@ -17,3 +17,11 @@ export function writeUiSetting(key: string, value: string): void {
     /* 저장 실패는 무시 */
   }
 }
+
+export function removeUiSetting(key: string): void {
+  try {
+    window.localStorage.removeItem(PREFIX + key);
+  } catch {
+    /* 지우기 실패는 무시 */
+  }
+}

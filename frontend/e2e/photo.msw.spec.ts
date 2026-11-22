@@ -2,6 +2,7 @@ import path from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { AA_NORMAL, failures, measureContrast } from "./contrast";
 import { HEIGHT, ask, expect119Reachable, expectNoHorizontalScroll, expectTouchTarget, openApp } from "./helpers";
 
 // FE-05 사진 입력(사진 부분만) e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목 `src/mocks/photo-handlers.ts`. 실제 백엔드·원격 호출 0, 실제 사진 0):
@@ -206,3 +207,36 @@ test.describe("인식 실패·상한·응급·닫기 (360px)", () => {
     await expect(page.getByTestId("result-card")).toHaveCount(0);
   });
 });
+
+// 다크 모드(FE-12 병합 뒤): 사진 시트·확인 카드가 토큰(--color-bg 등)대로 어두운 바탕에 그려지고, 시트 안 글자 대비가 기준 이상이다.
+// 캡처는 `photo-dark-*-{폭}-fe05.png`
+const DARK_BG = "rgb(23, 21, 15)"; // --color-bg 다크(globals.css)
+for (const width of [393, 1280]) {
+  test.describe(`사진 입력 다크 모드 ${width}px`, () => {
+    test.use({ viewport: { width, height: HEIGHT }, colorScheme: "dark" });
+
+    test("시트(고르기)·확인 카드가 다크 토큰으로 그려지고 글자 대비가 기준 이상이다", async ({ page }) => {
+      await start(page);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+      const box = modal(page);
+      await expect(box).toHaveCSS("background-color", DARK_BG);
+      const pick = await measureContrast(page, '[data-testid="photo-modal"]');
+      expect(pick.unmeasured, `다크 ${width} 고르기: 바탕색을 정할 수 없는 글자`).toEqual([]);
+      expect(pick.samples.length).toBeGreaterThan(0);
+      expect(failures(pick), `다크 ${width} 고르기: 기준(${AA_NORMAL}:1) 미달 글자`).toEqual([]);
+      await shot(page, "photo-dark-pick");
+
+      await pickFile(page, "ok");
+      await expect(card(page)).toBeVisible();
+      await card(page).getByRole("radio").nth(0).click();
+      await card(page).getByTestId("photo-question").fill(QUESTION);
+      await expect(card(page).getByTestId("photo-confirm")).toBeEnabled();
+      const confirm = await measureContrast(page, '[data-testid="photo-modal"]');
+      expect(confirm.unmeasured, `다크 ${width} 확인 카드: 바탕색을 정할 수 없는 글자`).toEqual([]);
+      expect(confirm.samples.length).toBeGreaterThan(0);
+      expect(failures(confirm), `다크 ${width} 확인 카드: 기준(${AA_NORMAL}:1) 미달 글자`).toEqual([]);
+      await expectNoHorizontalScroll(page);
+      await shot(page, "photo-dark-confirm");
+    });
+  });
+}

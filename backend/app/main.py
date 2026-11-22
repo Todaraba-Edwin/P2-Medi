@@ -2,15 +2,19 @@
 
 /health: 서비스 상태 확인 → 200 {"status":"ok"}
 /chat: BE-06 채팅(NDJSON 스트림 계약 `chat_event@v1`). 설정이 갖춰지지 않으면 501(의도된 상태, `app.api.chat`)
+/ingest/image: BE-14 약봉투 사진 약 이름 추출(게스트 허용, gpt-6-luna 1회, 판정 없음, 사진·질문 비저장, `app.api.ingest`).
 /me·/legal/{doc_type}·/consents·/profiles: BE-11 계정 API(`app.api.me`·`app.api.account`, 토큰 검증 `app.security.auth`).
-  검증기가 없으면 토큰이 온 요청은 501, 계정 저장소(`account.set_repo`)가 없으면 계정 API는 501. 원격 `account` 스키마가 아직 적용 전이라
-  lifespan은 저장소를 붙이지 않는다(적용 뒤 `PostgresAccountRepo.from_dsn`을 붙이는 한 줄을 더한다).
+  검증기가 없으면 토큰이 온 요청은 501, 계정 저장소(`account.set_repo`)가 없으면 계정 API는 501.
+  BE-11-23 A(2026-11-22 원격 `account` 스키마·약관 시드 적용 뒤): `SUPABASE_DB_URL`이 있으면 lifespan이 `PostgresAccountRepo.from_dsn`
+  저장소를 붙인다(`build_account_repo`). 시작 때는 접속·쓰기 0(연결은 요청마다 열고 닫는다, 풀 없음). 연결 실패는 요청 때
+  `RepoUnavailable` → 503 `ACCOUNT_UNAVAILABLE`이라 서버 시작을 막지 않는다. DSN이 없거나 형식이 틀리면 저장소 없음 → 501.
 
 앱 시작(lifespan, BE-06-22 A·BE-17-01 A): 설정을 읽어 필수 값이 다 있으면 지연 실행기를 붙이고, 백그라운드 스레드로 무거운 자원을
 한 번 만들기 시작한다. lifespan 자체는 접속을 기다리지 않고 바로 끝난다(`/health` 즉시 응답). 스위치 `MEDIAGENT_WARMUP`을 끄면
 첫 요청에서 만든다. 필수 값이 하나라도 없으면 실행기도 준비도 없다(→ 501). 필수 설정에 새 환경변수는 없다(BE-06-19 A).
 """
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -19,12 +23,17 @@ from fastapi import FastAPI
 from .api import account as account_api
 from .api import chat as chat_api
 from .api import drugs as drugs_api
+from .api import ingest as ingest_api
 from .api import me as me_api
 from .api import service
-from .config import Settings, get_settings
+from .config import Settings, get_settings, reveal
+from .db.account_repo import AccountRepo
+from .db.account_repo_pg import PostgresAccountRepo
 from .logging.console import install_app_console_logging
 from .logging.redact_filter import install_log_redaction
 from .security import auth, auth_admin
+
+logger = logging.getLogger(__name__)
 
 install_log_redaction()  # 서버 로그(uvicorn·httpx 포함)의 비밀값 가리기, httpx INFO URL 차단(S-05·S-06)
 install_app_console_logging()  # BE-17 후속: `app.*` INFO 줄을 stderr에(uvicorn은 루트 처리기를 두지 않아 INFO가 버려졌다). 멱등
@@ -33,6 +42,24 @@ install_app_console_logging()  # BE-17 후속: `app.*` INFO 줄을 stderr에(uvi
 def load_settings() -> Settings:
     """lifespan이 쓰는 설정 공급 지점(시험은 이 이름을 가짜로 바꾼다)."""
     return get_settings()
+
+
+def build_account_repo(settings: Settings) -> AccountRepo | None:
+    """BE-11-23 A: 계정 저장소. `SUPABASE_DB_URL`이 없으면 None(계정 API 501). 접속하지 않는다(DSN 형식만 본다).
+
+    형식이 틀린 DSN도 None으로 두고 경고만 남긴다(값은 남기지 않는다). 접속·권한 오류는 요청 때 503 `ACCOUNT_UNAVAILABLE`이다.
+    """
+    dsn = reveal(settings.supabase_db_url)
+    if not dsn:
+        return None
+    from psycopg import conninfo  # 파싱만(접속 0)
+
+    try:
+        conninfo.conninfo_to_dict(dsn)
+    except Exception:  # noqa: BLE001 - 파싱 오류 메시지에 DSN 조각이 섞일 수 있어 종류도 남기지 않는다
+        logger.warning("계정 저장소를 붙이지 않았다: SUPABASE_DB_URL 형식 오류")
+        return None
+    return PostgresAccountRepo.from_dsn(dsn)
 
 
 @asynccontextmanager
@@ -46,13 +73,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # FE-04-13 A: 프로필 약 검색은 채팅 자원의 사전을 공유한다(DB 추가 조회 0). 실행기가 없으면 공급자 없음 → 501
     dict_provider = runner.drug_dict if isinstance(runner, service.LazyGraphRunner) else None
     drugs_api.set_provider(app, dict_provider)
-    # FE-04-13 남음 ②: 프로필 복용 약 `item_seq`는 같은 사전으로 다시 확인한다(사전에 없는 번호는 원문만 저장). 저장소는 아직
-    # 붙이지 않으므로(BE-11-23 A, 원격 적용 뒤 `set_repo`) 확인 함수만 먼저 붙인다. `set_repo(app, repo)`는 이 값을 그대로 둔다
-    account_api.set_item_seq_checker(app, drugs_api.dict_item_seq_checker(dict_provider) if dict_provider is not None else None)
+    # BE-11-23 A: 계정 저장소(DSN 없으면 None → 501). FE-04-13 남음 ②: 복용 약 `item_seq`는 같은 사전으로 다시 확인한다
+    # (사전에 없는 번호는 원문만 저장, 실행기가 없으면 확인 함수 None). 접속 0
+    account_api.set_repo(app, build_account_repo(settings_now),
+                         item_seq_checker=drugs_api.dict_item_seq_checker(dict_provider) if dict_provider is not None else None)
     auth.set_verifier(app, auth.build_verifier(settings_now))  # 접속 0. 설정이 모자라면 None → 토큰이 온 /me는 501
     # BE-11-24 A: 탈퇴 때 auth.users 삭제(Admin API). 접속 0. SUPABASE_URL·SUPABASE_SECRET_KEY가 없으면 None → 탈퇴 502
     auth_admin.set_auth_admin(app, auth_admin.build_auth_admin(settings_now))
-    yield
+    try:
+        yield
+    finally:  # 종료: 저장소를 뗀다(풀이 없어 닫을 연결은 없다. 요청마다 연 연결은 요청 안에서 닫힌다)
+        account_api.set_repo(app, None)
 
 
 app = FastAPI(title="MediAgent", lifespan=lifespan)
@@ -60,6 +91,7 @@ settings = get_settings()
 chat_api.register(app)  # POST /chat(BE-06, 설정이 갖춰지지 않으면 501), 요청 형식 오류 422. 게스트 허용, 토큰을 읽지 않는다
 me_api.register(app)  # BE-11 계정 API(chat 뒤에 등록: 요청 형식 오류 처리기를 계정 경로 분기로 바꾼다), 인증 오류 401·501·503
 drugs_api.register(app)  # POST /drugs/search 프로필 약 사전 검색(FE-04-13 A, 로그인 필요, 계정 오류 처리기 공유)
+ingest_api.register(app)  # POST /ingest/image BE-14 사진 약 이름 추출(게스트 허용, LLM gpt-6-luna 1회, 사전은 /drugs/search와 같은 공급자)
 
 
 @app.get("/health")

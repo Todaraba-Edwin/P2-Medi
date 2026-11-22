@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
-/* 디자인 토큰 원본: P2-doc/PJ2-프론트-기술스택.md 10장 (1)(2). 다크모드 없음(FE-01-10 A). */
+/* 다크 모드 변형(FE-12-03 B): `dark:` 클래스는 `<html data-theme="dark">` 아래에서만 켠다. 시스템 설정은 layout 인라인 스크립트가 data-theme를 정한다 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * 디자인 토큰 원본: P2-doc/PJ2-프론트-기술스택.md 10장 (1)(2). 여기 값이 라이트 모드다.
+ * 다크 값은 같은 토큰 이름으로 아래 두 곳에 같은 값을 둔다(시험이 두 곳이 같은지 확인한다, FE-12-05 A·tokens.test.ts):
+ * - `@media (prefers-color-scheme: dark)` 안 `:root:not([data-theme="light"])`: 시스템 설정이 어두울 때(선택 "시스템")
+ * - `:root[data-theme="dark"]`: 사용자가 "다크 모드"를 골랐을 때
+ * 근거: data/mock/briefs/reports/fe12-design.md §2(로컬 전용). 화면 부품은 색을 직접 쓰지 않고 토큰만 쓴다.
+ */
 @theme {
   --color-bg: #ffffff;
   --color-bg-soft: #fff8e1;
@@ -31,7 +40,93 @@
   --color-capsule-line: #4e3a2c;
   --color-capsule-blue: #c9daec;
   --color-capsule-blue-ink: #1f3a5f;
+  /* 짙은 색 바탕 위의 글자(FE-12-02 ②): 빨강·보라 바탕의 흰 글자, 노랑 바탕의 검은 글자. 다크에서도 글자 색이 바뀌지 않게 따로 둔다 */
+  --color-on-solid: #ffffff;
+  --color-on-yellow: #000000;
+  /* 스크림(모달·사이드바 뒤 막): 다크에서도 어둡게 덮는다 */
+  --color-scrim: #000000;
+  /* 안전 고지 띠의 테두리: 라이트에서는 바탕과 같은 색이라 안 보이고, 다크에서만 테두리가 보인다(글자 "!"와 함께 구분) */
+  --color-fixed-edge: #fff8d6;
   --font-sans: -apple-system, "SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+}
+
+/* 다크 값(시스템 설정이 어두울 때). 값은 위 @theme 블록과 같은 순서다 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #17150f;
+    --color-bg-soft: #221e15;
+    --color-bg-softer: #1c1912;
+    --color-bubble-me: #5a4810;
+    --color-yellow: #ffcc00;
+    --color-yellow-2: #3b3112;
+    --color-tint: #2f2914;
+    --color-fixed: #2b2612;
+    --color-line: #3b3424;
+    --color-line-2: #4d4430;
+    --color-ink: #f3eddc;
+    --color-ink-2: #dcd2ba;
+    --color-mute: #b5a985;
+    --color-faint: #8a7d5c;
+    --color-link: #f0c14b;
+    --color-red: #d70015;
+    --color-red-ink: #ff7b73;
+    --color-warn-bg: #4a2e0a;
+    --color-warn-ink: #ffd3a6;
+    --color-blue-bg: #10294a;
+    --color-blue-ink: #bbdcfb;
+    --color-preg: #7b1fa2;
+    --color-preg-bg: #3a1e45;
+    --color-preg-ink: #e0b3f0;
+    --color-combo-bg: #4a171c;
+    --color-capsule-line: #d9c8b2;
+    --color-capsule-blue: #a9c4e3;
+    --color-capsule-blue-ink: #14304f;
+    --color-on-solid: #ffffff;
+    --color-on-yellow: #17150f;
+    --color-scrim: #000000;
+    --color-fixed-edge: #8a7838;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #17150f;
+  --color-bg-soft: #221e15;
+  --color-bg-softer: #1c1912;
+  --color-bubble-me: #5a4810;
+  --color-yellow: #ffcc00;
+  --color-yellow-2: #3b3112;
+  --color-tint: #2f2914;
+  --color-fixed: #2b2612;
+  --color-line: #3b3424;
+  --color-line-2: #4d4430;
+  --color-ink: #f3eddc;
+  --color-ink-2: #dcd2ba;
+  --color-mute: #b5a985;
+  --color-faint: #8a7d5c;
+  --color-link: #f0c14b;
+  --color-red: #d70015;
+  --color-red-ink: #ff7b73;
+  --color-warn-bg: #4a2e0a;
+  --color-warn-ink: #ffd3a6;
+  --color-blue-bg: #10294a;
+  --color-blue-ink: #bbdcfb;
+  --color-preg: #7b1fa2;
+  --color-preg-bg: #3a1e45;
+  --color-preg-ink: #e0b3f0;
+  --color-combo-bg: #4a171c;
+  --color-capsule-line: #d9c8b2;
+  --color-capsule-blue: #a9c4e3;
+  --color-capsule-blue-ink: #14304f;
+  --color-on-solid: #ffffff;
+  --color-on-yellow: #17150f;
+  --color-scrim: #000000;
+  --color-fixed-edge: #8a7838;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 /* 누를 수 있는 것은 손가락 커서, 비활성은 금지 커서(Tailwind 4 preflight는 button 커서를 default로 둔다). 호버 반응은 src/components/button.ts */
@@ -55,6 +150,7 @@ body {
 
 /*
  * 소셜 로그인 버튼의 면(FE-04e). 디자인 토큰이 아니라 각 회사 가이드가 정한 값이라 @theme에 넣지 않고 여기에만 둔다.
+ * 다크에서도 가이드 Light 값 그대로다(FE-12 §5 메모, 2026-11-20 "Google 그대로").
  * - Google(https://developers.google.com/identity/branding-guidelines, Light): 바탕 #FFFFFF, 테두리 #747775 1px 안쪽, 글자 #1F1F1F
  * - Kakao(https://developers.kakao.com/docs/ko/kakaologin/design-guide): 컨테이너 #FEE500, 레이블 #000000 85%
  */

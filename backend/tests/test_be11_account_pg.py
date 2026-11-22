@@ -390,3 +390,138 @@ def test_pg_legal_body_sha256_matches_python(pg_dsn):
     doc = asyncio.run(repo.legal_current("terms"))
     assert doc is not None and doc.version == 1
     assert doc.body_sha256 == body_sha256(doc.body_md) and len(doc.body_sha256) == 64
+
+
+# --------------------------------------------------------------------------- 4. lifespan 저장소 연결(BE-11-23 A, 2026-11-22)
+# 앱 lifespan이 `SUPABASE_DB_URL`로 저장소를 붙이는지 본다. 설정은 `main.load_settings`를 바꿔 생성자 인자로만 준다(`.env` 0).
+# 가짜 DSN 시험은 `psycopg.connect`를 가짜로 바꿔 접속 0이다. 로컬 왕복은 `LOCAL_PG_DSN`(로컬 주소)이 있을 때만 돈다.
+FAKE_REMOTE_DSN = "postgresql://u:pw-lifespan-secret@db.example.test:5432/postgres"  # guard: fake
+LIFE_TOKEN = "eyJhbGciOiJFUzI1NiJ9.eyJsaWZlIjoiMSJ9.c2lnLWw"
+_AUTH_HEADER = {"Authorization": f"Bearer {LIFE_TOKEN}"}
+
+
+class _OneTokenVerifier:
+    def __init__(self, uid: str) -> None:
+        self.uid = uid
+
+    async def verify(self, token: str) -> str:
+        from app.security.auth import TokenInvalid
+
+        if token == LIFE_TOKEN:
+            return self.uid
+        raise TokenInvalid("rejected")
+
+
+def _clear_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config import Settings
+
+    for name in Settings.model_fields:  # 앞선 시험이 올린 실제 env(`load_dotenv`)가 설정에 섞이지 않게
+        monkeypatch.delenv(name.upper(), raising=False)
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def main_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    from app import main
+    from app.api import account as account_api
+    from app.security import auth, auth_admin
+
+    _clear_settings_env(monkeypatch)
+    try:
+        yield main
+    finally:  # 다른 시험에 새지 않게 뗀다
+        account_api.set_repo(main.app, None, item_seq_checker=None)
+        auth.set_verifier(main.app, None)
+        auth_admin.set_auth_admin(main.app, None)
+
+
+def _settings(**kw: Any) -> Any:
+    from app.config import Settings
+
+    return Settings(_env_file=None, **kw)
+
+
+def _repo_of(main: Any) -> Any:
+    from app.api import account as account_api
+
+    return getattr(main.app.state, account_api.REPO_STATE_KEY, None)
+
+
+def test_lifespan_without_dsn_keeps_account_api_501(main_app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.security import auth
+
+    monkeypatch.setattr(main_app, "load_settings", lambda: _settings())
+    with TestClient(main_app.app) as c:
+        assert _repo_of(main_app) is None
+        auth.set_verifier(main_app.app, _OneTokenVerifier(str(uuid.uuid4())))
+        r = c.get("/me", headers=_AUTH_HEADER)
+        assert (r.status_code, r.json()) == (501, {"code": "NOT_IMPLEMENTED", "fields": []})
+
+
+def test_lifespan_with_dsn_attaches_repo_without_connecting_and_detaches_on_shutdown(main_app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    calls: list[Any] = []
+
+    def no_connect(*a: Any, **_k: Any) -> Any:
+        calls.append(a)
+        raise AssertionError("시작 때 접속하면 안 된다")
+
+    monkeypatch.setattr(psycopg, "connect", no_connect)
+    monkeypatch.setattr(main_app, "load_settings", lambda: _settings(supabase_db_url=FAKE_REMOTE_DSN))
+    with TestClient(main_app.app):
+        repo = _repo_of(main_app)
+        assert isinstance(repo, PostgresAccountRepo)
+        assert "pw-lifespan-secret" not in repr(repo)
+        assert calls == []  # 시작 때 접속·쓰기 0
+    assert _repo_of(main_app) is None  # 종료 때 뗀다
+
+
+def test_lifespan_repo_connect_failure_is_503_not_startup_error(main_app, monkeypatch, caplog):
+    from fastapi.testclient import TestClient
+
+    from app.security import auth
+
+    def refuse(*_a: Any, **_k: Any) -> Any:
+        raise psycopg.OperationalError(f"connection to {FAKE_REMOTE_DSN} refused")
+
+    monkeypatch.setattr(psycopg, "connect", refuse)
+    monkeypatch.setattr(main_app, "load_settings", lambda: _settings(supabase_db_url=FAKE_REMOTE_DSN))
+    with TestClient(main_app.app) as c:  # 접속할 수 없어도 서버는 뜬다
+        assert c.get("/health").status_code == 200
+        auth.set_verifier(main_app.app, _OneTokenVerifier(str(uuid.uuid4())))
+        r = c.get("/me", headers=_AUTH_HEADER)
+        assert (r.status_code, r.json()) == (503, {"code": "ACCOUNT_UNAVAILABLE", "fields": []})
+    assert "pw-lifespan-secret" not in caplog.text + r.text
+
+
+def test_lifespan_malformed_dsn_is_501_and_value_not_logged(main_app, monkeypatch, caplog):
+    from fastapi.testclient import TestClient
+
+    bad = "host=db.example.test password=pw-lifespan-secret port='"  # guard: fake, 따옴표가 닫히지 않은 conninfo
+    monkeypatch.setattr(main_app, "load_settings", lambda: _settings(supabase_db_url=bad))
+    with TestClient(main_app.app):
+        assert _repo_of(main_app) is None
+    assert "SUPABASE_DB_URL 형식 오류" in caplog.text and "pw-lifespan-secret" not in caplog.text
+
+
+def test_lifespan_local_pg_first_me_returns_consent_step(pg_dsn, main_app, monkeypatch):
+    # 로컬 왕복: lifespan이 붙인 저장소로 첫 /me가 계정 행을 만들고 `consent` 단계를 돌려준다(원격 0, LOCAL_PG_DSN만)
+    from fastapi.testclient import TestClient
+
+    from app.security import auth
+
+    uid = _new_user(pg_dsn)
+    monkeypatch.setattr(main_app, "load_settings", lambda: _settings(supabase_db_url=pg_dsn))
+    with TestClient(main_app.app) as c:
+        auth.set_verifier(main_app.app, _OneTokenVerifier(uid))
+        r = c.get("/me", headers=_AUTH_HEADER)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert (body["user_id"], body["is_guest"], body["onboarding_step"]) == (uid, False, "consent")
+        assert r.headers["Cache-Control"] == "no-store"
+        assert c.get("/legal/terms").json()["version"] == 1  # anon 약관 조회도 같은 저장소
+    with psycopg.connect(pg_dsn) as conn:
+        assert conn.execute("SELECT count(*) FROM account.app_users WHERE user_id = %s", (uid,)).fetchone()[0] == 1
