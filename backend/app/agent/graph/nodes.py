@@ -14,7 +14,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from app.agent import guardrail
+from app.agent import guardrail, open_question
 from app.agent.answer_schema import AnswerDraft, Sentence, parse_draft
 from app.agent.finalize import finalize
 from app.agent.grade_defs import GradeDefFn, grade_def_inputs
@@ -217,6 +217,8 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         n_corrected = sum(1 for e in res.entities if e.corrected_from)
         if n_corrected:  # 개수만 남긴다(이름 없음). 보정 기능이 꺼져 있으면 이 키가 없다
             ev["n_corrected"] = n_corrected
+        if res.open_lookup is not None:  # AG-15: 찾음 여부만(분류 이름·질문 없음). 조건 밖이면 이 키가 없다(이벤트 모양 그대로)
+            ev["open_hit"] = bool(res.open_lookup.get("found"))
         upd["events"] = [ev]
         return upd
 
@@ -382,6 +384,10 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
                                  refuse_reasons=state.get("refuse_reasons")), END_REFUSE
         elif state.get("ambiguous") and clar:  # 되묻기 종료: 질문 문장은 라우터가 코드 템플릿으로 만든다
             resp, why = finalize([], model_summary=clar.get("question"), emergency=emergency), END_CLARIFY
+        elif state.get("open_lookup") is not None:
+            # AG-15(축소, 〔D11〕A): 약 이름 없는 열린 질문. 모델·도구 없이 코드 문장(사전 분류 찾음/찾을 수 없음 + 판단 고지)으로 끝낸다.
+            # 판정 항목이 없으므로 `finalize_extra`는 넘기지 않는다("임신 여부를 알 수 없어 …" 같은 줄이 붙지 않게). 고정 문구는 `finalize`가 늘 붙인다
+            resp, why = finalize([], model_summary=open_question.compose_summary(state["open_lookup"]), emergency=emergency), END_NORMAL
         elif state.get("limit_reached"):
             resp, why = finalize(items, emergency=emergency, limit_reached=True, name_corrections=corrections,
                                  **finalize_extra(state, items)), END_LIMIT
@@ -434,7 +440,8 @@ def after_guardrail(state: AgentState) -> str:
 
 
 def after_router(state: AgentState) -> str:
-    return "finalize" if state.get("ambiguous") else "model"
+    # 되묻기, 또는 약 이름 없는 열린 질문의 사전 안내(AG-15, `open_lookup`)면 모델로 가지 않는다. C1 고정 파이프라인도 이 함수를 쓴다
+    return "finalize" if state.get("ambiguous") or state.get("open_lookup") is not None else "model"
 
 
 def after_model(state: AgentState) -> str:

@@ -252,9 +252,11 @@ def test_no_drug_mention_ends_as_unidentified_zero_calls(dd):
     g, tm, sm, rec = make(dd, [GOOD_DRAFT])
     st = run_question(g, "임신 중에 피해야 할 진통제가 뭐예요")
     assert rec.names() == [] and sm.calls == [] and tm.calls == []
-    ev = events(st, EVENT_UNIDENTIFIED)
-    assert len(ev) == 1 and ev[0]["n_entities"] == 0 and events(st, EVENT_STEP)[0]["skipped"] == "NO_DRUG_MENTION"
-    assert st["answer"]["summary"] is None and st["answer"]["fixed_notice"] == fp.FIXED_NOTICE
+    # AG-15(축소, 〔D11〕A 2026-11-22): 약 이름 없는 열린 질문은 Router 뒤 바로 finalize(사전 분류 안내)로 끝난다. 도구 단계에 가지 않으므로
+    # 예외 규칙 1(식별 0건) 이벤트·단계 이벤트가 없다. 이 합성 사전에는 효능군 칸이 없어 "찾을 수 없음" 문장이다
+    assert events(st, EVENT_UNIDENTIFIED) == [] and events(st, EVENT_STEP) == [] and st["end_reason"] == "NORMAL"
+    assert st["answer"]["summary"] == f"{fp.OPEN_NOT_FOUND} {fp.UNIDENTIFIED_NEXT}. {fp.OPEN_GUIDE_ONLY}"
+    assert st["answer"]["fixed_notice"] == fp.FIXED_NOTICE and st["answer"]["entries"] == []
 
 
 def test_partial_identification_continues_with_found_only(dd):
