@@ -576,3 +576,10 @@ def test_no_code_reads_sex_from_social_login_provider():
     assert hits == []
     # 토큰 검증 결과는 사용자 ID 하나뿐이다(성별을 실어 나를 칸이 없다)
     assert set(auth.Principal.__dataclass_fields__) == {"user_id", "is_guest"}
+
+
+def test_repo_unavailable_log_has_inner_cause_and_seconds_without_secrets(caplog):
+    caplog.set_level(logging.DEBUG)
+    e = Env(Broken(RepoUnavailable("ConnectionTimeout", cause="TimeoutError", elapsed_s=4.94)))
+    assert _err(e.req("GET", "/me")) == (503, "ACCOUNT_UNAVAILABLE", [])
+    assert "계정 저장소 응답 없음: ConnectionTimeout (원인=TimeoutError 4.9s)" in caplog.text

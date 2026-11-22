@@ -543,7 +543,7 @@ async def account_error_handler(_: Request, exc: Exception) -> JSONResponse:
         status, code, fields = _REPO_ERRORS.get(exc.code, (500, "INTERNAL", ()))
         return _json(status, code, fields)
     if isinstance(exc, RepoUnavailable):
-        logger.warning("계정 저장소 응답 없음: %s", exc)  # 예외 종류 이름만 담겨 있다
+        logger.warning("계정 저장소 응답 없음: %s (%s)", exc, exc.diagnostics())  # 종류 이름·안쪽 원인 종류·초만(DSN·SQL·ID 없음)
         return _json(503, CODE_ACCOUNT_UNAVAILABLE)
     return _json(500, "INTERNAL")
 
