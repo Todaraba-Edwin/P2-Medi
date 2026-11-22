@@ -143,7 +143,8 @@ for (const width of [393, 1280]) {
       await page.getByTestId("target-picker").getByText("나", { exact: true }).click();
       await ask(page, "합성 질문");
       await expect(page.getByTestId("result-card")).toBeVisible();
-      expect(chatBodies).toEqual([{ question: "합성 질문", context: { age: { lower: 19, upper: 64, unit: "세" }, pregnant: null, confirmed_drugs: [], prior_drugs: [], took_today: null } }]);
+      // 건강 동의 없이 저장한 프로필은 pregnancy_status가 null이라 입력창 토글 기본값 "일반인"(FE-11-12 A, g1-5a)이 실려 pregnant=false다
+      expect(chatBodies).toEqual([{ question: "합성 질문", context: { age: { lower: 19, upper: 64, unit: "세" }, pregnant: false, confirmed_drugs: [], prior_drugs: [], took_today: null } }]);
       expect(JSON.stringify(chatBodies)).not.toMatch(/sex|gender|female|male/);
     });
   });

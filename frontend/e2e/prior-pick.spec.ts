@@ -9,7 +9,7 @@ import { HEIGHT, QUESTION, ask, expectNoHorizontalScroll, mockChat, openApp, req
 // 새 응답 칸(`redose_notice`)의 임시 표시도 여기서 본다. 구역 접기·짝 참조·용량 되묻기 카드는 4단계 디자인 뒤라 아직 없다.
 
 const PICK = { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" };
-const EMPTY = { age: null, pregnant: null, confirmed_drugs: [], prior_drugs: [], took_today: null };
+const EMPTY = { age: null, pregnant: false, confirmed_drugs: [], prior_drugs: [], took_today: null };
 const bubble = (page: Page, turn: number) => page.locator(`[data-turn="turn-${turn}"] p[data-side="me"]`);
 const turn = (page: Page, n: number) => page.locator(`[data-turn="turn-${n}"]`);
 

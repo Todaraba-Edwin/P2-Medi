@@ -86,6 +86,7 @@ def build_deps(
     service: bool = False,
     typo_correct: bool | None = None,
     layer_check: bool = False,
+    model_name: str | None = None,
 ) -> GraphDeps:
     """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음).
 
@@ -100,6 +101,10 @@ def build_deps(
     없으면(v1·v2) 코드 상수 `nodes.SUMMARY_INSTRUCTION`을 쓴다. draft 프롬프트가 든 묶음은 `allow_draft=True`를 명시해야 한다
     (검토 카드 승인 전에는 기준선에 넣지 않는다, PRD-16-03. 채택된 묶음은 명시 없이 읽힌다).
     `summary_instruction`을 직접 주면 그 값이 우선한다(시험용). 시스템 프롬프트는 이 인자와 무관하게 `prompt_name`·`system_prompt`로 정한다.
+
+    `model_name`(AG-01 `:31`, 모델 객체를 여기서 만들 때만 쓴다): 명시하면 그 이름을 쓴다. 주지 않으면 서비스 경로(`service=True`)는
+    설정 `Settings.mediagent_agent_model`(환경변수 `MEDIAGENT_AGENT_MODEL`, 기본 `gpt-6-luna`)을, 평가·개발 경로는 `llm.MODEL`을 쓴다
+    (평가 고정: `.env` 값으로 평가 대상 모델이 바뀌지 않게, 결과 meta의 `llm.MODEL`과 어긋나지 않게). 비용 추정 단가는 `gpt-6-luna` 기준이다.
 
     `layer_check`(AG-07 계층·주장 유형 누락 검사, AG-13 C3 장치): 기본 끔. 비교 조건 C3에서만 켜며, 평가 실행기는 조건으로 그래프를 고를 때
     `pipeline.build.build_for_condition`이 정한다(C3만 켬). 서비스 경로(`service=True`)는 채택 결정 전까지 켤 수 없다(`ValueError`).
@@ -121,13 +126,14 @@ def build_deps(
         # 실제 모델은 llm_cache·개발 원장 경로로 감싼다(캐시 상태 hit/miss가 L2 `cache` 필드로, 요약 토큰은 include_raw로 계측된다).
         # 서비스 경로(service=True)는 같은 래퍼를 쓰되 원장·캐시를 건너뛴다(BE-06-23 A).
         est = llm.MAX_COMPLETION_TOKENS * llm.PRICE_OUT / 1e6
+        name = _resolve_model_name(settings, service=service, model_name=model_name)
         if tool_model is None:
-            tool_model = CachedToolModel(llm.bind_tools_model(llm.make_chat_model(settings, purpose="tools"), tools),
-                                         model=llm.MODEL, estimate_usd=est, ledger=ledger, service=service)
+            tool_model = CachedToolModel(llm.bind_tools_model(llm.make_chat_model(settings, purpose="tools", model=name), tools),
+                                         model=name, estimate_usd=est, ledger=ledger, service=service)
         if summary_model is None:
-            structured = llm.make_chat_model(settings, purpose="summary").with_structured_output(
+            structured = llm.make_chat_model(settings, purpose="summary", model=name).with_structured_output(
                 llm.answer_draft_json_schema(), method="json_schema", strict=True, include_raw=True)
-            summary_model = CachedSummary(structured, model=llm.MODEL, estimate_usd=est, ledger=ledger, service=service)
+            summary_model = CachedSummary(structured, model=name, estimate_usd=est, ledger=ledger, service=service)
     if summary_instruction is None:
         summary_instruction = load_summary_instruction(prompt_set or DEFAULT_PROMPT_SET, allow_draft=allow_draft)  # 묶음에 요약 프롬프트가 없으면 None(상수)
     kwargs: dict[str, Any] = {}
@@ -136,6 +142,19 @@ def build_deps(
     return GraphDeps(drug_dict=drug_dict, tool_model=tool_model, summary_model=summary_model, tools=tools, tool_ctx=tool_ctx,
                      system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, grade_def_fn=grade_def_fn,
                      summary_instruction=summary_instruction, typo_correct=_resolve_typo_correct(service, typo_correct), layer_check=bool(layer_check), **kwargs)
+
+
+def _resolve_model_name(settings: Any, *, service: bool, model_name: str | None) -> str:
+    """에이전트 모델 이름: 명시 인자 → (서비스 경로만) 설정 `mediagent_agent_model` → `llm.MODEL`. 빈 값은 건너뛴다(AG-01 `:31`)."""
+    from app.agent import llm
+
+    if isinstance(model_name, str) and model_name.strip():
+        return model_name.strip()
+    if service:
+        configured = getattr(settings, "mediagent_agent_model", None)
+        if isinstance(configured, str) and configured.strip():
+            return configured.strip()
+    return llm.MODEL
 
 
 def _resolve_typo_correct(service: bool, typo_correct: bool | None) -> bool:

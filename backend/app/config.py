@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     mediagent_api_cache_ttl_seconds: float = 86400.0
     mediagent_api_max_calls: int = 1000
 
+    # 에이전트(도구 선택·요약) 모델 이름(AG-01 `:31`, 비밀 아님, 환경변수 `MEDIAGENT_AGENT_MODEL`). 기본은 `llm.MODEL`과 같은 값이다
+    # (시험이 맞춘다). 서비스 경로(`build_deps(service=True)`)만 이 칸을 따른다. 평가·개발 경로는 평가 고정(PJ2-RFP.md 5장·9장)이라
+    # 이 칸과 무관하게 `llm.MODEL`을 쓰고, 다른 모델이 필요하면 `build_deps(model_name=...)`를 명시한다. 비용 단가는 `gpt-6-luna` 기준이다.
+    mediagent_agent_model: str = "gpt-6-luna"
+
     # 서버 시작 직후 백그라운드 자원 준비(BE-17-01·02 A). 기본 켬. `MEDIAGENT_WARMUP=0`(false·off)이면 지금처럼 첫 요청에서 만든다
     mediagent_warmup: bool = True
 
@@ -80,6 +85,12 @@ class Settings(BaseSettings):
     # 사용자 본인 테스트 계정 식별자(개인정보, 2026-11-20). 서비스 동작에 쓰지 않고 로그·응답에 남기지 않는다. 루트 `.env`에
     # 있어 선언이 없으면 extra="forbid"로 `get_settings()`가 실패한다(2026-11-20 메인 재현). 원문 비노출로 SecretStr
     tester_id: SecretStr | None = None
+
+    # 개인정보 보호책임자 이름·연락 이메일(개인정보, PRD-17 ⑫, 2026-11-20). 약관 시드 게시(be11_account_migrate) 때
+    # `{{PRIVACY_CONTACT}}` 칸을 채우는 데만 쓰고 저장소·로그·응답에 남기지 않는다. 루트 `.env`에 있어 선언이 없으면
+    # extra="forbid"로 `get_settings()`가 실패한다(2026-11-20 메인 재현). 원문 비노출로 SecretStr
+    privacy_officer_name: SecretStr | None = None
+    privacy_officer_email: SecretStr | None = None
 
     # hide_input_in_errors: 검증 오류(ValidationError)에 .env 입력 값(input_value=…)을 담지 않는다(sec-guard)
     model_config = SettingsConfigDict(env_file=default_env_files(), case_sensitive=False, hide_input_in_errors=True)

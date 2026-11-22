@@ -29,6 +29,15 @@ ALL_KEYS = [("terms", 1), ("privacy_policy", 1), ("privacy_consent", 1), ("sensi
             ("terms", 2), ("privacy_policy", 2), ("privacy_consent", 2), ("sensitive_consent", 2), ("age_14", 1)]
 
 
+FAKE_NAME, FAKE_EMAIL = "가짜책임자", "officer@example.invalid"  # 시험용 가짜 값(실제 .env 값을 쓰지 않음)
+
+
+@pytest.fixture(autouse=True)
+def _no_env_contact(monkeypatch):
+    """실제 `.env`의 보호책임자 값을 읽지 않는다. 기본은 값 없음(자리표시가 남아 게시 거부)."""
+    monkeypatch.setattr(m, "privacy_officer", lambda: (None, None))
+
+
 def _fill_v2(effective_at, version=1, _orig=m.seed_sql):
     """시험 전용: v2의 남은 자리표시를 시험값으로 채운다(원본 파일은 그대로)."""
     sql = _orig(effective_at, version)
@@ -360,3 +369,95 @@ def test_local_pg_plan_apply_rerun_verify(scratch_dsn, monkeypatch, tmp_path):
     assert ver["ok"] is True, ver["checks"]
     plan2 = m.main(["plan", "--local-dsn", scratch_dsn], flag=no_flag, log=quiet)["plan"]
     assert plan2["schema_needed"] is False and plan2["seed_rows_to_insert"] == []
+
+
+# --------------------------------------------------------------------------- 보호책임자 연락처 렌더링(PRD-17 ⑫, 2026-11-20)
+
+def test_build_steps_renders_privacy_contact_from_env_values():
+    steps = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC), (FAKE_NAME, FAKE_EMAIL))
+    v2 = steps[2].sql
+    assert steps[2].placeholders == []  # 본문에는 남지 않는다(주석 줄의 설명 문구는 그대로)
+    line = f"Can I PPiyak 운영자(개발자) · 개인정보 보호책임자: {FAKE_NAME}, 문의: {FAKE_EMAIL}"
+    assert v2.count(line) == 2  # terms §6 문의 + privacy_policy §7 보호책임자
+    m.check_publishable(steps)  # 남은 자리표시 0 → 게시 가능
+    assert steps[2].masked == (FAKE_NAME, FAKE_EMAIL) and steps[0].masked == ()
+
+
+@pytest.mark.parametrize("contact", [None, (None, None), ("", FAKE_EMAIL), (FAKE_NAME, "  ")])
+def test_missing_contact_keeps_placeholder_and_refuses(contact):
+    steps = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC), contact)
+    assert steps[2].placeholders == ["{{PRIVACY_CONTACT}}"]
+    with pytest.raises(m.Refused, match="PRIVACY_CONTACT"):
+        m.check_publishable(steps)
+
+
+@pytest.mark.parametrize("contact", [(FAKE_NAME, "not-an-email"), ("이름$md$", FAKE_EMAIL), ("이름\n둘째 줄", FAKE_EMAIL),
+                                     ("{{X}}", FAKE_EMAIL), ("a|b", FAKE_EMAIL)])
+def test_bad_contact_refused_without_echoing_value(contact):
+    with pytest.raises(m.Refused) as ei:
+        m.build_steps(datetime(2026, 11, 21, tzinfo=UTC), contact)
+    assert contact[0] not in str(ei.value) and contact[1] not in str(ei.value)
+
+
+def test_plan_masks_contact_and_logs_no_value(remote_env, flag):
+    logs: list[str] = []
+    out = m.main(["plan"], connect_fn=Factory(Conn(EMPTY)), flag=flag, log=logs.append, contact=(FAKE_NAME, FAKE_EMAIL))
+    plan = out["plan"]
+    assert plan["publishable"] is True and plan["privacy_contact"] == "<설정됨>"
+    text = "\n".join(logs) + repr(out)
+    assert FAKE_NAME not in text and FAKE_EMAIL not in text
+
+
+def test_plan_without_contact_says_none(remote_env, flag):
+    out, _ = run(["plan"], Conn(EMPTY), flag)
+    assert out["plan"]["privacy_contact"] == "<없음>" and out["plan"]["publishable"] is False
+
+
+def test_apply_with_contact_inserts_rendered_seed_and_logs_no_value(remote_env, flag):
+    conn, logs = Conn(applied_answers()), []
+    out = m.main(["apply", "--yes", "--effective-at", EFFECTIVE], connect_fn=Factory(conn), flag=flag, log=logs.append,
+                 contact=(FAKE_NAME, FAKE_EMAIL))
+    seeds = [s for s in conn.executed if "INSERT INTO account.legal_documents" in s]
+    assert len(seeds) == 3 and all(m.unfilled_placeholders(s) == [] for s in seeds)
+    assert any(f"개인정보 보호책임자: {FAKE_NAME}, 문의: {FAKE_EMAIL}" in s for s in seeds)
+    text = "\n".join(logs) + repr(out)
+    assert FAKE_NAME not in text and FAKE_EMAIL not in text
+
+
+def test_apply_without_env_contact_refused_before_connect(remote_env, flag):
+    f = Factory(Conn(applied_answers()))
+    with pytest.raises(m.Refused, match="PRIVACY_CONTACT"):
+        m.main(["apply", "--yes", "--effective-at", EFFECTIVE], connect_fn=f, flag=flag, log=lambda s: None)
+    assert f.calls == 0
+
+
+def test_stage_abort_message_scrubs_contact():
+    class Boom(Exception):
+        pass
+
+    def fn(cur):
+        raise Boom(f"LINE 1: ... 개인정보 보호책임자: {FAKE_NAME}, 문의: {FAKE_EMAIL} ...")
+
+    logs: list[str] = []
+    with pytest.raises(m.StageAbort) as ei:
+        m.transaction(Conn(applied_answers()), "3 seed v2", fn, log=logs.append, masked=(FAKE_NAME, FAKE_EMAIL))
+    text = str(ei.value) + "\n".join(logs)
+    assert FAKE_NAME not in text and FAKE_EMAIL not in text and "<설정됨>" in text
+
+
+def test_local_pg_body_sha256_is_of_rendered_body(scratch_dsn, tmp_path):
+    """채운 뒤 본문으로 body_sha256(DB 생성 열)이 계산된다."""
+    import psycopg
+
+    from app.db.account_repo import body_sha256
+
+    eff = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    m.main(["apply", "--yes", "--local-dsn", scratch_dsn, "--effective-at", eff], flag=tmp_path / "absent.flag",
+           log=lambda s: None, contact=(FAKE_NAME, FAKE_EMAIL))
+    with psycopg.connect(scratch_dsn) as conn:
+        rows = conn.execute("SELECT doc_type::text, body_md, body_sha256 FROM account.legal_documents "
+                            "WHERE version = 2 AND doc_type IN ('terms', 'privacy_policy')").fetchall()
+    assert len(rows) == 2
+    for _, body, digest in rows:
+        assert "{{PRIVACY_CONTACT}}" not in body and f"보호책임자: {FAKE_NAME}, 문의: {FAKE_EMAIL}" in body
+        assert digest == body_sha256(body)

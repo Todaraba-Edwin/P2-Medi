@@ -110,6 +110,8 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | Supabase (Postgres + pgvector, 2026-11-04 사용자 알림) | `SUPABASE_DB_URL`(Session pooler 연결 문자열, 핵심 경로), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`(서버 전용), `SUPABASE_JWKS_URL` | DB 연결(백엔드). 뒤 네 개는 로그인(Google·Kakao·Naver, BE-11·PRD-01-10 A)·JWT 검증용이며 DB 비밀번호는 `SUPABASE_DB_URL`에 들어 있다 |
 | 프런트(Next.js, 2026-11-12 FE-01 f4 A) | `MEDIAGENT_BACKEND_ORIGIN`(서버 전용, rewrites 프록시 대상), `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_API_MOCKING`(`enabled`일 때만 MSW) | 프런트가 백엔드를 부르는 주소와 목 스위치. 비밀값이 아니며 `NEXT_PUBLIC_*`에는 어떤 키도 넣지 않는다. **예외: `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`**(공개용 publishable 키, RLS 전제, `@supabase/ssr` 로그인용, BE-11-18 A 2026-11-18). `SUPABASE_SECRET_KEY`는 `NEXT_PUBLIC_*`에 두지 않는다 |
 | 로컬 Postgres(RLS 시험, 2026-11-19 Recap 40·BE-11-14 A) | `LOCAL_PG_DSN` | Homebrew `postgresql@17` 로컬 시험 DB 연결. 시험 전용이며 로컬 주소가 아니면 시험이 돌지 않는다. 원격 `SUPABASE_DB_URL`로 대신하지 않는다 |
+| 에이전트 모델 설정(2026-11-20 AG-01 `:31`) | `MEDIAGENT_AGENT_MODEL` | 선택, 비밀값 아님, 기본 `gpt-6-luna`. 서비스 경로 전용이며 평가 대상 모델은 바꾸지 않음(평가 기준 유지) |
+| 개인정보 보호책임자(2026-11-20 사용자 추가, PRD-17 ⑫) | `PRIVACY_OFFICER_NAME`, `PRIVACY_OFFICER_EMAIL` | 약관 v2 `{{PRIVACY_CONTACT}}`를 원격 게시(apply) 때 채우는 데만 씀. 저장소에 값을 두지 않음, `Settings`에 `SecretStr` 선택 칸, 로그·plan 출력에 값 비노출 |
 | 테스트 계정(2026-11-20 사용자 추가) | `TESTER_ID` | 사용자 본인 테스트 계정 식별자(개인정보). 백엔드 `Settings`에 `SecretStr` 선택 칸으로만 선언, 서비스 동작·로그·응답에 쓰지 않음 |
 | 백엔드 서버 시작 준비(2026-11-19 BE-17-01 A) | `MEDIAGENT_WARMUP` | 선택, 비밀값 아님, 기본 켬. `0`·`false`·`off`면 서버 시작 뒤 백그라운드 자원 준비를 끄고 첫 요청에서 만든다(BE-06-27 A 동작) |
 - 루트 `.env`에 새 변수를 넣으면 백엔드 `Settings`(`backend/app/config.py`, extra 금지)에도 선언해야 설정 로드가 실패하지 않는다(2026-11-19 재현).

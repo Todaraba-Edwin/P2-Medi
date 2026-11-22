@@ -3,11 +3,11 @@ id: RFP-36
 label: RFP
 title: Goal 모드 장시간 자율 작업 1회차 계획(AG-08 코드 이행 + BE-06-13~17 서버 상수)
 sch: SCH-02
-status: todo
+status: done
 priority: 권장
 rfp: [FR-06, NFR-고지]
 created: 2026-11-13
-done: -
+done: 2026-11-20
 ---
 
 # RFP-36 · Goal 모드 장시간 자율 작업 1회차 계획(AG-08 코드 이행 + BE-06-13~17 서버 상수)
@@ -61,7 +61,7 @@ done: -
 - [x] (2026-11-16 메인 재실행: ruff 0, pytest 2144 passed·5 skipped·1 xfailed, 보고와 일치) worktree `/Users/edwin/develop/P2-Medi-be`에서 `backend/.venv/bin/ruff check backend` 오류 0, `backend/.venv/bin/python -m pytest backend -q` 실패 0(기준 1,988 passed·5 skipped·1 xfailed에서 늘어남만 허용)이 메인 재실행 결과와 보고가 일치한다.
 - [x] (2026-11-16 커밋 `6f8e5a5`·병합 `678e093`) `git-actor`가 커밋하고 develop에 병합했다(RFP-36-03에 따름).
 - [x] (2026-11-16 지시서 `2026-11-16-sw-ag08-done.md`, AG-08-19~22·BE-06-18 등록 포함) AG-08·BE-06 티켓의 해당 체크가 `schedule-writer`로 반영됐다.
-- [ ] 프런트 영향 칸 목록(`gen:api`·zod 갱신 필요)으로 FE 후속 WP 지시서가 작성됐다.
+- [x] (2026-11-20 W2 감사 체크: FE-01 실연결 WP가 2026-11-18 충족 `tickets/frontend/FE-01.md:81`, FE-IMPL-08 계약 맞춤 완료 `FE-01.md:91`) 프런트 영향 칸 목록(`gen:api`·zod 갱신 필요)으로 FE 후속 WP 지시서가 작성됐다.
 
 ## 4. 하위 작업
 - [x] 실행 전 메인이 worktree에 `feature/AG-08-impl` 브랜치를 만든다(`git-actor`). (완료 2026-11-13, develop 5006fb0 기준)
@@ -69,7 +69,7 @@ done: -
 - [x] (2026-11-16 시작) 사용자가 새 세션(또는 VS Code)에서 지시서 경로를 첫 메시지로 주고 아래 goal 명령을 실행한다.
 - [x] (2026-11-16) 끝나면 메인이 보고를 가볍게 검수하고(ruff·pytest 재실행, `git status`) `git-actor`·후속 지시를 낸다.
 - [x] (2026-11-16 완료: 커밋 `b82dbd4`, 병합 `0634adf`, 보고 `data/mock/briefs/reports/goal-ag06-ag01.md`(로컬), 메인 재검증 pytest 2218 passed·5 skipped·1 xfailed·ruff 0, 충족표 1·2·3·4·5·7·8·9·10번 충족·6번 보류+이유(나이 미특정 연령금기 항목 모양), 결정 BE-06-19~22·AG-01-05~09·AG-08-23은 사용자 "권장대로"로 완료) goal 2회차: AG-06 → AG-01 통합 → `/chat` 연결(지시서 `data/mock/briefs/goal/2026-11-16-goal-ag06-ag01.md`, 메인 폴더 브랜치 `feature/AG-06-impl`)
-- [ ] (후속, 2회차 결과) 다음 백엔드 WP(앱 시작 배선 BE-06-22 A + AG-01-09 A 코드 변경)와 프런트 실연결 WP의 지시서를 작성한다([BE-06 §3](../backend/BE-06.md#3-하위-작업), [AG-01 §3](../agent/AG-01.md#3-하위-작업), [FE-01 §3](../frontend/FE-01.md#3-하위-작업))
+- [x] (2026-11-20 W2 감사 체크: AG-01-09 A 코드 이행 커밋 `a87dc84`·병합 `d085a67`(`tickets/agent/AG-01.md:60`·`:108`), BE-06 배선 WP 보고 로컬 `goal-be06-wiring.md`) (후속, 2회차 결과) 다음 백엔드 WP(앱 시작 배선 BE-06-22 A + AG-01-09 A 코드 변경)와 프런트 실연결 WP의 지시서를 작성한다([BE-06 §3](../backend/BE-06.md#3-하위-작업), [AG-01 §3](../agent/AG-01.md#3-하위-작업), [FE-01 §3](../frontend/FE-01.md#3-하위-작업))
 
 ### 4.1 goal 명령 초안
 실행 순서(RFP-36-02 B, 사용자 2026-11-13):
@@ -96,6 +96,7 @@ done: -
 - 관련 문서: 지시서 `data/mock/briefs/goal/2026-11-13-goal-ag08.md`(로컬), `P2-doc/PJ2-Agent-Harness.md` 3.4절
 
 ## 7. 메모
+- 2026-11-20 **W2 감사로 done 처리(근거 로컬 `w2-audit-doc.md`, 사용자 지시 "(a) 닫기")**: 완료 조건과 하위 작업의 마지막 두 줄을 체크했고 옮긴 항목은 없다. 대기 결정 0건.
 - **프런트 영향**: BE-06 스키마에 칸이 추가되므로 프런트는 `gen:api`와 zod 스키마를 갱신해야 한다. 지시서는 스키마를 **추가만** 하고 `schema_version`을 `chat_response@v1`로 두며, v1.1로 올릴지는 보고의 선택지로 받는다.
 - **리스크**: 완료 조건을 명령 결과로만 판정하므로 "충족" 자기 보고를 메인이 재검증한다(ruff·pytest 재실행, 시험 이름 대조). 3~4시간을 넘기면 `/goal clear`로 멈춘다. 지시서 §4 멈출 조건(표에 없는 문장이 필수, 판정 규칙 변경, 평가 영향, 시험 2회 실패)에서는 goal 조건과 상관없이 멈춘다.
 - **교훈 반영**: 2026-11-12 재적재 사고(작업자가 승인 전에 원격 쓰기 실행)를 막으려고 원격 쓰기 도구와 승인 flag 파일을 goal 세션 범위 밖에 둔다(지시서 §0).

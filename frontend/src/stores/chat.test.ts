@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { ChatRequestSchema, initialStreamState } from "@/lib/api";
+import { ChatRequestSchema, initialStreamState, streamReducer } from "@/lib/api";
 import type { ChatRequest, RunChatStreamOptions, StreamState } from "@/lib/api";
 import { scenarios } from "@/mocks/fixtures/scenarios";
 import type { ScenarioName } from "@/mocks/fixtures/scenarios";
@@ -265,6 +265,26 @@ describe("대화 상태 묶음", () => {
 });
 
 // AG-21-02·03 A: 이번 질문의 답(`confirmed_drugs`)과 이전 차례의 선택(`prior_drugs`)을 나눠 싣고, 답이 오면 고른 것을 이전 선택으로 옮긴다
+describe("임신 여부 스냅샷(FE-11-03 A)", () => {
+  it("보낼 때의 context.pregnant를 그 차례에 적어 두고, 다시 시도하면 지금 값으로 바꾼다", async () => {
+    const run = async (_request: unknown, options?: RunChatStreamOptions): Promise<StreamState> => {
+      const failed = streamReducer(streamReducer(initialStreamState, { type: "start" }), { type: "failure", failure: { kind: "network" } });
+      options?.onState?.(failed);
+      return failed;
+    };
+    const store = createChatStore({ run });
+    await store.getState().send(QUESTION);
+    expect(store.getState().turns[0].pregnant).toBeNull(); // 토글이 없는 조립(미리보기)은 null
+    store.getState().setContext({ pregnant: false });
+    await store.getState().send(QUESTION);
+    expect(store.getState().turns[1].pregnant).toBe(false);
+    store.getState().setContext({ pregnant: true });
+    await store.getState().retry("turn-2");
+    expect(store.getState().turns[1].pregnant).toBe(true);
+    expect(store.getState().turns[0].pregnant).toBeNull(); // 지난 차례는 그대로
+  });
+});
+
 describe("이전 선택(prior_drugs)과 이번 답(confirmed_drugs)", () => {
   const PICK_A = { name: "가나다정 100밀리그램", itemSeq: "200000001", inputName: "가나다" };
   const PICK_A2 = { name: "가나다정 500밀리그램", itemSeq: "200000002", inputName: "가나다" };

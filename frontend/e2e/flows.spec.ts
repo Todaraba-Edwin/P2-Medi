@@ -182,7 +182,7 @@ test.describe("흐름 360px", () => {
     expect(sent).toHaveLength(2);
     expect(sent[1]).toEqual({
       question: QUESTION,
-      context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }], prior_drugs: [], took_today: null },
+      context: { age: null, pregnant: false, confirmed_drugs: [{ name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" }], prior_drugs: [], took_today: null },
     });
     await expect(page.locator("[data-turn]")).toHaveCount(2);
     await expect(page.getByTestId("candidate")).toHaveCount(0); // 지난 되묻기의 후보는 더 고를 수 없다
@@ -593,7 +593,7 @@ for (const width of [360, 320]) {
       await expectNoHorizontalScroll(page);
     });
 
-    test("확인하지 못한 종류의 줄·공공 API 실패 배너: 받은 글자 그대로 접히지 않고 보인다", async ({ page }) => {
+    test("확인하지 못한 종류의 줄은 받은 글자 그대로 접히지 않고 보인다. 공공 API 실패 배너는 본문에 없고(기준일 자료 표지) 근거 상세에만 있다(FE-11-10 A)", async ({ page }) => {
       await mockChat(page, "notChecked", "apiFail");
       await openApp(page);
       await ask(page);
@@ -604,7 +604,15 @@ for (const width of [360, 320]) {
       await expect(page.getByTestId("status-badge")).toHaveCount(0);
       await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
       await ask(page, "둘째 질문");
-      await expect(page.locator('[data-turn="turn-2"]').getByTestId("result-notice")).toHaveText("실시간 확인을 하지 못해 아래 결과는 기준일 자료로 확인한 것이에요.");
+      // 2026-11-20 FE-11-10 A: 옛 기대(본문 `result-notice`)를 근거 상세 기대로 옮겼다. 본문은 "실시간 확인" 0회, 카드 머리 "기준일 자료" 표지만
+      const second = page.locator('[data-turn="turn-2"]');
+      await expect(second.getByTestId("result-notice")).toHaveCount(0);
+      await expect(second.getByTestId("basis-file-tag")).toHaveText("기준일 자료");
+      await expect(page.getByTestId("main")).not.toContainText("실시간 확인");
+      await second.getByTestId("evidence-entry").click();
+      const detail = width >= 1024 ? panel(page) : sheet(page);
+      await expect(detail.getByTestId("evidence-api-fail-notice")).toHaveText("실시간 확인을 하지 못해 아래 결과는 기준일 자료로 확인한 것이에요.");
+      await expect(detail.getByTestId("evidence-api-fail-notice")).toBeVisible();
       await expect(page.getByTestId("mascot")).toHaveCount(0);
       await expectNoHorizontalScroll(page);
     });
@@ -1511,7 +1519,7 @@ for (const width of [360, 320]) {
       expect(sent).toHaveLength(2);
       expect(sent[1]).toEqual({
         question: QUESTION,
-        context: { age: null, pregnant: null, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }], prior_drugs: [], took_today: null },
+        context: { age: null, pregnant: false, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }], prior_drugs: [], took_today: null },
       });
       // 판정은 다시 물은 답(둘째 차례)에만 있다
       await expect(turn2.getByTestId("status-badge").first()).toBeVisible();

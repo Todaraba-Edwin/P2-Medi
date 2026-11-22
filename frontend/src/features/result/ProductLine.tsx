@@ -1,6 +1,7 @@
 import type { Finding } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { IngredientChips } from "./IngredientChips";
+import { notesWithoutApiFlag } from "./realtime-notice";
 import { StatusBadge } from "./StatusBadge";
 
 // 배지가 없는 줄의 상태 글자 모양(글자는 응답의 `text` 그대로). 종류는 `bucket` 값으로만 고른다.
@@ -30,10 +31,21 @@ function SubLine({ children, slot }: { children: React.ReactNode; slot: string }
  *
  * "목록에 없음" 줄의 "안전하다는 뜻이 아님"은 응답의 `text` 안에 있고, 이 줄은 펼침 요소 안에 두지 않는다(항상 보인다, S5).
  */
-export function ProductLine({ finding, omitLookupLines = false }: { finding: Finding; /** 찾아본 내용 표(근거 상세 `LookupPairs`)가 같은 글자를 바로 아래에 보일 때 true: 이유·재검색·다음 행동 줄을 한 번 더 그리지 않는다(PRD-12-04 같은 글자는 박스 안에서 한 번) */ omitLookupLines?: boolean }) {
+export function ProductLine({
+  finding,
+  omitLookupLines = false,
+  omitApiFlagNotes = false,
+}: {
+  finding: Finding;
+  /** 찾아본 내용 표(근거 상세 `LookupPairs`)가 같은 글자를 바로 아래에 보일 때 true: 이유·재검색·다음 행동 줄을 한 번 더 그리지 않는다(PRD-12-04 같은 글자는 박스 안에서 한 번) */
+  omitLookupLines?: boolean;
+  /** 본문(결과 카드)에서 true: 실시간 확인 노트(`api_flag_note` 문구)를 그리지 않는다(근거 상세에만, FE-11-10 A). 그 밖의 노트는 그대로다 */
+  omitApiFlagNotes?: boolean;
+}) {
   const hasBadges = finding.badges.length > 0;
   // 배지 덧붙임 글(예: M등급) 중 줄의 `note`와 겹치지 않는 것
   const badgeNotes = [...new Set(finding.badges.map((badge) => badge.note).filter((note): note is string => !!note && note !== finding.note))];
+  const notes = omitApiFlagNotes ? notesWithoutApiFlag(finding) : finding.notes;
   return (
     <li
       data-testid="product-line"
@@ -90,7 +102,7 @@ export function ProductLine({ finding, omitLookupLines = false }: { finding: Fin
           {note}
         </SubLine>
       ))}
-      {finding.notes.map((note, index) => (
+      {notes.map((note, index) => (
         <SubLine key={`notes-${index}`} slot="notes">
           {note}
         </SubLine>

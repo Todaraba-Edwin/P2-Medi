@@ -26,6 +26,7 @@ from app.db.account_repo_pg import (
     SEED_V2_FILE,
     PostgresAccountRepo,
     assert_publishable,
+    render_privacy_contact,
     schema_sql,
     seed_age14_sql,
     seed_sql,
@@ -126,7 +127,34 @@ def test_v2_policy_recap45_facts():
     assert cells[2].endswith("로그인하지 않고 질문에 적은 내용도 같습니다. 약봉투 사진을 올린 경우 그 사진(사진에 인쇄된 이름·약국 정보 등이 함께 담길 수 있음)")
     assert cells[3] == "미국 / 질문하거나 사진을 올릴 때마다 / 인터넷 전송"
     assert cells[5].endswith("사진을 올리지 않으면 사진은 전송되지 않으며, 약 이름을 직접 입력할 수 있습니다.")
-    assert "{{확인 필요" not in policy.replace("Supabase {{확인 필요: 법인 명칭·연락처}}", "")
+    assert "{{확인 필요" not in policy
+
+
+def test_v2_policy_supabase_row_recap45_134():
+    """Recap 45 ①③④(2026-11-20 사용자 승인): Supabase 줄의 법인·연락처·리전·백업 보존을 승인 문구 글자 그대로 채웠다.
+    출처 https://supabase.com/privacy · /docs/guides/platform/backups · /docs/guides/platform/regions(읽은 날 2026-11-20)."""
+    policy = V2_ROWS["privacy_policy"]["body"]
+    row = next(line for line in policy.splitlines() if line.startswith("| Supabase"))
+    cells = [c.strip() for c in row.strip("|").split(" | ")]
+    assert len(cells) == 6 and "{{" not in row
+    assert cells[0] == "Supabase(Supabase Pte. Ltd. · 문의 privacy@supabase.com)"
+    assert cells[3] == "대한민국(서울, Supabase 리전 ap-northeast-2) / 계정을 만들거나 저장할 때 / 인터넷 전송"
+    assert cells[4] == "삭제·철회·탈퇴 때까지(백업은 7일 뒤 순환 삭제, Supabase Pro 일간 백업, Supabase 정책에 따름)"
+    for gone in ("{{SUPABASE_REGION}}", "{{BACKUP_RETENTION_DAYS}}", "{{확인 필요: 법인 명칭·연락처}}"):
+        assert gone not in V2_TEXT.split("INSERT INTO", 1)[1]  # 본문(주석 머리 제외)에 남지 않는다
+
+
+def test_render_privacy_contact_fills_and_unblocks():
+    sql = seed_sql(datetime(2026, 12, 1, tzinfo=UTC), version=2)
+    out = render_privacy_contact(sql, " 가짜책임자 ", "officer@example.invalid")
+    assert unfilled_placeholders(out) == [] and out.count("개인정보 보호책임자: 가짜책임자, 문의: officer@example.invalid") == 2
+    assert_publishable(out)
+    filled = _rows(out.replace("'2026-12-01T00:00:00+00:00'", "'{{EFFECTIVE_AT}}'"))
+    assert body_sha256(filled["privacy_policy"]["body"]) != body_sha256(V2_ROWS["privacy_policy"]["body"])  # 해시는 채운 본문 기준
+    for name, email in [(None, "officer@example.invalid"), ("가짜책임자", ""), ("", "")]:
+        with pytest.raises(ValueError, match="PRIVACY_OFFICER") as ei:
+            render_privacy_contact(sql, name, email)
+        assert "officer@example.invalid" not in str(ei.value) and "가짜책임자" not in str(ei.value)
 
 
 def test_v2_seed_substitutes_effective_at_only():
@@ -140,8 +168,8 @@ def test_v2_seed_substitutes_effective_at_only():
 def test_placeholders_block_remote_publish_but_not_v1():
     sql_v2 = seed_sql(datetime(2026, 12, 1, tzinfo=UTC), version=2)
     left = unfilled_placeholders(sql_v2)
-    # Recap 45(2026-11-20 사용자 승인, ⑧ B) 뒤 남는 자리표시는 ① 리전 ② 연락처 ③ 백업 일수 + Supabase 법인뿐이다
-    assert set(left) == {"{{PRIVACY_CONTACT}}", "{{SUPABASE_REGION}}", "{{BACKUP_RETENTION_DAYS}}", "{{확인 필요: 법인 명칭·연락처}}"}
+    # Recap 45 ①③④(2026-11-20 사용자 승인) 뒤 남는 자리표시는 ② 연락처뿐이다(env에서 게시 때 채움, render_privacy_contact)
+    assert left == ["{{PRIVACY_CONTACT}}"]
     # PRD-17 ⑫(2026-11-20, Recap 58): OpenAI 줄의 법인·연락처·국가·보관 기간은 채웠다. 다른 자리표시가 남아 게시 차단은 그대로다
     assert "{{COUNTRY_OPENAI}}" not in left and "{{확인 필요: 기간}}" not in left
     openai_row = next(line for line in V2_ROWS["privacy_policy"]["body"].splitlines() if line.startswith("| OpenAI"))

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ChatEventSchema, ChatResponseSchema } from "@/lib/api/schemas";
+import { API_FLAG_NOTES, NOTICE_API_FAIL } from "@/lib/fixed/phrases.generated";
 import * as phrases from "./phrases";
 import * as responses from "./responses";
 import { scenarios } from "./scenarios";
@@ -54,6 +55,12 @@ describe("fixture 문구는 백엔드 상수 원문과 같다", () => {
     expect(fixedPhrases).toContain(`"FETCH_FAIL": "${phrases.GRADE_DEF_MISSING_FETCH_FAIL}"`);
     expect(fixedPhrases).toContain(`"OUT_OF_SCOPE": "${phrases.GRADE_DEF_MISSING_OUT_OF_SCOPE}"`);
     expect(provenance).toContain('"kids": SRC_KIDS');
+    // 실시간 확인 꼬리표 노트(FE-11-10 A): FLAG_NOTES·API_REASON_NOTES 원문과 같고, 생성 상수(판별용)에도 같은 글자가 있다
+    expect(provenance).toContain(`"API_FAIL": "${phrases.API_FAIL_NOTE}"`);
+    expect(provenance).toContain(`API_REASON_NO_CODE: "${phrases.API_NO_CODE_NOTE}"`);
+    expect(API_FLAG_NOTES).toContain(phrases.API_FAIL_NOTE);
+    expect(API_FLAG_NOTES).toContain(phrases.API_NO_CODE_NOTE);
+    expect(NOTICE_API_FAIL).toBe(phrases.PHRASES.NOTICE_API_FAIL);
   });
 });
 

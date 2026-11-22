@@ -522,6 +522,41 @@ describe("프로필: 본인 1 + 가족 최대 3", () => {
   });
 });
 
+describe("질문 화면 임신 여부 토글의 프로필 저장(FE-11-13·14 A)", () => {
+  it("pregnancy_status 한 칸만 PATCH하고 성공하면 프로필 목록을 갱신하며 모달 상태(pending·failure)는 건드리지 않는다. 양방향", async () => {
+    const store = await loggedIn(ALL);
+    store.getState().editProfile({ profileId: null, self: true });
+    expect(await store.getState().saveProfile(selfDraft({ health: { pregnancy_status: "not_pregnant", medications: [med("가나다정")] } }))).toBe(true);
+    const profileId = store.getState().profiles[0].profile_id;
+    const seen: unknown[] = [];
+    server.events.on("request:start", async ({ request }) => {
+      if (request.method === "PATCH") seen.push(await request.clone().json());
+    });
+    expect(await store.getState().savePregnancy(profileId, "pregnant")).toBeNull();
+    expect(seen).toEqual([{ pregnancy_status: "pregnant" }]);
+    expect(store.getState().profiles[0]).toMatchObject({ pregnancy_status: "pregnant", label: "나", medications: [{ input_text: "가나다정" }] }); // 다른 칸은 그대로
+    expect(await store.getState().savePregnancy(profileId, "not_pregnant")).toBeNull();
+    expect(store.getState().profiles[0].pregnancy_status).toBe("not_pregnant");
+    expect(store.getState()).toMatchObject({ pending: false, failure: null });
+  });
+
+  it("건강 정보 동의가 없으면 서버가 422 HEALTH_CONSENT_REQUIRED로 막고 실패를 돌려준다(프로필은 그대로)", async () => {
+    const store = await loggedIn(REQUIRED_ONLY);
+    store.getState().editProfile({ profileId: null, self: true });
+    expect(await store.getState().saveProfile(selfDraft())).toBe(true);
+    const profileId = store.getState().profiles[0].profile_id;
+    const failure = await store.getState().savePregnancy(profileId, "pregnant");
+    expect(failure).toMatchObject({ kind: "http", status: 422, code: "HEALTH_CONSENT_REQUIRED", fields: ["pregnancy_status"] });
+    expect(store.getState().profiles[0].pregnancy_status).toBeNull();
+    expect(store.getState().failure).toBeNull();
+  });
+
+  it("연결 실패는 network 실패로 돌려준다", async () => {
+    const store = createAccountStore({ api: { ...accountApi, updateProfilePregnancy: () => Promise.reject(new AccountApiError("network", 0, null)) } });
+    expect(await store.getState().savePregnancy("p", "pregnant")).toEqual({ kind: "network", status: 0, code: null, fields: [] });
+  });
+});
+
 describe("계정 진입점 스위치(FE-04-02 A·FE-04-05 A)", () => {
   it("목 모드(NEXT_PUBLIC_API_MOCKING=enabled)이면 켜진다. 실제 백엔드 모드에서는 Supabase 설정 두 값이 다 있을 때만 켜진다", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");

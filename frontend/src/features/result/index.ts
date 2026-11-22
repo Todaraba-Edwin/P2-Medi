@@ -11,3 +11,5 @@ export { RetryActions } from "./RetryActions";
 export { ResultView } from "./ResultView";
 export type { ResultViewProps } from "./ResultView";
 export { StatusBadge } from "./StatusBadge";
+export { hasApiFailInfo, isApiFailNotice, isApiFlagNote, notesWithoutApiFlag } from "./realtime-notice";
+export { BASIS_FILE_TAG, PREGNANCY_PICK_HINT } from "./copy";

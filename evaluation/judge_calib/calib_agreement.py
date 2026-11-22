@@ -4,7 +4,7 @@
         --labels data/mock/judge_calib/calib40-labels.csv --judge data/mock/judge_calib/calib40-judge.json [--out PATH]
 
 - **judge를 부르지 않는다.** judge 결과는 이미 저장된 JSON을 읽는다(`load_judge_results`). 호출 자리는 `JudgeScorer` 프로토콜과
-  `NotCalledJudge`(항상 "not_called")만 있고, 실제 호출은 AG-11 `eval_runner.SonnetJudge` 구현에서 연다(비용 상한 지시서 필요).
+  `NotCalledJudge`(항상 "not_called")만 있고, 실제 호출은 AG-11 `evaluation/judge/sonnet_judge.py`의 `SonnetJudge`(보정 실행 `calib_result`)에서 연다(비용 상한 지시서 필요).
 - 사람 라벨 칸 기입 규칙(README.md): `pass`/`fail`(또는 `P`/`F`, `Y`/`N`, `1`/`0`, `○`/`×`), J1은 `뒷받침안됨/전체주장`(예: `0/4` → pass,
   `1/4` → fail) 또는 pass/fail. `N/A`·빈 칸은 집계에서 뺀다(빈 칸은 "라벨 미완료"로 따로 센다).
 - judge 결과 JSON 형식(RFP-26 §7.5 공통 출력 스키마를 문항별로 묶은 것):
@@ -54,7 +54,7 @@ class JudgeScorer(Protocol):
     model_id: str
 
     def score_items(self, items: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
-        """`calib40-items.jsonl` 행들 → {문항 ID: {루브릭 ID: §7.5 출력}}. 실제 구현은 AG-11(eval_runner.SonnetJudge)에서."""
+        """`calib40-items.jsonl` 행들 → {문항 ID: {루브릭 ID: §7.5 출력}}. 실제 구현은 AG-11 `evaluation/judge/sonnet_judge.py`의 `SonnetJudge`."""
         ...
 
 
