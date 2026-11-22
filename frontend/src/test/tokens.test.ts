@@ -88,6 +88,19 @@ describe("디자인 토큰", () => {
     expect(failed).toEqual([]);
   });
 
+  // 입력창 임신 여부 토글(GROUP-01 5a, PregnancyToggle.tsx): 고른 칸 on-yellow/yellow, 안 고른 칸 mute/bg-soft
+  it.each([
+    ["라이트", light],
+    ["다크", darkAttr],
+  ])("%s: 임신 여부 토글의 고른 칸·안 고른 칸 글자가 4.5:1 이상이고, 고른 칸은 ink가 아니라 on-yellow를 쓴다", (_, vars) => {
+    const pair = (fg: string, bg: string) => contrast(vars[`--color-${fg}`], vars[`--color-${bg}`]);
+    expect(pair("on-yellow", "yellow")).toBeGreaterThanOrEqual(4.5);
+    expect(pair("mute", "bg-soft")).toBeGreaterThanOrEqual(4.5);
+  });
+  it("다크: 노랑 바탕에 ink 글자를 올리면 안 보인다(토글이 on-yellow를 써야 하는 이유)", () => {
+    expect(contrast(darkAttr["--color-ink"], darkAttr["--color-yellow"])).toBeLessThan(4.5);
+  });
+
   it("다크: 안전 고지 띠 테두리가 바탕과 구분된다(3:1 이상)", () => {
     const failed = DARK_ONLY_NON_TEXT_PAIRS.filter(([fg, bg]) => contrast(darkAttr[`--color-${fg}`], darkAttr[`--color-${bg}`]) < 3).map(([fg, bg]) => `${fg}/${bg}`);
     expect(failed).toEqual([]);

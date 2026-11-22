@@ -22,6 +22,7 @@ const OPTIONS: readonly { pregnant: boolean; label: string; testId: string }[] =
  * - 두 칸이 늘 함께 보여 "임산부" 선택이 있다는 것을 놓치지 않는다(select가 아니다)
  * - 고른 칸: 노랑 바탕(`--color-yellow` #FFCC00) + 검정 굵게(800) + 그림자. 안 고른 칸: 크림(`--color-bg-soft` #FFF8E1) + `--color-mute` #6B5F3F 보통.
  *   색만으로 구분하지 않는다(굵기·`aria-checked`). 색은 토큰만 쓴다
+ * - 고른 칸 글자는 `--color-on-yellow`(노랑 바탕 전용, FE-12): 다크에서 `--color-ink`는 밝은 크림이라 노랑 위에 올리면 안 보인다(1.29:1, 2026-11-22 재현)
  * - 칸 높이 28px, 누르는 영역은 위아래로 넓혀 44px(`before:` 투명 히트 영역)
  * - 접근성: `role="radiogroup"`(이름 "임신 여부") 안의 `role="radio"` 둘, ←/→(↑/↓)로 이동·선택, 초점 링 3px(`--color-ink-2` #3D3524)
  * - 값은 메모리에만 있고 저장 여부(프로필 연동)는 조립하는 쪽이 정한다(FE-11-13·14)
@@ -74,7 +75,7 @@ export function PregnancyToggle({ value, onChange, describedBy }: PregnancyToggl
                 "relative flex h-6 items-center rounded-full px-2.5 text-xs leading-none whitespace-nowrap transition-colors",
                 "before:absolute before:inset-x-0 before:-inset-y-2.5 before:content-['']",
                 "focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ink-2",
-                checked ? "bg-yellow font-extrabold text-ink shadow-sm" : "bg-bg-soft font-normal text-mute",
+                checked ? "bg-yellow font-extrabold text-on-yellow shadow-sm" : "bg-bg-soft font-normal text-mute",
               )}
             >
               {option.label}
