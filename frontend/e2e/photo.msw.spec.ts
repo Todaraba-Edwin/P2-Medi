@@ -80,6 +80,10 @@ async function start(page: Page) {
   await expect(page.getByTestId("photo-entry")).toHaveCount(1);
   await page.getByTestId("photo-entry").click();
   await expect(modal(page)).toBeVisible();
+  // Radix DismissableLayer는 mount 뒤 effect에서 body에 `pointer-events:none`을 걸고 재렌더로 Content에 `auto`를 붙인다.
+  // 그 사이(부하가 크면 수십 ms) 모달 글자는 `elementFromPoint`에서 스크림에 가려진 것으로 잡혀 대비 측정 표본이 0이 된다.
+  // "열렸다"는 상호작용이 되는 상태까지 포함하므로 여기서 기다린다
+  await expect(modal(page)).toHaveCSS("pointer-events", "auto");
 }
 async function pickFile(page: Page, scenario: Scenario) {
   await modal(page)
