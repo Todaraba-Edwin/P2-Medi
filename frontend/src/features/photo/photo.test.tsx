@@ -6,10 +6,11 @@ import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DRUG_DATA_SCOPE_NOTICE as ACCOUNT_DRUG_DATA_SCOPE_NOTICE } from "@/features/account/copy";
+import { INPUT_NOTICE } from "@/features/chat/copy";
 import { PHRASES } from "@/mocks/fixtures/phrases";
 import { PHOTO_SCENARIO_PNG_WIDTH, createPhotoHandlers, pickPhotoScenario, pngWidth } from "@/mocks/photo-handlers";
 import type { PhotoScenarioName } from "@/mocks/photo-handlers";
-import { buildChatInput, canConfirm, emptyRow, rowsFromResponse } from "./build-chat-input";
+import { buildChatInput, buildProfileMedications, canConfirm, canRegister, emptyRow, rowsFromResponse } from "./build-chat-input";
 import type { PhotoRow } from "./build-chat-input";
 import * as copy from "./copy";
 import { initialPhotoFlow, photoFlowReducer } from "./flow";
@@ -44,6 +45,8 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 const PNG_URL = "data:image/png;base64,iVBORw0KGgo=";
+/** P2 원문(제공자 이름만 Upstage로 교체, 2026-11-22 작업 D). 상수가 아니라 글자로 적어 둘 다 검사한다 */
+const UPSTAGE_NOTICE = "올린 사진은 약 이름을 읽기 위해 외부 AI(Upstage)로 보내요. 이 서비스는 사진을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요.";
 const fakePrepare: typeof prepareImage = async () => ({ dataUrl: PNG_URL, width: 10, height: 10, resized: false, bytes: 8 });
 const pngFile = () => new File([new Uint8Array([1, 2, 3, 4])], "pouch.png", { type: "image/png" });
 
@@ -357,6 +360,116 @@ describe("buildChatInput·canConfirm(지시서 §3 7번)", () => {
     const state = photoFlowReducer(initialPhotoFlow, { type: "readOk", drugs: [], emergency: null });
     expect(state.step).toBe("confirm");
     if (state.step === "confirm") expect(state.rows).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------- 프로필 복용 약 등록 목적지(FE-04-27 A, 2026-11-22)
+describe("프로필 등록 목적지(FE-04-27 A): 질문칸 없음, 이름만 넘김, 채팅 전송 없음", () => {
+  const row = (patch: Partial<PhotoRow>): PhotoRow => ({ ...emptyRow(), ...patch });
+  const CANDIDATE_2 = { ...CANDIDATE, name: "가나다정 500밀리그램", item_seq: "200000002" };
+
+  it("buildProfileMedications: 후보를 고른 줄은 확인된 약 {input_text: 후보 이름, item_seq}, 글자만 있는 줄은 확인 안 된 약(item_seq null), 빈 줄은 빠진다", () => {
+    const rows = [
+      row({ readName: "가나다정", candidates: [CANDIDATE], picked: CANDIDATE }),
+      row({ readName: " 라마바캡슐 ", readIngredient: "라마바성분", strengthOrForm: "연질캡슐 20mg" }),
+      row({ readName: "   " }),
+      row({ readName: "", candidates: [CANDIDATE_2], picked: CANDIDATE_2 }),
+    ];
+    const items = buildProfileMedications(rows);
+    expect(items).toEqual([
+      { input_text: "가나다정 100밀리그램", item_seq: "200000001" },
+      { input_text: "라마바캡슐", item_seq: null },
+      { input_text: "가나다정 500밀리그램", item_seq: "200000002" },
+    ]);
+    // 사진·읽은 성분·용량 글자는 어디에도 싣지 않는다
+    expect(JSON.stringify(items)).not.toMatch(/라마바성분|연질캡슐|data:|readIngredient|strength/);
+  });
+
+  it("buildProfileMedications: 같은 약(번호가 같거나, 번호 없이 글자가 같음)은 한 번만 들어간다", () => {
+    const rows = [
+      row({ readName: "가나다정", candidates: [CANDIDATE], picked: CANDIDATE }),
+      row({ readName: "가나다 정", candidates: [CANDIDATE], picked: CANDIDATE }),
+      row({ readName: "라마바" }),
+      row({ readName: "라마바 " }),
+    ];
+    expect(buildProfileMedications(rows)).toEqual([
+      { input_text: "가나다정 100밀리그램", item_seq: "200000001" },
+      { input_text: "라마바", item_seq: null },
+    ]);
+  });
+
+  it("canRegister: 이름이 있는 줄이 1개 이상이면 된다(질문은 보지 않는다)", () => {
+    expect(canRegister([row({ readName: "가" })])).toBe(true);
+    expect(canRegister([row({ readName: " " })])).toBe(false);
+    expect(canRegister([])).toBe(false);
+    expect(canRegister([row({ readName: "", candidates: [CANDIDATE], picked: CANDIDATE })])).toBe(true);
+  });
+
+  it("destination=profile: 카드에 질문칸이 없고 약이 1개 이상이면 `이대로 확인`이 켜진다. 안내·고지·후보(기본 선택 없음)는 채팅 목적지와 같다", async () => {
+    const onRegister = vi.fn();
+    const { user } = setup({ destination: "profile", onRegister });
+    const card = await toCard(user);
+    expect(modal()).toHaveAttribute("data-destination", "profile");
+    expect(card).toHaveAttribute("data-destination", "profile");
+    expect(within(card).queryByTestId("photo-question")).toBeNull();
+    expect(within(card).queryByLabelText(copy.PHOTO_QUESTION_LABEL)).toBeNull();
+    expect(within(card).getByTestId("photo-confirm-guide").textContent).toBe(copy.PHOTO_CONFIRM_GUIDE);
+    expect(within(card).getByTestId("drug-data-scope-notice").textContent).toBe(copy.DRUG_DATA_SCOPE_NOTICE);
+    for (const radio of within(card).getAllByRole("radio")) expect(radio).toHaveAttribute("aria-checked", "false");
+    expect(confirmButton().disabled).toBe(false); // 읽은 줄 2개
+    for (const remove of within(modal()).getAllByTestId("photo-row-remove")) await user.click(remove);
+    expect(confirmButton().disabled).toBe(true);
+    await user.click(within(modal()).getByTestId("photo-add-row"));
+    expect(confirmButton().disabled).toBe(true);
+    await user.type(nameInputs()[0], "사아자정");
+    expect(confirmButton().disabled).toBe(false);
+  });
+
+  it("destination=profile: `이대로 확인`은 onRegister로 이름만 한 번 넘기고 onConfirm(채팅)은 부르지 않는다. 모달은 닫히고 /chat은 0회", async () => {
+    const onRegister = vi.fn();
+    const { user, onConfirm, onOpenChange } = setup({ destination: "profile", onRegister });
+    await toCard(user);
+    await user.click(within(rows()[0]).getAllByRole("radio")[1]); // 500밀리그램 후보
+    await user.click(confirmButton());
+    expect(onRegister).toHaveBeenCalledTimes(1);
+    expect(onRegister).toHaveBeenCalledWith([
+      { input_text: "가나다정 500밀리그램", item_seq: "200000002" },
+      { input_text: "라마바캡슐", item_seq: null },
+    ]);
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(chatCalls).toBe(0);
+    expect(ingestCalls).toBe(1);
+  });
+
+  it("destination=profile: 사진 고르기 화면의 가림 안내(P1)·외부 AI 전송 고지(P2, 제공자 Upstage)·형식 안내(P7)는 채팅 목적지와 같은 글자 그대로 보인다", () => {
+    setup({ destination: "profile", onRegister: vi.fn() });
+    expect(within(modal()).getByTestId("photo-privacy-notice").textContent).toBe(copy.PHOTO_PRIVACY_NOTICE);
+    expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(copy.PHOTO_EXTERNAL_AI_NOTICE);
+    expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(UPSTAGE_NOTICE);
+    expect(within(modal()).getByTestId("photo-format-note").textContent).toBe(copy.PHOTO_FORMAT_NOTE);
+    expect(within(modal()).getByTestId("layer-emergency-entry")).toHaveAttribute("href", "tel:119");
+  });
+
+  it("destination 기본값은 chat: 카드에 질문칸이 있고 data-destination=chat이다(기존 동작 그대로). 전송 고지의 제공자도 Upstage다", async () => {
+    const { user } = setup();
+    expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(UPSTAGE_NOTICE);
+    const card = await toCard(user);
+    expect(modal()).toHaveAttribute("data-destination", "chat");
+    expect(within(card).getByTestId("photo-question")).toBeInTheDocument();
+  });
+
+  it("사진 전송 고지(P2)는 제공자 이름만 OpenAI → Upstage로 바뀌었고(작업 D, FE-05-03 A 해당) 질문 경로 입력창 고지(INPUT_NOTICE)는 OpenAI 그대로다", () => {
+    expect(copy.PHOTO_EXTERNAL_AI_NOTICE).toBe(UPSTAGE_NOTICE);
+    expect(copy.PHOTO_EXTERNAL_AI_NOTICE).not.toContain("OpenAI");
+    expect(INPUT_NOTICE).toContain("외부 AI(OpenAI)");
+    expect(INPUT_NOTICE).not.toContain("Upstage");
+  });
+
+  it("stacked: 스크림·상자가 한 층 위(z-50)에 그려진다. 기본은 z-40", () => {
+    setup({ stacked: true });
+    expect(modal().className).toMatch(/\bz-50\b/);
+    expect(screen.getByTestId("photo-scrim").className).toMatch(/\bz-50\b/);
   });
 });
 

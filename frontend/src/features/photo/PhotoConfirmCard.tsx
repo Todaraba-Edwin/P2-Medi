@@ -9,7 +9,7 @@ import { MedIcon } from "@/components/MedIcon";
 import { NoMascotZone } from "@/components/NoMascotZone";
 import { EmergencyBanner } from "@/features/emergency";
 import { cn } from "@/lib/utils";
-import { canConfirm } from "./build-chat-input";
+import { canConfirm, canRegister } from "./build-chat-input";
 import type { PhotoRow } from "./build-chat-input";
 import {
   DRUG_DATA_SCOPE_NOTICE,
@@ -25,9 +25,14 @@ import {
 } from "./copy";
 import { INGEST_QUESTION_MAX_CHARS } from "./types";
 
+/** 확인 카드 결과의 도착지: `chat`은 기존 `/chat` 질문(질문칸 있음), `profile`은 프로필 복용 약 목록(FE-04-27 A, 질문칸 없음) */
+export type PhotoDestination = "chat" | "profile";
+
 export interface PhotoConfirmCardProps {
   rows: readonly PhotoRow[];
   question: string;
+  /** 기본 `chat`. `profile`이면 질문칸을 그리지 않고 약 1개 이상이면 `이대로 확인`이 켜진다 */
+  destination?: PhotoDestination;
   /** 응답의 `emergency`(서버 상수). 있으면 카드 맨 위에 119를 둔다 */
   emergency: Emergency | null;
   onEditName: (id: string, value: string) => void;
@@ -46,14 +51,15 @@ export interface PhotoConfirmCardProps {
  * - 사전 후보는 라디오(`role="radio"`)이고 **기본 선택이 없다**(PRD-08-06 A). 고르지 않으면 적힌 글자로 찾는다(P6). 확신도는 응답에 없고 화면에도 없다
  * - 확인을 누르기 전에는 판정을 찾지 않는다(H19): 이 카드는 서버를 부르지 않는다
  * - `약 추가`는 빈 입력칸 하나다(사전 검색 없음: `/drugs/search`는 로그인 전용이라 게스트가 못 쓴다)
+ * - 프로필 등록 목적지(`destination="profile"`, FE-04-27 A): 질문칸이 없고 약 1개 이상이면 `이대로 확인`이 켜진다. 그 밖(안내·고지·후보·119)은 같다
  */
-export function PhotoConfirmCard({ rows, question, emergency, onEditName, onPick, onRemove, onAdd, onQuestion, onConfirm }: PhotoConfirmCardProps) {
+export function PhotoConfirmCard({ rows, question, destination = "chat", emergency, onEditName, onPick, onRemove, onAdd, onQuestion, onConfirm }: PhotoConfirmCardProps) {
   const baseId = useId();
   const questionId = `${baseId}-question`;
-  const ready = canConfirm(rows, question);
+  const ready = destination === "profile" ? canRegister(rows) : canConfirm(rows, question);
 
   return (
-    <div data-testid="photo-confirm-card" className="flex flex-col gap-3.5">
+    <div data-testid="photo-confirm-card" data-destination={destination} className="flex flex-col gap-3.5">
       {/* 서버가 준 119는 카드 맨 위(프런트 키워드 목록 없음, RFP-35-03) */}
       {emergency && <EmergencyBanner emergency={emergency} />}
       <NoMascotZone>
@@ -147,21 +153,24 @@ export function PhotoConfirmCard({ rows, question, emergency, onEditName, onPick
         <PlusIcon className="size-4" aria-hidden="true" />
         {PHOTO_ADD_DRUG_LABEL}
       </button>
-      <div className="flex flex-col gap-1">
-        <label htmlFor={questionId} className="text-xs font-semibold text-ink-2">
-          {PHOTO_QUESTION_LABEL}
-        </label>
-        <textarea
-          id={questionId}
-          rows={2}
-          value={question}
-          maxLength={INGEST_QUESTION_MAX_CHARS}
-          autoComplete="off"
-          data-testid="photo-question"
-          onChange={(event) => onQuestion(event.target.value)}
-          className="min-h-11 w-full resize-none rounded-2xl border border-line-2 bg-bg px-3 py-2.5 text-base leading-6 outline-none focus:border-link"
-        />
-      </div>
+      {/* 질문칸은 채팅 목적지에만 있다(프로필 등록은 약 이름만 받는다) */}
+      {destination === "chat" && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor={questionId} className="text-xs font-semibold text-ink-2">
+            {PHOTO_QUESTION_LABEL}
+          </label>
+          <textarea
+            id={questionId}
+            rows={2}
+            value={question}
+            maxLength={INGEST_QUESTION_MAX_CHARS}
+            autoComplete="off"
+            data-testid="photo-question"
+            onChange={(event) => onQuestion(event.target.value)}
+            className="min-h-11 w-full resize-none rounded-2xl border border-line-2 bg-bg px-3 py-2.5 text-base leading-6 outline-none focus:border-link"
+          />
+        </div>
+      )}
       <button type="button" data-testid="photo-confirm" disabled={!ready} onClick={onConfirm} className={cn(PRIMARY_BUTTON, "w-full")}>
         {PHOTO_CONFIRM_LABEL}
       </button>
