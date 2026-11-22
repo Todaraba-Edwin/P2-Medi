@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -137,6 +138,16 @@ _PROFILE_COLS = "profile_id::text, relation::text, label, age_band::text, pregna
 _LEGAL_COLS = "doc_type::text, version, title, body_md, required, requires_reconsent, effective_at, legal_review, body_sha256"
 
 
+# 연결 제한(초). 풀러(Supabase) 첫 연결이 7초 걸린 것을 측정했다(2026-11-22, TCP는 0.03초, TLS·인증 핸드셰이크 지연). 5초면 첫 요청이 503이 된다.
+CONNECT_TIMEOUT_S = 15
+
+
+def _inner_cause(exc: BaseException) -> str:
+    """안쪽 원인의 종류 이름만(메시지·인자는 읽지 않는다). 없으면 `-`."""
+    inner = exc.__cause__ or exc.__context__
+    return type(inner).__name__ if inner is not None else "-"
+
+
 class PostgresAccountRepo:
     """`AccountRepo`의 Postgres 구현. 각 메서드 = 연결 1개 + 트랜잭션 1개."""
 
@@ -151,7 +162,7 @@ class PostgresAccountRepo:
         def connect() -> Any:
             import psycopg  # 접속하는 함수 안에서만 import(앱 시작 때 접속 0)
 
-            return psycopg.connect(dsn, connect_timeout=5)
+            return psycopg.connect(dsn, connect_timeout=CONNECT_TIMEOUT_S)
 
         return cls(connect)
 
@@ -163,10 +174,15 @@ class PostgresAccountRepo:
         import psycopg
         from psycopg import errors
 
+        t0 = time.monotonic()
+
+        def unavailable(kind: str, exc: BaseException) -> RepoUnavailable:
+            return RepoUnavailable(kind, cause=_inner_cause(exc), elapsed_s=time.monotonic() - t0)
+
         try:
             conn = self._connect()
         except psycopg.Error as exc:
-            raise RepoUnavailable(type(exc).__name__) from None
+            raise unavailable(type(exc).__name__, exc) from None
         try:
             with conn:  # 정상 종료면 COMMIT, 예외면 ROLLBACK
                 with conn.cursor() as cur:
@@ -178,15 +194,15 @@ class PostgresAccountRepo:
             msg = (exc.diag.message_primary or "").strip()
             if msg in _RULE_CODES:
                 raise AccountRepoError(msg) from None
-            raise RepoUnavailable("RaiseException") from None
+            raise unavailable("RaiseException", exc) from None
         except errors.UniqueViolation as exc:
             if exc.diag.constraint_name == "uq_profiles_self":
                 raise AccountRepoError(SELF_EXISTS_CODE) from None
-            raise RepoUnavailable("UniqueViolation") from None
+            raise unavailable("UniqueViolation", exc) from None
         except errors.ForeignKeyViolation:
             raise AccountRepoError(NO_ACCOUNT_CODE) from None  # app_users 없음(첫 /me 전) 또는 없는 문서 버전
         except psycopg.Error as exc:
-            raise RepoUnavailable(type(exc).__name__) from None
+            raise unavailable(type(exc).__name__, exc) from None
         finally:
             conn.close()
 

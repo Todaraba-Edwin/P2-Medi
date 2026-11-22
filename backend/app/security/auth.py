@@ -91,7 +91,31 @@ class TokenExpired(TokenInvalid):
 
 
 class VerifierUnavailable(Exception):  # noqa: N818 - 도메인 이름(검증 서버 장애)
-    """검증 서버에 닿지 못했거나 예상 밖 응답(5xx 등). 토큰 잘못이 아니다."""
+    """검증 서버에 닿지 못했거나 예상 밖 응답(5xx 등). 토큰 잘못이 아니다.
+
+    진단용으로 안쪽 원인의 종류 이름(`cause`)·소요 시간(`elapsed_s`)을 속성으로 싣는다(토큰·URL·헤더·본문은 싣지 않는다).
+    """
+
+    def __init__(self, kind: str, *, cause: str = "-", elapsed_s: float | None = None) -> None:
+        super().__init__(kind)
+        self.cause = cause
+        self.elapsed_s = elapsed_s
+
+    def diagnostics(self) -> str:
+        """로그용 한 조각: `원인=TimeoutError 4.9s`·`원인=status 503 0.3s`."""
+        return f"원인={self.cause}" + ("" if self.elapsed_s is None else f" {self.elapsed_s:.1f}s")
+
+
+VERIFY_TIMEOUT_S = 10.0  # 검증 서버(JWKS·/auth/v1/user) 조회 제한. 공개 키 조회가 1.5~2.4초, 풀러 지연이 큰 날이 있어 5→10초(2026-11-22)
+
+
+def _inner_cause(exc: BaseException) -> str:
+    """안쪽 원인의 종류 이름만(메시지는 읽지 않는다). `URLError`는 `reason`이 예외면 그 종류, 없으면 `-`."""
+    inner = exc.__cause__ or exc.__context__
+    reason = getattr(inner, "reason", None)
+    if isinstance(reason, BaseException):
+        inner = reason
+    return type(inner).__name__ if inner is not None else "-"
 
 
 # --------------------------------------------------------------------------- 검증기
@@ -143,7 +167,7 @@ class SupabaseUserEndpointVerifier:
     """
 
     def __init__(self, supabase_url: str, publishable_key: str, *, client: httpx.AsyncClient | None = None,
-                 timeout_s: float = 5.0, clock: Callable[[], float] = time.time, leeway_s: int = 0) -> None:
+                 timeout_s: float = VERIFY_TIMEOUT_S, clock: Callable[[], float] = time.time, leeway_s: int = 0) -> None:
         base = supabase_url.rstrip("/")
         if not base.startswith("https://") and not base.startswith("http://"):
             raise ValueError("supabase_url은 http(s) 주소여야 한다")
@@ -162,6 +186,7 @@ class SupabaseUserEndpointVerifier:
         if exp is not None and exp + self._leeway <= self._clock():
             raise TokenExpired("expired")
         headers = {"Authorization": f"Bearer {token}", "apikey": self._key, "Accept": "application/json"}
+        t0 = time.monotonic()
         try:
             if self._client is not None:
                 resp = await self._client.get(self._url, headers=headers, timeout=self._timeout)
@@ -169,11 +194,11 @@ class SupabaseUserEndpointVerifier:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     resp = await client.get(self._url, headers=headers)
         except httpx.HTTPError as exc:
-            raise VerifierUnavailable(type(exc).__name__) from None  # 요청 객체(헤더 포함)를 예외 체인에 남기지 않는다
+            raise VerifierUnavailable(type(exc).__name__, cause=_inner_cause(exc), elapsed_s=time.monotonic() - t0) from None  # 요청 객체(헤더 포함)를 예외 체인에 남기지 않는다
         if resp.status_code in (401, 403):
             raise TokenInvalid("rejected")
         if resp.status_code != 200:
-            raise VerifierUnavailable(f"status {resp.status_code}")
+            raise VerifierUnavailable(f"status {resp.status_code}", cause=f"status {resp.status_code}", elapsed_s=time.monotonic() - t0)
         try:
             body = resp.json()
         except ValueError:
@@ -206,7 +231,7 @@ class JwksTokenVerifier:
     """
 
     def __init__(self, jwks_url: str, issuer: str, *, audience: str = JWT_AUDIENCE, cache_s: float = JWKS_CACHE_MAX_S,
-                 timeout_s: float = 5.0, leeway_s: int = 0, jwks_client: jwt.PyJWKClient | None = None) -> None:
+                 timeout_s: float = VERIFY_TIMEOUT_S, leeway_s: int = 0, jwks_client: jwt.PyJWKClient | None = None) -> None:
         if not 0 < cache_s <= JWKS_CACHE_MAX_S:
             raise ValueError("cache_s는 0 초과 600초 이하")
         self._issuer = _http_base(issuer, "issuer")
@@ -222,14 +247,15 @@ class JwksTokenVerifier:
         return await asyncio.to_thread(self._verify_sync, token)
 
     def _signing_key(self, kid: str) -> Any:
+        t0 = time.monotonic()
         try:
             self._client.get_signing_keys()  # 캐시 적중이면 네트워크 0. 목록 자체를 못 얻으면 검증 서버 장애다
         except (jwt.PyJWKClientError, jwt.PyJWKSetError, jwt.PyJWKError) as exc:
-            raise VerifierUnavailable(type(exc).__name__) from None
+            raise VerifierUnavailable(type(exc).__name__, cause=_inner_cause(exc), elapsed_s=time.monotonic() - t0) from None
         try:
             return self._client.get_signing_key(kid)
         except jwt.PyJWKClientConnectionError as exc:  # 모르는 kid로 다시 받으려다 연결 실패
-            raise VerifierUnavailable(type(exc).__name__) from None
+            raise VerifierUnavailable(type(exc).__name__, cause=_inner_cause(exc), elapsed_s=time.monotonic() - t0) from None
         except (jwt.PyJWKClientError, jwt.PyJWKSetError, jwt.PyJWKError):
             raise TokenInvalid("unknown key") from None
 
@@ -305,7 +331,7 @@ async def get_principal(request: Request) -> Principal:
     except TokenInvalid:  # TokenExpired 포함. 만료와 위조를 응답에서 구분하지 않는다
         raise AuthError(401, CODE_AUTH_INVALID) from None
     except VerifierUnavailable as exc:
-        logger.warning("인증 검증 서버 응답 없음: %s", type(exc).__name__)  # 토큰·응답 본문은 남기지 않는다
+        logger.warning("인증 검증 서버 응답 없음: %s (%s)", type(exc).__name__, exc.diagnostics())  # 종류·원인 종류·초만. 토큰·URL·응답 본문은 남기지 않는다
         raise AuthError(503, CODE_AUTH_UNAVAILABLE) from None
     return Principal.user(_valid_user_id_or_401(user_id))
 

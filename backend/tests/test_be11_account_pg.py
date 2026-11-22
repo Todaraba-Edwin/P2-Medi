@@ -226,6 +226,28 @@ def test_connection_and_driver_errors_become_repo_unavailable_without_details():
     assert str(info.value) == "UndefinedTable" and conn.closed and conn.exited_with is not None  # 예외 → 롤백
 
 
+def test_connect_timeout_is_15s_and_repo_unavailable_carries_cause_and_elapsed(monkeypatch):
+    from app.db import account_repo_pg as mod
+
+    assert mod.CONNECT_TIMEOUT_S == 15  # 풀러 첫 연결 7초 측정(2026-11-22)
+    seen: dict[str, Any] = {}
+
+    def fake_connect(dsn: str, **kw: Any) -> Any:
+        seen.update(kw)
+        raise psycopg.OperationalError("secret-host password=hunter2") from TimeoutError("secret-host timed out")
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    repo = PostgresAccountRepo.from_dsn("postgresql://u:hunter2@secret-host/db")
+    with pytest.raises(RepoUnavailable) as info:
+        asyncio.run(repo.get_user(UID))
+    assert seen == {"connect_timeout": 15}
+    exc = info.value
+    assert str(exc) == "OperationalError" and exc.cause == "TimeoutError" and exc.elapsed_s is not None
+    d = exc.diagnostics()
+    assert d.startswith("원인=TimeoutError ") and d.endswith("s")
+    assert "hunter2" not in d and "secret-host" not in d and exc.__cause__ is None
+
+
 def test_foreign_key_violation_means_no_account():
     conn = FakeConn(raise_on="INSERT INTO account.user_consents", exc=psycopg.errors.ForeignKeyViolation("fk"))
     with pytest.raises(AccountRepoError) as info:

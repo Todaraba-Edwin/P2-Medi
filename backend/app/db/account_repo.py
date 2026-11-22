@@ -60,7 +60,19 @@ class AccountRepoError(Exception):
 
 
 class RepoUnavailable(Exception):  # noqa: N818 - 도메인 이름(저장소 장애)
-    """DB에 닿지 못했거나 스키마가 없다. 메시지는 예외 종류 이름만."""
+    """DB에 닿지 못했거나 스키마가 없다. 메시지는 예외 종류 이름만.
+
+    진단용으로 안쪽 원인의 종류 이름(`cause`)과 소요 시간(`elapsed_s`)을 속성으로 싣는다(메시지·DSN·SQL은 싣지 않는다).
+    """
+
+    def __init__(self, kind: str, *, cause: str = "-", elapsed_s: float | None = None) -> None:
+        super().__init__(kind)
+        self.cause = cause
+        self.elapsed_s = elapsed_s
+
+    def diagnostics(self) -> str:
+        """로그용 한 조각: `원인=TimeoutError 4.9s`. 종류 이름과 초만 담는다."""
+        return f"원인={self.cause}" + ("" if self.elapsed_s is None else f" {self.elapsed_s:.1f}s")
 
 
 # 규칙 코드(SQL과 공유)

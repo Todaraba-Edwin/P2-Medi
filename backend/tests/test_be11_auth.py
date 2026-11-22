@@ -414,3 +414,29 @@ def test_build_verifier_needs_url_and_publishable_key(monkeypatch):
 def test_clock_default_is_time():
     v = SupabaseUserEndpointVerifier(SB_URL, PUB_KEY)
     assert v._clock is time.time
+
+
+# --------------------------------------------------------------------------- 연결 제한·원인 로그(2026-11-22)
+def test_verifier_default_timeouts_are_10s():
+    from app.security import auth as auth_mod
+
+    assert auth_mod.VERIFY_TIMEOUT_S == 10.0
+    v = SupabaseUserEndpointVerifier(SB_URL, PUB_KEY)
+    assert v._timeout == 10.0
+    j = auth_mod.JwksTokenVerifier("https://x.supabase.co/jwks", "https://x.supabase.co/auth/v1")
+    assert j._client.timeout == 10
+
+
+async def test_endpoint_verifier_unavailable_carries_inner_cause_and_status_without_secrets():
+    def boom(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"x {req.headers['authorization']}", request=req) from TimeoutError("tok")
+
+    v, _ = _verifier(boom)
+    with pytest.raises(VerifierUnavailable) as info:
+        await v.verify(GOOD)
+    d = info.value.diagnostics()
+    assert d.startswith("원인=TimeoutError ") and d.endswith("s") and GOOD not in d
+    v, _ = _verifier(lambda req: httpx.Response(503, text="oops"))
+    with pytest.raises(VerifierUnavailable) as info:
+        await v.verify(GOOD)
+    assert info.value.diagnostics().startswith("원인=status 503 ") and str(info.value) == "status 503"
