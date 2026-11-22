@@ -38,7 +38,7 @@ from app.llm.ledger import CostLedger
 
 logger = logging.getLogger(__name__)
 
-CLIENT_STATE_KEY = "vision_client"  # `app.state`의 비전 클라이언트(시험은 가짜). 없으면 첫 요청에서 OpenAI 클라이언트를 만든다
+CLIENT_STATE_KEY = "vision_client"  # `app.state`의 비전 클라이언트(시험은 가짜). 없으면 첫 요청에서 설정의 제공자(`MEDIAGENT_VISION_PROVIDER`) 클라이언트를 만든다
 LEDGER_STATE_KEY = "vision_ledger"  # `app.state`의 원장. 없으면 기본 원장(`CostLedger()`)
 QUESTION_MAX_LEN = 500
 CANDIDATE_LIMIT = 5
@@ -83,17 +83,31 @@ def set_vision(app: FastAPI, *, client: vision.VisionClient | None = None, ledge
     setattr(app.state, LEDGER_STATE_KEY, ledger)
 
 
-def _client_provider(app: FastAPI) -> vision.VisionClient | Callable[[], vision.VisionClient]:
+def _provider_name() -> vision.Provider:
+    """설정 `MEDIAGENT_VISION_PROVIDER`(기본은 `config.DEFAULT_VISION_PROVIDER`). 설정을 못 읽으면 기본값."""
+    from app.config import DEFAULT_VISION_PROVIDER
+
+    try:
+        from app.config import get_settings
+
+        return get_settings().mediagent_vision_provider
+    except Exception:  # noqa: BLE001 - 설정 오류는 기본 제공자로(값을 로그에 남기지 않는다)
+        return DEFAULT_VISION_PROVIDER
+
+
+def _client_provider(app: FastAPI) -> tuple[vision.VisionClient | Callable[[], vision.VisionClient], vision.Provider]:
+    """(클라이언트 또는 지연 공급자, 제공자 이름). 주입된 클라이언트는 `provider` 속성으로 이름을 밝히고 없으면 openai(기존 가짜 호환)."""
     cl = getattr(app.state, CLIENT_STATE_KEY, None)
     if cl is not None:
-        return cl
+        return cl, getattr(cl, "provider", "openai")
+    name = _provider_name()
 
     def make() -> vision.VisionClient:
-        made = vision.OpenAIVisionClient()
+        made = vision.make_client(name)
         setattr(app.state, CLIENT_STATE_KEY, made)
         return made
 
-    return make
+    return make, name
 
 
 def _ledger(app: FastAPI) -> CostLedger:
@@ -131,7 +145,7 @@ router = APIRouter()
 
 
 @router.post("/ingest/image", response_model=IngestImageOut,
-             summary="약봉투 사진에서 약 이름 후보를 읽는다(gpt-6-luna 1회, 판정 없음, 게스트 허용, 사진·질문 비저장)",
+             summary="약봉투 사진에서 약 이름 후보를 읽는다(설정 제공자 1회: openai 비전 또는 Upstage OCR + solar-pro4, 판정 없음, 게스트 허용, 사진·질문 비저장)",
              responses={422: {"model": ErrorBody, "description": "INVALID_REQUEST(fields=[\"image\"] 형식·크기·픽셀, [\"question\"] 500자 초과). "
                                                               "입력 값은 되돌려 주지 않는다."}})
 async def ingest_image(body: IngestImageIn, request: Request) -> JSONResponse:
@@ -148,7 +162,8 @@ async def ingest_image(body: IngestImageIn, request: Request) -> JSONResponse:
     emergency = Emergency(text=fp.EMERGENCY_119, tel=fp.EMERGENCY_119_TEL) if question and detect_emergency(question) else None
     app = request.app
     try:
-        res = await run_in_threadpool(vision.extract, data, client=_client_provider(app), ledger=_ledger(app))
+        client, provider_name = _client_provider(app)
+        res = await run_in_threadpool(vision.extract, data, client=client, ledger=_ledger(app), provider=provider_name)
     except vision.InvalidImage:  # 머리는 맞았으나 디코드 중 실패(잘린 파일 등)
         logger.info("ingest image rejected: INVALID_IMAGE")
         return _invalid("image")

@@ -1,4 +1,4 @@
-"""BE-14 사진 약 이름 추출 변환 함수(`gpt-6-luna` 비전, PRD-08-02·04·06·07 A, 2026-11-22).
+"""BE-14 사진 약 이름 추출 변환 함수(제공자 선택: Upstage OCR + `solar-pro4` 또는 `gpt-6-luna` 비전, PRD-08-02·04·06·07 A, 2026-11-22).
 
 에이전트 그래프 **앞**의 변환 단계다. 판정·설명·요약을 하지 않고, `app.agent.tools`·`app.agent.graph`를 import하지 않는다(H19 〔D7〕 A:
 사용자가 확인 카드에서 승인하기 전에는 그래프로 들어가는 값이 없다). 엔드포인트는 `app.api.ingest`.
@@ -7,7 +7,10 @@
   `backend/prompts/pouch_vision@v1.md`(본문 = `vision_pouch_test.SYSTEM`, 시험이 같음을 확인한다).
 - 확대 전처리(〔D2〕 A): Pillow로 메모리에서 RGB → 긴 변 1400px(LANCZOS, 작으면 확대·크면 축소) → JPEG q92 → data URL. 파일을 만들지 않는다.
   `resize=False`는 AG-17 원본 조건(받은 바이트 그대로)이다.
-- 호출: Chat Completions + 이미지 data URL + `json_schema strict`, `temperature` 없음. 키는 `Settings.openai_api_key`(기존 `OPENAI_API_KEY`)로만,
+- 제공자(2026-11-22 사용자 결정 "Upstage로 변경", `Settings.mediagent_vision_provider`, 기본값은 `config.DEFAULT_VISION_PROVIDER`, 현재 openai·Upstage는 설정으로 켠다): `UpstageVisionClient`는 AG-17 비교 시험
+  (`vision_pouch_test.call_image_upstage`)과 같은 2단계다. Document OCR(`/document-digitization`, 확대한 JPEG 업로드) → `solar-pro4` Chat
+  Completions(같은 지시문·스키마 strict, 이미지 대신 OCR 글자). 비용은 OCR 쪽당 + 토큰. `openai`는 아래 OpenAI 호출을 그대로 남긴 되돌리기용이다.
+- OpenAI 호출: Chat Completions + 이미지 data URL + `json_schema strict`, `temperature` 없음. 키는 `Settings.openai_api_key`(기존 `OPENAI_API_KEY`)로만,
   새 환경변수 없음. 클라이언트는 주입 가능(`VisionClient`)하고 시험은 가짜만 쓴다. 일시 오류만 2회 재시도, 호출당 30초 한도.
 - 비용(〔D4〕 A): 원장 `CostLedger` 구분 `vision`(상한 0.30 USD). 호출 전 최악 비용으로 `guard`, 호출 뒤 실제 `usage`로 `add`.
   원장을 못 읽거나 상한이면 실호출 없이 `UNAVAILABLE`/`CAP_REACHED`.
@@ -29,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+import httpx
 from PIL import Image
 
 from app.llm.ledger import BudgetExceeded, CostLedger
@@ -36,6 +40,16 @@ from app.llm.prompts import split_frontmatter
 
 MODEL = "gpt-6-luna"
 PRICE_IN_PER_M, PRICE_OUT_PER_M = 0.10, 0.50  # USD/100만 토큰, `vision_pouch_test.OPENAI_PRICES`(RFP-15 §8.2, 2026-11-04 조회 값)
+# Upstage(AG-17 `vision_pouch_test`, 2026-11-20 공식 문서 확인): OCR 쪽당 0.0015 USD, solar-pro4 입력 0.30·출력 1.20 USD/100만 토큰
+UPSTAGE_BASE = "https://api.upstage.ai/v1"
+UPSTAGE_OCR_MODEL = "ocr"
+UPSTAGE_MODEL = "solar-pro4"
+UPSTAGE_OCR_USD_PER_PAGE = 0.0015
+UPSTAGE_PRICE_IN_PER_M, UPSTAGE_PRICE_OUT_PER_M = 0.30, 1.20
+UPSTAGE_MAX_TOKENS = 4000  # `vision_pouch_test.UPSTAGE_MAX_TOKENS`
+OCR_PREFIX = "아래는 약봉투 사진을 OCR로 읽은 글자다(사진 대신 이 글자를 준다). 글자 인식 오류가 있을 수 있다.\n<ocr>\n"  # `vision_pouch_test.OCR_PREFIX`
+OCR_MAX_CHARS = 6000  # OCR 글자 자름 한도, 최악 비용 계산에도 쓴다(`vision_pouch_test.OCR_MAX_CHARS`)
+Provider = Literal["upstage", "openai"]
 MAX_COMPLETION_TOKENS = 4000  # 추론 토큰이 출력에 포함될 수 있어 넉넉히(상한일 뿐), `vision_pouch_test.OPENAI_MAX_COMPLETION`
 LONG_SIDE = 1400  # 확대 전처리 긴 변(`vision_pouch_test.UPSCALE_LONG_SIDE`)
 JPEG_QUALITY = 92
@@ -103,6 +117,10 @@ class TransientVisionError(RuntimeError):
     """재시도해도 되는 일시 오류(속도 제한·연결·시간 초과·5xx)."""
 
 
+class VisionCallError(RuntimeError):
+    """재시도 없는 호출 실패(인증·요청 형식·응답 형식 등). 메시지는 종류·HTTP 상태만 담고 키·응답 본문·글자를 담지 않는다."""
+
+
 @dataclass(frozen=True)
 class Completion:
     """비전 호출 결과에서 쓰는 값만. `content`는 모델 출력 글자(로그·파일에 남기지 않는다)."""
@@ -112,6 +130,7 @@ class Completion:
     finish_reason: str | None
     prompt_tokens: int
     completion_tokens: int
+    extra_usd: float = 0.0  # 토큰 밖 고정 비용(Upstage OCR 쪽당)
 
 
 class VisionClient(Protocol):
@@ -217,15 +236,21 @@ def load_system_prompt(path: Path = PROMPT_PATH) -> str:
     return _PROMPT_CACHE[path]
 
 
-def worst_cost(system: str, img_tokens: int) -> float:
-    """호출 전 최악 비용(`vision_pouch_test.worst_cost`의 openai 식): (글자 토큰 + 이미지 토큰) x 3 + 1000, 출력은 최대치."""
+def worst_cost(system: str, img_tokens: int, provider: Provider = "openai") -> float:
+    """호출 전 최악 비용(`vision_pouch_test.worst_cost`와 같은 식).
+    openai: (글자 토큰 + 이미지 토큰) x 3 + 1000, 출력은 최대치. upstage: OCR 1쪽 + 입력 글자 수(글자당 1토큰, 보수적) + 최대 출력."""
+    if provider == "upstage":
+        in_chars = len(system) + len(USER_TEXT) + len(OCR_PREFIX) + OCR_MAX_CHARS + len(json.dumps(SCHEMA)) + 500
+        return UPSTAGE_OCR_USD_PER_PAGE + in_chars * UPSTAGE_PRICE_IN_PER_M / 1e6 + UPSTAGE_MAX_TOKENS * UPSTAGE_PRICE_OUT_PER_M / 1e6
     text_tokens = (len(system) + len(USER_TEXT) + len(json.dumps(SCHEMA))) / 1.5
     in_tok = (text_tokens + img_tokens) * 3 + 1000
     return in_tok * PRICE_IN_PER_M / 1e6 + MAX_COMPLETION_TOKENS * PRICE_OUT_PER_M / 1e6
 
 
-def actual_cost(prompt_tokens: int, completion_tokens: int) -> float:
-    return prompt_tokens * PRICE_IN_PER_M / 1e6 + completion_tokens * PRICE_OUT_PER_M / 1e6
+def actual_cost(prompt_tokens: int, completion_tokens: int, provider: Provider = "openai", extra_usd: float = 0.0) -> float:
+    if provider == "upstage":
+        return prompt_tokens * UPSTAGE_PRICE_IN_PER_M / 1e6 + completion_tokens * UPSTAGE_PRICE_OUT_PER_M / 1e6 + extra_usd
+    return prompt_tokens * PRICE_IN_PER_M / 1e6 + completion_tokens * PRICE_OUT_PER_M / 1e6 + extra_usd
 
 
 def build_messages(system: str, data_url: str) -> list[dict[str, Any]]:
@@ -325,15 +350,108 @@ class OpenAIVisionClient:
                           prompt_tokens=int(getattr(u, "prompt_tokens", 0) or 0), completion_tokens=int(getattr(u, "completion_tokens", 0) or 0))
 
 
+# ---------------------------------------------------------------- Upstage 클라이언트(OCR → solar-pro4)
+def _ocr_text(doc: Any) -> tuple[str, int]:
+    """OCR 응답 → (모델에 넘길 글자 ≤ OCR_MAX_CHARS, 청구 쪽수). `vision_pouch_test.ocr_summary`와 같다."""
+    if not isinstance(doc, dict):
+        raise VisionCallError("OCR 응답 형식 오류")
+    pages = doc.get("pages")
+    pages = pages if isinstance(pages, list) else []
+    text = doc.get("text") or "\n".join(str(p.get("text") or "") for p in pages if isinstance(p, dict))
+    billed = doc.get("numBilledPages")
+    return str(text)[:OCR_MAX_CHARS], billed if isinstance(billed, int) and billed > 0 else 1
+
+
+class UpstageVisionClient:
+    """Upstage Document OCR → `solar-pro4` Chat Completions(OpenAI 호환). 키는 Settings에서 읽고 출력·기록하지 않는다.
+
+    `extract`가 만든 OpenAI 형식 `messages`(이미지 data URL)를 받아 같은 입구 `complete`로 처리한다: 이미지는 OCR로 글자가 되고
+    지시문(system)은 그대로, user 메시지는 `OCR_PREFIX + 글자 + USER_TEXT`(AG-17 `upstage_messages`와 같다). structured outputs가 400이면
+    AG-17처럼 스키마를 지시문 뒤에 붙인 프롬프트 JSON으로 한 번 더 보낸다. 자체 재시도는 없다(`extract`가 일시 오류만 재시도).
+    OCR 글자·base64·모델 출력은 변수에만 두고 로그·예외·파일에 남기지 않는다.
+    """
+
+    provider: Provider = "upstage"
+
+    def __init__(self, api_key: str | None = None, *, base_url: str = UPSTAGE_BASE, transport: httpx.BaseTransport | None = None) -> None:
+        if api_key is None:
+            from app.config import get_settings, reveal
+
+            api_key = reveal(get_settings().upstage_api_key)
+        if not api_key:
+            raise VisionCallError("UPSTAGE_API_KEY 없음")  # 변수 이름만. extract가 MODEL_ERROR로 돌린다
+        self._headers = {"Authorization": f"Bearer {api_key}"}
+        self._base = base_url.rstrip("/")
+        self._http = httpx.Client(transport=transport, timeout=TIMEOUT_S)
+
+    def _post(self, path: str, timeout: float, **kw: Any) -> Any:
+        try:
+            return self._http.post(f"{self._base}{path}", headers=self._headers, timeout=timeout, **kw)
+        except httpx.TransportError as exc:  # 연결·시간 초과(예외 문자열은 URL·헤더를 담을 수 있어 종류만)
+            raise TransientVisionError(type(exc).__name__) from None
+
+    @staticmethod
+    def _check(r: Any) -> None:
+        if r.status_code in (429, 500, 502, 503, 504):
+            raise TransientVisionError(f"HTTP {r.status_code}")
+        if r.status_code != 200:
+            raise VisionCallError(f"HTTP {r.status_code}")
+
+    def complete(self, *, model: str, messages: list[dict[str, Any]], max_completion_tokens: int,
+                 response_format: dict[str, Any], timeout: float) -> Completion:
+        system = messages[0]["content"]
+        url = next(p["image_url"]["url"] for p in messages[1]["content"] if p.get("type") == "image_url")
+        m = _DATA_URL.match(url)
+        if not m:
+            raise VisionCallError("이미지 data URL 형식 오류")
+        media = m.group(1).lower()
+        img = base64.b64decode(url[m.end():])
+        r = self._post("/document-digitization", timeout, files={"document": ("pouch.jpg", img, media)}, data={"model": UPSTAGE_OCR_MODEL})
+        del img
+        self._check(r)
+        try:
+            doc = r.json()
+        except ValueError:
+            raise VisionCallError("OCR 응답이 JSON이 아니다") from None
+        ocr_text, pages = _ocr_text(doc)
+        user = {"role": "user", "content": OCR_PREFIX + ocr_text + "\n</ocr>\n" + USER_TEXT}
+        del ocr_text, doc
+        body: dict[str, Any] = {"model": model, "max_tokens": max_completion_tokens, "messages": [{"role": "system", "content": system}, user],
+                                "response_format": response_format}
+        r = self._post("/chat/completions", timeout, json=body)
+        if r.status_code == 400:  # structured outputs 거부 → 프롬프트 JSON(AG-17 `prompt_json`)
+            body = {"model": model, "max_tokens": max_completion_tokens,
+                    "messages": [{"role": "system", "content": system + "\nJSON 스키마:\n" + json.dumps(SCHEMA, ensure_ascii=False)}, user]}
+            r = self._post("/chat/completions", timeout, json=body)
+        self._check(r)
+        try:
+            j = r.json()
+            ch = j["choices"][0]
+            usage = j.get("usage") or {}
+            return Completion(content=ch["message"].get("content"), refusal=None, finish_reason=ch.get("finish_reason"),
+                              prompt_tokens=int(usage.get("prompt_tokens") or 0), completion_tokens=int(usage.get("completion_tokens") or 0),
+                              extra_usd=pages * UPSTAGE_OCR_USD_PER_PAGE)
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+            raise VisionCallError("채팅 응답 형식 오류") from None
+
+
+def make_client(provider: Provider) -> VisionClient:
+    """제공자 이름 → 기본 클라이언트(키는 Settings). 키 없음 등 생성 실패는 예외(호출한 `extract`가 MODEL_ERROR로 처리)."""
+    return UpstageVisionClient() if provider == "upstage" else OpenAIVisionClient()
+
+
 # ---------------------------------------------------------------- 추출
 def extract(data: bytes, *, client: VisionClient | Callable[[], VisionClient], ledger: CostLedger, resize: bool = True,
-            sleep: Callable[[float], None] = time.sleep, prompt_path: Path = PROMPT_PATH) -> VisionResult:
-    """이미지 바이트 1장 → 약 이름 후보(허용 3칸). 형식·크기 위반은 InvalidImage를 올린다(그 밖의 실패는 결과의 status·reason)."""
+            sleep: Callable[[float], None] = time.sleep, prompt_path: Path = PROMPT_PATH, provider: Provider = "openai") -> VisionResult:
+    """이미지 바이트 1장 → 약 이름 후보(허용 3칸). 형식·크기 위반은 InvalidImage를 올린다(그 밖의 실패는 결과의 status·reason).
+    `provider`는 최악 비용·모델 이름·실제 비용 식을 고른다(기본 openai = 기존 동작, 서비스 경로는 `ingest`가 설정값을 넘긴다)."""
+    model = UPSTAGE_MODEL if provider == "upstage" else MODEL
+    max_tokens = UPSTAGE_MAX_TOKENS if provider == "upstage" else MAX_COMPLETION_TOKENS
     info = check_image(data)
     data_url, img_tok = prepare_image(data, info, resize=resize)
     system = load_system_prompt(prompt_path)
     try:
-        ledger.guard(worst_cost(system, img_tok), bucket=LEDGER_BUCKET)
+        ledger.guard(worst_cost(system, img_tok, provider), bucket=LEDGER_BUCKET)
     except (BudgetExceeded, OSError, ValueError):  # 상한, 원장 읽기 실패는 닫힌 쪽(호출 없음)
         return VisionResult("UNAVAILABLE", "CAP_REACHED")
     messages = build_messages(system, data_url)
@@ -346,7 +464,7 @@ def extract(data: bytes, *, client: VisionClient | Callable[[], VisionClient], l
         for attempt in range(RETRIES + 1):
             attempts = attempt + 1
             try:
-                comp = cl.complete(model=MODEL, messages=messages, max_completion_tokens=MAX_COMPLETION_TOKENS,  # type: ignore[union-attr]
+                comp = cl.complete(model=model, messages=messages, max_completion_tokens=max_tokens,  # type: ignore[union-attr]
                                    response_format=RESPONSE_FORMAT, timeout=TIMEOUT_S)
                 break
             except TransientVisionError:
@@ -357,7 +475,7 @@ def extract(data: bytes, *, client: VisionClient | Callable[[], VisionClient], l
     latency = round(time.monotonic() - t0, 3)
     if comp is None:
         return VisionResult("UNREADABLE", "MODEL_ERROR", latency_s=latency, attempts=attempts)
-    usd = actual_cost(comp.prompt_tokens, comp.completion_tokens)
+    usd = actual_cost(comp.prompt_tokens, comp.completion_tokens, provider, comp.extra_usd)
     try:
         ledger.add(usd, bucket=LEDGER_BUCKET)
     except (OSError, ValueError):
@@ -376,5 +494,5 @@ def extract(data: bytes, *, client: VisionClient | Callable[[], VisionClient], l
 
 
 __all__ = ["LEDGER_BUCKET", "MAX_IMAGE_BYTES", "MAX_PIXELS", "MODEL", "SCHEMA", "Completion", "ImageInfo", "InvalidImage",
-           "OpenAIVisionClient", "TransientVisionError", "VisionClient", "VisionResult", "check_image", "decode_data_url", "extract",
+           "OpenAIVisionClient", "TransientVisionError", "UpstageVisionClient", "VisionCallError", "VisionClient", "VisionResult", "make_client", "check_image", "decode_data_url", "extract",
            "prepare_image", "sanitize"]
