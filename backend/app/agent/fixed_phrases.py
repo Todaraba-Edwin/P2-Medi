@@ -19,13 +19,12 @@ EMERGENCY_119 = "응급 상황일 수 있어요. 지금 바로 119에 전화하�
 EMERGENCY_119_WIDE = "컴퓨터로 보고 있다면 휴대폰으로 119에 전화하세요."
 EMERGENCY_119_TEL = "tel:119"
 
-# 시작 화면 안내 2종(FE-01-24 A, 2026-11-16 문구 승인 1·2번). 프런트는 `frontend/scripts/gen-fixed-phrases.mjs`가 이 파일을
+# 시작 화면 안내(FE-01-24 A, 2026-11-16 문구 승인 1번). 프런트는 `frontend/scripts/gen-fixed-phrases.mjs`가 이 파일을
 # 읽어 생성한 값만 쓴다(FE-01-19 A). 생성기가 `^NAME = "..."` 한 줄 글자만 읽으므로 이어 붙이기·f-string으로 바꾸지 않는다.
 # 응급 안내: 승인된 `EMERGENCY_119` 말투에 맞춤, 119 외 연락처 금지(RFP-19-01 A)
 START_EMERGENCY_119 = "응급 상황이면 지금 바로 119에 전화하세요."
-# 외부 AI 전송 고지(RFP-24-01, PJ2-RFP.md 7장 고지 항목·FE-02 §2): 질문·프로필 전송, 이 서비스는 질문 비저장,
-# 제공자 쪽 보관은 "될 수 있어요"로만 쓴다(학습 사용 여부·보관 기간은 단정하지 않는다)
-START_EXTERNAL_AI_NOTICE = "질문과 입력한 프로필은 답을 만들기 위해 외부 AI(OpenAI)로 보내요. 이 서비스는 질문 내용을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요."
+# 시작 화면 외부 AI 전송 고지(`START_EXTERNAL_AI_NOTICE`, 2026-11-16 승인 2번)는 PRD-17-10 A(2026-11-20)로 **삭제**했다.
+# 외부 AI 전송 고지는 입력창 아래 고지 하나(프런트 `features/chat/copy.ts` INPUT_NOTICE, PRD-17-07 A 승인 원문)만 둔다.
 
 # PJ2-RFP.md 7장 고지 항목(따옴표 안 문구 그대로)
 DISCLAIMER_PARTS = (
@@ -252,7 +251,7 @@ REFUSE_DRAFT_KEYS = tuple(k for k in REFUSE_MESSAGES if k not in REFUSE_APPROVED
 # 2026-11-12 승인으로 뺀 것: EMERGENCY_119(AG-08-04)·UNIDENTIFIED_NEXT(05)·UNIDENTIFIED_NOT_SAFE(06)·LIMIT_REACHED(09)·
 # PHARMACIST_ADVICE_FIXED(11)·GRADE_DEF_MISSING_TEXT(14)·IDENTIFIED_LINE(12 B), LOOKUP_FAILED·TRUNCATED·FALLBACK_SOME_CONFIRMED·
 # FALLBACK_NONE_SCOPE_DOC(Recap 0-1, 하네스 3.4절 표).
-# 2026-11-16 문구 승인 표 17줄(3번만 조사 자동, 나머지 원문 승인)로 뺀 것: START_EMERGENCY_119·START_EXTERNAL_AI_NOTICE·
+# 2026-11-16 문구 승인 표 17줄(3번만 조사 자동, 나머지 원문 승인)로 뺀 것: START_EMERGENCY_119·START_EXTERNAL_AI_NOTICE(PRD-17-10 A로 상수 삭제)·
 # REFERENCE_ONLY_LINE·REFUSE_MESSAGES·CAUTION_LABELS·PHARMACIST_ADVICE_NO_NAMES·BLOCKED_NO_SOURCE_KIND·INVALID_CODE·PAIR_NOT_CHECKED.
 # 2026-11-17 AG-10-02 A 승인으로 뺀 것: TYPO_CORRECTED_LINE(오탈자 보정 고지, 원문 승인).
 # 2026-11-18 AG-01-11 A(2026-11-17 사용자 "권장대로", 문구 초안 4개 원문 승인) 코드 반영으로 뺀 것: API_REASON_NOTES(AG-01-10 A 실시간

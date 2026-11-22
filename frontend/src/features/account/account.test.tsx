@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { START_EXTERNAL_AI_NOTICE } from "@/lib/fixed/phrases.generated";
+import { INPUT_NOTICE } from "@/features/chat/copy";
 import type { Profile } from "@/lib/api/account";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { MOCK_DRUG_DICT, MOCK_LEGAL_DOCS, searchMockDrugs } from "@/mocks/fixtures/account";
@@ -259,9 +259,9 @@ describe("약관 동의 화면", () => {
     expect(within(age).getByRole("checkbox").closest("label")!.className).toContain("min-h-11"); // 44px 터치 대상
     expect(age.compareDocumentPosition(docItem("sensitive_consent")) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy(); // 문서 카드 뒤
     expect(age.compareDocumentPosition(screen.getByTestId("consent-submit")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // 버튼 앞
-    // 외부 AI 전송 고지: 화면이 기존 시작 화면 고지 문구를 한 번 더 넣지 않는다(문서 본문은 서버 값뿐이다)
-    expect(modal().textContent).not.toContain(START_EXTERNAL_AI_NOTICE);
-    expect(MOCK_LEGAL_DOCS.privacy_policy.body_md).not.toContain(START_EXTERNAL_AI_NOTICE);
+    // 외부 AI 전송 고지: 화면이 입력창 고지 문구(시작 화면 고지는 PRD-17-10 A로 삭제)를 동의 창에 한 번 더 넣지 않는다(문서 본문은 서버 값뿐이다)
+    expect(modal().textContent).not.toContain(INPUT_NOTICE);
+    expect(MOCK_LEGAL_DOCS.privacy_policy.body_md).not.toContain(INPUT_NOTICE);
   });
 
   it("법률 검토를 마친 문서(legal_review: reviewed)에는 '초안·법률 검토 전' 표지가 없다", async () => {
