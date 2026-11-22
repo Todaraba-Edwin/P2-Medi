@@ -703,8 +703,11 @@ describe("브라우저 저장소 미사용(FE-01-08 A)", () => {
     ];
     expect(screens.length).toBeGreaterThanOrEqual(11);
     for (const file of screens) expect(strip(file), file).not.toMatch(/supabase/i);
-    // 로그인 연결 모듈까지: 세션 쿠키는 `@supabase/ssr`의 기본 동작에만 맡기고 프런트 코드가 저장소·쿠키·콘솔에 직접 쓰지 않는다
+    // 로그인 연결 모듈까지: 세션 쿠키는 `@supabase/ssr`의 동작에 맡기고 프런트 코드가 저장소·쿠키·콘솔에 직접 쓰지 않는다.
+    // 예외 한 곳: `lib/supabase/cookies.ts`만 `document.cookie`를 만진다(쿠키 수명을 7일로 제한하려고 패키지의 브라우저 쿠키 저장소를
+    // 같은 동작으로 대신하는 모듈, 2026-11-22 사용자 결정). 그 파일도 저장소·콘솔 검사는 그대로 받는다
     const supabaseDir = path.join(src, "lib/supabase");
+    const cookieModule = path.join(supabaseDir, "cookies.ts");
     const all = [
       ...screens,
       path.join(src, "lib/api/account.ts"),
@@ -712,8 +715,13 @@ describe("브라우저 저장소 미사용(FE-01-08 A)", () => {
       path.join(src, "app/auth/callback/route.ts"),
       ...readdirSync(supabaseDir).filter((name) => !name.includes(".test.")).map((name) => path.join(supabaseDir, name)),
     ];
-    expect(all.length).toBeGreaterThanOrEqual(18);
-    for (const file of all) expect(strip(file), file).not.toMatch(/localStorage|sessionStorage|indexedDB|document\.cookie|zustand\/middleware|console\.|readUiSetting|writeUiSetting/i);
+    expect(all).toContain(cookieModule);
+    expect(all.length).toBeGreaterThanOrEqual(19);
+    for (const file of all) {
+      expect(strip(file), file).not.toMatch(/localStorage|sessionStorage|indexedDB|zustand\/middleware|console\.|readUiSetting|writeUiSetting/i);
+      if (file !== cookieModule) expect(strip(file), file).not.toMatch(/document\.cookie/i);
+    }
+    expect(strip(cookieModule)).toMatch(/document\.cookie/);
   });
 });
 
