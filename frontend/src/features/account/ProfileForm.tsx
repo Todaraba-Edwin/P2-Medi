@@ -1,8 +1,9 @@
 "use client";
 
-import { useId, useState } from "react";
-import { XIcon } from "lucide-react";
-import { AGE_BANDS, MEDICATIONS_MAX, PROFILE_LABEL_MAX_CHARS, RELATIONS, SEXES } from "@/lib/api/account";
+import { useId, useRef, useState } from "react";
+import { CameraIcon, XIcon } from "lucide-react";
+import { PhotoModal } from "@/features/photo/PhotoModal";
+import { AGE_BANDS, MEDICATIONS_MAX, PROFILE_LABEL_MAX_CHARS, RELATIONS, SEXES, sameMedication } from "@/lib/api/account";
 import type { AgeBand, MedicationInput, PregnancyStatus, ProfileDraft, Relation, Sex } from "@/lib/api/account";
 import { hasHealthConsent, useAccountStore } from "@/stores/account";
 import {
@@ -12,6 +13,7 @@ import {
   DRUG_DATA_SCOPE_NOTICE,
   ERROR_NAME_EMPTY,
   MEDICATIONS_LABEL,
+  MEDICATION_PHOTO_LABEL,
   MEDICATION_UNCONFIRMED_NOTE,
   MEDICATION_UNCONFIRMED_TAG,
   NOT_SELECTED,
@@ -35,32 +37,54 @@ import { useHealthConsentNotice } from "./ProfileList";
 const FAMILY_RELATIONS = RELATIONS.filter((relation) => relation !== "self");
 const LABEL_CLASS = "text-xs font-bold text-ink-2";
 
-/** 같은 약인가: 품목 번호가 있으면 번호로, 없으면 적은 글자로 본다 */
-const sameMedication = (a: MedicationInput, b: MedicationInput) => (a.item_seq && b.item_seq ? a.item_seq === b.item_seq : a.input_text === b.input_text);
+/**
+ * 목록에 약을 더한다(FE-04-27 A: 글자 입력과 사진 등록이 같은 규칙). 같은 약(`sameMedication`)은 넣지 않고 10개(`MEDICATIONS_MAX`)를 넘기지 않는다.
+ * 넘치는 항목은 조용히 빠진다(폼이 상한 안내 `ERROR_MEDICATION_LIMIT`를 보인다). 순수 함수라 시험에서 바로 본다
+ */
+export function mergeMedications(current: readonly MedicationInput[], added: readonly MedicationInput[]): MedicationInput[] {
+  const next = [...current];
+  for (const item of added) {
+    if (next.length >= MEDICATIONS_MAX) break;
+    if (!next.some((other) => sameMedication(other, item))) next.push(item);
+  }
+  return next;
+}
 
 /** 임신 여부 칸을 그리는가(사용자 지시 2026-11-22): 성별이 **여성일 때만**. 남성·미입력(기본 "선택 안 함")은 숨긴다 */
 export const showsPregnancyField = (sex: Sex | "") => sex === "female";
 
 /**
- * 저장할 임신 여부(사용자 지시 2026-11-22): 여성이면 고른 값, 아니면(칸이 숨겨짐) `unknown`(모름, 기존 기본값)으로 정리한다.
- * 저장된 프로필이 여성이 아닌데 `pregnant`가 남아 있는 비정상 값(입력창 토글은 성별 미입력 프로필에도 저장한다, FE-11-13)은 편집 화면에서 보이지 않고 저장 때 모름으로 돌아간다
+ * 여성이 아닐 때 저장하는 임신 여부(사용자 결정 2026-11-22 "여성이 아니면 '아니오' 저장", 같은 날 정정 "미입력도 아니오로 저장"):
+ * 남성·그 밖 값·미입력(선택 안 함) 모두 `not_pregnant`다. 기준이 바뀌면 이 상수 한 줄만 바꾼다
  */
-export const pregnancyToSave = (sex: Sex | "", pregnancy: PregnancyStatus): PregnancyStatus => (showsPregnancyField(sex) ? pregnancy : "unknown");
+export const PREGNANCY_WHEN_NOT_FEMALE: PregnancyStatus = "not_pregnant";
+
+/**
+ * 저장할 임신 여부(분기 한 곳): 여성이면 사용자가 고른 값, 아니면(칸이 숨겨짐: 남성·그 밖·미입력) `PREGNANCY_WHEN_NOT_FEMALE`(아니오)로 정리한다.
+ * 저장된 프로필이 여성이 아닌데 `pregnant`가 남아 있는 비정상 값(입력창 토글은 성별 미입력 프로필에도 저장한다, FE-11-13)은 편집 화면에서 보이지 않고 저장 때 아니오로 돌아간다.
+ * 질문 입력창의 임신 토글(FE-11: 남성만 숨김, 여성·미입력·게스트는 보임)은 이 값과 별개로 질문마다 `context.pregnant`를 정한다
+ */
+export const pregnancyToSave = (sex: Sex | "", pregnancy: PregnancyStatus): PregnancyStatus => (showsPregnancyField(sex) ? pregnancy : PREGNANCY_WHEN_NOT_FEMALE);
 
 /**
  * 프로필 추가·수정 폼. 관계·연령대·성별(선택)·임신 여부·복용 중인 약(선택).
  * 성별(FE-11-09 C·PRD-17-13 A)은 연령대 아래 기본 단계의 선택 칸이다: "여성 | 남성" + 선택 안 함(null). 건강 정보가 아니라 건강 정보 동의 없이도 저장되고,
  * 온보딩에서 사용자가 직접 고른다(간편 로그인 공급자 정보로 미리 채우지 않는다. 처음 열면 늘 "선택 안 함"이다). `/chat` 요청에는 싣지 않는다(S10).
  * 임신 여부(사용자 지시 2026-11-22, 작업 B)는 **성별이 여성일 때만** 나타나는 선택 버튼 "예 | 아니오 | 모름"(`PregnancySelect`)이다. 처음(성별 미입력)에는 숨기고,
- * 여성에서 다른 값으로 바꾸면 칸을 숨기면서 값을 `unknown`(모름)으로 되돌려 숨겨진 값이 저장되지 않게 한다(`pregnancyToSave`). 가족 프로필마다 독립이고 추가·수정이 같은 부품이다.
+ * 여성에서 다른 값으로 바꾸면 칸을 숨기며, 여성이 아닌 프로필(남성·그 밖·미입력)의 저장 값은 `not_pregnant`(아니오)다(`pregnancyToSave`, 사용자 결정 2026-11-22 작업 C).
+ * 가족 프로필마다 독립이고 추가·수정이 같은 부품이다.
  * 입력창의 "일반인 | 임산부" 토글(FE-11, 남성만 숨김)과 `context.pregnant` 규칙은 여기와 별개다.
  * 건강 정보(임신 여부·복용 약)는 건강 정보 동의가 있을 때만 입력·저장할 수 있다: 동의가 없으면 두 칸이 비활성이고 이유 한 줄이 보이며,
  * 저장할 때도 건강 정보 칸을 요청에 싣지 않는다(실으면 서버가 422 `HEALTH_CONSENT_REQUIRED`로 막는다).
  * 약은 사전 검색 후보를 골라 `{input_text, item_seq}`로 보내고(FE-04-13 A), 사전에 없거나 고르지 않고 확정하면 `{input_text}`만 보낸다
  * (`item_seq` null = 확인 안 된 약, FE-04-20 A. 목록에서 표지로 구분한다). 적은 값은 이 부품의 메모리에만 있다(브라우저 저장소에 두지 않는다).
+ * 사진으로 등록(FE-04-27 A, 2026-11-22): 약 입력 아래 `사진으로 등록` 버튼이 기존 사진 모달을 **프로필 목적지**로 연다(계정 모달 위에 한 층 더, `stacked`).
+ * 확인 카드에서 `이대로 확인`한 약만 **지금 편집 중인 이 프로필**의 목록에 더한다(후보를 고른 약은 확인된 약, 글자만 있는 약은 확인 안 된 약, 같은 약은 한 번만).
+ * 사진·이미지는 어디에도 저장하지 않고 이름만 목록에 들어가며, 저장은 기존처럼 `저장`을 눌러야 한다(건강 정보 동의가 없으면 묶음이 비활성이라 버튼도 눌리지 않는다).
+ * 채팅 입력창의 사진 흐름(`AppShell`, 채팅 목적지)과는 별개의 모달 인스턴스다. 모달을 닫으면(`닫기`·Esc·`글자로 입력`) 폼의 입력 상태는 그대로다
  */
 export function ProfileForm() {
-  const { store } = useAccountModal();
+  const { store, container, hideMascot, emergencyEntry } = useAccountModal();
   const target = useAccountStore((state) => state.form, store);
   const existing = useAccountStore((state) => state.profiles.find((profile) => profile.profile_id === state.form?.profileId) ?? null, store);
   const me = useAccountStore((state) => state.me, store);
@@ -76,19 +100,36 @@ export function ProfileForm() {
   const [ageBand, setAgeBand] = useState<AgeBand | "">(existing?.age_band ?? "");
   // 성별: 저장된 값만 채운다(새 프로필은 늘 미선택. 로그인 공급자 정보는 읽지 않는다)
   const [sex, setSex] = useState<Sex | "">(existing?.sex ?? "");
-  // 임신 여부: 여성 프로필의 저장 값만 채운다. 여성이 아니면 칸이 숨겨지므로 모름(`unknown`)에서 시작한다
-  const [pregnancy, setPregnancy] = useState<PregnancyStatus>(pregnancyToSave(existing?.sex ?? "", existing?.pregnancy_status ?? "unknown"));
-  /** 성별을 바꾸면 임신 여부 칸이 나타나거나 사라진다. 사라질 때(여성 → 다른 값) 값을 모름으로 되돌린다 */
+  // 임신 여부(칸의 값): 여성 프로필의 저장 값만 채운다. 여성이 아니면 칸이 숨겨지고 다시 여성을 고르면 모름(`unknown`)에서 시작한다(고르기 전에는 아니오로 두지 않는다, 2026-11-22 확정).
+  // 저장 값은 늘 `pregnancyToSave`가 정한다(여성이 아니면 아니오)
+  const [pregnancy, setPregnancy] = useState<PregnancyStatus>(showsPregnancyField(existing?.sex ?? "") ? (existing?.pregnancy_status ?? "unknown") : "unknown");
+  /** 성별을 바꾸면 임신 여부 칸이 나타나거나 사라진다. 사라질 때(여성 → 다른 값) 칸의 값을 모름으로 되돌린다(저장 값은 `pregnancyToSave`가 아니오로 정리한다) */
   const changeSex = (next: Sex | "") => {
     setSex(next);
     if (!showsPregnancyField(next)) setPregnancy("unknown");
   };
   const [medications, setMedications] = useState<MedicationInput[]>(() => (existing?.medications ?? []).map((item) => ({ input_text: item.input_text, item_seq: item.item_seq })));
   const [nameMissing, setNameMissing] = useState(false);
+  /** 사진 등록 모달(프로필 목적지). 사진·읽은 목록은 모달 안 메모리에만 있다 */
+  const [photoOpen, setPhotoOpen] = useState(false);
+  /** 사진 모달이 닫힌 뒤 초점을 둘 곳: 기본은 `사진으로 등록` 버튼, `글자로 입력`이면 약 입력 칸 */
+  const photoCloseFocus = useRef<"entry" | "input">("entry");
+  const photoEntry = useRef<HTMLButtonElement>(null);
 
-  const addMedication = (item: MedicationInput) => {
-    if (medications.length >= MEDICATIONS_MAX) return;
-    if (!medications.some((other) => sameMedication(other, item))) setMedications([...medications, item]);
+  const addMedication = (item: MedicationInput) => setMedications((current) => mergeMedications(current, [item]));
+  /** 사진 확인 카드의 `이대로 확인`(FE-04-27 A): 이 폼(지금 편집 중인 프로필)의 목록에만 더한다 */
+  const addFromPhoto = (items: MedicationInput[]) => setMedications((current) => mergeMedications(current, items));
+  const openPhoto = () => {
+    photoCloseFocus.current = "entry";
+    setPhotoOpen(true);
+  };
+  const photoTypeInstead = () => {
+    photoCloseFocus.current = "input";
+    setPhotoOpen(false);
+  };
+  const photoClosed = () => {
+    if (photoCloseFocus.current === "input") document.getElementById(`${id}-medication`)?.focus();
+    else photoEntry.current?.focus();
   };
   const hasUnconfirmed = medications.some((item) => !item.item_seq);
 
@@ -112,6 +153,7 @@ export function ProfileForm() {
       <StepTitle>{existing ? PROFILE_FORM_EDIT_TITLE : PROFILE_FORM_NEW_TITLE}</StepTitle>
       <form
         noValidate
+        aria-busy={pending}
         className="flex flex-col gap-2.5"
         onSubmit={(event) => {
           event.preventDefault();
@@ -193,6 +235,18 @@ export function ProfileForm() {
             {MEDICATIONS_LABEL}
           </label>
           <MedicationPicker id={`${id}-medication`} count={medications.length} onAdd={addMedication} />
+          {/* 사진으로 등록(FE-04-27 A): 약 입력 바로 아래. 건강 정보 묶음 안이라 동의가 없으면 함께 비활성이고, 10개면 더 넣을 수 없어 비활성 */}
+          <button
+            ref={photoEntry}
+            type="button"
+            data-testid="medication-photo"
+            disabled={medications.length >= MEDICATIONS_MAX}
+            onClick={openPhoto}
+            className={`${SECONDARY_BUTTON} flex items-center justify-center gap-1.5 self-start`}
+          >
+            <CameraIcon className="size-4" aria-hidden="true" />
+            {MEDICATION_PHOTO_LABEL}
+          </button>
           {/* 자료 밖 약 고지(FE-04-25 A): 사진 확인 카드와 같은 상수·같은 모양. 색은 토큰만(라이트·다크 AA) */}
           <p data-testid="drug-data-scope-notice" className="m-0 rounded-xl bg-bg-soft px-3 py-2 text-xs leading-[17px] text-ink-2 [word-break:keep-all]">
             {DRUG_DATA_SCOPE_NOTICE}
@@ -247,6 +301,20 @@ export function ProfileForm() {
         </div>
       </form>
       <EmergencyEntrySlot />
+      {/* 사진 등록 모달(프로필 목적지): 계정 모달과 같은 자리(119 배너 아래)에 한 층 위로 겹친다. 확인한 이름만 이 폼의 목록에 들어가고 채팅 전송은 부르지 않는다 */}
+      <PhotoModal
+        open={photoOpen}
+        onOpenChange={setPhotoOpen}
+        destination="profile"
+        onConfirm={() => {}}
+        onRegister={addFromPhoto}
+        onTypeInstead={photoTypeInstead}
+        onCloseAutoFocus={photoClosed}
+        container={container}
+        hasEmergency={hideMascot}
+        emergencyEntry={emergencyEntry}
+        stacked
+      />
     </StepBody>
   );
 }

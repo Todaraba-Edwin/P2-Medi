@@ -319,6 +319,29 @@ describe("약관 동의", () => {
     expect(hasHealthConsent(store.getState().me)).toBe(true);
   });
 
+  it("프로필 저장이 끝나면 완료 안내(`profile-saved`)가 켜지고 목록으로 돌아가며, 단계를 옮기거나 닫으면 꺼진다. 실패하면 켜지지 않는다(FE-04-15 A)", async () => {
+    const store = await loggedIn(ALL);
+    store.getState().editProfile({ profileId: null, self: true });
+    expect(store.getState().notice).toBeNull();
+    expect(await store.getState().saveProfile(selfDraft())).toBe(true);
+    expect(store.getState()).toMatchObject({ notice: "profile-saved", form: null, failure: null });
+    expect(store.getState().flow.at(-1)).toBe("profiles");
+    store.getState().editProfile({ profileId: null, self: false });
+    expect(store.getState().notice).toBeNull(); // 다른 단계로 옮기면 지운다
+    store.getState().back();
+    expect(store.getState().notice).toBeNull();
+    // 실패(422 MEDICATION_LIMIT): 폼에 남고 failure만 있다
+    store.getState().editProfile({ profileId: null, self: false });
+    expect(await store.getState().saveProfile(selfDraft({ relation: "child", label: "첫째", health: { pregnancy_status: "unknown", medications: Array.from({ length: MEDICATIONS_MAX + 1 }, (_, i) => med(`약${i}`)) } }))).toBe(false);
+    expect(store.getState()).toMatchObject({ notice: null, failure: { status: 422 } });
+    expect(store.getState().flow.at(-1)).toBe("profile-form");
+    // 성공 뒤 닫으면 지운다
+    expect(await store.getState().saveProfile(selfDraft({ relation: "child", label: "첫째" }))).toBe(true);
+    expect(store.getState().notice).toBe("profile-saved");
+    store.getState().close();
+    expect(store.getState().notice).toBeNull();
+  });
+
   it("건강 정보 동의를 철회하면 서버가 임신 여부·복용 약을 즉시 지우고 화면 상태에도 남지 않는다", async () => {
     const store = await loggedIn(ALL);
     store.getState().editProfile({ profileId: null, self: true });

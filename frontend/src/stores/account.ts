@@ -31,8 +31,11 @@ export interface ProfileFormTarget {
 
 export type LegalDocsStatus = "idle" | "loading" | "ready" | "failed";
 
-/** `signup-confirm`: 가입 확인 메일을 보냈고 아직 로그인되지 않았다 */
-export type AccountNotice = "signup-confirm";
+/**
+ * 오류가 아닌 안내 한 줄. `signup-confirm`: 가입 확인 메일을 보냈고 아직 로그인되지 않았다.
+ * `profile-saved`: 프로필 저장이 끝나 목록으로 돌아왔다(FE-04-15 A 완료 안내. 단계를 옮기거나 닫으면 지운다)
+ */
+export type AccountNotice = "signup-confirm" | "profile-saved";
 
 export interface AccountState {
   /** 로그인 여부. 게스트가 기본이고 게스트는 아무것도 저장하지 않는다 */
@@ -346,7 +349,8 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
               : [...state.profiles, saved],
           }));
         });
-        if (ok) set((state) => ({ form: null, flow: state.flow.length > 1 ? state.flow.slice(0, -1) : ["profiles"] }));
+        // 저장이 끝나면 목록으로 돌아가며 완료 안내를 켠다(FE-04-15 A). 실패하면 폼에 남고 `failure`가 보인다
+        if (ok) set((state) => ({ form: null, notice: "profile-saved", flow: state.flow.length > 1 ? state.flow.slice(0, -1) : ["profiles"] }));
         return ok;
       },
 
