@@ -8,6 +8,8 @@
                        단계마다 별도 트랜잭션: ① schema_account.sql → 커밋 → ② seed v1 → ③ seed v2 → ④ seed age_14.
                        (`ALTER TYPE … ADD VALUE 'age_14'`는 같은 트랜잭션에서 쓸 수 없으므로 ④는 ① 커밋 뒤 따로 돈다.)
                        단계 사후 확인이 기대와 다르면 그 단계를 롤백하고 중단한다(다음 단계로 넘어가지 않음).
+                       시드의 `{{PRIVACY_CONTACT}}`는 env `PRIVACY_OFFICER_NAME`·`PRIVACY_OFFICER_EMAIL`(Settings)로 채운다
+                       (PRD-17 ⑫). 값이 없으면 자리표시가 남아 게시 거부. plan·로그·예외에는 값을 싣지 않는다(`<설정됨>`).
   verify               읽기 전용. age_14 enum·`profiles.sex` 열·표 6개 RLS·시드 행(v1·v2·age_14)·`legal_current`의 age_14 v1을 확인한다.
 
   --local-dsn <DSN>    로컬 Postgres 시험용(호스트가 localhost·127.0.0.1·::1·소켓일 때만). 이때는 승인 파일 없이 돈다
@@ -38,11 +40,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from load_corpus import RemoteLoadRefused, resolve_dsn  # noqa: E402
 
+from app.config import get_settings, reveal  # noqa: E402
 from app.db.account_repo_pg import (  # noqa: E402
     SCHEMA_FILE,
     SEED_AGE14_FILE,
     SEED_FILES,
     assert_publishable,
+    render_privacy_contact,
     schema_sql,
     seed_age14_sql,
     seed_sql,
@@ -72,6 +76,7 @@ class Step:
     kind: str  # "schema" | "seed"
     source: Path
     sql: str
+    masked: tuple[str, ...] = ()  # 로그·예외 메시지에서 지울 값(보호책임자 이름·이메일)
 
     @property
     def keys(self) -> list[tuple[str, int]]:
@@ -85,14 +90,45 @@ class Step:
 
 # --------------------------------------------------------------------------- 단계 구성(로컬, 연결 0)
 
-def build_steps(effective_at: datetime) -> list[Step]:
-    """g3-b1 §7 순서. 시드의 `{{EFFECTIVE_AT}}`만 채운다(그 밖의 자리표시는 남겨 두고 assert_publishable이 막는다)."""
-    return [
-        Step("1 schema", "schema", SCHEMA_FILE, schema_sql()),
-        Step("2 seed v1", "seed", SEED_FILES[1], seed_sql(effective_at, 1)),
-        Step("3 seed v2", "seed", SEED_FILES[2], seed_sql(effective_at, 2)),
-        Step("4 seed age_14", "seed", SEED_AGE14_FILE, seed_age14_sql(effective_at)),
-    ]
+PrivacyContact = tuple[str | None, str | None]
+
+
+def privacy_officer() -> PrivacyContact:
+    """env `PRIVACY_OFFICER_NAME`·`PRIVACY_OFFICER_EMAIL`(Settings, SecretStr). 값은 프로세스 안에서만 쓰고 출력하지 않는다."""
+    s = get_settings()
+    return reveal(s.privacy_officer_name), reveal(s.privacy_officer_email)
+
+
+def contact_set(contact: PrivacyContact | None) -> bool:
+    return bool(contact and (contact[0] or "").strip() and (contact[1] or "").strip())
+
+
+def build_steps(effective_at: datetime, contact: PrivacyContact | None = None) -> list[Step]:
+    """g3-b1 §7 순서. 시드의 `{{EFFECTIVE_AT}}`를 채우고, 보호책임자 값이 있으면 `{{PRIVACY_CONTACT}}`도 채운다.
+
+    값이 없으면 `{{PRIVACY_CONTACT}}`를 남겨 두고 assert_publishable이 게시를 막는다. 값이 있는데 형식이 잘못되면 Refused.
+    """
+    seeds = [("2 seed v1", SEED_FILES[1], seed_sql(effective_at, 1)),
+             ("3 seed v2", SEED_FILES[2], seed_sql(effective_at, 2)),
+             ("4 seed age_14", SEED_AGE14_FILE, seed_age14_sql(effective_at))]
+    masked: tuple[str, ...] = ()
+    if contact_set(contact):
+        name, email = (contact[0] or "").strip(), (contact[1] or "").strip()  # type: ignore[index]
+        masked = (name, email)
+        try:
+            seeds = [(n, p, render_privacy_contact(sql, name, email)) for n, p, sql in seeds]
+        except ValueError as exc:
+            raise Refused(f"보호책임자 값 거부: {exc}") from None
+    return [Step("1 schema", "schema", SCHEMA_FILE, schema_sql()),
+            *(Step(n, "seed", p, sql, masked) for n, p, sql in seeds)]
+
+
+def scrub(text: str, masked: tuple[str, ...]) -> str:
+    """보호책임자 값을 `<설정됨>`으로 가린다(DB 오류 문구에 SQL 조각이 실릴 수 있음)."""
+    for v in masked:
+        if v:
+            text = text.replace(v, "<설정됨>")
+    return text
 
 
 def expected_keys(steps: list[Step]) -> list[tuple[str, int]]:
@@ -247,12 +283,14 @@ def do_plan(conn: Any, steps: list[Step], log: Callable[[str], None] = print) ->
         "schema_needed": bool(schema_ok(st)),
         "seed_rows_to_insert": [f"{t} v{v}" for t, v in keys if (t, v) not in have],
         "publishable": not any(s.placeholders for s in steps),
+        "privacy_contact": "<설정됨>" if any(s.masked for s in steps) else "<없음>",  # 값은 출력하지 않는다
     }
     log(json.dumps(out, ensure_ascii=False, indent=1, default=str))
     return out
 
 
-def transaction(conn: Any, name: str, fn: Callable[[Any], dict[str, Any]], log: Callable[[str], None] = print) -> dict[str, Any]:
+def transaction(conn: Any, name: str, fn: Callable[[Any], dict[str, Any]], log: Callable[[str], None] = print,
+                masked: tuple[str, ...] = ()) -> dict[str, Any]:
     """한 트랜잭션으로 fn을 실행한다. 예외면 롤백하고 StageAbort로 올린다. 커밋은 fn이 끝난 뒤 한 번만."""
     cur = conn.cursor()
     try:
@@ -262,8 +300,9 @@ def transaction(conn: Any, name: str, fn: Callable[[Any], dict[str, Any]], log: 
         conn.commit()
     except Exception as exc:
         conn.rollback()
-        log(f"[{name}] 롤백: {type(exc).__name__}: {redact(str(exc))[:200]}")
-        raise StageAbort(f"{name}: {type(exc).__name__}: {redact(str(exc))[:200]}") from exc
+        msg = scrub(redact(str(exc)), masked)[:200]
+        log(f"[{name}] 롤백: {type(exc).__name__}: {msg}")
+        raise StageAbort(f"{name}: {type(exc).__name__}: {msg}") from None
     log(f"[{name}] 커밋: {json.dumps(res, ensure_ascii=False, default=str)}")
     return res
 
@@ -301,7 +340,7 @@ def do_apply(conn: Any, steps: list[Step], log: Callable[[str], None] = print) -
             if problems:
                 raise StageAbort(f"{s.name} 사후 확인 실패: {problems}")
         else:
-            report[s.name] = transaction(conn, s.name, lambda cur, s=s: run_seed(cur, s), log)
+            report[s.name] = transaction(conn, s.name, lambda cur, s=s: run_seed(cur, s), log, s.masked)
     report["after"] = read_state(conn)
     return report
 
@@ -334,7 +373,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None, *, connect_fn: Callable[[str], Any] | None = None, flag: Path = APPROVAL_FLAG,
-         log: Callable[[str], None] = print) -> dict[str, Any]:
+         log: Callable[[str], None] = print, contact: PrivacyContact | None = None) -> dict[str, Any]:
+    """`contact`를 주지 않으면 env(Settings)의 보호책임자 값을 읽는다(시험은 가짜 값을 직접 준다)."""
     args = build_parser().parse_args(argv)
     local = args.local_dsn is not None
     if local and not is_local_dsn(args.local_dsn):
@@ -342,7 +382,7 @@ def main(argv: list[str] | None = None, *, connect_fn: Callable[[str], Any] | No
     effective_at = parse_effective_at(args.effective_at)
     if args.cmd == "apply":
         gate(args, flag, local)  # 연결 전에 거부
-    steps = build_steps(effective_at or datetime.now(UTC))
+    steps = build_steps(effective_at or datetime.now(UTC), privacy_officer() if contact is None else contact)
     if args.cmd == "apply":
         check_publishable(steps)  # 연결 전에 거부
     dsn = args.local_dsn if local else resolve_dsn(DSN_ENV)

@@ -6,14 +6,19 @@
 --   * requires_reconsent: privacy_consent·sensitive_consent true(수집 항목·외부 AI 전송 고지 추가), terms·privacy_policy false
 --     (legal-review §3 권장, 사용자 승인). 판정식은 app/api/account.py consent_states(설계 8장).
 --   * {{EFFECTIVE_AT}}은 v1과 같이 적용 스크립트(account_repo_pg.seed_sql)가 시행 시각(timestamptz 리터럴)으로 채운다. 날짜를 지어내지 않는다.
---   * 그 밖의 {{…}} 자리표시({{PRIVACY_CONTACT}}·{{SUPABASE_REGION}}·{{BACKUP_RETENTION_DAYS}}·{{확인 필요: …}})는
---     값이 확인되지 않아 그대로 둔다. privacy_policy §3 OpenAI 줄의 법인·연락처·국가·보관 기간 세 칸은 2026-11-20 채웠다
+--   * {{PRIVACY_CONTACT}}는 저장소에 이름·이메일을 넣지 않으려고 그대로 둔다. 원격 적용 스크립트(be11_account_migrate)가
+--     apply 직전에 env PRIVACY_OFFICER_NAME·PRIVACY_OFFICER_EMAIL(Settings)로 채운다(account_repo_pg.render_privacy_contact,
+--     값이 없으면 게시 거부). body_sha256은 DB 생성 열이라 채운 뒤 본문으로 계산된다.
+--   * privacy_policy §3 OpenAI 줄의 법인·연락처·국가·보관 기간 세 칸은 2026-11-20 채웠다
 --     (PRD-17 ⑫·Recap 58, 근거는 tickets/doc/PRD-17.md ⑫ 메모: openai.com 처리방침 2026-09-10·대한민국 부록 2026-03-27, 읽은 날 2026-11-20).
 --     privacy_policy §1 로그인 항목·§2 사진 전송 문장·§3 OpenAI 줄 사진 칸(사진은 필수 기능, 2026-11-20 정정)·§4 서버 접속 기록(접근 로그 끔)·
 --     §5 안전성 조치·§8 쿠키는 2026-11-20 사용자 승인
---     (Recap 45 초안, ⑧ B)으로 반영했다(근거 data/mock/briefs/reports/recap45.md §2, 로컬 전용). 남은 것은 {{PRIVACY_CONTACT}}·
---     {{SUPABASE_REGION}}·{{BACKUP_RETENTION_DAYS}}·Supabase 법인 {{확인 필요: …}}뿐이다. 자리표시가 남은 시드는 원격에 게시하지 않는다(account_repo_pg.assert_publishable).
---     값이 정해지면 원격 게시 전에 이 파일의 자리표시만 채운다(본문 문장은 승인 원문 그대로). 원격 게시 뒤에는 v3 행을 새로 넣는다.
+--     (Recap 45 초안, ⑧ B)으로 반영했다(근거 data/mock/briefs/reports/recap45.md §2, 로컬 전용).
+--     privacy_policy §3 Supabase 줄의 법인·연락처, 리전(대한민국 서울 ap-northeast-2), 백업 7일 순환 삭제는 2026-11-20 사용자 승인
+--     (Recap 45 ①③④, 출처 https://supabase.com/privacy · https://supabase.com/docs/guides/platform/backups ·
+--     https://supabase.com/docs/guides/platform/regions, 읽은 날 2026-11-20)으로 채웠다. 남은 것은 {{PRIVACY_CONTACT}}뿐이다.
+--     자리표시가 남은 시드는 원격에 게시하지 않는다(account_repo_pg.assert_publishable).
+--     {{PRIVACY_CONTACT}}는 이 파일에 채우지 않는다(본문 문장은 승인 원문 그대로). 원격 게시 뒤에는 v3 행을 새로 넣는다.
 --   * 멱등: ON CONFLICT (doc_type, version) DO NOTHING. v1 게시본은 트리거(freeze_published_document)가 본문 수정을 막는다.
 -- 주의: 원격 적용은 승인 flag 절차 뒤다(BE-11-23, 설계 12장).
 
@@ -64,7 +69,7 @@ $md$, true, false, 'published', '{{EFFECTIVE_AT}}'),
 | 받는 자 | 위탁하는 업무 | 이전되는 항목 | 국가·시기·방법 | 보유·이용 기간 | 거부 방법과 효과 |
 |---|---|---|---|---|---|
 | OpenAI(OpenAI OpCo, L.L.C., 미국 · 문의 privacy@openai.com · 국내대리인 오픈에이아이코리아 유한회사 privacykorea@openai.com) | 답변 생성, 약봉투 사진에서 약 이름 읽기 | 질문 내용, 질문할 때 선택한 프로필 값(연령대, 임신 여부, 복용 약이 포함될 수 있음). 로그인하지 않고 질문에 적은 내용도 같습니다. 약봉투 사진을 올린 경우 그 사진(사진에 인쇄된 이름·약국 정보 등이 함께 담길 수 있음) | 미국 / 질문하거나 사진을 올릴 때마다 / 인터넷 전송 | 제공자의 정책에 따라 일정 기간 보관될 수 있습니다(남용을 막기 위한 기록은 최대 30일 보관하며, 모델 학습에는 쓰지 않습니다) | 질문에 적지 않거나 선택하지 않으면 전송되지 않습니다. 건강 정보를 질문에 쓰지 않으면 답변이 덜 정확할 수 있습니다. 사진을 올리지 않으면 사진은 전송되지 않으며, 약 이름을 직접 입력할 수 있습니다. |
-| Supabase {{확인 필요: 법인 명칭·연락처}} | 계정·프로필·동의 기록 저장, 로그인 처리 | 1절의 항목 | {{SUPABASE_REGION}} / 계정을 만들거나 저장할 때 / 인터넷 전송 | 삭제·철회·탈퇴 때까지(백업은 {{BACKUP_RETENTION_DAYS}}일 뒤 순환 삭제) | 로그인하지 않고 쓰면 저장하지 않습니다 |
+| Supabase(Supabase Pte. Ltd. · 문의 privacy@supabase.com) | 계정·프로필·동의 기록 저장, 로그인 처리 | 1절의 항목 | 대한민국(서울, Supabase 리전 ap-northeast-2) / 계정을 만들거나 저장할 때 / 인터넷 전송 | 삭제·철회·탈퇴 때까지(백업은 7일 뒤 순환 삭제, Supabase Pro 일간 백업, Supabase 정책에 따름) | 로그인하지 않고 쓰면 저장하지 않습니다 |
 
 ## 4. 보관과 파기
 프로필과 복용 약 정보는 삭제하거나 동의를 철회하거나 계정을 삭제하면 즉시 복구할 수 없게 지웁니다. 계정을 삭제하면 동의 기록과 로그인 계정 정보도 지우며(로그인 계정 정보는 지체 없이, 실패하면 다시 시도), 삭제했다는 사실은 누구의 것인지 알 수 있는 정보 없이 날짜별 건수로만 남깁니다.

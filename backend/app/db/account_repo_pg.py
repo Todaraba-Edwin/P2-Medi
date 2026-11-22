@@ -48,7 +48,7 @@ SEED_V2_FILE = DB_DIR / "seed_legal_v2.sql"  # PRD-17-05 A: v2 행 추가(v1 유
 SEED_FILES = {1: SEED_FILE, 2: SEED_V2_FILE}
 SEED_AGE14_FILE = DB_DIR / "seed_legal_age14.sql"  # PRD-17-12 A: 만 14세 확인 문서 v1. 스키마를 커밋한 뒤 따로 실행
 _EFFECTIVE_PLACEHOLDER = "{{EFFECTIVE_AT}}"
-# 값이 아직 없는 자리표시({{PRIVACY_CONTACT}}, {{확인 필요: …}} 등). 승인 원문 머리의 안내 문구 `{{…}}`(말줄임표 한 글자)는
+# 값이 아직 없는 자리표시({{PRIVACY_CONTACT}}는 render_privacy_contact가 원격 적용 직전에 채운다). 승인 원문 머리의 안내 문구 `{{…}}`(말줄임표 한 글자)는
 # 자리표시가 아니라 본문 문장이므로 제외한다. 주석 줄(--)은 보지 않는다
 _PLACEHOLDER_RE = re.compile(r"\{\{(?!…\}\})[^{}\n]+\}\}")
 _RULE_CODES = ("PROFILE_LIMIT", "MEDICATION_LIMIT", "USE_ACCOUNT_DELETE", "CONSENT_REQUIRED:sensitive_consent",
@@ -94,6 +94,31 @@ def assert_publishable(sql: str) -> None:
     left = unfilled_placeholders(sql)
     if left:
         raise ValueError(f"자리표시가 남아 원격 게시 불가: {', '.join(left)}")
+
+
+PRIVACY_CONTACT_PLACEHOLDER = "{{PRIVACY_CONTACT}}"
+# 보호책임자 값은 $md$…$md$ 본문 안에 들어간다. 달러 인용·자리표시·표 칸·HTML·줄바꿈을 깨뜨릴 문자는 받지 않는다
+_CONTACT_BAD_CHARS = re.compile(r"[\x00-\x1f\x7f${}|<>`\\]")
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def render_privacy_contact(sql: str, name: str | None, email: str | None) -> str:
+    """`{{PRIVACY_CONTACT}}`를 `개인정보 보호책임자: <이름>, 문의: <이메일>`로 채운다(PRD-17 ⑫, 2026-11-20).
+
+    값은 env `PRIVACY_OFFICER_NAME`·`PRIVACY_OFFICER_EMAIL`(Settings)에서 원격 적용 직전에만 받는다(저장소에 넣지 않음).
+    값이 없거나 비면 ValueError(게시 거부). 오류 메시지에는 값을 싣지 않는다. `body_sha256`은 DB 생성 열이라 채운 본문으로 계산된다.
+    """
+    name, email = (name or "").strip(), (email or "").strip()
+    if not name or not email:
+        raise ValueError("PRIVACY_OFFICER_NAME·PRIVACY_OFFICER_EMAIL 값이 없어 {{PRIVACY_CONTACT}}를 채울 수 없다(게시 거부)")
+    if _CONTACT_BAD_CHARS.search(name) or _CONTACT_BAD_CHARS.search(email):
+        raise ValueError("PRIVACY_OFFICER_NAME·PRIVACY_OFFICER_EMAIL에 허용하지 않는 문자(줄바꿈·$·{}·|·<>·`·\\)가 있다")
+    if not _EMAIL_RE.fullmatch(email):
+        raise ValueError("PRIVACY_OFFICER_EMAIL이 이메일 형식이 아니다")
+    filled = f"개인정보 보호책임자: {name}, 문의: {email}"
+    # 주석 줄(--)은 그대로 둔다(unfilled_placeholders와 같은 규칙). 값이 SQL 주석에 실리지 않게
+    return "".join(line if line.lstrip().startswith("--") else line.replace(PRIVACY_CONTACT_PLACEHOLDER, filled)
+                   for line in sql.splitlines(keepends=True))
 
 
 def _claims(user_id: str) -> str:

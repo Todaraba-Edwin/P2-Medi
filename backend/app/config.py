@@ -86,6 +86,12 @@ class Settings(BaseSettings):
     # 있어 선언이 없으면 extra="forbid"로 `get_settings()`가 실패한다(2026-11-20 메인 재현). 원문 비노출로 SecretStr
     tester_id: SecretStr | None = None
 
+    # 개인정보 보호책임자 이름·연락 이메일(개인정보, PRD-17 ⑫, 2026-11-20). 약관 시드 게시(be11_account_migrate) 때
+    # `{{PRIVACY_CONTACT}}` 칸을 채우는 데만 쓰고 저장소·로그·응답에 남기지 않는다. 루트 `.env`에 있어 선언이 없으면
+    # extra="forbid"로 `get_settings()`가 실패한다(2026-11-20 메인 재현). 원문 비노출로 SecretStr
+    privacy_officer_name: SecretStr | None = None
+    privacy_officer_email: SecretStr | None = None
+
     # hide_input_in_errors: 검증 오류(ValidationError)에 .env 입력 값(input_value=…)을 담지 않는다(sec-guard)
     model_config = SettingsConfigDict(env_file=default_env_files(), case_sensitive=False, hide_input_in_errors=True)
 
