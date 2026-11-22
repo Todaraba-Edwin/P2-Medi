@@ -123,7 +123,8 @@ describe("ChatInput", () => {
     render(<ChatInput onSend={() => {}} />);
     const notice = screen.getByTestId("input-notice");
     expect(notice.textContent).toBe(copy.INPUT_NOTICE);
-    expect(notice.textContent).toBe("질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문은 외부 AI(OpenAI)로 전송돼요.");
+    // 원문 승인(2026-11-22, PRD-17-10 후속, RFP-24-01 요소 보강): 마지막 문장에 프로필 값 전송·제공자 보관 가능성
+    expect(notice.textContent).toBe("질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문과 선택한 프로필 값은 외부 AI(OpenAI)로 전송되며, 제공자 정책에 따라 일정 기간 보관될 수 있어요.");
     expect(notice).toHaveAttribute("role", "note");
     expect(screen.getByRole("textbox")).toHaveAccessibleDescription(copy.INPUT_NOTICE);
     // 입력창(form) 바로 아래에 있다

@@ -12,8 +12,8 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: path.join(SHOT_DIR, `${name}-${page.viewportSize()!.width}-fecopy.png`) });
 };
 
-/** 승인 원문(PRD-17-07 A, 2026-11-19) */
-const INPUT_NOTICE = "질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문은 외부 AI(OpenAI)로 전송돼요.";
+/** 승인 원문(PRD-17-07 A, 2026-11-19; 마지막 문장은 원문 승인 2026-11-22, PRD-17-10 후속, RFP-24-01 요소 보강) */
+const INPUT_NOTICE = "질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문과 선택한 프로필 값은 외부 AI(OpenAI)로 전송되며, 제공자 정책에 따라 일정 기간 보관될 수 있어요.";
 /** 삭제한 사이드바 문구(PRD-17-08 A) */
 const REMOVED_SIDEBAR_NOTE = "대화는 이 화면에만 있고 저장하지 않아요. 새로고침하거나 닫으면 사라져요.";
 const notice = (page: Page) => page.getByTestId("input-notice");
