@@ -64,6 +64,12 @@ export interface AccountState {
   startGuest: () => void;
   /** 계정 모달을 연다: 게스트 → 로그인, 동의 전 → 동의, 그 밖 → 프로필 */
   open: () => void;
+  /**
+   * 로그인 콜백에서 돌아온 직후 한 번(`bootstrap()` 뒤): 온보딩(동의 → 본인 프로필)이 남았으면 모달을 그 단계로 열고 true.
+   * 이미 마친 사용자·게스트·계정 서버가 답하지 못한 경우(`me` null)는 열지 않고 false. 부르는 쪽이 복귀 표시를 한 번만 읽으므로
+   * 사용자가 닫으면 다시 강제로 열지 않는다(닫은 뒤에는 사이드바 `프로필 관리`에서 같은 단계로 이어 간다)
+   */
+  resumeOnboarding: () => boolean;
   close: () => void;
   back: () => void;
   go: (step: AccountStep) => void;
@@ -117,6 +123,12 @@ export function consentActive(me: Me | null, docType: ConsentDocType): boolean {
 
 /** 필수 동의(약관·개인정보)가 남아 있어 동의 화면이 먼저인가(서버가 계산한 온보딩 단계) */
 export const needsConsentStep = (me: Me | null) => me?.onboarding_step === "consent";
+
+/**
+ * 온보딩이 아직 남았는가(서버가 계산한 단계 그대로): 필수 동의·재동의가 남았거나(`consent`) 본인 프로필이 없다(`profile_self`).
+ * `family`(본인은 있고 가족을 더 넣을 수 있음)·`done`은 끝난 것으로 본다. `me`가 없으면(게스트·서버 답 없음) false
+ */
+export const onboardingPending = (me: Me | null) => me?.onboarding_step === "consent" || me?.onboarding_step === "profile_self";
 
 /** 동의 대상 문서(체크가 있는 문서). 고지 문서(`privacy_policy`)는 빠진다 */
 export const consentDocs = (docs: readonly LegalDoc[]) => docs.filter((doc): doc is LegalDoc & { doc_type: ConsentDocType } => isConsentDocType(doc.doc_type));
@@ -256,6 +268,12 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
         set({ flow: [first], failure: null, notice: null, form: null });
         // 로그인했는데 계정 서버 값이 아직 없으면 다시 읽어 본다(그 사이 서버가 준비됐을 수 있다)
         if (accountUnavailable(get())) void get().bootstrap();
+      },
+      resumeOnboarding: () => {
+        const { status, me } = get();
+        if (status !== "member" || !onboardingPending(me)) return false;
+        get().open(); // 동의가 남았으면 동의, 아니면(본인 프로필 없음) 프로필 화면
+        return true;
       },
       close: () => set({ flow: [], failure: null, notice: null, form: null }),
       back: () => set((state) => (state.flow.length > 1 ? { flow: state.flow.slice(0, -1), failure: null, notice: null } : state)),

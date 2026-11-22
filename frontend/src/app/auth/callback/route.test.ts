@@ -24,11 +24,12 @@ beforeEach(() => {
 });
 
 describe("GET /auth/callback", () => {
-  it("code가 있으면 세션으로 바꾸고 첫 화면으로 돌려보낸다(주소에 코드를 남기지 않는다)", async () => {
+  it("code가 있으면 세션으로 바꾸고 첫 화면으로 돌려보낸다(주소에 코드를 남기지 않고 복귀 표시 `auth_resume=1`만 붙인다)", async () => {
     const { status, location } = await call("?code=synthetic-code");
     expect(exchangeCodeForSession).toHaveBeenCalledWith("synthetic-code");
     expect(status).toBe(307);
-    expect(location).toBe(`${ORIGIN}/`);
+    expect(location).toBe(`${ORIGIN}/?auth_resume=1`);
+    expect(location).not.toContain("synthetic-code");
   });
 
   it("이메일 없는 카카오계정(Supabase 오류)이면 교환하지 않고 email_required 표시만 넘긴다", async () => {
@@ -57,7 +58,9 @@ describe("GET /auth/callback", () => {
 
   it("주소로 받은 값으로 이동 대상을 바꾸지 못한다(늘 같은 출처의 첫 화면)", async () => {
     const { location } = await call("?code=synthetic-code&next=https://example.com/&redirect_to=//example.com");
-    expect(location).toBe(`${ORIGIN}/`);
+    expect(location).toBe(`${ORIGIN}/?auth_resume=1`);
+    // 실패 복귀에는 성공 표시가 붙지 않는다(둘이 같이 가지 않는다)
+    expect((await call("?error=access_denied")).location).not.toContain("auth_resume");
   });
 });
 

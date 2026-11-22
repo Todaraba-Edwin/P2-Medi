@@ -7,7 +7,7 @@ import { PREGNANCY_SAVE_CONSENT_HINT } from "@/features/chat";
 import { PREGNANCY_PICK_HINT } from "@/features/result";
 import { CONSENT_DOC_TYPES, HEALTH_CONSENT_DOC } from "@/lib/api/account";
 import { DISCLAIMER, FIXED_NOTICE } from "@/lib/fixed/phrases.generated";
-import { createAccountHandlers } from "@/mocks/account-handlers";
+import { createAccountHandlers, mockSession } from "@/mocks/account-handlers";
 import type { AccountMockState } from "@/mocks/account-handlers";
 import { API_NO_CODE_NOTE, PHRASES } from "@/mocks/fixtures/phrases";
 import { handlers } from "@/mocks/handlers";
@@ -389,6 +389,61 @@ describe("사진 입력(FE-05 사진 부분, 〔D5〕·〔D6〕·〔D7〕A)", ()
     await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
     expect(document.activeElement).toBe(screen.getByRole("textbox"));
     expect(chatBodies).toHaveLength(0);
+  });
+});
+
+describe("로그인 콜백 복귀(?auth_resume=1, 2026-11-22 사용자 보고): 온보딩이 남았으면 모달이 그 단계로 다시 열린다", () => {
+  const setUrl = (search: string) => window.history.replaceState(null, "", `/${search}`);
+  afterEach(() => setUrl(""));
+
+  it("막 로그인한 사용자(동의 전)는 모달이 동의 화면으로 자동으로 열리고, 주소의 표시는 지워진다. 닫으면 다시 열리지 않고 `프로필 관리`에서 같은 단계로 이어 간다", async () => {
+    setUrl("?auth_resume=1&keep=1");
+    const { user, account } = setup({ session: mockSession("new"), width: 1280 });
+    const modal = await screen.findByTestId("account-modal");
+    expect(modal).toHaveAttribute("data-step", "consent");
+    expect(account.getState().flow).toEqual(["consent"]);
+    expect(window.location.search).toBe("?keep=1"); // 복귀 표시만 지운다(다른 값은 그대로)
+    expect(screen.queryByTestId("entry-choice")).toBeNull(); // 로그인 상태
+    // 닫으면 닫힌 채다(새로고침 없이 아무것도 다시 열지 않는다)
+    await user.click(within(modal).getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByTestId("account-modal")).toBeNull());
+    await account.getState().bootstrap(); // 상태를 다시 읽어도 열리지 않는다
+    expect(screen.queryByTestId("account-modal")).toBeNull();
+    // 사이드바 `프로필 관리`에서 이어 간다: 동의가 남았으니 동의 화면
+    await user.click(screen.getByRole("button", { name: "프로필 관리" }));
+    expect(await screen.findByTestId("account-modal")).toHaveAttribute("data-step", "consent");
+  });
+
+  it("동의는 마쳤지만 본인 프로필이 없으면 프로필 화면으로 열린다", async () => {
+    const session = mockSession("onboarded");
+    session.profiles = [];
+    session.step = "consent";
+    setUrl("?auth_resume=1");
+    setup({ session, width: 393 });
+    expect(await screen.findByTestId("account-modal")).toHaveAttribute("data-step", "profiles");
+    expect(screen.getByTestId("add-self")).toBeInTheDocument();
+  });
+
+  it("온보딩을 마친 사용자는 모달 없이 바로 채팅이다(대상 선택이 보인다)", async () => {
+    setUrl("?auth_resume=1");
+    setup({ session: mockSession("onboarded"), width: 1280 });
+    await screen.findByTestId("target-picker");
+    expect(window.location.search).toBe("");
+    expect(screen.queryByTestId("account-modal")).toBeNull();
+  });
+
+  it("표시가 있어도 세션이 없으면(게스트) 아무것도 열지 않고, 세션이 있어도 표시가 없으면(새로고침·일반 방문) 열지 않는다", async () => {
+    setUrl("?auth_resume=1");
+    const first = setup({ session: null, width: 393 });
+    await screen.findByTestId("entry-choice");
+    await waitFor(() => expect(first.account.getState().status).toBe("guest"));
+    expect(screen.queryByTestId("account-modal")).toBeNull();
+    cleanup();
+    setUrl("");
+    const second = setup({ session: mockSession("new"), width: 393 });
+    await waitFor(() => expect(second.account.getState().status).toBe("member"));
+    expect(screen.queryByTestId("account-modal")).toBeNull();
+    expect(second.account.getState().flow).toEqual([]);
   });
 });
 
