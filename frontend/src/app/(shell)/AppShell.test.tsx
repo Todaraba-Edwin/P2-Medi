@@ -54,6 +54,7 @@ afterAll(() => server.close());
 function onboardedSession(healthConsent: boolean, selfPregnancy: "pregnant" | "not_pregnant" | null = "not_pregnant"): NonNullable<AccountMockState["session"]> {
   const agree = { action: "agree" as const, version: 1, acted_at: NOW };
   return {
+    provider: "email",
     step: "family",
     completedAt: null,
     consents: Object.fromEntries(CONSENT_DOC_TYPES.filter((docType) => healthConsent || docType !== HEALTH_CONSENT_DOC).map((docType) => [docType, agree])),

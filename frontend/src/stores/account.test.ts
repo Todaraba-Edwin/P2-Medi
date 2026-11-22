@@ -16,21 +16,24 @@ import {
   RELATIONS,
   REQUIRED_CONSENT_DOCS,
   SEXES,
+  NAME_PREFILL_PROVIDER,
   accountApi,
   createProfile,
   deleteProfile,
   fetchLegalDocs,
   fetchMe,
   fetchProfiles,
+  fetchSelfNameDefault,
   isAccountEntryEnabled,
   postConsents,
+  selfNameFromNickname,
   socialLoginUrl,
   updateProfile,
 } from "@/lib/api/account";
 import type { Me, Profile, ProfileDraft } from "@/lib/api/account";
 import { AGE_BAND_LABELS } from "@/features/account/copy";
 import { createAccountHandlers } from "@/mocks/account-handlers";
-import { MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK } from "@/mocks/fixtures/account";
+import { MOCK_KAKAO_NICKNAME, MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK } from "@/mocks/fixtures/account";
 import { canAddFamily, canAddSelf, consentChannel, consentItems, createAccountStore, hasHealthConsent, hidesPregnancyToggle, needsConsentStep, onboardingPending, requiredAgreed, selectTargetProfile } from "./account";
 import type { ConsentChoices } from "./account";
 import { buildChatRequest, emptyConversationContext } from "./conversation-context";
@@ -716,5 +719,69 @@ describe("대상 선택 → 요청 context", () => {
     expect(hidesPregnancyToggle(null)).toBe(false);
     const store = createAccountStore();
     expect(hidesPregnancyToggle(selectTargetProfile(store.getState()))).toBe(false); // 게스트
+  });
+});
+
+describe("본인 프로필 이름 초기값 = 카카오 닉네임(FE-04-28 B, 2026-11-22)", () => {
+  const EXISTING_ID = "00000000-0000-4000-8000-000000000001";
+
+  it("selfNameFromNickname: 공백을 지우고 20자(글자 단위)로 자르며, 비거나 문자열이 아니면 null", () => {
+    expect(selfNameFromNickname("  삐약이 ")).toBe("삐약이");
+    expect(selfNameFromNickname("")).toBeNull();
+    expect(selfNameFromNickname("   ")).toBeNull();
+    expect(selfNameFromNickname(null)).toBeNull();
+    expect(selfNameFromNickname(undefined)).toBeNull();
+    expect(selfNameFromNickname(42)).toBeNull();
+    expect(selfNameFromNickname("가".repeat(PROFILE_LABEL_MAX_CHARS + 5))).toBe("가".repeat(PROFILE_LABEL_MAX_CHARS));
+    expect(selfNameFromNickname("😀".repeat(PROFILE_LABEL_MAX_CHARS + 1))).toBe("😀".repeat(PROFILE_LABEL_MAX_CHARS)); // 서로게이트 쌍을 가르지 않는다
+    expect(selfNameFromNickname(`${"a".repeat(PROFILE_LABEL_MAX_CHARS - 1)}   b`)).toBe("a".repeat(PROFILE_LABEL_MAX_CHARS - 1)); // 자른 뒤 끝 공백도 지운다
+    expect(NAME_PREFILL_PROVIDER).toBe("kakao");
+  });
+
+  it("목: 카카오 로그인이면 닉네임, 구글·이메일 로그인이면 null(구글 실명은 가져오지 않는다), 게스트는 null", async () => {
+    expect(await fetchSelfNameDefault()).toBeNull(); // 게스트(401)
+    const store = createAccountStore();
+    store.getState().open();
+    expect(await store.getState().loginSocial("kakao")).toBe(true);
+    expect(await fetchSelfNameDefault()).toBe(MOCK_KAKAO_NICKNAME);
+    expect(await store.getState().loginSocial("google")).toBe(true);
+    expect(await fetchSelfNameDefault()).toBeNull();
+    expect(await store.getState().loginEmail("user@example.com", "pw")).toBe(true);
+    expect(await fetchSelfNameDefault()).toBeNull();
+  });
+
+  it("스토어: 본인 프로필을 처음 만들 때만 읽어 form.labelDefault에 붙이고, 가족 추가·수정은 읽지 않는다. 읽기 실패는 비워 둔다", async () => {
+    const read = vi.fn(accountApi.fetchSelfNameDefault);
+    const store = createAccountStore({ api: { ...accountApi, fetchSelfNameDefault: read } });
+    store.getState().open();
+    expect(await store.getState().loginSocial("kakao")).toBe(true);
+    store.getState().editProfile({ profileId: null, self: true });
+    expect(store.getState().form).toEqual({ profileId: null, self: true, labelDefault: null }); // 읽기 전에는 비어 있다
+    await vi.waitFor(() => expect(store.getState().form?.labelDefault).toBe(MOCK_KAKAO_NICKNAME));
+    expect(read).toHaveBeenCalledTimes(1);
+    store.getState().back();
+    store.getState().editProfile({ profileId: null, self: false }); // 가족 추가
+    store.getState().editProfile({ profileId: EXISTING_ID, self: true }); // 본인 수정
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(store.getState().form).toEqual({ profileId: EXISTING_ID, self: true, labelDefault: null });
+    // 읽기 실패 → 그대로 비어 있고 오류도 띄우지 않는다
+    read.mockRejectedValueOnce(new AccountApiError("network", 0, null));
+    store.getState().editProfile({ profileId: null, self: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(store.getState().form).toEqual({ profileId: null, self: true, labelDefault: null });
+    expect(store.getState().failure).toBeNull();
+  });
+
+  it("스토어: 읽는 사이 폼을 떠났으면(닫힘) 붙이지 않는다", async () => {
+    let finish: (value: string | null) => void = () => {};
+    const store = createAccountStore({ api: { ...accountApi, fetchSelfNameDefault: () => new Promise((resolve) => (finish = resolve)) } });
+    store.getState().open();
+    expect(await store.getState().loginSocial("kakao")).toBe(true);
+    store.getState().editProfile({ profileId: null, self: true });
+    store.getState().close();
+    finish(MOCK_KAKAO_NICKNAME);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(store.getState().form).toBeNull();
   });
 });

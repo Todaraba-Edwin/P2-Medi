@@ -81,6 +81,8 @@ export const pregnancyToSave = (sex: Sex | "", pregnancy: PregnancyStatus): Preg
  * 사진으로 등록(FE-04-27 A, 2026-11-22): 약 입력 아래 `사진으로 등록` 버튼이 기존 사진 모달을 **프로필 목적지**로 연다(계정 모달 위에 한 층 더, `stacked`).
  * 확인 카드에서 `이대로 확인`한 약만 **지금 편집 중인 이 프로필**의 목록에 더한다(후보를 고른 약은 확인된 약, 글자만 있는 약은 확인 안 된 약, 같은 약은 한 번만).
  * 사진·이미지는 어디에도 저장하지 않고 이름만 목록에 들어가며, 저장은 기존처럼 `저장`을 눌러야 한다(건강 정보 동의가 없으면 묶음이 비활성이라 버튼도 눌리지 않는다).
+ * 이름(별명) 초기값(FE-04-28 B, 2026-11-22): 본인 프로필을 **처음 만들 때만** 로그인 공급자가 카카오면 닉네임이 미리 들어 있다(`target.labelDefault`, 스토어가 어댑터에서 읽는다).
+ * 구글·이메일·가족 추가·수정은 비어 있다. 사용자가 고치거나 지울 수 있고 저장을 누르기 전에는 서버로 가지 않으며 저장 요청에는 칸에 남은 값만 간다. 성별 등 다른 칸은 공급자 정보로 채우지 않는다.
  * 채팅 입력창의 사진 흐름(`AppShell`, 채팅 목적지)과는 별개의 모달 인스턴스다. 모달을 닫으면(`닫기`·Esc·`글자로 입력`) 폼의 입력 상태는 그대로다
  */
 export function ProfileForm() {
@@ -95,7 +97,10 @@ export function ProfileForm() {
   const id = useId();
   const self = target?.self ?? false;
 
-  const [label, setLabel] = useState(existing?.label ?? "");
+  // 이름(별명): 사용자가 적은 값(`typed`)이 있으면 그것, 없으면 저장된 값, 새 본인 프로필이면 스토어가 읽어 온 초기값(카카오 닉네임, FE-04-28 B)이다.
+  // 초기값은 나중에 도착해도 사용자가 아직 적지 않았을 때만 보이고, 지운 값("")도 사용자 값이라 초기값으로 되돌아가지 않는다. 저장은 지금 보이는 값만 보낸다
+  const [typed, setTyped] = useState<string | null>(null);
+  const label = typed ?? existing?.label ?? target?.labelDefault ?? "";
   const [relation, setRelation] = useState<Relation>(existing?.relation ?? (self ? "self" : "child"));
   const [ageBand, setAgeBand] = useState<AgeBand | "">(existing?.age_band ?? "");
   // 성별: 저장된 값만 채운다(새 프로필은 늘 미선택. 로그인 공급자 정보는 읽지 않는다)
@@ -171,7 +176,7 @@ export function ProfileForm() {
           value={label}
           aria-invalid={nameMissing}
           aria-describedby={`${id}-name-hint`}
-          onChange={(event) => setLabel(event.target.value)}
+          onChange={(event) => setTyped(event.target.value)}
           className={FIELD_CLASS}
         />
         <p id={`${id}-name-hint`} role={nameMissing ? "alert" : undefined} className={nameMissing ? "m-0 text-sm font-semibold text-red-ink" : "m-0 text-xs text-mute"}>
