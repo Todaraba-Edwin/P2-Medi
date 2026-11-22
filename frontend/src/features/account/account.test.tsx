@@ -764,6 +764,133 @@ describe("법적 문서 본문 렌더", () => {
     expect(container.querySelector("p")).toHaveTextContent("굵게 글자 <script>alert(1)</script>");
     expect(container.querySelectorAll("li")).toHaveLength(1);
   });
+
+  it("GFM 파이프 표는 머리·구분·본문 줄로 표가 되고, 구분 줄이 없는 `|` 줄은 문단(글자 그대로)이다", () => {
+    const table = "| 항목 | 목적 |\n|:---|---:|\n| **로그인** 정보 | 식별 |\n| 프로필 | 확인 | 넘침 |\n| 모자람 |\n\n| 표 아님 | 구분 줄 없음 |";
+    expect(parseMarkdown(table)).toEqual([
+      { kind: "table", header: ["항목", "목적"], rows: [["**로그인** 정보", "식별"], ["프로필", "확인 | 넘침"], ["모자람", ""]] },
+      { kind: "paragraph", text: "| 표 아님 | 구분 줄 없음 |" },
+    ]);
+    const { container } = render(<Markdown source={table} />);
+    const ths = container.querySelectorAll("thead th");
+    expect(ths).toHaveLength(2);
+    for (const th of ths) expect(th).toHaveAttribute("scope", "col");
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(3);
+    expect(container.querySelector("tbody td strong")).toHaveTextContent("로그인"); // 칸 안 굵게 유지
+    expect(container.querySelector("table")!.parentElement).toHaveClass("overflow-x-auto"); // 상자 안에서만 가로 스크롤
+    expect(container.querySelector("p")).toHaveTextContent("| 표 아님 | 구분 줄 없음 |");
+    expect(container.querySelectorAll("table")).toHaveLength(1);
+  });
+
+  it("인용(`> …`)은 blockquote로 그리고 이어지는 `>` 줄은 한 인용으로 잇는다", () => {
+    expect(parseMarkdown("> 초안입니다.\n> **검토** 전.\n\n본문")).toEqual([
+      { kind: "quote", text: "초안입니다. **검토** 전." },
+      { kind: "paragraph", text: "본문" },
+    ]);
+    const { container } = render(<Markdown source={"> 초안입니다.\n> 검토 전."} />);
+    expect(container.querySelectorAll("blockquote")).toHaveLength(1);
+    expect(container.querySelector("blockquote")).toHaveTextContent("초안입니다. 검토 전.");
+    expect(container.querySelector("blockquote")!.textContent).not.toContain(">");
+  });
+
+  describe("백엔드 시드 본문(읽기만)", () => {
+    const DB = path.resolve(__dirname, "../../../../backend/app/db");
+    /** 시드 SQL의 `('doc_type', version, 'title', $md$본문$md$` 행을 뽑는다 */
+    const seedBodies = (file: string) =>
+      [...readFileSync(path.join(DB, file), "utf8").matchAll(/\('(\w+)',\s*(\d+),\s*'[^']*',\s*\$md\$([\s\S]*?)\$md\$/g)].map((m) => ({ docType: m[1], version: Number(m[2]), body: m[3] }));
+    const v2 = seedBodies("seed_legal_v2.sql");
+    const v1 = seedBodies("seed_legal_v1.sql");
+    const age14 = seedBodies("seed_legal_age14.sql");
+
+    it("시드 v2 네 문서·v1 네 문서·age_14를 읽었다(파싱 깨짐 감지)", () => {
+      expect(v2.map((d) => d.docType)).toEqual(["terms", "privacy_policy", "privacy_consent", "sensitive_consent"]);
+      expect(v1.map((d) => d.docType)).toEqual(["terms", "privacy_policy", "privacy_consent", "sensitive_consent"]);
+      expect(age14).toEqual([{ docType: "age_14", version: 1, body: "만 14세 이상입니다." }]);
+    });
+
+    it.each([...v2, ...v1, ...age14].map((d) => [`${d.docType} v${d.version}`, d.body] as const))("%s: `|`로 시작하는 줄이 문단으로 남지 않고 인용 표식 `>`이 글자로 남지 않는다", (_name, body) => {
+      const blocks = parseMarkdown(body);
+      for (const block of blocks) {
+        if (block.kind === "paragraph" || block.kind === "quote") {
+          expect(block.text.startsWith("|"), block.text).toBe(false);
+          expect(block.text, block.text).not.toContain("|---");
+          expect(block.text.startsWith(">"), block.text).toBe(false);
+        }
+      }
+      const { container, unmount } = render(<Markdown source={body} />);
+      for (const p of container.querySelectorAll("p, li, blockquote, h4")) {
+        expect(p.textContent!.trim().startsWith("|"), p.textContent!).toBe(false);
+        expect(p.textContent!, p.textContent!).not.toContain("|---");
+      }
+      unmount();
+    });
+
+    it("시드 v2 처리방침: 표 두 개(1절 3칸 5행, 3절 6칸 2행)가 table·th[scope=col]로 그려진다", () => {
+      const policy = v2.find((d) => d.docType === "privacy_policy")!;
+      const tables = parseMarkdown(policy.body).filter((b) => b.kind === "table");
+      expect(tables).toHaveLength(2);
+      expect(tables[0]).toMatchObject({ header: ["항목", "목적", "언제"] });
+      expect(tables[0].kind === "table" && tables[0].rows).toHaveLength(5);
+      expect(tables[0].kind === "table" && tables[0].rows[0][0].startsWith("로그인 정보: 소셜 로그인 공급자")).toBe(true);
+      expect(tables[1]).toMatchObject({ header: ["받는 자", "위탁하는 업무", "이전되는 항목", "국가·시기·방법", "보유·이용 기간", "거부 방법과 효과"] });
+      expect(tables[1].kind === "table" && tables[1].rows).toHaveLength(2);
+      const { container } = render(<Markdown source={policy.body} />);
+      expect(container.querySelectorAll("table")).toHaveLength(2);
+      expect(container.querySelectorAll('th[scope="col"]')).toHaveLength(3 + 6);
+      expect(container.querySelectorAll("tbody tr")).toHaveLength(5 + 2);
+      for (const cell of container.querySelectorAll("td")) expect(cell.textContent).not.toContain("|");
+    });
+
+    it("시드 v2 네 문서의 머리 '초안·법률 검토 전' 안내는 blockquote로 그려진다", () => {
+      for (const doc of v2) {
+        const first = parseMarkdown(doc.body)[0];
+        expect(first.kind, doc.docType).toBe("quote");
+        const { container, unmount } = render(<Markdown source={doc.body} />);
+        const quotes = container.querySelectorAll("blockquote");
+        expect(quotes, doc.docType).toHaveLength(1);
+        expect(quotes[0]).toHaveTextContent("초안·법률 검토 전입니다.");
+        expect(quotes[0]).toHaveTextContent("원문 승인 2026-11-19(사용자)");
+        unmount();
+      }
+    });
+
+    it("age_14 본문은 문단 하나다", () => {
+      expect(parseMarkdown(age14[0].body)).toEqual([{ kind: "paragraph", text: "만 14세 이상입니다." }]);
+    });
+
+    // 사용자 보고 2026-11-22(실서버 §6·§7 연락처 줄): 시드는 `운영자(개발자) · {{PRIVACY_CONTACT}}` 한 줄이고 원격 적용이
+    // `개인정보 보호책임자: <이름>, 문의: <이메일>`로 같은 줄에 채운다(account_repo_pg.render_privacy_contact). 줄 구분이 본문에 없으니
+    // 화면은 한 문단으로 그리고(GFM), 어디서 접히는지는 폭에 따라 다르다. 프런트가 보장하는 것: 이메일은 중간에서 끊기지 않는다.
+    // 값은 가짜(저장소·시험에 실제 이름·이메일을 넣지 않는다)
+    const CONTACT = "개인정보 보호책임자: 홍길동, 문의: privacy@example.com";
+    const fillContact = (body: string) => body.replaceAll("{{PRIVACY_CONTACT}}", CONTACT);
+
+    it.each(["terms", "privacy_policy"])("시드 v2 %s의 연락처 줄은 한 문단이고 이메일은 끊기지 않는 덩어리(nowrap)로 그려진다", (docType) => {
+      const body = fillContact(v2.find((d) => d.docType === docType)!.body);
+      expect(body).not.toContain("{{PRIVACY_CONTACT}}");
+      const contact = parseMarkdown(body).find((b) => b.kind === "paragraph" && b.text.includes("운영자(개발자)"));
+      expect(contact).toEqual({ kind: "paragraph", text: `Can I PPiyak 운영자(개발자) · ${CONTACT}` }); // 줄 구분 없음(서버 본문 그대로)
+      const { container } = render(<Markdown source={body} />);
+      // 표 안의 위탁처 이메일에도 같은 표식이 붙으므로 연락처 문단 안의 것을 고른다
+      const email = [...container.querySelectorAll('p [data-testid="legal-email"]')].find((el) => el.textContent === "privacy@example.com")!;
+      expect(email).toBeDefined();
+      expect(email.className).toContain("whitespace-nowrap");
+      expect(email.closest("p")).toHaveTextContent(`Can I PPiyak 운영자(개발자) · ${CONTACT}`);
+      for (const span of container.querySelectorAll('[data-testid="legal-email"]')) expect(span.textContent).toMatch(/^[^\s@]+@[^\s@]+\.[A-Za-z]+$/); // 이메일만 덩어리
+      expect(container.querySelectorAll("br")).toHaveLength(0); // 시드에 강제 줄바꿈이 없으니 br도 없다
+    });
+
+    it("GFM 강제 줄바꿈(줄 끝 두 칸 공백·백슬래시)은 문단·인용 안에서 br이 되고, 그냥 이어지는 줄은 공백으로 잇는다", () => {
+      expect(parseMarkdown("운영자(개발자)  \n보호책임자: 홍길동\\\n문의: a@b.co\n이어짐  ")).toEqual([{ kind: "paragraph", text: "운영자(개발자)\n보호책임자: 홍길동\n문의: a@b.co 이어짐" }]);
+      expect(parseMarkdown("> 첫 줄  \n> 둘째 줄\n> 셋째 줄")).toEqual([{ kind: "quote", text: "첫 줄\n둘째 줄 셋째 줄" }]);
+      const { container } = render(<Markdown source={"운영자  \n**문의**: a@b.co\n\n> 가  \n> 나"} />);
+      expect(container.querySelectorAll("p br")).toHaveLength(1);
+      expect(container.querySelectorAll("blockquote br")).toHaveLength(1);
+      expect(container.querySelector("p strong")).toHaveTextContent("문의");
+      expect(container.querySelector("p")!.textContent).toBe("운영자문의: a@b.co");
+      expect(container.querySelector("p")!.textContent).not.toContain("\\");
+    });
+  });
 });
 
 describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21 A)", () => {
