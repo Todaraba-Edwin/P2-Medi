@@ -13,7 +13,7 @@ import { buildChatInput, canConfirm, emptyRow, rowsFromResponse } from "./build-
 import type { PhotoRow } from "./build-chat-input";
 import * as copy from "./copy";
 import { initialPhotoFlow, photoFlowReducer } from "./flow";
-import { PhotoImageError, prepareImage } from "./image";
+import { PHOTO_ACCEPT, PhotoImageError, prepareImage } from "./image";
 import { PhotoModal } from "./PhotoModal";
 import type { PhotoModalProps } from "./PhotoModal";
 import type { IngestDrug } from "./types";
@@ -114,8 +114,9 @@ describe("사진 고르기(P1·P2·P7·P9, PRD-13 코너)", () => {
     expect(document.activeElement).toBe(within(box).getByRole("heading", { name: copy.PHOTO_ENTRY_LABEL }));
     // 모달이 머리줄을 덮는 동안의 119 진입점
     expect(within(box).getByTestId("layer-emergency-entry")).toHaveAttribute("href", "tel:119");
-    // 파일 선택은 JPEG·PNG만
-    expect(within(box).getByTestId("photo-file")).toHaveAttribute("accept", "image/jpeg,image/png");
+    // 파일 선택은 JPEG·PNG와 HEIC/HEIF(BE-14-08 A: HEIC는 브라우저 안에서 JPEG로 바꿔 보낸다)
+    expect(within(box).getByTestId("photo-file")).toHaveAttribute("accept", PHOTO_ACCEPT);
+    expect(PHOTO_ACCEPT.split(",")).toEqual(expect.arrayContaining(["image/jpeg", "image/png", "image/heic", "image/heif", ".heic", ".heif"]));
   });
 
   it("형식·크기 거절(8MB 초과)은 보내지 않고 P7을 강조한다", async () => {

@@ -22,6 +22,7 @@ const P1 = "환자 이름·병원·약국은 가리고 찍어도 돼요. 사진�
 const P2 = "올린 사진은 약 이름을 읽기 위해 외부 AI(OpenAI)로 보내요. 이 서비스는 사진을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요.";
 const P3 = "사진에서 약 이름을 읽는 중이에요";
 const P4 = "사진에서 약 이름을 읽지 못했어요. 다시 찍거나 약 이름을 글자로 입력해 주세요.";
+const P7 = "JPG·PNG 사진만, 8MB까지 올릴 수 있어요.";
 const P8 = "지금은 사진으로 약 이름을 읽을 수 없어요. 약 이름을 글자로 입력해 주세요.";
 const EMERGENCY_TEXT = "응급 상황일 수 있어요. 지금 바로 119에 전화하세요.";
 
@@ -171,6 +172,28 @@ test.describe("인식 실패·상한·응급·닫기 (360px)", () => {
     await modal(page).getByTestId("photo-type-instead").click();
     await expect(modal(page)).toHaveCount(0);
     await expect(page.locator("textarea")).toBeFocused();
+    expect(bodies).toHaveLength(0);
+  });
+
+  test("HEIC 파일(BE-14-08 A): 파일 선택이 HEIC를 받고, 디코드하지 못하는 브라우저(Chromium)는 보내지 않고 P7을 강조한다", async ({ page }) => {
+    // 실제 HEIC 사진은 쓰지 않는다: `ftypheic` 머리만 있는 합성 바이트. Chromium에는 HEIC 디코더가 없어 변환이 실패하고 기존 형식 안내(P7)로 떨어진다
+    const ingest: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.endsWith("/api/ingest/image")) ingest.push(request.method());
+    });
+    const bodies = watchChat(page);
+    await start(page);
+    const box = modal(page);
+    const accept = (await box.getByTestId("photo-file").getAttribute("accept")) ?? "";
+    expect(accept.split(",")).toEqual(expect.arrayContaining(["image/heic", "image/heif", ".heic", ".heif"]));
+    const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypheic", "ascii"), Buffer.alloc(32)]);
+    await box.getByTestId("photo-file").setInputFiles({ name: "pouch.heic", mimeType: "image/heic", buffer: heic });
+    const note = box.getByTestId("photo-format-note");
+    await expect(note).toHaveAttribute("data-rejected", "true");
+    await expect(note).toHaveAttribute("role", "alert");
+    await expect(note).toHaveText(P7);
+    await expect(box).toHaveAttribute("data-step", "pick");
+    expect(ingest).toHaveLength(0);
     expect(bodies).toHaveLength(0);
   });
 
