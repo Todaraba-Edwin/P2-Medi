@@ -262,17 +262,72 @@ def _post(c: TestClient) -> Any:
     return c.post("/ingest/image", json={"image": "data:image/png;base64," + base64.b64encode(PNG).decode()})
 
 
+@pytest.fixture(autouse=True)
+def _isolated_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """실제 `.env`의 UPSTAGE_BASE_URL·MODEL이 시험에 섞이지 않게 기본 설정으로 고정(개별 시험이 다시 덮을 수 있다)."""
+    monkeypatch.setattr("app.config.get_settings", lambda: Settings(_env_file=None, upstage_api_key=SECRET))
+
+
+class TestEndpointModelSettings:
+    def _run(self, ledger: CostLedger, **settings: Any) -> tuple[Recorder, vision.VisionResult]:
+        rec = Recorder([_ocr_ok()], [_chat_ok()])
+        res = vision.extract(PNG, client=lambda: vision.UpstageVisionClient(SECRET, transport=httpx.MockTransport(rec)),
+                             ledger=ledger, provider="upstage", sleep=lambda _s: None)
+        return rec, res
+
+    def test_unset_keeps_global_url_and_model(self, ledger: CostLedger) -> None:
+        rec, res = self._run(ledger)
+        assert res.status == "OK"
+        assert [str(r.url) for r in rec.requests] == ["https://api.upstage.ai/v1/document-digitization", "https://api.upstage.ai/v1/chat/completions"]
+        assert json.loads(rec.requests[1].content)["model"] == "solar-pro4"
+
+    @pytest.mark.parametrize("raw", ["https://kr.api.upstage.ai", "https://kr.api.upstage.ai/", "https://kr.api.upstage.ai/v1", "https://kr.api.upstage.ai/v1/"])
+    def test_base_url_setting_reflected(self, ledger: CostLedger, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        monkeypatch.setattr("app.config.get_settings", lambda: Settings(_env_file=None, upstage_api_key=SECRET, upstage_base_url=raw))
+        rec, res = self._run(ledger)
+        assert res.status == "OK"
+        assert [str(r.url) for r in rec.requests] == ["https://kr.api.upstage.ai/v1/document-digitization", "https://kr.api.upstage.ai/v1/chat/completions"]
+
+    def test_model_setting_reflected_and_cost_is_worst_case(self, ledger: CostLedger, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("app.config.get_settings", lambda: Settings(_env_file=None, upstage_api_key=SECRET, upstage_model="solar-mini-4"))
+        rec, res = self._run(ledger)
+        assert res.status == "OK" and json.loads(rec.requests[1].content)["model"] == "solar-mini-4"
+        # 기본 모델이 아니면 실제 토큰 비용이 아니라 최악값을 기록한다(단가 확인 필요)
+        actual = vision.actual_cost(1000, 100, "upstage", vision.UPSTAGE_OCR_USD_PER_PAGE)
+        assert res.usd > actual
+
+    @pytest.mark.parametrize("raw", ["http://kr.api.upstage.ai/v1", "ftp://x", "kr.api.upstage.ai", "https://", "https://u:p@kr.api.upstage.ai/v1",
+                                     "https://kr.api.upstage.ai/v1?k=SECRETQ", "https://kr.api.upstage.ai:abc/v1"])
+    def test_invalid_url_rejected_without_echo(self, raw: str) -> None:
+        with pytest.raises(vision.VisionCallError) as e:
+            vision.resolve_upstage_base(raw)
+        msg = str(e.value)
+        assert "UPSTAGE_BASE_URL" in msg and raw not in msg and "SECRETQ" not in msg
+
+    def test_invalid_url_in_service_path_becomes_model_error(self, ledger: CostLedger, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("app.config.get_settings", lambda: Settings(_env_file=None, upstage_api_key=SECRET, upstage_base_url="http://evil.example/v1"))
+        res = vision.extract(PNG, client=lambda: vision.UpstageVisionClient(SECRET), ledger=ledger, provider="upstage", sleep=lambda _s: None)
+        assert res.status == "UNREADABLE" and res.reason == "MODEL_ERROR"
+
+
 class TestProviderSelection:
-    def test_settings_default_follows_constant_and_is_openai_now(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_settings_default_follows_constant_and_is_upstage_now(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MEDIAGENT_VISION_PROVIDER", raising=False)
         from app.config import DEFAULT_VISION_PROVIDER
 
-        assert DEFAULT_VISION_PROVIDER == "openai"  # 전환 결정(약관 v4·사진 고지 승인 뒤) 때 상수와 이 줄만 고친다
+        assert DEFAULT_VISION_PROVIDER == "upstage"  # 사용자 결정 2026-11-22 "현재는 Upstage로 반영". OpenAI 복귀는 환경변수
         assert Settings(_env_file=None).mediagent_vision_provider == DEFAULT_VISION_PROVIDER
         assert Settings(_env_file=None, mediagent_vision_provider="upstage").mediagent_vision_provider == "upstage"
         assert Settings(_env_file=None, mediagent_vision_provider="openai").mediagent_vision_provider == "openai"
         with pytest.raises(ValueError):
             Settings(_env_file=None, mediagent_vision_provider="other")
+
+    def test_env_name_selects_openai_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MEDIAGENT_VISION_PROVIDER", "openai")
+        assert Settings(_env_file=None).mediagent_vision_provider == "openai"
+        monkeypatch.setattr("app.config.get_settings", lambda: Settings(_env_file=None, openai_api_key="sk-x"))
+        assert ingest_api._provider_name() == "openai"
+        assert isinstance(vision.make_client(ingest_api._provider_name()), vision.OpenAIVisionClient)
 
     def test_env_name_selects_upstage_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MEDIAGENT_VISION_PROVIDER", "upstage")

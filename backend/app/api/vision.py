@@ -31,6 +31,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 from PIL import Image
@@ -41,15 +42,42 @@ from app.llm.prompts import split_frontmatter
 MODEL = "gpt-6-luna"
 PRICE_IN_PER_M, PRICE_OUT_PER_M = 0.10, 0.50  # USD/100만 토큰, `vision_pouch_test.OPENAI_PRICES`(RFP-15 §8.2, 2026-11-04 조회 값)
 # Upstage(AG-17 `vision_pouch_test`, 2026-11-20 공식 문서 확인): OCR 쪽당 0.0015 USD, solar-pro4 입력 0.30·출력 1.20 USD/100만 토큰
-UPSTAGE_BASE = "https://api.upstage.ai/v1"
+UPSTAGE_BASE = "https://api.upstage.ai/v1"  # 글로벌 기본. OCR(`/document-digitization`)과 chat(`/chat/completions`)이 같은 base의 상대 경로다(한국 리전도 같은 경로, "도메인만 교체")
 UPSTAGE_OCR_MODEL = "ocr"
 UPSTAGE_MODEL = "solar-pro4"
 UPSTAGE_OCR_USD_PER_PAGE = 0.0015
-UPSTAGE_PRICE_IN_PER_M, UPSTAGE_PRICE_OUT_PER_M = 0.30, 1.20
+UPSTAGE_PRICE_IN_PER_M, UPSTAGE_PRICE_OUT_PER_M = 0.30, 1.20  # `solar-pro4` 기준 단가. 다른 모델(`UPSTAGE_MODEL`)은 단가 확인 필요 → extract가 최악값으로 기록(보수적)
 UPSTAGE_MAX_TOKENS = 4000  # `vision_pouch_test.UPSTAGE_MAX_TOKENS`
 OCR_PREFIX = "아래는 약봉투 사진을 OCR로 읽은 글자다(사진 대신 이 글자를 준다). 글자 인식 오류가 있을 수 있다.\n<ocr>\n"  # `vision_pouch_test.OCR_PREFIX`
 OCR_MAX_CHARS = 6000  # OCR 글자 자름 한도, 최악 비용 계산에도 쓴다(`vision_pouch_test.OCR_MAX_CHARS`)
 Provider = Literal["upstage", "openai"]
+
+
+def resolve_upstage_base(raw: str | None) -> str:
+    """`UPSTAGE_BASE_URL` 값 → 정리한 base. 비면 글로벌 기본. https만, 호스트 필수, 계정 정보·쿼리·조각 불가, 경로가 없으면 `/v1`을 붙인다.
+    실패 메시지에는 입력값을 넣지 않는다(변수 이름만)."""
+    if raw is None or not raw.strip():
+        return UPSTAGE_BASE
+    try:
+        u = urlsplit(raw.strip())
+        ok = u.scheme == "https" and bool(u.hostname) and not u.username and not u.password and not u.query and not u.fragment
+        _ = u.port  # 잘못된 포트는 ValueError
+    except ValueError:
+        ok = False
+    if not ok:
+        raise VisionCallError("UPSTAGE_BASE_URL 형식 오류(https 주소만 허용)")
+    path = u.path.rstrip("/")
+    return f"https://{u.netloc}{path or '/v1'}"
+
+
+def upstage_model_name() -> str:
+    """설정 `UPSTAGE_MODEL`(비면 `solar-pro4`). 설정을 못 읽으면 기본값."""
+    try:
+        from app.config import get_settings
+
+        return (get_settings().upstage_model or "").strip() or UPSTAGE_MODEL
+    except Exception:  # noqa: BLE001 - 설정 로드 실패는 기본 모델
+        return UPSTAGE_MODEL
 MAX_COMPLETION_TOKENS = 4000  # 추론 토큰이 출력에 포함될 수 있어 넉넉히(상한일 뿐), `vision_pouch_test.OPENAI_MAX_COMPLETION`
 LONG_SIDE = 1400  # 확대 전처리 긴 변(`vision_pouch_test.UPSCALE_LONG_SIDE`)
 JPEG_QUALITY = 92
@@ -373,15 +401,17 @@ class UpstageVisionClient:
 
     provider: Provider = "upstage"
 
-    def __init__(self, api_key: str | None = None, *, base_url: str = UPSTAGE_BASE, transport: httpx.BaseTransport | None = None) -> None:
-        if api_key is None:
-            from app.config import get_settings, reveal
+    def __init__(self, api_key: str | None = None, *, base_url: str | None = None, transport: httpx.BaseTransport | None = None) -> None:
+        from app.config import get_settings, reveal
 
+        if api_key is None:
             api_key = reveal(get_settings().upstage_api_key)
         if not api_key:
             raise VisionCallError("UPSTAGE_API_KEY 없음")  # 변수 이름만. extract가 MODEL_ERROR로 돌린다
+        if base_url is None:  # 인자가 없으면 설정 `UPSTAGE_BASE_URL`(비면 글로벌 기본)
+            base_url = get_settings().upstage_base_url
         self._headers = {"Authorization": f"Bearer {api_key}"}
-        self._base = base_url.rstrip("/")
+        self._base = resolve_upstage_base(base_url)
         self._http = httpx.Client(transport=transport, timeout=TIMEOUT_S)
 
     def _post(self, path: str, timeout: float, **kw: Any) -> Any:
@@ -445,13 +475,14 @@ def extract(data: bytes, *, client: VisionClient | Callable[[], VisionClient], l
             sleep: Callable[[float], None] = time.sleep, prompt_path: Path = PROMPT_PATH, provider: Provider = "openai") -> VisionResult:
     """이미지 바이트 1장 → 약 이름 후보(허용 3칸). 형식·크기 위반은 InvalidImage를 올린다(그 밖의 실패는 결과의 status·reason).
     `provider`는 최악 비용·모델 이름·실제 비용 식을 고른다(기본 openai = 기존 동작, 서비스 경로는 `ingest`가 설정값을 넘긴다)."""
-    model = UPSTAGE_MODEL if provider == "upstage" else MODEL
+    model = upstage_model_name() if provider == "upstage" else MODEL
     max_tokens = UPSTAGE_MAX_TOKENS if provider == "upstage" else MAX_COMPLETION_TOKENS
     info = check_image(data)
     data_url, img_tok = prepare_image(data, info, resize=resize)
     system = load_system_prompt(prompt_path)
     try:
-        ledger.guard(worst_cost(system, img_tok, provider), bucket=LEDGER_BUCKET)
+        worst = worst_cost(system, img_tok, provider)
+        ledger.guard(worst, bucket=LEDGER_BUCKET)
     except (BudgetExceeded, OSError, ValueError):  # 상한, 원장 읽기 실패는 닫힌 쪽(호출 없음)
         return VisionResult("UNAVAILABLE", "CAP_REACHED")
     messages = build_messages(system, data_url)
@@ -476,6 +507,8 @@ def extract(data: bytes, *, client: VisionClient | Callable[[], VisionClient], l
     if comp is None:
         return VisionResult("UNREADABLE", "MODEL_ERROR", latency_s=latency, attempts=attempts)
     usd = actual_cost(comp.prompt_tokens, comp.completion_tokens, provider, comp.extra_usd)
+    if provider == "upstage" and model != UPSTAGE_MODEL:
+        usd = max(usd, worst)  # 기본 모델이 아니면 단가를 모른다(확인 필요) → 최악값으로 기록(보수적)
     try:
         ledger.add(usd, bucket=LEDGER_BUCKET)
     except (OSError, ValueError):

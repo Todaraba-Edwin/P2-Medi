@@ -24,7 +24,8 @@ def default_env_files() -> tuple[str, ...]:
     return (str(REPO_ROOT / ".env"), ".env")
 
 
-DEFAULT_VISION_PROVIDER: Literal["upstage", "openai"] = "openai"  # 전환 시 "upstage"로 한 줄만 바꾼다
+# 사용자 결정 2026-11-22 "현재는 Upstage로 반영"(구현은 둘 다 전환 가능, OpenAI 코드 유지). OpenAI로 돌아가려면 `MEDIAGENT_VISION_PROVIDER=openai`.
+DEFAULT_VISION_PROVIDER: Literal["upstage", "openai"] = "upstage"
 
 
 class Settings(BaseSettings):
@@ -49,9 +50,14 @@ class Settings(BaseSettings):
     mediagent_warmup: bool = True
 
     # 사진 약 이름 판독 제공자(BE-14, 비밀 아님, 환경변수 `MEDIAGENT_VISION_PROVIDER`). `upstage`는 OCR + solar-pro4, `openai`는 gpt-6-luna 비전.
-    # 사용자 결정 2026-11-22 Upstage 전환 — 키 요금제 확인·약관 v4 게시·사진 고지 승인 뒤 기본값을 upstage로 전환(메인이 별도 커밋).
-    # 전환 때는 아래 DEFAULT_VISION_PROVIDER 한 줄만 고친다.
+    # 사용자 결정 2026-11-22 "현재는 Upstage로 반영": 기본값 upstage, openai는 `MEDIAGENT_VISION_PROVIDER=openai`로 복귀.
+    # 처방전·약봉투 사진 고지: 처리방침 v4·사진 고지 승인은 별도 대기(PRD-17-19·20, FE-05-03) — 외부 사용자에게 열기 전 필수.
     mediagent_vision_provider: Literal["upstage", "openai"] = DEFAULT_VISION_PROVIDER
+    # Upstage 사진 판독 엔드포인트·모델(비밀 아님, 선택). 비면 글로벌 `https://api.upstage.ai/v1`·`solar-pro4`. 한국 리전(`kr.api.upstage.ai`,
+    # Closed Beta) 접근 승인 뒤 `UPSTAGE_BASE_URL`(https 필수, `/v1` 생략 가능)과 `UPSTAGE_MODEL`(한국 리전 목록의 모델)만 넣으면 전환된다.
+    # 값은 로그·오류에 남기지 않는다(검증 실패는 변수 이름만 알린다).
+    upstage_base_url: str | None = None
+    upstage_model: str | None = None
 
     # 식약처 DUR 품목정보 OpenAPI
     durprdlstinfoservice03_end_point: str | None = None
