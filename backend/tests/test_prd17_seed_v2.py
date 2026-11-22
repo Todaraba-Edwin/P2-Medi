@@ -162,7 +162,7 @@ def test_v2_seed_substitutes_effective_at_only():
     assert "{{EFFECTIVE_AT}}" not in sql and sql.count("'2026-12-01T00:00:00+00:00'") == 4
     assert "{{PRIVACY_CONTACT}}" in sql  # 값을 모르는 자리표시는 그대로 둔다
     with pytest.raises(ValueError):
-        seed_sql(datetime(2026, 12, 1, tzinfo=UTC), version=3)
+        seed_sql(datetime(2026, 12, 1, tzinfo=UTC), version=4)
 
 
 def test_placeholders_block_remote_publish_but_not_v1():

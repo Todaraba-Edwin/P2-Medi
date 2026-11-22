@@ -26,7 +26,8 @@ WRITE_WORDS = ("INSERT", "UPDATE", "ALTER", "DELETE", "DROP", "TRUNCATE", "CREAT
 FAKE_REMOTE = "postgresql://user@db.example.invalid:5432/postgres"
 EFFECTIVE = "2026-11-21T00:00:00+09:00"
 ALL_KEYS = [("terms", 1), ("privacy_policy", 1), ("privacy_consent", 1), ("sensitive_consent", 1),
-            ("terms", 2), ("privacy_policy", 2), ("privacy_consent", 2), ("sensitive_consent", 2), ("age_14", 1)]
+            ("terms", 2), ("privacy_policy", 2), ("privacy_consent", 2), ("sensitive_consent", 2), ("age_14", 1),
+            ("terms", 3), ("privacy_policy", 3)]
 
 
 FAKE_NAME, FAKE_EMAIL = "가짜책임자", "officer@example.invalid"  # 시험용 가짜 값(실제 .env 값을 쓰지 않음)
@@ -41,7 +42,7 @@ def _no_env_contact(monkeypatch):
 def _fill_v2(effective_at, version=1, _orig=m.seed_sql):
     """시험 전용: v2의 남은 자리표시를 시험값으로 채운다(원본 파일은 그대로)."""
     sql = _orig(effective_at, version)
-    return re.sub(r"\{\{(?!…\}\})[^{}\n]+\}\}", "시험값", sql) if version == 2 else sql
+    return re.sub(r"\{\{(?!…\}\})[^{}\n]+\}\}", "시험값", sql) if version in (2, 3) else sql
 
 
 # --------------------------------------------------------------------------- 가짜 연결
@@ -64,7 +65,7 @@ class Cur:
 def applied_answers(legal=None, enum=("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"), sex=True,
                     current=None):
     legal = [(t, v, "published") for t, v in ALL_KEYS] if legal is None else legal
-    current = [("age_14", 1), ("terms", 2)] if current is None else current
+    current = [("age_14", 1), ("terms", 3), ("privacy_policy", 3)] if current is None else current
     return {
         "to_regclass('auth.users')": [(True,)], "to_regprocedure('auth.uid()')": [(True,)],
         "FROM pg_roles": [("anon",), ("authenticated",)],
@@ -146,7 +147,7 @@ def run(argv, conn, flag_path, log=None):
 
 def test_steps_order_and_keys():
     steps = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC))
-    assert [s.name for s in steps] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14"]
+    assert [s.name for s in steps] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3"]
     assert m.expected_keys(steps) == ALL_KEYS
     assert steps[0].keys == [] and steps[0].placeholders == []
 
@@ -155,6 +156,7 @@ def test_current_v2_has_placeholders_and_others_do_not():
     steps = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC))
     assert steps[2].placeholders  # 지금 커밋된 v2는 자리표시가 남아 있다(Recap 45·58)
     assert steps[1].placeholders == [] and steps[3].placeholders == []
+    assert steps[4].placeholders == ["{{PRIVACY_CONTACT}}"]  # v3(PRD-17-18)도 연락처 자리표시만 남는다
     with pytest.raises(m.Refused, match="seed_legal_v2.sql"):
         m.check_publishable(steps)
 
@@ -189,6 +191,7 @@ def test_verify_ok_and_read_only(remote_env, flag):
     (applied_answers(sex=False), "schema_problems"),
     (applied_answers(legal=[(t, v, "published") for t, v in ALL_KEYS if v == 1]), "seed_rows_missing"),
     (applied_answers(current=[("terms", 2)]), "age_14_current"),
+    (applied_answers(current=[("age_14", 1), ("terms", 2), ("privacy_policy", 2)]), "terms_privacy_v3_current"),
 ])
 def test_verify_fails_when_something_missing(remote_env, flag, answers, problem):
     out, _ = run(["verify"], Conn(answers), flag)
@@ -243,19 +246,19 @@ def test_local_dsn_apply_needs_no_flag_but_still_yes(tmp_path):
 
 # --------------------------------------------------------------------------- apply(가짜 연결)
 
-def test_apply_runs_four_transactions(remote_env, flag, monkeypatch):
+def test_apply_runs_five_transactions(remote_env, flag, monkeypatch):
     monkeypatch.setattr(m, "seed_sql", _fill_v2)
     conn = Conn(applied_answers())
     out, f = run(["apply", "--yes", "--effective-at", EFFECTIVE], conn, flag)
     assert f.calls == 1 and conn.read_only is False and conn.closed
-    assert conn.commits == 4
+    assert conn.commits == 5
     rep = out["apply"]
-    assert [k for k in rep if k[0].isdigit()] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14"]
-    assert all(rep[k]["inserted"] == 0 for k in ("2 seed v1", "3 seed v2", "4 seed age_14"))  # 가짜 DB는 이미 적용 상태
+    assert [k for k in rep if k[0].isdigit()] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3"]
+    assert all(rep[k]["inserted"] == 0 for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3"))  # 가짜 DB는 이미 적용 상태
     schema_text = m.schema_sql()
     assert schema_text in conn.executed
     seeds = [s for s in conn.executed if "INSERT INTO account.legal_documents" in s]
-    assert len(seeds) == 3 and all(m.unfilled_placeholders(s) == [] for s in seeds)
+    assert len(seeds) == 4 and all(m.unfilled_placeholders(s) == [] for s in seeds)
 
 
 def test_apply_stops_when_schema_postcheck_fails(remote_env, flag, monkeypatch):
@@ -355,14 +358,14 @@ def test_local_pg_plan_apply_rerun_verify(scratch_dsn, monkeypatch, tmp_path):
 
     monkeypatch.setattr(m, "seed_sql", _fill_v2)
     first = m.main(["apply", "--yes", "--local-dsn", scratch_dsn, "--effective-at", eff], flag=no_flag, log=quiet)["apply"]
-    assert [first[k]["inserted"] for k in ("2 seed v1", "3 seed v2", "4 seed age_14")] == [4, 4, 1]
+    assert [first[k]["inserted"] for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3")] == [4, 4, 1, 2]
     after = first["after"]
     assert "age_14" in after["doc_type_values"] and after["sex_column"] and after["rls_off"] == []
-    assert sorted(after["legal_current"]) == sorted([["age_14", 1], ["privacy_consent", 2], ["privacy_policy", 2],
-                                                      ["sensitive_consent", 2], ["terms", 2]])
+    assert sorted(after["legal_current"]) == sorted([["age_14", 1], ["privacy_consent", 2], ["privacy_policy", 3],
+                                                      ["sensitive_consent", 2], ["terms", 3]])
 
     second = m.main(["apply", "--yes", "--local-dsn", scratch_dsn, "--effective-at", eff], flag=no_flag, log=quiet)["apply"]
-    assert [second[k]["inserted"] for k in ("2 seed v1", "3 seed v2", "4 seed age_14")] == [0, 0, 0]
+    assert [second[k]["inserted"] for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3")] == [0, 0, 0, 0]
     assert second["after"]["legal_rows"] == after["legal_rows"]
 
     ver = m.main(["verify", "--local-dsn", scratch_dsn], flag=no_flag, log=quiet)["verify"]
@@ -418,7 +421,7 @@ def test_apply_with_contact_inserts_rendered_seed_and_logs_no_value(remote_env, 
     out = m.main(["apply", "--yes", "--effective-at", EFFECTIVE], connect_fn=Factory(conn), flag=flag, log=logs.append,
                  contact=(FAKE_NAME, FAKE_EMAIL))
     seeds = [s for s in conn.executed if "INSERT INTO account.legal_documents" in s]
-    assert len(seeds) == 3 and all(m.unfilled_placeholders(s) == [] for s in seeds)
+    assert len(seeds) == 4 and all(m.unfilled_placeholders(s) == [] for s in seeds)
     assert any(f"개인정보 보호책임자: {FAKE_NAME}, 문의: {FAKE_EMAIL}" in s for s in seeds)
     text = "\n".join(logs) + repr(out)
     assert FAKE_NAME not in text and FAKE_EMAIL not in text
