@@ -40,3 +40,4 @@ RFP 7장 고지: 화면·응답에 "공공데이터 기반 정보 제공이며 �
 
 ## 5. 메모
 - 2026-11-20 **W2 감사 판단(사용자 지시, 근거 로컬 `w2-audit-doc.md` RFP-13 행): 닫지 않는다.** 이용 조건 항목은 README로 충족해 체크했다. 선행 FE-02·AG-08은 done이 아니다. **남긴 일**: ① `/chat` 응답 `disclaimer`·`fixed_notice` pytest(`test_ag08_guardrail.py` 등)와 화면 캡처 1건 확인 ② `citations[]`에 출처·기준일(`2026-07-21`) 문자열이 있는지 pytest 대조(기준일 시험 파일 `test_be16_month_as_of.py` 등은 있으나 항목 일치는 미확인). 화면 캡처는 FE 트랙, 나머지는 Docs(약 1시간).
+- 2026-11-22 **fe02-audit 반영(근거 로컬 `data/mock/briefs/reports/fe02-audit.md` §1, 읽기 전용 대조)**: 화면 내용 조건은 충족(RFP 7장 고지 = FE-02 `:32`·`:33`·`:36` 체크, 관련 화면 시험 3파일 627건 통과)이나 조건이 "FE-02가 done"이라 닫지 않는다. FE-02 done 대기(남은 것은 서버 몫, [FE-02 §3](../frontend/FE-02.md#3-하위-작업) "SCH-03 앞 FE+BE 소규모 계약 정리", W3).
