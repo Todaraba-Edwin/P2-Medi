@@ -1310,8 +1310,11 @@ test.describe("단언 보강 360px", () => {
 
 // ============================================================ FE-02·FE-01 남은 항목 보강(2026-11-18 goal)
 const START_EMERGENCY = "응급 상황이면 지금 바로 119에 전화하세요.";
-const EXTERNAL_AI =
+/** PRD-17-10 A(2026-11-20)로 시작 화면에서 삭제한 외부 AI 고지 원문. 화면 어디에도 없어야 한다 */
+const REMOVED_START_EXTERNAL_AI =
   "질문과 입력한 프로필은 답을 만들기 위해 외부 AI(OpenAI)로 보내요. 이 서비스는 질문 내용을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요.";
+/** 외부 AI 전송 고지가 화면에 몇 번 나오는지(입력창 고지 하나여야 한다) */
+const externalAiCount = (page: Page) => page.locator("body").evaluate((el) => (el.textContent?.match(/외부 AI/g) ?? []).length);
 /** 칩의 크기·폰트를 정하는 계산된 값 */
 const chipStyle = (target: ReturnType<Page["getByTestId"]>) =>
   target.evaluate((el) => {
@@ -1343,25 +1346,30 @@ for (const viewport of [
   test.describe(`시작 화면 안내 ${viewport.width}×${viewport.height}`, () => {
     test.use({ viewport });
 
-    test("119 안내 줄과 외부 AI 전송 고지가 질문을 보내기 전 첫 화면에, 입력창 가까이 접히지 않고 보인다(RFP-24-01, FE-01-24 A)", async ({ page }) => {
+    test("119 안내 줄과 외부 AI 전송 고지(입력창 고지 하나)가 질문을 보내기 전 첫 화면에, 입력창 가까이 접히지 않고 보인다(RFP-24-01, FE-01-24 A, PRD-17-10 A)", async ({ page }) => {
       await mockChat(page, "found");
       await openApp(page);
       const start119 = dock(page).getByTestId("start-emergency");
-      const notice = dock(page).getByTestId("external-ai-notice");
-      // 글자는 백엔드 상수에서 생성한 값 그대로다
+      const notice = dock(page).getByTestId("input-notice");
+      // 119 글자는 백엔드 상수에서 생성한 값 그대로다. 시작 화면 외부 AI 고지는 삭제했고(PRD-17-10 A) 외부 AI 고지는 입력창 고지 1회뿐이다
       await expect(start119).toHaveText(START_EMERGENCY);
-      await expect(notice).toHaveText(EXTERNAL_AI);
+      await expect(dock(page).getByTestId("external-ai-notice")).toHaveCount(0);
+      await expect(page.getByText(REMOVED_START_EXTERNAL_AI)).toHaveCount(0);
+      await expect(notice).toHaveCount(1);
+      expect(await externalAiCount(page)).toBe(1);
       await expect119Reachable(page, start119);
       await expectTouchTarget(start119);
       await expectInFirstScreen(page, notice);
       await expectInFirstScreen(page, page.getByTestId("legal-footer"));
       await expectInFirstScreen(page, input(page));
       await expect119Reachable(page, page.getByTestId("emergency-entry")); // 머리줄 119도 그대로 누를 수 있다
-      // 입력창 가까이: 고지 아래 끝에서 입력창 위 끝까지가 화면 높이의 1/4 안이고, 입력창보다 위에 있다
+      // 입력창 가까이: 119 줄 아래 끝에서 입력창 위 끝까지가 화면 높이의 1/4 안이고 입력창보다 위에 있다. 외부 AI 고지는 입력창 바로 아래다
+      const startBox = (await start119.boundingBox())!;
       const noticeBox = (await notice.boundingBox())!;
       const inputBox = (await input(page).boundingBox())!;
-      expect(noticeBox.y + noticeBox.height).toBeLessThanOrEqual(inputBox.y);
-      expect(inputBox.y - (noticeBox.y + noticeBox.height)).toBeLessThanOrEqual(viewport.height / 4);
+      expect(startBox.y + startBox.height).toBeLessThanOrEqual(inputBox.y);
+      expect(inputBox.y - (startBox.y + startBox.height)).toBeLessThanOrEqual(viewport.height / 4);
+      expect(noticeBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height - 0.5);
       // 접히는 틀 밖이고 동의 관문이 아니다(체크·버튼 없음): 고지를 건드리지 않고 바로 질문을 보낼 수 있다
       expect(await notice.evaluate((el) => el.closest("details, [role=dialog], [data-state=closed]") === null)).toBe(true);
       await expect(dock(page).locator("input[type=checkbox]")).toHaveCount(0);
@@ -1375,9 +1383,10 @@ for (const viewport of [
       await ask(page);
       await expect(page.getByTestId("result-card")).toBeVisible();
       expect(await requests(page)).toHaveLength(1);
-      // 질문을 보낸 뒤에는 시작 화면 안내가 내려가고 응답의 고정 안내·고지가 그 자리에 온다(119는 머리줄 진입점)
+      // 질문을 보낸 뒤에는 시작 화면 119 줄이 내려가고 응답의 고정 안내·고지가 그 자리에 온다(119는 머리줄 진입점). 입력창 고지는 그대로 1회
       await expect(page.getByTestId("start-emergency")).toHaveCount(0);
       await expect(page.getByTestId("external-ai-notice")).toHaveCount(0);
+      await expect(page.getByTestId("input-notice")).toHaveCount(1);
       await expect(dock(page).getByTestId("fixed-notice")).toBeVisible();
       await expect(tel(page)).toHaveCount(1);
     });
@@ -1387,7 +1396,7 @@ for (const viewport of [
 test.describe("시작 화면 안내 360px: 새 질문", () => {
   test.use({ viewport: { width: 360, height: HEIGHT } });
 
-  test("'새 질문'으로 시작 화면에 돌아오면 안내 2종이 다시 보인다", async ({ page }) => {
+  test("'새 질문'으로 시작 화면에 돌아오면 119 안내 줄이 다시 보이고 외부 AI 고지는 입력창 고지 1회뿐이다(PRD-17-10 A)", async ({ page }) => {
     await mockChat(page, "found");
     await openApp(page);
     await ask(page);
@@ -1396,7 +1405,9 @@ test.describe("시작 화면 안내 360px: 새 질문", () => {
     await page.getByTestId("new-chat").click();
     await expect(page.getByTestId("home")).toBeVisible();
     await expect(page.getByTestId("start-emergency")).toHaveText(START_EMERGENCY);
-    await expect(page.getByTestId("external-ai-notice")).toHaveText(EXTERNAL_AI);
+    await expect(page.getByTestId("external-ai-notice")).toHaveCount(0);
+    await expect(page.getByTestId("input-notice")).toHaveCount(1);
+    expect(await externalAiCount(page)).toBe(1);
   });
 
   test("응급 답을 받은 뒤에는 119가 배너 하나뿐이다(시작 화면 119 줄이 남지 않는다)", async ({ page }) => {

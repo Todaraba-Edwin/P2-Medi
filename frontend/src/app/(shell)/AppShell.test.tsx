@@ -91,6 +91,17 @@ async function ask(user: ReturnType<typeof userEvent.setup>, question: string) {
 }
 
 describe("F3 고지 개수(FE-11-10 A)", () => {
+  it.each([1280, 393])("%ipx 시작 화면(게스트): 외부 AI 전송 고지는 입력창 고지 1회뿐이다(PRD-17-10 A: 시작 화면 고지 삭제)", async (width) => {
+    setup({ width });
+    const body = await screen.findByTestId("main");
+    expect(screen.getByTestId("start-emergency")).toBeInTheDocument(); // 시작 화면 119 줄은 그대로
+    expect(screen.queryByTestId("external-ai-notice")).toBeNull();
+    expect(within(body).getAllByTestId("input-notice")).toHaveLength(1);
+    expect(count("외부 AI", body)).toBe(1);
+    expect(count("OpenAI", body)).toBe(1);
+    expect(count("외부 AI", document.body)).toBe(1);
+  });
+
   it("1280: 실시간 확인 실패 응답에서 본문은 '실시간 확인' 0회·안전 고지 1회·법적 고지 1회·입력창 고지 1회이고, 자동으로 열린 근거 상세에만 배너·줄 노트가 있다", async () => {
     const { user } = setup({ width: 1280 });
     await ask(user, "mock:실시간실패 가나다정");

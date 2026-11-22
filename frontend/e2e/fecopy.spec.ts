@@ -45,10 +45,13 @@ for (const width of [393, 1280]) {
     test("시작 화면(게스트): 입력창 아래 고지가 승인 원문 그대로 보이고 기존 안내와 겹치지 않는다", async ({ page }) => {
       await openApp(page);
       await expectNoticeUnderInput(page);
-      // 시작 화면 안내 2종(119 줄·외부 AI 고지)과 법적 고지는 입력창 위, 새 고지는 입력창 아래: 세로로 나란하고 겹치지 않는다
-      const external = (await page.getByTestId("external-ai-notice").boundingBox())!;
+      // 시작 화면 119 줄과 법적 고지는 입력창 위, 고지는 입력창 아래: 세로로 나란하고 겹치지 않는다.
+      // 시작 화면 외부 AI 고지는 PRD-17-10 A로 삭제했다: 외부 AI 전송 고지는 입력창 고지 1회뿐이다
+      await expect(page.getByTestId("external-ai-notice")).toHaveCount(0);
+      expect(await page.locator("body").evaluate((el) => (el.textContent?.match(/외부 AI/g) ?? []).length)).toBe(1);
+      const start119 = (await page.getByTestId("start-emergency").boundingBox())!;
       const noticeBox = (await notice(page).boundingBox())!;
-      expect(external.y + external.height).toBeLessThanOrEqual(noticeBox.y);
+      expect(start119.y + start119.height).toBeLessThanOrEqual(noticeBox.y);
       await shot(page, "start-notice");
     });
 

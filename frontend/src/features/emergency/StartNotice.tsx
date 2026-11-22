@@ -20,17 +20,3 @@ export function StartEmergencyLink({ text }: { text: string }) {
     </NoMascotZone>
   );
 }
-
-/**
- * 외부 AI 전송 고지(RFP-24-01, PRD-07-02). 글자는 백엔드 상수에서 생성한 값 그대로다.
- * 안내이지 동의 관문이 아니다: 체크·버튼이 없고 질문을 막지 않는다(PJ2-PRD.md 15.3 (9)). 접히지 않는 자리에 둔다.
- */
-export function ExternalAiNotice({ text }: { text: string }) {
-  return (
-    <NoMascotZone>
-      <p role="note" data-testid="external-ai-notice" className="m-0 px-1 text-xs leading-[17px] break-words text-mute">
-        {text}
-      </p>
-    </NoMascotZone>
-  );
-}
