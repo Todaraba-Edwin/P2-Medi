@@ -7,8 +7,9 @@ import { defineConfig } from "@playwright/test";
 // - Playwright는 webServer를 적힌 순서대로 하나씩 띄운다. build가 바꾼 next-env.d.ts를 dev가 다시 쓰도록 MSW 서버를 먼저 둔다
 // - Supabase 로그인 설정 두 값은 두 서버 모두 빈 값으로 고정한다: 개발자의 로컬 환경 파일에 값이 있어도 e2e 결과가 달라지지 않고
 //   (계정 진입점은 `app`에서 숨김, `msw-worker`에서는 목 로그인), 실제 Supabase를 부르지 않는다. 로그인 왕복은 목(MSW)으로만 본다
-const APP_PORT = 3100;
-const MSW_PORT = 3110;
+// 포트는 환경변수로 덮어쓸 수 있다(worktree를 여럿 두고 병렬로 돌릴 때 다른 세션의 3100·3110 서버를 재사용하지 않게. 2026-11-22)
+const APP_PORT = Number(process.env.PW_APP_PORT ?? 3100);
+const MSW_PORT = Number(process.env.PW_MSW_PORT ?? 3110);
 const NO_SUPABASE = { NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" };
 
 export default defineConfig({

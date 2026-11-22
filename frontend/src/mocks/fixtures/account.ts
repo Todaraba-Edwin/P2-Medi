@@ -40,9 +40,15 @@ export const MOCK_LEGAL_DOCS: Readonly<Record<LegalDocType, LegalDoc>> = {
     requires_reconsent: false,
     legal_review: "not_reviewed",
     body_sha256: fakeSha("2"),
+    // 시드 v2(`backend/app/db/seed_legal_v2.sql`)와 같은 모양: 머리 인용(`> …`) + 파이프 표. 화면 표 렌더(Markdown.tsx) e2e용이며 내용은 합성이다
     body_md: [
+      "> 초안·법률 검토 전입니다(합성 목 문서).",
+      "",
       "## 처리하는 항목",
-      "- 로그인 식별자, 프로필 이름(별명), 관계, 연령대",
+      "| 항목 | 목적 | 언제 |",
+      "|---|---|---|",
+      "| 로그인 식별자: 소셜 로그인 공급자가 넘기는 계정 식별자(합성) | 회원 식별, 중복 가입 방지 | 계정을 만들 때 |",
+      "| 프로필 이름(별명), 관계, 연령대 | 질문할 때 연령대를 자동으로 채워 **연령금기** 확인 | 프로필을 저장할 때 |",
       "",
       "## 외부 AI 전송",
       "- 질문과 고른 프로필의 연령대·임신 여부",
