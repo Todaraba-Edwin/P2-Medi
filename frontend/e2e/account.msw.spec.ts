@@ -321,6 +321,7 @@ for (const width of [360, 1280]) {
       await expect(page.getByTestId("confirm-dialog")).toHaveCount(0); // 새로 동의할 때는 확인 모달이 없다
       await modal(page).getByTestId("add-self").click();
       await modal(page).getByLabel("이름(별명)").fill("나");
+      await modal(page).getByLabel("성별").selectOption("female"); // 임신 여부 칸은 여성일 때만 보인다(작업 B, 2026-11-22)
       await modal(page).getByRole("radio", { name: "예" }).check();
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page).getByTestId("profile-item")).toContainText("임신 여부 예");

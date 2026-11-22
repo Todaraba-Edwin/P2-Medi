@@ -352,6 +352,7 @@ describe("약관 동의 화면", () => {
     await consent(user, { health: true });
     await user.click(screen.getByTestId("add-self"));
     await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await user.selectOptions(screen.getByLabelText("성별"), "female"); // 임신 여부 칸은 여성일 때만 보인다(작업 B)
     await user.click(screen.getByRole("radio", { name: "예" }));
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
@@ -419,7 +420,10 @@ describe("프로필 화면", () => {
     await user.click(screen.getByTestId("add-family"));
     expect(step()).toBe("profile-form");
     expect(screen.getByTestId("health-fields")).toBeDisabled();
-    for (const radio of screen.getAllByRole("radio")) expect(radio).toBeDisabled();
+    expect(screen.queryByTestId("pregnancy-field")).toBeNull(); // 성별 미입력이라 임신 여부 칸은 없다(작업 B)
+    await user.selectOptions(screen.getByLabelText("성별"), "female");
+    for (const radio of screen.getAllByRole("radio")) expect(radio).toBeDisabled(); // 여성이어도 동의가 없으면 비활성
+    await user.selectOptions(screen.getByLabelText("성별"), "");
     expect(screen.getByLabelText("복용 중인 약(선택)")).toBeDisabled();
     expect(screen.getByTestId("medication-add")).toBeDisabled();
     expect(screen.getByTestId("health-consent-notice")).toHaveTextContent(HEALTH_CONSENT_REQUIRED_FALLBACK);
@@ -494,6 +498,7 @@ describe("프로필 화면", () => {
     expect(screen.getByLabelText("관계")).toBeDisabled(); // 본인은 관계 고정
     await user.type(screen.getByLabelText("이름(별명)"), "나");
     await user.selectOptions(screen.getByLabelText("연령대"), "y19_64");
+    await user.selectOptions(screen.getByLabelText("성별"), "female"); // 임신 여부 칸은 여성일 때만(작업 B)
     await user.click(screen.getByRole("radio", { name: "예" }));
     await user.type(screen.getByLabelText("복용 중인 약(선택)"), "가나다정 100밀리그램");
     // 검색이 끝난 뒤 후보를 고르지 않고 `그대로 추가`(FE-04-24 A: 검색 중에는 막히고, 후보가 있으면 Enter는 저장이 아니다)
@@ -504,7 +509,7 @@ describe("프로필 화면", () => {
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(store.getState().profiles[0]).toMatchObject({ relation: "self", label: "나", pregnancy_status: "pregnant", medications: [{ input_text: "가나다정 100밀리그램", item_seq: null }] });
-    expect(screen.getByTestId("profile-item")).toHaveTextContent("본인 · 만 19~64세 · 임신 여부 예 · 약 1개");
+    expect(screen.getByTestId("profile-item")).toHaveTextContent("본인 · 만 19~64세 · 여성 · 임신 여부 예 · 약 1개");
     expect(screen.queryByTestId("add-self")).toBeNull(); // 본인은 1개
     // 수정
     await user.click(screen.getByRole("button", { name: "나 수정" }));
@@ -664,6 +669,7 @@ describe("브라우저 저장소 미사용(FE-01-08 A)", () => {
     await consent(user, { health: true });
     await user.click(screen.getByTestId("add-self"));
     await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await user.selectOptions(screen.getByLabelText("성별"), "female"); // 임신 여부 칸은 여성일 때만(작업 B)
     await user.click(screen.getByRole("radio", { name: "예" }));
     await user.type(screen.getByLabelText("복용 중인 약(선택)"), "가나다정{Enter}");
     await user.click(screen.getByTestId("profile-save"));

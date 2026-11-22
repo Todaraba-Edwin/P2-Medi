@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { XIcon } from "lucide-react";
-import { AGE_BANDS, MEDICATIONS_MAX, PREGNANCY_STATUSES, PROFILE_LABEL_MAX_CHARS, RELATIONS, SEXES } from "@/lib/api/account";
+import { AGE_BANDS, MEDICATIONS_MAX, PROFILE_LABEL_MAX_CHARS, RELATIONS, SEXES } from "@/lib/api/account";
 import type { AgeBand, MedicationInput, PregnancyStatus, ProfileDraft, Relation, Sex } from "@/lib/api/account";
 import { hasHealthConsent, useAccountStore } from "@/stores/account";
 import {
@@ -16,7 +16,6 @@ import {
   MEDICATION_UNCONFIRMED_TAG,
   NOT_SELECTED,
   PREGNANCY_LABEL,
-  PREGNANCY_LABELS,
   PROFILE_FORM_EDIT_TITLE,
   PROFILE_FORM_NEW_TITLE,
   PROFILE_NAME_HINT,
@@ -30,6 +29,7 @@ import {
 } from "./copy";
 import { MedicationPicker } from "./MedicationPicker";
 import { EmergencyEntrySlot, FIELD_CLASS, FailureLine, ICON_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
+import { PregnancySelect } from "./PregnancySelect";
 import { useHealthConsentNotice } from "./ProfileList";
 
 const FAMILY_RELATIONS = RELATIONS.filter((relation) => relation !== "self");
@@ -38,10 +38,22 @@ const LABEL_CLASS = "text-xs font-bold text-ink-2";
 /** 같은 약인가: 품목 번호가 있으면 번호로, 없으면 적은 글자로 본다 */
 const sameMedication = (a: MedicationInput, b: MedicationInput) => (a.item_seq && b.item_seq ? a.item_seq === b.item_seq : a.input_text === b.input_text);
 
+/** 임신 여부 칸을 그리는가(사용자 지시 2026-11-22): 성별이 **여성일 때만**. 남성·미입력(기본 "선택 안 함")은 숨긴다 */
+export const showsPregnancyField = (sex: Sex | "") => sex === "female";
+
+/**
+ * 저장할 임신 여부(사용자 지시 2026-11-22): 여성이면 고른 값, 아니면(칸이 숨겨짐) `unknown`(모름, 기존 기본값)으로 정리한다.
+ * 저장된 프로필이 여성이 아닌데 `pregnant`가 남아 있는 비정상 값(입력창 토글은 성별 미입력 프로필에도 저장한다, FE-11-13)은 편집 화면에서 보이지 않고 저장 때 모름으로 돌아간다
+ */
+export const pregnancyToSave = (sex: Sex | "", pregnancy: PregnancyStatus): PregnancyStatus => (showsPregnancyField(sex) ? pregnancy : "unknown");
+
 /**
  * 프로필 추가·수정 폼. 관계·연령대·성별(선택)·임신 여부·복용 중인 약(선택).
  * 성별(FE-11-09 C·PRD-17-13 A)은 연령대 아래 기본 단계의 선택 칸이다: "여성 | 남성" + 선택 안 함(null). 건강 정보가 아니라 건강 정보 동의 없이도 저장되고,
  * 온보딩에서 사용자가 직접 고른다(간편 로그인 공급자 정보로 미리 채우지 않는다. 처음 열면 늘 "선택 안 함"이다). `/chat` 요청에는 싣지 않는다(S10).
+ * 임신 여부(사용자 지시 2026-11-22, 작업 B)는 **성별이 여성일 때만** 나타나는 선택 버튼 "예 | 아니오 | 모름"(`PregnancySelect`)이다. 처음(성별 미입력)에는 숨기고,
+ * 여성에서 다른 값으로 바꾸면 칸을 숨기면서 값을 `unknown`(모름)으로 되돌려 숨겨진 값이 저장되지 않게 한다(`pregnancyToSave`). 가족 프로필마다 독립이고 추가·수정이 같은 부품이다.
+ * 입력창의 "일반인 | 임산부" 토글(FE-11, 남성만 숨김)과 `context.pregnant` 규칙은 여기와 별개다.
  * 건강 정보(임신 여부·복용 약)는 건강 정보 동의가 있을 때만 입력·저장할 수 있다: 동의가 없으면 두 칸이 비활성이고 이유 한 줄이 보이며,
  * 저장할 때도 건강 정보 칸을 요청에 싣지 않는다(실으면 서버가 422 `HEALTH_CONSENT_REQUIRED`로 막는다).
  * 약은 사전 검색 후보를 골라 `{input_text, item_seq}`로 보내고(FE-04-13 A), 사전에 없거나 고르지 않고 확정하면 `{input_text}`만 보낸다
@@ -64,7 +76,13 @@ export function ProfileForm() {
   const [ageBand, setAgeBand] = useState<AgeBand | "">(existing?.age_band ?? "");
   // 성별: 저장된 값만 채운다(새 프로필은 늘 미선택. 로그인 공급자 정보는 읽지 않는다)
   const [sex, setSex] = useState<Sex | "">(existing?.sex ?? "");
-  const [pregnancy, setPregnancy] = useState<PregnancyStatus>(existing?.pregnancy_status ?? "unknown");
+  // 임신 여부: 여성 프로필의 저장 값만 채운다. 여성이 아니면 칸이 숨겨지므로 모름(`unknown`)에서 시작한다
+  const [pregnancy, setPregnancy] = useState<PregnancyStatus>(pregnancyToSave(existing?.sex ?? "", existing?.pregnancy_status ?? "unknown"));
+  /** 성별을 바꾸면 임신 여부 칸이 나타나거나 사라진다. 사라질 때(여성 → 다른 값) 값을 모름으로 되돌린다 */
+  const changeSex = (next: Sex | "") => {
+    setSex(next);
+    if (!showsPregnancyField(next)) setPregnancy("unknown");
+  };
   const [medications, setMedications] = useState<MedicationInput[]>(() => (existing?.medications ?? []).map((item) => ({ input_text: item.input_text, item_seq: item.item_seq })));
   const [nameMissing, setNameMissing] = useState(false);
 
@@ -83,8 +101,8 @@ export function ProfileForm() {
       label: name,
       age_band: ageBand === "" ? null : ageBand,
       sex: sex === "" ? null : sex,
-      // 건강 정보 동의가 없으면 건강 정보 칸을 보내지 않는다
-      health: healthConsent ? { pregnancy_status: pregnancy, medications } : null,
+      // 건강 정보 동의가 없으면 건강 정보 칸을 보내지 않는다. 여성이 아니면 임신 여부는 모름으로 정리해 보낸다(숨겨진 값은 저장하지 않는다)
+      health: healthConsent ? { pregnancy_status: pregnancyToSave(sex, pregnancy), medications } : null,
     };
     void store.getState().saveProfile(draft);
   };
@@ -146,7 +164,7 @@ export function ProfileForm() {
         <label htmlFor={`${id}-sex`} className={LABEL_CLASS}>
           {SEX_LABEL}
         </label>
-        <select id={`${id}-sex`} data-testid="profile-sex" value={sex} onChange={(event) => setSex(event.target.value as Sex | "")} className={FIELD_CLASS}>
+        <select id={`${id}-sex`} data-testid="profile-sex" value={sex} onChange={(event) => changeSex(event.target.value as Sex | "")} className={FIELD_CLASS}>
           <option value="">{NOT_SELECTED}</option>
           {SEXES.map((value) => (
             <option key={value} value={value}>
@@ -162,19 +180,15 @@ export function ProfileForm() {
               {healthNotice}
             </p>
           )}
-          <div role="radiogroup" aria-labelledby={`${id}-pregnancy`} className="flex flex-col gap-1">
-            <span id={`${id}-pregnancy`} className={LABEL_CLASS}>
-              {PREGNANCY_LABEL}
-            </span>
-            <div className="flex flex-wrap gap-x-4">
-              {PREGNANCY_STATUSES.map((value) => (
-                <label key={value} className={`flex min-h-11 items-center gap-2 text-sm ${healthConsent ? "cursor-pointer" : "text-faint"}`}>
-                  <input type="radio" name={`${id}-pregnancy`} value={value} checked={(healthConsent ? pregnancy : "unknown") === value} onChange={() => setPregnancy(value)} className="size-5 accent-ink" />
-                  {PREGNANCY_LABELS[value]}
-                </label>
-              ))}
+          {/* 임신 여부: 성별이 여성일 때만 그린다(처음에는 숨김). 선택 버튼 "예 | 아니오 | 모름" */}
+          {showsPregnancyField(sex) && (
+            <div data-testid="pregnancy-field" className="flex flex-col gap-1">
+              <span id={`${id}-pregnancy`} className={LABEL_CLASS}>
+                {PREGNANCY_LABEL}
+              </span>
+              <PregnancySelect value={healthConsent ? pregnancy : "unknown"} onChange={setPregnancy} labelledBy={`${id}-pregnancy`} disabled={!healthConsent} />
             </div>
-          </div>
+          )}
           <label htmlFor={`${id}-medication`} className={LABEL_CLASS}>
             {MEDICATIONS_LABEL}
           </label>

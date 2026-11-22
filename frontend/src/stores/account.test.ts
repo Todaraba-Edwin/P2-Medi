@@ -31,7 +31,7 @@ import type { Me, Profile, ProfileDraft } from "@/lib/api/account";
 import { AGE_BAND_LABELS } from "@/features/account/copy";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK } from "@/mocks/fixtures/account";
-import { canAddFamily, canAddSelf, consentChannel, consentItems, createAccountStore, hasHealthConsent, hidesPregnancyToggle, needsConsentStep, requiredAgreed, selectTargetProfile } from "./account";
+import { canAddFamily, canAddSelf, consentChannel, consentItems, createAccountStore, hasHealthConsent, hidesPregnancyToggle, needsConsentStep, onboardingPending, requiredAgreed, selectTargetProfile } from "./account";
 import type { ConsentChoices } from "./account";
 import { buildChatRequest, emptyConversationContext } from "./conversation-context";
 import { AGE_BAND_RANGE, profileToContext } from "./profile-context";
@@ -570,6 +570,58 @@ describe("계정 진입점 스위치(FE-04-02 A·FE-04-05 A)", () => {
     expect(isAccountEntryEnabled()).toBe(false); // 하나만 있으면 설정된 것이 아니다
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "synthetic-publishable-key");
     expect(isAccountEntryEnabled()).toBe(true);
+  });
+
+  it("로그인 콜백 복귀(resumeOnboarding): 동의 전이면 동의 화면, 본인 프로필이 없으면 프로필 화면을 연다. 닫은 뒤 다시 부르지 않으면 열리지 않는다", async () => {
+    // 소셜 로그인 복귀 뒤의 상태: 세션은 목 핸들러에 있고 스토어는 새 페이지라 비어 있다 → bootstrap → resume
+    const store = createAccountStore();
+    await createAccountStore().getState().loginEmail("user@example.com", "pw"); // 목 세션만 만든다(페이지 이동 전의 스토어)
+    await store.getState().bootstrap();
+    expect(store.getState()).toMatchObject({ status: "member", flow: [] }); // bootstrap만으로는 열리지 않는다
+    expect(onboardingPending(store.getState().me)).toBe(true);
+    expect(store.getState().resumeOnboarding()).toBe(true);
+    expect(store.getState().flow).toEqual(["consent"]);
+    // 사용자가 닫으면 그대로 닫혀 있다(표시는 부르는 쪽이 한 번만 읽는다)
+    store.getState().close();
+    expect(store.getState().flow).toEqual([]);
+    // 동의를 마치고 본인 프로필이 없는 상태로 돌아오면 프로필 화면
+    await store.getState().loadLegalDocs();
+    expect(await store.getState().submitConsents(ALL)).toBe(true);
+    store.getState().close();
+    expect(store.getState().me?.onboarding_step).toBe("profile_self");
+    expect(store.getState().resumeOnboarding()).toBe(true);
+    expect(store.getState().flow).toEqual(["profiles"]);
+    store.getState().close();
+    // 본인 프로필까지 저장하면(`family`) 온보딩이 끝난 것으로 보고 열지 않는다
+    store.getState().editProfile({ profileId: null, self: true });
+    expect(await store.getState().saveProfile(selfDraft())).toBe(true);
+    store.getState().close();
+    await store.getState().bootstrap(); // 복귀는 늘 bootstrap(서버 단계 갱신) 뒤다
+    expect(store.getState().me?.onboarding_step).toBe("family");
+    expect(onboardingPending(store.getState().me)).toBe(false);
+    expect(store.getState().resumeOnboarding()).toBe(false);
+    expect(store.getState().flow).toEqual([]);
+  });
+
+  it("resumeOnboarding은 이미 마친 사용자·게스트·계정 서버가 답하지 못한 로그인(me null)에서는 열지 않는다", async () => {
+    const onboarded = createAccountStore();
+    await createAccountStore().getState().loginEmail(`${MOCK_ONBOARDED_MARK}@example.com`, "pw");
+    await onboarded.getState().bootstrap();
+    expect(onboarded.getState().status).toBe("member");
+    expect(onboarded.getState().resumeOnboarding()).toBe(false);
+    expect(onboarded.getState().flow).toEqual([]);
+    server.resetHandlers(...createAccountHandlers());
+    const guest = createAccountStore();
+    await guest.getState().bootstrap();
+    expect(guest.getState().resumeOnboarding()).toBe(false);
+    expect(guest.getState().flow).toEqual([]);
+    server.use(http.get("*/api/me", () => HttpResponse.json({ code: "NOT_IMPLEMENTED", fields: [] }, { status: 501 })));
+    const down = createAccountStore({ api: { ...accountApi, hasSession: async () => true } });
+    await down.getState().bootstrap();
+    expect(down.getState()).toMatchObject({ status: "member", me: null });
+    expect(down.getState().resumeOnboarding()).toBe(false);
+    expect(down.getState().flow).toEqual([]);
+    expect(onboardingPending(null)).toBe(false);
   });
 
   it("로그인 콜백 실패(failLogin)는 로그인 화면을 열고 실패 코드만 남긴다. 닫으면 지워진다", () => {

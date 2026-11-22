@@ -15,7 +15,7 @@ import type { ChatInputFromPhoto } from "@/features/photo";
 import { SETTINGS_LABEL, SettingsDialog } from "@/features/settings";
 import { groupCandidates } from "@/features/result";
 import { DISCLAIMER, START_EMERGENCY_119 } from "@/lib/fixed/phrases.generated";
-import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation } from "@/lib/supabase/callback";
+import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation, takeAuthResumeFromLocation } from "@/lib/supabase/callback";
 import { isApiMockingEnabled } from "@/mocks";
 import { cn } from "@/lib/utils";
 import { accountStore, hasHealthConsent, hidesPregnancyToggle, selectTargetProfile, useAccountStore } from "@/stores/account";
@@ -92,12 +92,20 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   useEffect(() => () => store.getState().abort(), [store]);
 
   // 로그인 세션이 있으면(소셜 로그인에서 돌아온 경우·새로고침) 로그인 상태를 읽는다. 없거나 실패하면 게스트 그대로다.
-  // 로그인 콜백이 실패해 돌아왔으면(`?auth_error=`: 이메일 없는 카카오계정 등) 주소에서 표시를 지우고 로그인 화면에 안내를 보인다
+  // 로그인 콜백이 실패해 돌아왔으면(`?auth_error=`: 이메일 없는 카카오계정 등) 주소에서 표시를 지우고 로그인 화면에 안내를 보인다.
+  // 콜백이 성공해 돌아왔으면(`?auth_resume=1`, 2026-11-22 사용자 보고: 소셜 로그인은 페이지 이동이라 모달이 닫힌 채 돌아온다) 표시를 한 번 읽어
+  // 지우고, 서버 상태를 읽은 뒤 온보딩(동의 → 프로필)이 남았을 때만 계정 모달을 그 단계로 다시 연다. 이미 마친 사용자는 바로 채팅이다.
+  // 사용자가 그 모달을 닫으면 다시 열지 않는다(표시는 이미 지워졌다): 사이드바 `프로필 관리`에서 같은 단계로 이어 간다
   useEffect(() => {
     if (!accountEnabled) return;
     const authError = takeAuthErrorFromLocation();
+    const resume = takeAuthResumeFromLocation();
     if (authError) account.getState().failLogin(AUTH_CALLBACK_ERROR_CODES[authError]);
-    else void account.getState().bootstrap();
+    else {
+      void account.getState().bootstrap().then(() => {
+        if (resume) account.getState().resumeOnboarding();
+      });
+    }
   }, [account, accountEnabled]);
 
   // 넓은 폭에서는 판정 줄이 있는 답이 도착하면 근거 상세를 연다(디자인 반영본). 여는 동작 안에서 사이드바 판정도 같이 한다

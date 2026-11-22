@@ -78,6 +78,31 @@ export interface AccountMockState {
   session: Session | null;
 }
 
+/** 목 세션의 시작 상태: `new`는 막 로그인해 동의 전, `onboarded`는 동의·프로필을 마친 사용자 */
+export type MockSessionKind = "new" | "onboarded";
+
+/** 페이지를 열 때 목 세션을 미리 만드는 주소 표시(브라우저 워커 전용, `browser.ts`): `?mock_session=new|onboarded`. 로그인 콜백 복귀 e2e가 쓴다 */
+export const MOCK_SESSION_PARAM = "mock_session";
+
+export function mockSession(kind: MockSessionKind): Session {
+  const session: Session = { step: "consent", completedAt: null, consents: {}, profiles: [] };
+  if (kind === "onboarded") {
+    for (const docType of CONSENT_DOC_TYPES) session.consents[docType] = { action: "agree", version: MOCK_LEGAL_DOCS[docType].version, acted_at: NOW };
+    // 성별은 로그인 공급자 정보가 아니라 사용자가 고른 값이다(목에서는 미리 저장돼 있던 값으로 둔다)
+    session.profiles = [
+      { profile_id: mockId(1, 9001), relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: "not_pregnant", sort_order: 0, medications: [] },
+      { profile_id: mockId(1, 9002), relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, sort_order: 1, medications: [] },
+    ];
+  }
+  return session;
+}
+
+/** 주소의 `mock_session` 값으로 시작 세션을 정한다. 없거나 모르는 값이면 게스트 */
+export function initialMockAccountState(search: string): AccountMockState {
+  const value = new URLSearchParams(search).get(MOCK_SESSION_PARAM);
+  return { session: value === "new" || value === "onboarded" ? mockSession(value) : null };
+}
+
 /** 핸들러 묶음 하나가 세션 하나를 갖는다(시험마다 새로 만들면 서로 섞이지 않는다) */
 export function createAccountHandlers(state: AccountMockState = { session: null }) {
   let sequence = 0;
@@ -141,16 +166,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
     });
 
   const login = (email = "") => {
-    const session: Session = { step: "consent", completedAt: null, consents: {}, profiles: [] };
-    if (email.includes(MOCK_ONBOARDED_MARK)) {
-      for (const docType of CONSENT_DOC_TYPES) session.consents[docType] = { action: "agree", version: MOCK_LEGAL_DOCS[docType].version, acted_at: NOW };
-      // 성별은 로그인 공급자 정보가 아니라 사용자가 고른 값이다(목에서는 미리 저장돼 있던 값으로 둔다)
-      session.profiles = [
-        { profile_id: mockId(1, 9001), relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: "not_pregnant", sort_order: 0, medications: [] },
-        { profile_id: mockId(1, 9002), relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, sort_order: 1, medications: [] },
-      ];
-    }
-    state.session = session;
+    state.session = mockSession(email.includes(MOCK_ONBOARDED_MARK) ? "onboarded" : "new");
   };
 
   /** 프로필 쓰기 앞의 필수 동의 검사(백엔드 `gate_consents`: 약관·개인정보·만 14세 확인) */
