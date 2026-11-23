@@ -114,7 +114,7 @@ ItemSeq = Annotated[str, StringConstraints(pattern=r"^\d{9}$")]
 
 
 class LegalDocumentOut(BaseModel):
-    """`GET /legal/{doc_type}`. `legal_review="not_reviewed"`이면 프런트가 "초안·법률 검토 전" 표지를 그린다."""
+    """`GET /legal/{doc_type}`. 프런트는 "초안·법률 검토 전" 표지를 그리지 않는다(PRD-17-26 A, 2026-11-23). `legal_review` 값은 사실대로 유지한다."""
 
     model_config = ConfigDict(extra="forbid")
 
