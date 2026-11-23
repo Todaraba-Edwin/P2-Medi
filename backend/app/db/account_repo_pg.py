@@ -5,7 +5,9 @@
   `SET LOCAL`은 트랜잭션이 끝나면 풀리므로 풀 연결에 역할이 남지 않는다. claims에는 **검증을 통과한 사용자 ID만** 넣는다.
 - 규칙 위반은 SQL 트리거의 `P0001` 메시지(`PROFILE_LIMIT` 등)를 `AccountRepoError(code)`로 옮긴다. 연결·스키마 오류는 `RepoUnavailable`
   (예외 종류 이름만, DSN·값·SQL 매개변수를 싣지 않는다).
-- 연결은 `conn_factory()`(호출마다 새 연결, 기본 `psycopg.connect(dsn)`)로 연다. psycopg가 동기라 메서드는 스레드에서 돈다.
+- 연결은 `conn_factory()`(호출마다 새 연결, 기본 `psycopg.connect(dsn)`)로 열거나, 풀(`build_pool`, 2026-11-23 BE-17 지연 개선)에서 빌린다.
+  풀에서 빌린 연결은 `pool.connection()` 블록이 끝날 때 커밋/롤백 후 반납되고(풀이 열린 트랜잭션은 롤백), 신원·역할은 `SET LOCAL`/`set_config(...,true)`라
+  트랜잭션과 함께 사라지므로 **다음 요청에 새지 않는다**(세션 수준 SET은 이 모듈에서 쓰지 않는다. 시험이 확인). psycopg가 동기라 메서드는 스레드에서 돈다.
 - 원격 적용·접속은 이 모듈을 import하는 것만으로 일어나지 않는다(접속은 메서드 호출 때). 시험은 로컬 DSN이 있을 때만 돈다.
 """
 
@@ -143,6 +145,27 @@ _LEGAL_COLS = "doc_type::text, version, title, body_md, required, requires_recon
 # 연결 제한(초). 풀러(Supabase) 첫 연결이 7초 걸린 것을 측정했다(2026-11-22, TCP는 0.03초, TLS·인증 핸드셰이크 지연). 5초면 첫 요청이 503이 된다.
 CONNECT_TIMEOUT_S = 15
 
+# 연결 풀(서비스 요청 경로 전용, 환경변수 없이 상수). 요청마다 새 연결(약 1초)을 없애는 것이 목적이다.
+# 크기: 1인 개발 규모 동시 요청이 적고 Supabase Pro 풀러의 연결 수를 채팅 자원(연결 2개)과 나눠 쓰므로 min 1·max 4. 평소 1개만 유지하고 몰리면 4까지.
+POOL_MIN_SIZE = 1
+POOL_MAX_SIZE = 4
+POOL_WAIT_TIMEOUT_S = 20.0  # 빌릴 연결을 기다리는 한도. 새 연결(최대 15초)이 만들어질 시간을 감안. 넘으면 PoolTimeout → DB_UNAVAILABLE
+POOL_MAX_LIFETIME_S = 1800.0  # 연결 수명 30분(풀러·방화벽이 오래된 연결을 끊는 것을 피한다)
+POOL_MAX_IDLE_S = 300.0  # 5분 놀면 min 초과분을 닫는다
+
+
+def build_pool(dsn: str) -> Any:
+    """연결 풀을 만든다(열지 않는다, 접속 0). 호출자가 `pool.open()`(기다리지 않음)·`pool.close()`를 부른다.
+
+    `check`는 빌릴 때 끊긴 연결을 감지해 버린다(풀러 재시작·유휴 종료 대비).
+    """
+    from psycopg_pool import ConnectionPool
+
+    return ConnectionPool(
+        dsn, min_size=POOL_MIN_SIZE, max_size=POOL_MAX_SIZE, open=False, timeout=POOL_WAIT_TIMEOUT_S,
+        max_lifetime=POOL_MAX_LIFETIME_S, max_idle=POOL_MAX_IDLE_S, check=ConnectionPool.check_connection,
+        kwargs={"connect_timeout": CONNECT_TIMEOUT_S}, name="account-db")
+
 
 def _inner_cause(exc: BaseException) -> str:
     """안쪽 원인의 종류 이름만(메시지·인자는 읽지 않는다). 없으면 `-`."""
@@ -153,8 +176,21 @@ def _inner_cause(exc: BaseException) -> str:
 class PostgresAccountRepo:
     """`AccountRepo`의 Postgres 구현. 각 메서드 = 연결 1개 + 트랜잭션 1개."""
 
-    def __init__(self, conn_factory: Callable[[], Any]) -> None:
+    def __init__(self, conn_factory: Callable[[], Any], pool: Any | None = None) -> None:
         self._connect = conn_factory
+        self._pool = pool  # 있으면 연결을 풀에서 빌린다(conn_factory는 쓰지 않는다)
+
+    @classmethod
+    def from_pool(cls, pool: Any) -> PostgresAccountRepo:
+        def no_direct() -> Any:
+            raise RuntimeError("풀 저장소는 직접 연결을 만들지 않는다")
+
+        return cls(no_direct, pool)
+
+    def close(self) -> None:
+        """풀을 닫는다(종료 때). 풀이 없으면 할 일 없음."""
+        if self._pool is not None:
+            self._pool.close()
 
     def __repr__(self) -> str:  # DSN을 싣지 않는다
         return f"{type(self).__name__}(conn=<set>)"
@@ -181,12 +217,16 @@ class PostgresAccountRepo:
         def unavailable(kind: str, exc: BaseException) -> RepoUnavailable:
             return RepoUnavailable(kind, cause=_inner_cause(exc), elapsed_s=time.monotonic() - t0)
 
+        from contextlib import ExitStack
+
         try:
-            conn = self._connect()
-        except psycopg.Error as exc:
-            raise unavailable(type(exc).__name__, exc) from None
-        try:
-            with conn:  # 정상 종료면 COMMIT, 예외면 ROLLBACK
+            with ExitStack() as stack:
+                if self._pool is not None:  # 풀: 블록이 끝나면 커밋(예외면 롤백) 뒤 반납. 닫지 않는다
+                    conn = stack.enter_context(self._pool.connection())
+                else:
+                    conn = self._connect()
+                    stack.callback(conn.close)  # 가장 나중에 실행(아래 with conn 뒤)
+                    stack.enter_context(conn)  # 정상 종료면 COMMIT, 예외면 ROLLBACK
                 with conn.cursor() as cur:
                     cur.execute("SET LOCAL ROLE authenticated" if role == "authenticated" else "SET LOCAL ROLE anon")
                     if user_id is not None:
@@ -203,10 +243,8 @@ class PostgresAccountRepo:
             raise unavailable("UniqueViolation", exc) from None
         except errors.ForeignKeyViolation:
             raise AccountRepoError(NO_ACCOUNT_CODE) from None  # app_users 없음(첫 /me 전) 또는 없는 문서 버전
-        except psycopg.Error as exc:
+        except psycopg.Error as exc:  # 풀 고갈(PoolTimeout)·풀 닫힘(PoolClosed)도 OperationalError라 여기서 RepoUnavailable이 된다
             raise unavailable(type(exc).__name__, exc) from None
-        finally:
-            conn.close()
 
     # ---- 변환
     @staticmethod

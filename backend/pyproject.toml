@@ -10,6 +10,7 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "httpx>=0.25.0",
     "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2,<4",  # BE-17 계정 API 연결 풀(2026-11-23 사용자 승인 "연결 풀-B", 이 패키지 하나만)
     "langgraph>=1.2,<2",  # AG-01 ReAct 그래프(2026-11-11 사용자 설치 승인). LangChain 패키지는 노드 안의 모델·도구 부품으로만 쓴다.
     "langchain-openai>=1.7,<2",
     "langchain-core>=1.0,<2",
