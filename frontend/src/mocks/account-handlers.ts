@@ -29,6 +29,7 @@ import {
   MOCK_DRUG_SEARCH_SLOW_MARK,
   MOCK_DRUG_SEARCH_SLOW_MS,
   MOCK_GOOGLE_NAME,
+  MOCK_GUEST_LEGAL_DOCS,
   MOCK_KAKAO_NICKNAME,
   MOCK_LEGAL_DOCS,
   MOCK_LOGIN_FAIL_MARK,
@@ -92,10 +93,15 @@ interface Session {
 export interface AccountMockState {
   /** 로그인한 목 세션. 없으면 게스트다(실제의 "토큰 없음"에 해당) */
   session: Session | null;
+  /** 시험 전용: 이 종류는 게시본이 없는 것으로 404를 낸다(열람 목록의 "서버에 없는 종류 숨김" e2e, `?mock_legal_missing=a,b`) */
+  missingLegal?: readonly string[];
 }
 
 /** 목 세션의 시작 상태: `new`는 막 로그인해 동의 전, `onboarded`는 동의·프로필을 마친 사용자 */
 export type MockSessionKind = "new" | "onboarded";
+
+/** 시험 전용 주소 표시(브라우저 워커 전용): 쉼표로 구분한 문서 종류를 게시본 없음(404)으로 낸다 */
+export const MOCK_LEGAL_MISSING_PARAM = "mock_legal_missing";
 
 /** 페이지를 열 때 목 세션을 미리 만드는 주소 표시(브라우저 워커 전용, `browser.ts`): `?mock_session=new|onboarded`. 로그인 콜백 복귀 e2e가 쓴다 */
 export const MOCK_SESSION_PARAM = "mock_session";
@@ -121,7 +127,8 @@ export function initialMockAccountState(search: string): AccountMockState {
   const value = params.get(MOCK_SESSION_PARAM);
   const provider = params.get(MOCK_PROVIDER_PARAM);
   const mockProvider: MockProvider = (SOCIAL_PROVIDERS as readonly string[]).includes(provider ?? "") ? (provider as SocialProvider) : "email";
-  return { session: value === "new" || value === "onboarded" ? mockSession(value, mockProvider) : null };
+  const missingLegal = (params.get(MOCK_LEGAL_MISSING_PARAM) ?? "").split(",").filter((item) => item.length > 0);
+  return { session: value === "new" || value === "onboarded" ? mockSession(value, mockProvider) : null, missingLegal };
 }
 
 /** 핸들러 묶음 하나가 세션 하나를 갖는다(시험마다 새로 만들면 서로 섞이지 않는다) */
@@ -197,8 +204,11 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
   };
 
   return [
-    // 약관·동의 문서 현재본(게스트 허용)
+    // 약관·동의 문서 현재본(게스트 허용). 게스트용 목 문서(`MOCK_GUEST_LEGAL_DOCS`, enum 밖)도 낸다. 모르는 종류는 실서버처럼 422
     http.get("*/api/legal/:docType", ({ params }) => {
+      if (typeof params.docType === "string" && state.missingLegal?.includes(params.docType)) return error(404, "NOT_FOUND");
+      const guestDoc = typeof params.docType === "string" ? MOCK_GUEST_LEGAL_DOCS[params.docType] : undefined;
+      if (guestDoc) return HttpResponse.json(guestDoc, { headers: { "Cache-Control": "public, max-age=300" } });
       const docType = LegalDocTypeSchema.safeParse(params.docType);
       if (!docType.success) return error(422, "INVALID_REQUEST", ["doc_type"]);
       return HttpResponse.json(MOCK_LEGAL_DOCS[docType.data], { headers: { "Cache-Control": "public, max-age=300" } });

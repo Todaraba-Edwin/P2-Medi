@@ -1,7 +1,7 @@
 // 계정·약관 목의 합성 자료(FE-04). **실제 약관·방침이 아니다.** 실제 문서는 DB에서 버전 관리하고 API가 내려 준다.
 // 화면 코드는 이 파일을 가져다 쓰지 않는다(mock·시험 전용). 모양은 백엔드 `LegalDocumentOut`과 같다(`src/lib/api/account.ts`).
 import { DRUG_CANDIDATES_MAX, DRUG_MATCH_SIMILAR } from "@/lib/api/account";
-import type { DrugCandidate, DrugSearchResult, LegalDoc, LegalDocType } from "@/lib/api/account";
+import type { DrugCandidate, DrugSearchResult, LegalDoc, LegalDocType, LegalMenuDoc } from "@/lib/api/account";
 
 /** 합성 본문 지문 자리(64자리 16진수 모양만 맞춘 값. 실제 해시가 아니다) */
 const fakeSha = (digit: string) => digit.repeat(64);
@@ -103,6 +103,34 @@ export const MOCK_LEGAL_DOCS: Readonly<Record<LegalDocType, LegalDoc>> = {
     legal_review: "not_reviewed",
     body_sha256: fakeSha("5"),
     body_md: "만 14세 이상입니다.",
+  },
+};
+
+/**
+ * 게스트용 문서 목(2026-11-23 약관 열람 진입점). 백엔드 `DocType` enum에는 아직 없는 종류라 실서버는 422를 내고 화면은 그 항목을 숨긴다.
+ * 처리방침은 게스트용을 따로 두지 않는다(PRD-17-23 A: 공통 `privacy_policy`). 없는 문서가 목록에서 빠지는 동작은 `?mock_legal_missing=`(핸들러)로 본다.
+ * 열람 목록의 모양은 `LegalMenuDoc`(`doc_type`이 enum 밖)이다. **실제 약관이 아니다**
+ */
+export const MOCK_GUEST_LEGAL_DOCS: Readonly<Record<string, LegalMenuDoc>> = {
+  terms_guest: {
+    doc_type: "terms_guest",
+    version: 1,
+    title: "게스트 이용 안내 (합성 목 문서)",
+    effective_at: EFFECTIVE_AT,
+    required: false,
+    requires_reconsent: false,
+    legal_review: "not_reviewed",
+    body_sha256: fakeSha("6"),
+    body_md: [
+      "> 초안·법률 검토 전입니다(합성 목 문서).",
+      "",
+      "## 제1조 (게스트 이용)",
+      "- 로그인 없이 질문할 수 있고 어떤 정보도 저장하지 않습니다.",
+      "- 질문은 답변을 만들기 위해 외부 AI로 전송됩니다.",
+      "",
+      "## 제2조 (저장하지 않는 것)",
+      "질문·대화·사진은 저장하지 않습니다. 이 문서는 화면 개발용 **합성 목 문서**입니다.",
+    ].join("\n"),
   },
 };
 

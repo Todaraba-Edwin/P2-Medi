@@ -38,7 +38,9 @@ describe("설정 화면 화면 모드", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(readUiSetting("theme")).toBe("dark");
     expect(screen.getByRole("radio", { name: THEME_LABELS.dark })).toHaveAttribute("aria-checked", "true");
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // 약관·정책 묶음은 열릴 때 문서(`GET /api/legal/*`)를 읽는다(2026-11-23, 읽기 전용). 화면 모드 선택은 그 밖의 어떤 호출도 만들지 않는다
+    const urlOf = (input: unknown) => (input instanceof Request ? input.url : String(input));
+    expect(fetchSpy.mock.calls.map(([input]) => urlOf(input)).filter((url) => !url.includes("/api/legal/"))).toEqual([]);
   });
 
   it("화살표 키로 칸을 옮기며 고르고, 끝에서 처음으로 돈다", () => {
