@@ -1377,7 +1377,7 @@ describe("복용 약 사진으로 등록(FE-04-27 A): 확인한 이름만 지금
     expect(modal().className).toMatch(/\bz-40\b/);
     expect(within(box).getByTestId("photo-privacy-notice").textContent).toBe(PHOTO_PRIVACY_NOTICE);
     expect(within(box).getByTestId("photo-external-ai-notice").textContent).toBe(PHOTO_EXTERNAL_AI_NOTICE);
-    expect(within(box).getByTestId("photo-external-ai-notice").textContent).toContain("외부 AI(Upstage)"); // 제공자 전환(작업 D) 반영, 프로필 진입점에서도
+    expect(within(box).getByTestId("photo-external-ai-notice").textContent).toContain("외부 AI(OpenAI)"); // 사진 판독 제공자 only OpenAI(2026-11-23), 프로필 진입점에서도 같은 글자
     expect(within(box).getByRole("link", { name: "119 전화" })).toHaveAttribute("href", "tel:119");
     expect(document.activeElement).toBe(within(box).getByRole("heading", { name: "사진으로 약 이름 읽기" }));
     expect(modal()).toBeInTheDocument(); // 계정 모달은 그대로 아래에 있다
