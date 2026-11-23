@@ -134,7 +134,7 @@ export const PROFILE_FORM_NEW_TITLE = "누구의 프로필인가요?";
 export const PROFILE_FORM_NEW_LEAD = "본인과 가족 3명까지 만들 수 있어요";
 /**
  * 필수 4칸(관계·이름·연령대·성별, FE-17 U-07 2026-11-23 사용자 확정)을 다 채우기 전 `저장` 버튼이 비활성인 이유 한 줄(버튼의 설명으로 연결).
- * **승인 전(ux-batch2)**: 사용자 원문에 없는 새 글자다
+ * 원문 승인(2026-11-23 사용자 답 "PROFILE_REQUIRED_HINT 승인", FE-17 §3.8 U-08 원문)
  */
 export const PROFILE_REQUIRED_HINT = "관계·이름·연령대·성별을 모두 고르면 저장할 수 있어요.";
 export const PROFILE_FORM_EDIT_TITLE = "프로필 수정";
@@ -226,6 +226,18 @@ export const TARGET_LABEL = "누가 먹나요";
  * 로그인한 사용자의 대상 목록·입력창 칩에만 쓴다. 로그인하지 않은 상태의 계정 버튼(`계정`)·`로그인/가입`과는 다른 자리다
  */
 export const GUEST_USE_LABEL = "게스트로 이용";
+
+// ---------------------------------------------------------------- 시작 화면 기본 대상 안내(FE-17 U-08, 2026-11-23)
+// **승인 전(ux-batch3)**: 사용자 원문에 문안이 없어 후보로 둔다. 안내의 버튼 글자는 `GUEST_USE_LABEL`(원문 승인)을 그대로 쓴다.
+// 안전을 보증하는 말은 쓰지 않는다. 프로필 값이 답변에 쓰인다는 것과 프로필 없이도 확인할 수 있다는 것만 짧게 알린다
+/** 지금 기본 대상이 프로필일 때 머리 한 줄. **승인 전(ux-batch3)** */
+export const startTargetProfileHeading = (name: string) => `${name} 프로필로 확인해요`;
+/** 지금 기본 대상이 프로필일 때 설명 한 줄. **승인 전(ux-batch3)** */
+export const START_TARGET_PROFILE_LEAD = "이 프로필의 연령대·임신 여부가 답변에 쓰여요. 프로필 없이도 확인할 수 있어요.";
+/** 지금 기본 대상이 `게스트로 이용`일 때 머리 한 줄. **승인 전(ux-batch3)** */
+export const START_TARGET_GUEST_HEADING = "게스트로 이용 중이에요";
+/** 지금 기본 대상이 `게스트로 이용`일 때 설명 한 줄. **승인 전(ux-batch3)** */
+export const START_TARGET_GUEST_LEAD = "저장한 프로필 값 없이 확인해요.";
 
 // ---------------------------------------------------------------- 프로필 병아리 배경색(2026-11-23 사용자 요구 "가족추가에서 병아리에 배경색", 8색)
 /** 프로필 폼의 색 고르기 묶음 이름. **승인 전(profile-avatar)** */
