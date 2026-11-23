@@ -4,7 +4,7 @@
 // 그 뒤 로그인 연결(FE-04c)에서 생긴 안내·오류 문구 7줄은 FE-04-08 A(2026-11-19)로 승인됐다. 이메일 숨김(PRD-01-10 A) 문구 4줄만
 // "승인 전(FE-04c)" 표시를 남겨 두고 이메일 로그인 재검토 때 다시 묻는다. 로그인 제목은 FE-04-17 A(2026-11-19) "간편 로그인"이다.
 // 약관 문서 자체는 법률 검토 전이라 `LEGAL_NOT_REVIEWED_TAG` 표지는 그대로 붙인다.
-import type { AgeBand, DrugMatchedBy, PregnancyStatus, Profile, Relation, Sex, SocialProvider } from "@/lib/api/account";
+import type { AgeBand, AvatarColor, DrugMatchedBy, PregnancyStatus, Profile, Relation, Sex, SocialProvider } from "@/lib/api/account";
 
 // ---------------------------------------------------------------- 시작 화면 진입(할 일 1)
 /** 주 버튼(지시서 할 일 1, tickets/frontend/FE-04.md §2 "게스트로 시작") */
@@ -206,8 +206,26 @@ export const WITHDRAW_CONFIRM_BODY = "계정과 저장한 프로필·동의 기�
 export const WITHDRAW_CONFIRM_LABEL = "탈퇴하기";
 
 // ---------------------------------------------------------------- 대상 선택(할 일 5)
-/** 질문 입력 위 대상 선택(tickets/frontend/FE-04.md §2 "누가 먹나요") */
+/**
+ * 대상 선택 묶음 이름(tickets/frontend/FE-04.md §2 "누가 먹나요"). 2026-11-23부터 본문 선택 줄은 없고, 입력창 안 프로필 칩과
+ * 계정 버튼 메뉴의 프로필 목록 머리(보조기기 이름 포함)에 쓴다
+ */
 export const TARGET_LABEL = "누가 먹나요";
+
+// ---------------------------------------------------------------- 프로필 병아리 배경색(2026-11-23 사용자 요구 "가족추가에서 병아리에 배경색", 8색)
+/** 프로필 폼의 색 고르기 묶음 이름. **승인 전(profile-avatar)** */
+export const AVATAR_COLOR_LABEL = "프로필 색";
+/** 색 칸의 접근 가능한 이름(화면에는 색만 보이고 보조기기가 읽는다). 키는 서버 `avatar_color` 값. **승인 전(profile-avatar)** */
+export const AVATAR_COLOR_LABELS: Readonly<Record<AvatarColor, string>> = {
+  yellow: "노랑",
+  coral: "코랄",
+  pink: "분홍",
+  purple: "보라",
+  blue: "파랑",
+  teal: "청록",
+  green: "초록",
+  gray: "회색",
+};
 
 // ---------------------------------------------------------------- 사이드바 계정 자리
 /** 로그인한 사용자의 계정 메뉴 */

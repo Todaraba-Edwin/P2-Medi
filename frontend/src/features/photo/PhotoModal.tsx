@@ -59,8 +59,6 @@ export interface PhotoModalProps {
   container?: HTMLElement | null;
   /** 119 안내가 떠 있으면 마스코트를 그리지 않는다(PRD-06-02) */
   hasEmergency?: boolean;
-  /** 모달이 머리줄의 119 진입점을 덮는 동안 누를 수 있게 모달 안에 둘 진입점(배너가 있으면 넘기지 않는다) */
-  emergencyEntry?: React.ReactNode;
   /** 시험에서 끼워 넣는다(jsdom에는 canvas가 없다) */
   prepare?: typeof prepareImage;
   post?: typeof postIngestImage;
@@ -109,7 +107,6 @@ export function PhotoModal({
   stacked = false,
   container = null,
   hasEmergency = false,
-  emergencyEntry = null,
   prepare = prepareImage,
   post = postIngestImage,
   search = searchIngestDrugs,
@@ -265,7 +262,6 @@ export function PhotoModal({
               <Dialog.Title data-photo-title tabIndex={-1} className="m-0 text-xl leading-7 font-extrabold outline-none [word-break:keep-all]">
                 {PHOTO_ENTRY_LABEL}
               </Dialog.Title>
-              {emergencyEntry && <div className="flex">{emergencyEntry}</div>}
 
               {flow.step === "pick" && (
                 <>

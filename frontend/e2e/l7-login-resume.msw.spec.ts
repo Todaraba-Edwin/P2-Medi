@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, expectClickReaches, expectNoHorizontalScroll, expectTouchTarget, layerTel, openAccountEntry } from "./helpers";
+import { HEIGHT, ask, expectNoHorizontalScroll, layerTel, openAccountEntry, targetOptionTexts } from "./helpers";
 
 // 로그인 콜백 복귀(2026-11-22 사용자 보고, l7): 소셜 로그인은 전체 페이지 이동이라 돌아오면 로그인 모달이 닫혀 있었다.
 // 이제 콜백 라우트가 `/?auth_resume=1`로 돌려보내고, 화면이 그 표시를 한 번 읽어 온보딩(동의 → 프로필)이 남았을 때만 모달을 그 단계로 다시 연다.
@@ -39,11 +39,9 @@ for (const width of [393, 1280]) {
         await expect.poll(() => page.url()).not.toContain("auth_resume"); // 표시는 한 번 읽고 지운다
         expect(new URL(page.url()).pathname).toBe("/");
         await expect(page.getByTestId("entry-choice")).toHaveCount(0); // 로그인 상태
-        // 자동으로 열린 모달에서도 119 진입점은 누를 수 있다(동의 화면에서는 본문 맨 아래라 본문 안에서 내려서 누른다)
-        await expect(layerTel(page)).toHaveAttribute("href", "tel:119");
-        await expectTouchTarget(layerTel(page));
-        await layerTel(page).scrollIntoViewIfNeeded();
-        await expectClickReaches(page, layerTel(page));
+        // 119 진입점은 머리줄·응급 배너 두 곳뿐이다(FE-17 U-04): 자동으로 열린 모달 안에는 없다
+        await expect(layerTel(page)).toHaveCount(0);
+        await expect(modal(page).locator('a[href="tel:119"]')).toHaveCount(0); // 119는 머리줄·응급 배너 두 곳뿐, 층 안에는 없다(FE-17 U-04)
         await expectNoHorizontalScroll(page);
         await page.getByTestId("account-body").evaluate((el) => el.scrollTo({ top: 0 })); // 캡처는 동의 화면 머리부터
         await shot(page, "consent", scheme);
@@ -58,7 +56,7 @@ for (const width of [393, 1280]) {
         await shot(page, "profiles", scheme);
         await modal(page).getByRole("button", { name: "닫기" }).click();
         await expect(modal(page)).toHaveCount(0);
-        await expect(page.getByTestId("target-picker").getByTestId("target-option")).toHaveText(["선택 안 함", "나"]);
+        expect(await targetOptionTexts(page)).toEqual(["선택 안 함", "나"]);
         await ask(page, "합성 질문");
         await expect(page.getByTestId("result-card")).toBeVisible();
       });
@@ -78,7 +76,7 @@ for (const width of [393, 1280]) {
 
       test("온보딩을 마친 사용자는 모달 없이 바로 채팅이고, 표시 없이 들어오면(새로고침) 세션이 있어도 열지 않는다. 게스트는 그대로다", async ({ page }) => {
         await openApp(page, "?mock_session=onboarded&auth_resume=1");
-        await expect(page.getByTestId("target-picker")).toBeVisible();
+        await expect(page.getByTestId("target-chip")).toBeVisible();
         await expect(modal(page)).toHaveCount(0);
         await expect.poll(() => page.url()).not.toContain("auth_resume");
         await openApp(page, "?mock_session=new");
@@ -143,7 +141,7 @@ test.describe("로그인 복귀 직후 계정 호출 수", () => {
   test("온보딩을 마친 사용자의 복귀·새로고침: /api/me 1회·/api/profiles 1회, 약관은 받지 않는다", async ({ page }) => {
     const onboarded = watch(page);
     await openApp(page, "?mock_session=onboarded&auth_resume=1");
-    await expect(page.getByTestId("target-picker")).toBeVisible();
+    await expect(page.getByTestId("target-chip")).toBeVisible();
     expect(onboarded.count("GET /api/me")).toBe(1);
     expect(onboarded.count("GET /api/profiles")).toBe(1);
     expect(onboarded.legal()).toBe(0);

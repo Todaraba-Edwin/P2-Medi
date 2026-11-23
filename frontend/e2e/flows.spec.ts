@@ -20,6 +20,7 @@ import {
   input,
   layerTel,
   mockChat,
+  notice,
   openApp,
   overlaySidebar,
   panel,
@@ -44,18 +45,18 @@ for (const width of [360, 320]) {
       await openApp(page);
       await expect(page.getByRole("heading", { level: 1 })).toContainText("Can I PPiyak");
       await expectInFirstScreen(page, input(page));
-      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
-      await expectInFirstScreen(page, page.getByTestId("input-notice")); // 입력창 아래 고지(PRD-17-07 A)
+      await expectInFirstScreen(page, notice(page)); // 입력창 아래 통합 고지(FE-17 U-02)
       const entry = page.getByTestId("emergency-entry");
       await expectInFirstScreen(page, entry);
       await expect(entry).toHaveAttribute("href", "tel:119");
       await expectTouchTarget(entry);
-      // 시작 화면의 119: 머리줄 진입점 + 119 안내 줄(FE-01-19 A·FE-01-24 A), 둘뿐이다
-      await expect(tel(page)).toHaveCount(2);
+      // 시작 화면의 119: 머리줄 진입점 하나뿐이다(FE-17 U-04: 시작 화면 119 안내 줄 제거)
+      await expect(tel(page)).toHaveCount(1);
+      await expect(page.getByTestId("start-emergency")).toHaveCount(0);
       await expectTouchTarget(page.getByRole("button", { name: "메뉴 열기" }));
       await expectTouchTarget(page.getByRole("button", { name: "보내기" }));
       // 고지는 접히지 않는 영역에 있다
-      expect(await page.getByTestId("legal-footer").evaluate((el) => el.closest("details, [role=dialog], [data-state=closed]") === null)).toBe(true);
+      expect(await notice(page).evaluate((el) => el.closest("details, [role=dialog], [data-state=closed]") === null)).toBe(true);
       await expectNoHorizontalScroll(page);
     });
 
@@ -82,7 +83,7 @@ for (const width of [360, 320]) {
       expect((await result.boundingBox())!.y).toBeGreaterThan((await banner(page).boundingBox())!.y);
       await expectInFirstScreen(page, banner(page));
       await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
-      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, notice(page));
       await expectInFirstScreen(page, input(page));
       await expect(page.getByText(EMERGENCY_TEXT)).toHaveCount(1);
       await expect(tel(page)).toHaveCount(1);
@@ -657,7 +658,7 @@ for (const width of WIDTHS) {
       await openApp(page);
       await expectInFirstScreen(page, page.getByTestId("emergency-entry"));
       await expectTouchTarget(page.getByTestId("emergency-entry"));
-      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, notice(page));
       await expectInFirstScreen(page, input(page));
       if (desktop) {
         await expect(pushSidebar(page)).toBeVisible();
@@ -745,7 +746,7 @@ for (const width of WIDTHS) {
         await expect(wide).toBeHidden();
       }
       await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
-      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, notice(page));
       expect(await page.getByTestId("app-shell").evaluate((el) => el.firstElementChild?.getAttribute("data-testid"))).toBe("emergency-row");
       await expectNoHorizontalScroll(page);
     });
@@ -782,9 +783,9 @@ async function expectSafetyVisible(page: Page, { overlayOpen = false } = {}) {
   await expectInFirstScreen(page, input(page), { underUserLayer: overlayOpen });
   await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: overlayOpen });
   if (overlayOpen) {
-    await expect(overlaySidebar(page).getByTestId("layer-emergency-entry")).toHaveCount(1);
-    await expectInFirstScreen(page, layerTel(page));
-    await expectOnTop(layerTel(page));
+    // 119 진입점은 머리줄·응급 배너 두 곳뿐이다(FE-17 U-04): 오버레이 안에는 없고 머리줄 하나가 오버레이 아래에 있다
+    await expect(overlaySidebar(page).locator('a[href="tel:119"]')).toHaveCount(0);
+    await expect(tel(page)).toHaveCount(1);
   } else {
     await expectInFirstScreen(page, page.getByTestId("emergency-entry"));
   }
@@ -1054,7 +1055,7 @@ test.describe("사이드바 엣지: 폭 변경", () => {
     const same = async () => {
       await expectInFirstScreen(page, page.getByTestId("emergency-entry"));
       await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
-      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, notice(page));
       await expectInFirstScreen(page, input(page));
       await expect(page.getByTestId("result-card")).toBeVisible();
       await expectNoHorizontalScroll(page);
@@ -1116,14 +1117,14 @@ for (const width of [360, 320]) {
   test.describe(`119 덮임 ${width}px`, () => {
     test.use({ viewport: { width, height: HEIGHT } });
 
-    test("드로어(배너 없음): 드로어 안 119 진입점이 덮이지 않고 눌린다(G-3)", async ({ page }) => {
+    test("드로어(배너 없음): 119 진입점은 머리줄 하나뿐이고 드로어 안에는 없다(FE-17 U-04, 옛 G-3 층 안 진입점 대체). 닫으면 머리줄 진입점이 눌린다", async ({ page }) => {
       await openApp(page);
       await page.getByRole("button", { name: "메뉴 열기" }).click();
       await expect(drawer(page)).toBeVisible();
-      await expect(drawer(page).getByTestId("layer-emergency-entry")).toHaveText("119 전화");
-      await expect119Reachable(page, layerTel(page));
-      await expect(drawer(page)).toBeVisible(); // 층 안의 링크라 눌러도 드로어는 그대로다
-      // 머리줄 진입점은 드로어 스크림 아래다(그래서 층 안에 진입점을 둔다)
+      await expect(drawer(page).locator('a[href="tel:119"]')).toHaveCount(0);
+      await expect(layerTel(page)).toHaveCount(0);
+      await expect(tel(page)).toHaveCount(1); // 머리줄 하나(드로어 스크림 아래)
+      // 머리줄 진입점은 드로어 스크림 아래다(층이 열려 있는 동안은 닫고 누른다)
       expect(
         await page.getByTestId("emergency-entry").evaluate((el) => {
           const rect = el.getBoundingClientRect();
@@ -1137,7 +1138,7 @@ for (const width of [360, 320]) {
       await expect119Reachable(page, page.getByTestId("emergency-entry"));
     });
 
-    test("근거 상세 시트(배너 없음): 시트 안 119 진입점이 덮이지 않고 눌린다. 고정 안내는 닫으면 그대로 위에 있다", async ({ page }) => {
+    test("근거 상세 시트(배너 없음): 시트 안에는 119 진입점이 없고(FE-17 U-04) 머리줄 하나뿐이다. 고정 안내는 닫으면 그대로 위에 있다", async ({ page }) => {
       await mockChat(page, "found");
       await openApp(page);
       await ask(page);
@@ -1145,8 +1146,8 @@ for (const width of [360, 320]) {
       await expect(sheet(page)).toBeVisible();
       // 응급이 아닐 때 시트·스크림은 화면 전체다(기존 동작)
       expect((await sheetScrim(page).boundingBox())!.y).toBe(0);
-      await expect(sheet(page).getByTestId("layer-emergency-entry")).toHaveCount(1);
-      await expect119Reachable(page, layerTel(page));
+      await expect(sheet(page).locator('a[href="tel:119"]')).toHaveCount(0);
+      await expect(tel(page)).toHaveCount(1);
       await expect(sheet(page)).toBeVisible();
       // 시트 동안 고정 안내는 스크림 아래에서 흐려지지만 접히지 않고 첫 화면에 있다
       await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: true });
@@ -1199,17 +1200,17 @@ for (const width of [360, 320]) {
 test.describe("119 덮임 1100px(사이드바 오버레이)", () => {
   test.use({ viewport: { width: 1100, height: HEIGHT } });
 
-  test("오버레이(배너 없음): 오버레이 안 119 진입점이 덮이지 않고 눌린다", async ({ page }) => {
+  test("오버레이(배너 없음): 오버레이 안에는 119 진입점이 없고(FE-17 U-04) 닫으면 머리줄 진입점이 눌린다", async ({ page }) => {
     await mockChat(page, "found");
     await openApp(page);
     await ask(page);
     await expect(panel(page)).toBeVisible();
     await page.getByRole("button", { name: "사이드바 펼치기" }).click();
     await expect(overlaySidebar(page)).toBeVisible();
-    await expect(overlaySidebar(page).getByTestId("layer-emergency-entry")).toHaveCount(1);
-    await expect119Reachable(page, layerTel(page));
+    await expect(overlaySidebar(page).locator('a[href="tel:119"]')).toHaveCount(0);
+    await expect(tel(page)).toHaveCount(1);
     await expect(overlaySidebar(page)).toBeVisible();
-    await expect(page.getByTestId("main")).toHaveAttribute("inert", ""); // 머리줄 진입점은 오버레이 동안 쓸 수 없다
+    await expect(page.getByTestId("main")).toHaveAttribute("inert", ""); // 머리줄 진입점은 오버레이 동안 쓸 수 없다(닫고 누른다)
     await page.keyboard.press("Escape");
     await expect(overlaySidebar(page)).toHaveCount(0);
     await expect119Reachable(page, page.getByTestId("emergency-entry"));
@@ -1248,7 +1249,7 @@ for (const viewport of [
       await expect119Reachable(page, bannerTel(page));
       await expectInFirstScreen(page, banner(page));
       await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
-      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, notice(page));
       await expectInFirstScreen(page, input(page));
       await expectNoHorizontalScroll(page);
     });
@@ -1256,7 +1257,7 @@ for (const viewport of [
     test("시작 화면: 119 진입점·고지·입력창이 첫 화면에 있다", async ({ page }) => {
       await openApp(page);
       await expect119Reachable(page, page.getByTestId("emergency-entry"));
-      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, notice(page));
       await expectInFirstScreen(page, input(page));
     });
   });
@@ -1302,8 +1303,8 @@ test.describe("단언 보강 360px", () => {
     await expect(page.getByTestId("candidate-card")).toBeVisible();
     await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([FIXED_NOTICE]);
     await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
-    await expect(page.getByTestId("legal-footer")).toContainText("공공데이터 기반 정보 제공이며 진단·처방이 아님");
-    await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+    await expect(notice(page)).toContainText("공공데이터 기반 정보 제공이며 진단·처방이 아니에요"); // 통합 고지(FE-17 U-02)
+    await expectInFirstScreen(page, notice(page));
     await expect119Reachable(page, page.getByTestId("emergency-entry"));
   });
 });
@@ -1346,47 +1347,41 @@ for (const viewport of [
   test.describe(`시작 화면 안내 ${viewport.width}×${viewport.height}`, () => {
     test.use({ viewport });
 
-    test("119 안내 줄과 외부 AI 전송 고지(입력창 고지 하나)가 질문을 보내기 전 첫 화면에, 입력창 가까이 접히지 않고 보인다(RFP-24-01, FE-01-24 A, PRD-17-10 A)", async ({ page }) => {
+    test("시작 화면: 119는 머리줄 하나(FE-17 U-04, 시작 화면 119 줄 없음)이고 외부 AI 전송 고지는 입력창 아래 통합 고지 하나로 첫 화면에 접히지 않고 보인다(RFP-24-01, FE-17 U-02)", async ({ page }) => {
       await mockChat(page, "found");
       await openApp(page);
-      const start119 = dock(page).getByTestId("start-emergency");
-      const notice = dock(page).getByTestId("input-notice");
-      // 119 글자는 백엔드 상수에서 생성한 값 그대로다. 시작 화면 외부 AI 고지는 삭제했고(PRD-17-10 A) 외부 AI 고지는 입력창 고지 1회뿐이다
-      await expect(start119).toHaveText(START_EMERGENCY);
+      const combined = dock(page).getByTestId("input-combined-notice");
+      await expect(dock(page).getByTestId("start-emergency")).toHaveCount(0);
+      await expect(page.getByText(START_EMERGENCY)).toHaveCount(0);
+      await expect(tel(page)).toHaveCount(1);
       await expect(dock(page).getByTestId("external-ai-notice")).toHaveCount(0);
       await expect(page.getByText(REMOVED_START_EXTERNAL_AI)).toHaveCount(0);
-      await expect(notice).toHaveCount(1);
+      await expect(combined).toHaveCount(1);
+      await expect(dock(page).getByTestId("input-notice")).toHaveCount(0);
+      await expect(dock(page).getByTestId("legal-footer")).toHaveCount(0);
       expect(await externalAiCount(page)).toBe(1);
-      await expect119Reachable(page, start119);
-      await expectTouchTarget(start119);
-      await expectInFirstScreen(page, notice);
-      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, combined);
       await expectInFirstScreen(page, input(page));
-      await expect119Reachable(page, page.getByTestId("emergency-entry")); // 머리줄 119도 그대로 누를 수 있다
-      // 입력창 가까이: 119 줄 아래 끝에서 입력창 위 끝까지가 화면 높이의 1/4 안이고 입력창보다 위에 있다. 외부 AI 고지는 입력창 바로 아래다
-      const startBox = (await start119.boundingBox())!;
-      const noticeBox = (await notice.boundingBox())!;
+      await expect119Reachable(page, page.getByTestId("emergency-entry")); // 머리줄 119를 누를 수 있다
+      // 통합 고지는 입력창 바로 아래다
+      const noticeBox = (await combined.boundingBox())!;
       const inputBox = (await input(page).boundingBox())!;
-      expect(startBox.y + startBox.height).toBeLessThanOrEqual(inputBox.y);
-      expect(inputBox.y - (startBox.y + startBox.height)).toBeLessThanOrEqual(viewport.height / 4);
       expect(noticeBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height - 0.5);
+      expect(noticeBox.y - (inputBox.y + inputBox.height)).toBeLessThanOrEqual(24);
       // 접히는 틀 밖이고 동의 관문이 아니다(체크·버튼 없음): 고지를 건드리지 않고 바로 질문을 보낼 수 있다
-      expect(await notice.evaluate((el) => el.closest("details, [role=dialog], [data-state=closed]") === null)).toBe(true);
+      expect(await combined.evaluate((el) => el.closest("details, [role=dialog], [data-state=closed]") === null)).toBe(true);
+      await expect(combined).toHaveAttribute("role", "note");
       await expect(dock(page).locator("input[type=checkbox]")).toHaveCount(0);
-      await expect(notice.locator("button, a")).toHaveCount(0);
-      // 119 영역·고지에 마스코트가 없다
+      await expect(combined.locator("button, a")).toHaveCount(0);
       await expect(dock(page).getByTestId("mascot")).toHaveCount(0);
-      // 글자 크기가 읽을 수 있는 크기다(12px 이상)
-      expect(await notice.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
-      expect(await start119.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
+      expect(await combined.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
       await expectNoHorizontalScroll(page);
       await ask(page);
       await expect(page.getByTestId("result-card")).toBeVisible();
       expect(await requests(page)).toHaveLength(1);
-      // 질문을 보낸 뒤에는 시작 화면 119 줄이 내려가고 응답의 고정 안내·고지가 그 자리에 온다(119는 머리줄 진입점). 입력창 고지는 그대로 1회
-      await expect(page.getByTestId("start-emergency")).toHaveCount(0);
+      // 질문을 보낸 뒤에도 119는 머리줄 하나, 통합 고지는 그대로 1회, 응답의 고정 안내는 입력창 위
       await expect(page.getByTestId("external-ai-notice")).toHaveCount(0);
-      await expect(page.getByTestId("input-notice")).toHaveCount(1);
+      await expect(page.getByTestId("input-combined-notice")).toHaveCount(1);
       await expect(dock(page).getByTestId("fixed-notice")).toBeVisible();
       await expect(tel(page)).toHaveCount(1);
     });
@@ -1396,7 +1391,7 @@ for (const viewport of [
 test.describe("시작 화면 안내 360px: 새 질문", () => {
   test.use({ viewport: { width: 360, height: HEIGHT } });
 
-  test("'새 질문'으로 시작 화면에 돌아오면 119 안내 줄이 다시 보이고 외부 AI 고지는 입력창 고지 1회뿐이다(PRD-17-10 A)", async ({ page }) => {
+  test("'새 질문'으로 시작 화면에 돌아와도 119는 머리줄 하나이고 외부 AI 고지는 통합 고지 1회뿐이다(FE-17 U-02·U-04)", async ({ page }) => {
     await mockChat(page, "found");
     await openApp(page);
     await ask(page);
@@ -1404,9 +1399,10 @@ test.describe("시작 화면 안내 360px: 새 질문", () => {
     await page.getByRole("button", { name: "메뉴 열기" }).click();
     await page.getByTestId("new-chat").click();
     await expect(page.getByTestId("home")).toBeVisible();
-    await expect(page.getByTestId("start-emergency")).toHaveText(START_EMERGENCY);
+    await expect(page.getByTestId("start-emergency")).toHaveCount(0);
+    await expect(tel(page)).toHaveCount(1);
     await expect(page.getByTestId("external-ai-notice")).toHaveCount(0);
-    await expect(page.getByTestId("input-notice")).toHaveCount(1);
+    await expect(page.getByTestId("input-combined-notice")).toHaveCount(1);
     expect(await externalAiCount(page)).toBe(1);
   });
 
@@ -1513,7 +1509,12 @@ for (const width of [360, 320]) {
         await expect(turn1.getByTestId("status-badge")).toHaveCount(0);
         await expect(turn1.getByTestId("evidence-entry")).toHaveCount(0);
         if (cardShown) await expect(turn1.getByTestId("candidate-card")).not.toContainText(/삐!|금기|안전|먹어도|드셔도/);
-        else await expect(turn1.getByTestId("candidate-card")).toHaveCount(0); // 지난 되묻기의 후보는 더 고를 수 없다
+        else {
+          // 지난 되묻기(FE-17 U-05): 고른 줄 요약만 남고 후보는 더 고를 수 없다
+          await expect(turn1.getByTestId("candidate-card")).toHaveAttribute("data-readonly", "true");
+          await expect(turn1.getByTestId("candidate")).toHaveCount(0);
+          await expect(turn1.getByTestId("candidates-line")).toHaveCount(0);
+        }
         await expect(turn1.getByTestId("result-view")).not.toContainText(/삐!|먹어도 돼|먹어도 됩|안전해요|안전합니다/);
       };
       await noVerdict();

@@ -9,8 +9,7 @@ import { EmergencyBanner } from "./EmergencyBanner";
 import { FixedNoticeBox } from "./FixedNoticeBox";
 import { LegalFooter } from "./LegalFooter";
 import { PharmacistAdviceBox } from "./PharmacistAdviceBox";
-import * as startNotice from "./StartNotice";
-import { StartEmergencyLink } from "./StartNotice";
+import * as emergencyIndex from "./index";
 import { START_EMERGENCY_119 } from "@/lib/fixed/phrases.generated";
 
 const COLLAPSIBLE = "details, [hidden], [aria-hidden='true'], [data-state='closed'], [role='dialog']";
@@ -142,28 +141,9 @@ describe("EmergencyBanner 넓은 폭 보조 문장(FE-07-15)", () => {
   });
 });
 
-describe("시작 화면 안내(FE-01-19 A·FE-01-24 A, PRD-17-10 A)", () => {
-  it("119 안내 줄: 받은 글자 그대로이고 줄 전체가 tel:119 링크다", () => {
-    render(<StartEmergencyLink text={START_EMERGENCY_119} />);
-    const link = screen.getByTestId("start-emergency");
-    expect(link.tagName).toBe("A");
-    expect(link).toHaveAttribute("href", "tel:119");
-    expect(link.textContent).toBe(START_EMERGENCY_119);
-    expect(link.className).toContain("min-h-11"); // 누르는 영역 44px
-  });
-
-  it("시작 화면 외부 AI 고지 부품은 없다(PRD-17-10 A: 입력창 고지 하나)", () => {
-    expect(Object.keys(startNotice)).toEqual(["StartEmergencyLink"]);
-  });
-
-  it("119 안내 줄은 문장을 갖지 않는다: 다른 글자를 주면 그 글자를 그린다", () => {
-    render(<StartEmergencyLink text="받은 119 글자" />);
-    expect(screen.getByTestId("start-emergency").textContent).toBe("받은 119 글자");
-  });
-
-  it("119 자리에는 마스코트가 그려지지 않는다(NoMascotZone)", () => {
-    const { container } = render(<StartEmergencyLink text={START_EMERGENCY_119} />);
-    expect(screen.queryByTestId("mascot")).toBeNull();
-    expect(container.querySelector("img, audio, video")).toBeNull();
+describe("시작 화면 119 줄 제거(FE-17 U-04: 119는 머리줄·응급 배너 두 곳)", () => {
+  it("안전 영역 묶음에 시작 화면 119 줄 부품이 없고, 생성 상수(START_EMERGENCY_119)는 백엔드 원본대로 남아 있다", () => {
+    expect(Object.keys(emergencyIndex)).not.toContain("StartEmergencyLink");
+    expect(START_EMERGENCY_119.length).toBeGreaterThan(0);
   });
 });

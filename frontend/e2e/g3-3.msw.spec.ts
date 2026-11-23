@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, expectNoHorizontalScroll, input, openApp } from "./helpers";
+import { HEIGHT, ask, expectNoHorizontalScroll, input, openApp, pickTarget } from "./helpers";
 
 // GROUP-03 3단계(FE-11-09 C·FE-11-12 A, 2026-11-22) 성별 숨김 e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // - 대상 프로필의 성별이 **남성일 때만** 입력창 안 "일반인 | 임산부" 토글이 숨고 `/chat` `context.pregnant`는 false다
@@ -23,7 +23,6 @@ const modal = (page: Page) => page.getByTestId("account-modal");
 const toggle = (page: Page) => page.getByRole("radiogroup", { name: "임신 여부" });
 const radio = (page: Page, name: "일반인" | "임산부") => toggle(page).getByRole("radio", { name });
 /** 대상 고르기의 한 칸(라디오 입력은 sr-only라 글자(label)를 누른다, g1-5a와 같은 방식) */
-const target = (page: Page, name: string) => page.getByTestId("target-picker").getByText(name, { exact: true });
 /** 입력창 틀(토글·textarea·버튼을 감싸는 form) */
 const inputForm = (page: Page) => input(page).locator("xpath=ancestor::form[1]");
 
@@ -78,15 +77,18 @@ for (const width of [393, 1280]) {
         const guestFormBox = (await inputForm(page).boundingBox())!;
 
         await loginWithMaleSelfAndFemaleChild(page);
-        await expect(page.getByTestId("target-picker")).toBeVisible();
+        await expect(page.getByTestId("target-chip")).toBeVisible();
         await expect(toggle(page)).toBeVisible(); // 선택 안 함: 보인다
+        // 로그인 + 프로필이면 입력창 첫 줄에 "토글 · 프로필 칩"이 생긴다(2026-11-23). 토글이 빠져도 높이가 그대로인지는 이 틀을 기준으로 본다
+        const memberFormBox = (await inputForm(page).boundingBox())!;
+        expect(memberFormBox.height).toBeGreaterThan(guestFormBox.height); // 게스트는 예전 한 줄 모양
 
         // ---- 남성(나): 토글이 없다. 입력창 틀 높이는 게스트 때와 같다(흔들림 없음)
-        await target(page, "나").click();
+        await pickTarget(page, "나");
         await expect(toggle(page)).toHaveCount(0);
         await expect(page.getByTestId("pregnancy-hint")).toHaveCount(0);
         const maleFormBox = (await inputForm(page).boundingBox())!;
-        expect(Math.abs(maleFormBox.height - guestFormBox.height)).toBeLessThanOrEqual(1);
+        expect(Math.abs(maleFormBox.height - memberFormBox.height)).toBeLessThanOrEqual(1);
         await expectNoHorizontalScroll(page);
         await shot(page, "male-hidden");
         await ask(page, "합성 질문 가나다정 먹어도 돼요");
@@ -98,11 +100,11 @@ for (const width of [393, 1280]) {
         await expect(toggle(page)).toHaveCount(0); // 답을 받은 뒤에도 그대로 숨김
 
         // ---- 여성(첫째): 토글이 보이고 저장된 임신 값(예)으로 시작한다(§7.1 규칙 ①·②)
-        await target(page, "첫째").click();
+        await pickTarget(page, "첫째");
         await expect(toggle(page)).toBeVisible();
         await expect(radio(page, "임산부")).toHaveAttribute("aria-checked", "true");
         const femaleFormBox = (await inputForm(page).boundingBox())!;
-        expect(Math.abs(femaleFormBox.height - guestFormBox.height)).toBeLessThanOrEqual(1);
+        expect(Math.abs(femaleFormBox.height - memberFormBox.height)).toBeLessThanOrEqual(1);
         await expectNoHorizontalScroll(page);
         await shot(page, "female-shown");
         await ask(page, "합성 질문 가나다정 먹어도 돼요");
@@ -110,14 +112,14 @@ for (const width of [393, 1280]) {
         expect(chats[1].context.pregnant).toBe(true);
 
         // ---- 다시 남성(나): 숨김·false. 여성 쪽에서 임산부였어도 남성 대상에는 싣지 않는다
-        await target(page, "나").click();
+        await pickTarget(page, "나");
         await expect(toggle(page)).toHaveCount(0);
         await ask(page, "합성 질문 가나다정 먹어도 돼요");
         await expect(page.getByTestId("result-card")).toHaveCount(3);
         expect(chats[2].context.pregnant).toBe(false);
 
         // ---- 선택 안 함: 다시 보이고 일반인
-        await target(page, "선택 안 함").click();
+        await pickTarget(page, "선택 안 함");
         await expect(toggle(page)).toBeVisible();
         await expect(radio(page, "일반인")).toHaveAttribute("aria-checked", "true");
         expect(patches).toEqual([]); // 대상 변경만으로는 저장하지 않는다

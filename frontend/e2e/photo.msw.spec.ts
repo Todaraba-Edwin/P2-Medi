@@ -113,7 +113,7 @@ for (const width of [393, 1280, 360]) {
       await expect(box.getByTestId("photo-format-note")).toBeVisible();
       await expectTouchTarget(box.getByTestId("photo-close"));
       await expect(box.getByRole("button", { name: "뒤로" })).toHaveCount(0);
-      await expect119Reachable(page, box.getByTestId("layer-emergency-entry"));
+      await expect(box.locator('a[href="tel:119"]')).toHaveCount(0); // 119는 머리줄·응급 배너 두 곳뿐, 층 안에는 없다(FE-17 U-04)
       await shot(page, "photo-pick");
 
       await pickFile(page, "ok");
@@ -166,7 +166,7 @@ test.describe("인식 실패·상한·응급·닫기 (360px)", () => {
     await expect(failed).toHaveText(P4);
     await expect(modal(page).getByTestId("photo-retake")).toHaveText("다시 찍기");
     await expect(modal(page).getByTestId("photo-type-instead")).toHaveText("글자로 입력");
-    await expect119Reachable(page, modal(page).getByTestId("layer-emergency-entry"));
+    await expect(modal(page).locator('a[href="tel:119"]')).toHaveCount(0); // 119는 머리줄·응급 배너 두 곳뿐, 층 안에는 없다(FE-17 U-04)
     await expectNoHorizontalScroll(page);
     await shot(page, "photo-failed");
     await modal(page).getByTestId("photo-type-instead").click();

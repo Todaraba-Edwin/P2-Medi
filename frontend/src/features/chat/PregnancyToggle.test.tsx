@@ -93,7 +93,7 @@ describe("ChatInput의 임신 여부 선택", () => {
     expect(hint.textContent).toBe("프로필에 저장하려면 건강 정보 동의가 필요해요");
     expect(hint.getAttribute("role")).toBe("status");
     expect(screen.getByRole("radiogroup").getAttribute("aria-describedby")).toBe(hint.id);
-    expect(screen.getAllByTestId("input-notice")).toHaveLength(1);
+    expect(screen.getAllByTestId("input-combined-notice")).toHaveLength(1);
     rerender(<ChatInput onSend={() => {}} pregnancy={{ value: false, onChange: () => {}, hint: copy.PREGNANCY_SAVE_CONSENT_HINT, error: "저장 실패 안내" }} />);
     expect(screen.queryByTestId("pregnancy-hint")).toBeNull();
     const error = screen.getByTestId("pregnancy-save-error");

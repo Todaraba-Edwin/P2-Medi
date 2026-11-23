@@ -18,6 +18,11 @@ export interface ResultViewProps {
   onRetryName?: () => void;
   /** 되묻기 안내(`candidates_line`)를 조립하는 쪽이 다른 자리(여러 약 확인 줄의 첫 행, FE-10)에 그릴 때 `true`: 여기서는 그리지 않는다(두 번 보이지 않게) */
   hideCandidatesLine?: boolean;
+  /**
+   * 고른 제품으로 이미 다시 물은 지난 되묻기 차례의 선택(FE-17 U-05). 주면 후보 카드를 고른 줄 요약(고를 수 없음)으로 남기고 되묻기 안내 줄은 숨긴다.
+   * 마지막 차례(지금 고르는 중)에는 주지 않는다
+   */
+  pastPicks?: CandidatePicks;
 }
 
 /** 결과 위 안내 띠(서버 상수 글자 그대로): 공공 API 실패 배너·용량 고지·재복용 고지가 같은 모양이다 */
@@ -38,8 +43,9 @@ function NoticeBand({ testId, text }: { testId: string; text: string }) {
  * 고정 안내·고지·119·근거 상세는 FE-IMPL-05, 화면 조립은 FE-IMPL-06이 한다.
  * GROUP-01 3단계의 새 칸 가운데 고지·요약 줄만 임시로 그린다(디자인 전). 구역별 접기(`section`·`rest_fold`)·짝 참조(`pair_ref`)·용량 되묻기 카드(`dose_check`)는 4단계 디자인 뒤 5단계 본 작업이다
  */
-export function ResultView({ response, basis, footer, onPickCandidate, onOtherCandidate, selectedCandidates, onRetryName, hideCandidatesLine = false }: ResultViewProps) {
+export function ResultView({ response, basis, footer, onPickCandidate, onOtherCandidate, selectedCandidates, onRetryName, hideCandidatesLine = false, pastPicks }: ResultViewProps) {
   const showCandidates = response.end_reason === "CLARIFY" && response.candidates.length > 0 && onPickCandidate;
+  const showPastPicks = !showCandidates && pastPicks !== undefined && response.end_reason === "CLARIFY" && response.candidates.length > 0;
   // 약을 찾지 못한 줄: 서버가 사용자가 적은 이름(`input_name`)을 실어 보낸 줄(backend schemas.py의 미식별 판별과 같은 칸)
   const showRetry = onRetryName !== undefined && response.findings.some((finding) => finding.input_name !== null);
   return (
@@ -89,8 +95,10 @@ export function ResultView({ response, basis, footer, onPickCandidate, onOtherCa
           </ul>
         )}
         {showCandidates ? <CandidateCard candidates={response.candidates} onPick={onPickCandidate} onOther={onOtherCandidate} selected={selectedCandidates} /> : null}
-        {/* 되묻기 카드 안내(서버 상수). 후보가 있을 때만 온다 */}
-        {response.candidates_line !== null && !hideCandidatesLine && (
+        {/* 이미 고른 제품으로 다시 물은 지난 차례: 고른 줄 요약만 남긴다(FE-17 U-05) */}
+        {showPastPicks ? <CandidateCard candidates={response.candidates} onPick={() => {}} selected={pastPicks} readOnly /> : null}
+        {/* 되묻기 카드 안내(서버 상수). 후보가 있을 때만 온다. 이미 다시 물은 지난 차례에서는 숨긴다(FE-17 U-05) */}
+        {response.candidates_line !== null && !hideCandidatesLine && !showPastPicks && (
           <p data-testid="candidates-line" className="m-0 px-1 text-xs leading-[17px] break-words text-mute">
             {response.candidates_line}
           </p>

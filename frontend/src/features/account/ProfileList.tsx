@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Mascot } from "@/components/Mascot";
 import { FAMILY_PROFILE_MAX } from "@/lib/api/account";
 import type { Profile } from "@/lib/api/account";
 import { accountUnavailable, canAddFamily, canAddSelf, familyProfiles, hasHealthConsent, useAccountStore } from "@/stores/account";
@@ -37,7 +36,8 @@ import {
   medicationCount,
   profileName,
 } from "./copy";
-import { ConfirmDialog, DANGER_TEXT_BUTTON, EmergencyEntrySlot, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, TEXT_BUTTON, useAccountModal } from "./parts";
+import { ProfileAvatar } from "./ProfileAvatar";
+import { ConfirmDialog, DANGER_TEXT_BUTTON, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, TEXT_BUTTON, useAccountModal } from "./parts";
 
 /** 프로필 한 줄 요약. 성별(선택)은 건강 정보가 아니라 동의와 상관없이 보이고, 건강 정보(임신 여부·복용 약)는 건강 정보 동의가 있을 때만 보인다 */
 export function profileSummary(profile: Profile, healthConsent: boolean): string {
@@ -105,8 +105,8 @@ export function ProfileList() {
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {profiles.map((profile) => (
             <li key={profile.profile_id} data-testid="profile-item" data-relation={profile.relation} className="flex flex-wrap items-center gap-2 rounded-2xl border border-line px-3 py-2">
-              {/* 프로필 기본 이미지: 병아리 얼굴(FE-06-01, 위험 정보와 무관한 자리) */}
-              {!hideMascot && <Mascot variant="face" size={36} />}
+              {/* 프로필 이미지: 프로필 색 원 + 병아리 얼굴(FE-06-01, 위험 정보와 무관한 자리, 2026-11-23 8색 배경). 119 안내 중에는 색 원만 */}
+              <ProfileAvatar color={profile.avatar_color} size={36} face={!hideMascot} />
               <div className="min-w-0 flex-1 basis-32">
                 <b className="block truncate text-sm">{profileName(profile)}</b>
                 <span className="block text-xs leading-[17px] text-mute">{profileSummary(profile, healthConsent)}</span>
@@ -158,7 +158,6 @@ export function ProfileList() {
           </button>
         )}
       </div>
-      <EmergencyEntrySlot />
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}

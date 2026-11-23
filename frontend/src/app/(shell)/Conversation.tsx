@@ -48,9 +48,11 @@ const RESEND_DISABLED = "aria-disabled:cursor-not-allowed aria-disabled:bg-line 
 interface TurnProps extends Omit<ConversationProps, "turns"> {
   turn: ChatTurn;
   isLast: boolean;
+  /** 다음 차례가 이 차례에서 고른 제품으로 같은 질문을 다시 물은 것인가(FE-17 U-05) */
+  resent: boolean;
 }
 
-function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, entryLabelMode, picked, onOpenEvidence, onRetry, onPick, onOther, onResend }: TurnProps) {
+function TurnAnswer({ turn, isLast, resent, hasEmergency, dockTurnId, evidenceTurnId, entryLabelMode, picked, onOpenEvidence, onRetry, onPick, onOther, onResend }: TurnProps) {
   const { stream } = turn;
   const statusId = useId();
   // 검증을 통과한 응답이 있으면 어떤 상태로 끝났든 그 결과를 보인다(done 없이 끊겨도 유지)
@@ -106,6 +108,8 @@ function TurnAnswer({ turn, isLast, hasEmergency, dockTurnId, evidenceTurnId, en
           onRetryName={isLast ? onOther : undefined}
           // 여러 약 되묻기의 안내 줄은 아래 확인 줄 첫 행에 그린다(FE-10)
           hideCandidatesLine={showResend && multiple}
+          // 고른 제품으로 다시 물은 지난 차례(FE-17 U-05): 고른 줄 요약(A 입력 → 제품 · 바꾸기)은 남기고 안내 줄·확인 줄은 숨긴다
+          pastPicks={!isLast && resent ? picked[turn.id] : undefined}
         />
         {showPregnancyHint && (
           <NoMascotZone>
@@ -228,13 +232,16 @@ export function Conversation({ turns, ...rest }: ConversationProps) {
 
   return (
     <div ref={thread} data-testid="chat-thread" onScroll={onScroll} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-0.5 pt-2 pb-3">
-      {turns.map((turn) => (
-        <div key={turn.id} data-turn={turn.id} data-status={turn.stream.status} className="flex flex-col gap-2.5">
-          {/* 고른 약으로 다시 물은 차례는 표시용 글자를 보인다(FE-09-04 A). 서버로 간 것은 원 질문이다 */}
-          <MessageBubble side="me">{turn.display ?? turn.question}</MessageBubble>
-          <TurnAnswer turn={turn} isLast={turn === last} {...rest} />
-        </div>
-      ))}
+      {turns.map((turn, index) => {
+        const next = turns[index + 1];
+        return (
+          <div key={turn.id} data-turn={turn.id} data-status={turn.stream.status} className="flex flex-col gap-2.5">
+            {/* 고른 약으로 다시 물은 차례는 표시용 글자를 보인다(FE-09-04 A). 서버로 간 것은 원 질문이다. 답을 기다리는 동안은 기존 진행 표시가 이어진다 */}
+            <MessageBubble side="me">{turn.display ?? turn.question}</MessageBubble>
+            <TurnAnswer turn={turn} isLast={turn === last} resent={next !== undefined && next.display !== undefined && next.display !== null && next.question === turn.question} {...rest} />
+          </div>
+        );
+      })}
       <div ref={end} />
     </div>
   );

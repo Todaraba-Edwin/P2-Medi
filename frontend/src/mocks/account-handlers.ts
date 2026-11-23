@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   AGE_14_DOC,
   AgeBandSchema,
+  AvatarColorSchema,
   CONSENT_DOC_TYPES,
   ConsentDocTypeSchema,
   FAMILY_PROFILE_MAX,
@@ -57,6 +58,8 @@ const profileFields = {
   /** 성별(선택, 건강 정보 아님): 잘못된 값은 백엔드처럼 422 `INVALID_REQUEST`(fields=["sex"], 값은 되돌려 주지 않는다) */
   sex: SexSchema.nullable().optional(),
   pregnancy_status: PregnancyStatusSchema.nullable().optional(),
+  /** 병아리 배경색(건강 정보 아님, 백엔드처럼 8색 밖·null은 422). 없으면 만들 때 yellow, 고칠 때 그대로 */
+  avatar_color: AvatarColorSchema.optional(),
 };
 /** 본문 전체가 422일 때 백엔드처럼 칸 이름만 돌려준다(`sex`가 잘못됐으면 `["sex"]`, 그 밖은 `["body"]`) */
 const invalidFields = (issues: z.ZodError["issues"]) => (issues.some((issue) => issue.path[0] === "sex") ? ["sex"] : ["body"]);
@@ -114,8 +117,8 @@ export function mockSession(kind: MockSessionKind, provider: MockProvider = "ema
     for (const docType of CONSENT_DOC_TYPES) session.consents[docType] = { action: "agree", version: MOCK_LEGAL_DOCS[docType].version, acted_at: NOW };
     // 성별은 로그인 공급자 정보가 아니라 사용자가 고른 값이다(목에서는 미리 저장돼 있던 값으로 둔다)
     session.profiles = [
-      { profile_id: mockId(1, 9001), relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: "not_pregnant", sort_order: 0, medications: [] },
-      { profile_id: mockId(1, 9002), relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, sort_order: 1, medications: [] },
+      { profile_id: mockId(1, 9001), relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: "not_pregnant", avatar_color: "yellow", sort_order: 0, medications: [] },
+      { profile_id: mockId(1, 9002), relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, avatar_color: "blue", sort_order: 1, medications: [] },
     ];
   }
   return session;
@@ -317,6 +320,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
         age_band: draft.age_band ?? null,
         sex: draft.sex ?? null,
         pregnancy_status: draft.pregnancy_status ?? null,
+        avatar_color: draft.avatar_color ?? "yellow",
         sort_order: session.profiles.length,
         medications: medications(meds),
       };
@@ -351,6 +355,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
         sex: patch.sex !== undefined ? patch.sex : current.sex, // 보낸 경우에만 바뀐다. null = 지움
         pregnancy_status: patch.pregnancy_status !== undefined ? patch.pregnancy_status : current.pregnancy_status,
         medications: patch.medications !== undefined ? medications(patch.medications) : current.medications,
+        avatar_color: patch.avatar_color ?? current.avatar_color,
       };
       session.profiles = session.profiles.map((profile) => (profile.profile_id === profileId ? next : profile));
       return HttpResponse.json(next, { headers: NO_STORE });

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openAccountEntry, openApp } from "./helpers";
+import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openAccountEntry, openApp, pickTarget } from "./helpers";
 
 // 계정 흐름(FE-04) e2e. Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다.
 // 서버는 브라우저 워커의 목(src/mocks/account-handlers.ts, BE-11 계약과 같은 모양)이고 실제 백엔드·원격 호출은 0이다.
@@ -73,7 +73,7 @@ test.describe("게스트 시작 360px", () => {
     await page.getByTestId("guest-start").click();
     await expect(choice).toHaveCount(0);
     await expect(input(page)).toBeFocused();
-    await expect(page.getByTestId("target-picker")).toHaveCount(0);
+    await expect(page.getByTestId("target-chip")).toHaveCount(0);
     await ask(page, "합성 질문");
     await expect(page.getByTestId("result-card")).toBeVisible();
     expect(bodies).toEqual([{ question: "합성 질문", context: { age: null, pregnant: false, confirmed_drugs: [], prior_drugs: [], took_today: null } }]);
@@ -168,10 +168,9 @@ for (const width of [360, 1280]) {
       const close = (await closeButton(page).boundingBox())!;
       const mascot = (await modal(page).getByTestId("mascot").boundingBox())!;
       expect(mascot.y).toBeGreaterThanOrEqual(close.y + close.height - 0.5);
-      // ⑧ 모달이 머리줄을 덮는 동안에도 119 진입점을 누를 수 있다
-      await expect(layerTel(page)).toHaveAttribute("href", "tel:119");
-      await expectTouchTarget(layerTel(page));
-      await expectClickReaches(page, layerTel(page));
+      // ⑧ 119 진입점은 머리줄·응급 배너 두 곳뿐이다(FE-17 U-04): 모달 안에는 없다
+      await expect(layerTel(page)).toHaveCount(0);
+      await expect(modal(page).locator('a[href="tel:119"]')).toHaveCount(0); // 119는 머리줄·응급 배너 두 곳뿐, 층 안에는 없다(FE-17 U-04)
       await expectModalFits(page);
       await shot(page, "login");
 
@@ -247,20 +246,29 @@ for (const width of [360, 1280]) {
       await closeButton(page).click();
       await expect(modal(page)).toHaveCount(0);
 
-      // ---- 채팅: 로그인하면 진입 선택은 사라지고 "누가 먹나요"가 입력창 위에 보인다
+      // ---- 채팅: 로그인하면 진입 선택은 사라지고 "누가 먹나요"는 입력창 안 프로필 칩이다(2026-11-23: 본문 선택 줄 없음). 칩을 누르면 목록이 위로 열린다
       await expect(page.getByTestId("entry-choice")).toHaveCount(0);
-      const picker = page.getByTestId("target-picker");
+      await expect(page.getByRole("radiogroup", { name: "누가 먹나요" })).toHaveCount(0);
+      const chip = page.getByTestId("target-chip");
+      await expect(chip).toBeVisible();
+      await expectTouchTarget(chip, { widthToo: false });
+      const chipBox = (await chip.boundingBox())!;
+      const formBox = (await input(page).locator("xpath=ancestor::form").boundingBox())!;
+      expect(chipBox.y).toBeGreaterThanOrEqual(formBox.y - 0.5); // 입력창 틀 안
+      expect(chipBox.y + chipBox.height).toBeLessThanOrEqual((await input(page).boundingBox())!.y + 0.5); // 질문 칸 위 줄
+      await chip.click();
+      const picker = page.getByTestId("target-menu");
       await expect(picker.getByTestId("target-option")).toHaveText(["선택 안 함", "나", "첫째"]);
       for (const option of await picker.getByTestId("target-option").all()) await expectTouchTarget(option, { widthToo: false });
-      const pickerBox = (await picker.boundingBox())!;
-      expect(pickerBox.y + pickerBox.height).toBeLessThanOrEqual((await input(page).boundingBox())!.y + 0.5); // 입력창 위
+      expect((await picker.boundingBox())!.y + (await picker.boundingBox())!.height).toBeLessThanOrEqual(chipBox.y + 0.5); // 위로 열린다
       await expectNoHorizontalScroll(page);
-      await picker.getByText("나", { exact: true }).click();
+      await picker.getByRole("menuitemradio", { name: "나", exact: true }).click();
+      await expect(picker).toHaveCount(0);
       await shot(page, "target");
       await ask(page, "합성 질문");
       await expect(page.getByTestId("result-card")).toBeVisible();
       await shot(page, "answer");
-      await picker.getByText("첫째", { exact: true }).click();
+      await pickTarget(page, "첫째");
       // 첫째로 되묻기 → 고른 약으로 다시 묻기: 이번 답은 confirmed_drugs, 답이 오면 이전 선택(prior_drugs)이 되어 다음 질문에 실린다(AG-21-02·03 A)
       await ask(page, "mock:되묻기 둘째 합성 질문");
       await expect(page.locator('[data-turn="turn-2"]').getByTestId("candidate-card")).toBeVisible();
@@ -270,7 +278,7 @@ for (const width of [360, 1280]) {
       await ask(page, "둘째 합성 질문");
       await expect(page.locator('[data-turn="turn-4"]').getByTestId("result-card")).toBeVisible();
       // "누가 먹나요" 대상을 바꾸면 이전 선택을 비운다(다른 사람의 약을 같은 이름으로 확인하지 않게)
-      await picker.getByText("선택 안 함", { exact: true }).click();
+      await pickTarget(page, "선택 안 함");
       await ask(page, "셋째 합성 질문");
       await expect(page.locator('[data-turn="turn-5"]').getByTestId("result-card")).toBeVisible();
       const pick = { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" };
@@ -362,7 +370,7 @@ for (const width of [360, 1280]) {
       // ---- 로그아웃: 게스트로 돌아가고 모달이 닫힌다
       await modal(page).getByRole("button", { name: "로그아웃" }).click();
       await expect(modal(page)).toHaveCount(0);
-      await expect(page.getByTestId("target-picker")).toHaveCount(0);
+      await expect(page.getByTestId("target-chip")).toHaveCount(0);
       await expect(page.getByTestId("login-entry")).toBeVisible();
     });
 
@@ -444,7 +452,7 @@ test.describe("금기 결과 위에서 여는 계정 모달 360px(ISSUE-006 상�
     await shot(page, "withdraw-confirm");
     await confirm.getByRole("button", { name: "탈퇴하기" }).click();
     await expect(modal(page)).toHaveCount(0);
-    await expect(page.getByTestId("target-picker")).toHaveCount(0); // 게스트로 돌아왔다
+    await expect(page.getByTestId("target-chip")).toHaveCount(0); // 게스트로 돌아왔다
     await expect(page.getByTestId("result-card")).toBeVisible(); // 대화는 그대로다
   });
 });

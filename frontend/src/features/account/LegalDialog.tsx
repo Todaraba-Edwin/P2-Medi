@@ -20,15 +20,13 @@ export interface LegalDialogProps {
   member: boolean;
   /** 닫힌 뒤 초점을 둘 곳(연 메뉴 버튼). Radix는 `Dialog.Trigger`가 없으면 돌려주지 않는다 */
   onCloseAutoFocus?: (event: Event) => void;
-  /** 머리줄 119 진입점을 덮는 층 안에서도 누를 수 있게 둘 진입점(배너가 떠 있으면 넘기지 않는다) */
-  emergencyEntry?: React.ReactNode;
 }
 
 /**
  * 약관·정책 열람 화면(2026-11-23): 계정 메뉴의 `약관·정책` 항목에서 연다. 게스트·회원 모두 현재 적용 문서를 읽기 전용으로 다시 본다(`LegalDocsSection`).
  * 제목이 곧 묶음 이름이라 안쪽에 같은 제목을 두 번 두지 않는다(`labelledBy`). 열리면 초점은 제목에 있고 본문만 스크롤하며 Esc·닫기로 닫힌다.
  */
-export function LegalDialog({ open, onOpenChange, container = null, member, onCloseAutoFocus, emergencyEntry = null }: LegalDialogProps) {
+export function LegalDialog({ open, onOpenChange, container = null, member, onCloseAutoFocus }: LegalDialogProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal container={container}>
@@ -48,7 +46,6 @@ export function LegalDialog({ open, onOpenChange, container = null, member, onCl
               {LEGAL_MENU_LABEL}
             </Dialog.Title>
             <div className="flex items-center gap-2">
-              {emergencyEntry}
               <Dialog.Close data-testid="legal-close" className={cn("min-h-11 rounded-full border border-line bg-bg px-3 text-sm font-bold text-link", HOVER_TEXT)}>
                 {CLOSE_LABEL}
               </Dialog.Close>

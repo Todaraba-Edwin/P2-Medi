@@ -925,6 +925,12 @@ export interface components {
         ProfileCreate: {
             /** Age Band */
             age_band?: ("m0_2" | "m3_5" | "m6_11" | "y1" | "y2" | "y3_5" | "y6_11" | "y12_14" | "y15_18" | "y19_64" | "y65_plus") | null;
+            /**
+             * Avatar Color
+             * @default yellow
+             * @enum {string}
+             */
+            avatar_color: "yellow" | "coral" | "pink" | "purple" | "blue" | "teal" | "green" | "gray";
             /** Label */
             label?: string | null;
             /** Medications */
@@ -943,6 +949,11 @@ export interface components {
         ProfileOut: {
             /** Age Band */
             age_band: ("m0_2" | "m3_5" | "m6_11" | "y1" | "y2" | "y3_5" | "y6_11" | "y12_14" | "y15_18" | "y19_64" | "y65_plus") | null;
+            /**
+             * Avatar Color
+             * @enum {string}
+             */
+            avatar_color: "yellow" | "coral" | "pink" | "purple" | "blue" | "teal" | "green" | "gray";
             /** Label */
             label: string | null;
             /** Medications */
@@ -968,6 +979,8 @@ export interface components {
         ProfileUpdate: {
             /** Age Band */
             age_band?: ("m0_2" | "m3_5" | "m6_11" | "y1" | "y2" | "y3_5" | "y6_11" | "y12_14" | "y15_18" | "y19_64" | "y65_plus") | null;
+            /** Avatar Color */
+            avatar_color?: ("yellow" | "coral" | "pink" | "purple" | "blue" | "teal" | "green" | "gray") | null;
             /** Label */
             label?: string | null;
             /** Medications */

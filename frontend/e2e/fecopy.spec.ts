@@ -13,21 +13,29 @@ const shot = async (page: Page, name: string) => {
 };
 
 /** 승인 원문(PRD-17-07 A, 2026-11-19; 마지막 문장은 원문 승인 2026-11-22, PRD-17-10 후속, RFP-24-01 요소 보강) */
-const INPUT_NOTICE = "질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문과 선택한 프로필 값은 외부 AI(OpenAI)로 전송되며, 제공자 정책에 따라 일정 기간 보관될 수 있어요.";
+/** 입력창 아래 통합 고지(FE-17 U-02 초안 그대로, **승인 대기**): 법적 고지 + 저장 안 함·외부 AI 전송·보관 */
+const COMBINED_NOTICE =
+  "공공데이터 기반 정보 제공이며 진단·처방이 아니에요. 금기 목록에 없어도 안전하다는 뜻은 아니고, 요양기관의 DUR 점검을 대체하지 않아요. 질문은 저장하지 않고 탭을 닫으면 사라지지만, 답변을 만들기 위해 질문과 선택한 프로필 값이 외부 AI(OpenAI)로 전송되며 제공자 정책에 따라 일정 기간 보관될 수 있어요.";
 /** 삭제한 사이드바 문구(PRD-17-08 A) */
 const REMOVED_SIDEBAR_NOTE = "대화는 이 화면에만 있고 저장하지 않아요. 새로고침하거나 닫으면 사라져요.";
-const notice = (page: Page) => page.getByTestId("input-notice");
+const notice = (page: Page) => page.getByTestId("input-combined-notice");
 
-/** 고지가 입력창 바로 아래(겹치지 않고 가깝게), 고정 안내·법적 고지는 입력창 위에 있어 서로 겹치지 않는다 */
+/**
+ * 고지가 입력창 바로 아래(겹치지 않고 가깝게) 한 단락이다(FE-17 U-02: 예전 `legal-footer`·`input-notice` 두 줄은 없다).
+ * 고정 안내는 입력창 위에 있어 서로 겹치지 않는다
+ */
 async function expectNoticeUnderInput(page: Page) {
-  await expect(notice(page)).toHaveText(INPUT_NOTICE);
+  await expect(notice(page)).toHaveText(COMBINED_NOTICE);
+  await expect(notice(page)).toHaveAttribute("role", "note");
+  await expect(page.getByTestId("input-notice")).toHaveCount(0);
+  await expect(page.getByTestId("legal-footer")).toHaveCount(0);
   await expectInFirstScreen(page, notice(page));
   const inputBox = (await input(page).boundingBox())!;
   const noticeBox = (await notice(page).boundingBox())!;
   expect(noticeBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height - 0.5);
   expect(noticeBox.y - (inputBox.y + inputBox.height)).toBeLessThanOrEqual(24);
-  const footer = (await page.getByTestId("legal-footer").boundingBox())!;
-  expect(footer.y + footer.height).toBeLessThanOrEqual(inputBox.y + 0.5);
+  const fixed = dock(page).getByTestId("fixed-notice");
+  if (await fixed.count()) expect((await fixed.boundingBox())!.y + (await fixed.boundingBox())!.height).toBeLessThanOrEqual(inputBox.y + 0.5); // 고정 안내는 입력창 위
   // 안내이지 관문이 아니다: 체크·버튼 없음, 접히는 틀 밖, 마스코트 없음, 읽을 수 있는 크기
   await expect(notice(page).locator("button, a, input")).toHaveCount(0);
   expect(await notice(page).evaluate((el) => el.closest("details, [role=dialog], [data-state=closed]") === null)).toBe(true);
@@ -42,16 +50,13 @@ for (const width of [393, 1280]) {
   test.describe(`문구 정리 ${width}px`, () => {
     test.use({ viewport: { width, height: HEIGHT } });
 
-    test("시작 화면(게스트): 입력창 아래 고지가 승인 원문 그대로 보이고 기존 안내와 겹치지 않는다", async ({ page }) => {
+    test("시작 화면(게스트): 입력창 아래 통합 고지가 상수 그대로 한 단락으로 보이고 기존 안내와 겹치지 않는다", async ({ page }) => {
       await openApp(page);
       await expectNoticeUnderInput(page);
-      // 시작 화면 119 줄과 법적 고지는 입력창 위, 고지는 입력창 아래: 세로로 나란하고 겹치지 않는다.
-      // 시작 화면 외부 AI 고지는 PRD-17-10 A로 삭제했다: 외부 AI 전송 고지는 입력창 고지 1회뿐이다
+      // 시작 화면 119 줄은 없다(FE-17 U-04). 외부 AI 전송 고지는 통합 고지 1회뿐이다
+      await expect(page.getByTestId("start-emergency")).toHaveCount(0);
       await expect(page.getByTestId("external-ai-notice")).toHaveCount(0);
       expect(await page.locator("body").evaluate((el) => (el.textContent?.match(/외부 AI/g) ?? []).length)).toBe(1);
-      const start119 = (await page.getByTestId("start-emergency").boundingBox())!;
-      const noticeBox = (await notice(page).boundingBox())!;
-      expect(start119.y + start119.height).toBeLessThanOrEqual(noticeBox.y);
       await shot(page, "start-notice");
     });
 

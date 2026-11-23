@@ -22,6 +22,11 @@ export interface CandidateCardProps {
    * 누르면 `onPick`만 부른다: 보내거나 다른 결과로 가는 일은 이 카드가 하지 않는다
    */
   selected?: CandidatePicks;
+  /**
+   * 이미 고른 제품으로 다시 물은 지난 차례(FE-17 U-05): 고른 묶음을 모두 한 줄("A 입력 → 고른 제품 · 바꾸기")로 접어 **남겨 두고** 고를 수 없게 한다.
+   * 지난 차례로는 다시 보내지 않으므로 `바꾸기`는 보이되 비활성이다(글자 그대로)
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -35,7 +40,7 @@ export interface CandidateCardProps {
  * 묶음이 둘 이상이면 머리·접힌 줄 앞에 캡슐 칸 표지(A·B·C…)를 두고, 카드가 놓인 칸이 640px 이상이면 2열로 놓는다(FE-10-02 A·FE-10-04 A, 3개부터 줄바꿈).
  * 묶음은 `role="radiogroup"`이다. 화살표 키는 같은 묶음 안에서 초점만 옮기고 고르지는 않는다(고르면 묶음이 접히므로 Enter·Space로 고른다).
  */
-export function CandidateCard({ candidates, onPick, onOther, selected }: CandidateCardProps) {
+export function CandidateCard({ candidates, onPick, onOther, selected, readOnly = false }: CandidateCardProps) {
   const baseId = useId();
   const card = useRef<HTMLElement>(null);
   /** "바꾸기"로 다시 펼친 묶음(고른 값은 그대로 두고 목록만 다시 보인다) */
@@ -76,6 +81,7 @@ export function CandidateCard({ candidates, onPick, onOther, selected }: Candida
           ref={card}
           data-testid="candidate-card"
           data-multiple={multiple ? "true" : undefined}
+          data-readonly={readOnly ? "true" : undefined}
           aria-label={CANDIDATES_LABEL}
           className={cn(
             "overflow-hidden rounded-2xl border border-line bg-bg",
@@ -86,7 +92,7 @@ export function CandidateCard({ candidates, onPick, onOther, selected }: Candida
         >
           {groups.map((group, groupIndex) => {
             const pick = selected?.[group.inputName];
-            const collapsed = multiple && pick !== undefined && !reopened.includes(group.inputName);
+            const collapsed = pick !== undefined && (readOnly || (multiple && !reopened.includes(group.inputName)));
             const headingId = `${baseId}-group-${groupIndex}`;
             const tag = multiple ? <GroupTag index={groupIndex} count={groups.length} /> : null;
             return (
@@ -116,6 +122,7 @@ export function CandidateCard({ candidates, onPick, onOther, selected }: Candida
                       type="button"
                       data-testid="candidate-change"
                       aria-label={`${group.inputName} ${CANDIDATE_CHANGE_LABEL}`}
+                      disabled={readOnly}
                       onClick={() => {
                         focusNext.current = { group: groupIndex, target: "pressed" };
                         setReopened((prev) => [...prev, group.inputName]);

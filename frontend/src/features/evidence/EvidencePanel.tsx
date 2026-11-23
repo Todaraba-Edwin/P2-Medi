@@ -19,16 +19,14 @@ export interface EvidencePanelProps {
    * 사용자 결정 2026-11-16 후보 5 B). 없으면 화면 전체(응급이 아닐 때의 기존 동작)
    */
   container?: HTMLElement | null;
-  /** 시트만: 제목 줄 오른쪽(닫기 버튼 왼쪽)에 둘 요소. 조립이 119 진입점을 넣는다(시트가 머리줄 진입점을 덮을 때) */
-  headerAction?: React.ReactNode;
 }
 
 /**
  * 근거 상세를 담는 틀. 두 배치를 모두 그릴 수 있다. 폭 분기·사이드바 연동은 FE-IMPL-06이 한다.
  * 닫혀 있으면 내용을 그리지 않으므로 **고정 안내·고지·119는 이 틀 안에 넣지 않는다**(접히지 않는 영역에 따로 둔다, S5).
- * 단 시트가 머리줄의 119 진입점을 덮는 동안 누를 수 있게, 조립이 `headerAction`으로 같은 진입점을 하나 더 넣을 수 있다(바깥 진입점을 대신하지 않는다).
+ * 119 진입점은 머리줄과 응급 배너 두 곳뿐이다(FE-17 U-04): 시트 안에 따로 두지 않는다.
  */
-export function EvidencePanel({ mode, open, onOpenChange, children, container, headerAction }: EvidencePanelProps) {
+export function EvidencePanel({ mode, open, onOpenChange, children, container }: EvidencePanelProps) {
   if (mode === "sheet") {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
@@ -46,7 +44,6 @@ export function EvidencePanel({ mode, open, onOpenChange, children, container, h
         >
           <div className="mr-11 flex min-h-8 items-center justify-between gap-2">
             <SheetTitle className="text-[21px] leading-7">{EVIDENCE_TITLE}</SheetTitle>
-            {headerAction}
           </div>
           {children}
         </SheetContent>

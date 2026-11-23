@@ -27,7 +27,7 @@ import {
   SOCIAL_HEADING,
   SOCIAL_LABELS,
 } from "./copy";
-import { EmergencyEntrySlot, FIELD_CLASS, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, SOCIAL_BUTTON, StepTitle, TEXT_BUTTON, useAccountModal } from "./parts";
+import { FIELD_CLASS, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, SOCIAL_BUTTON, StepTitle, TEXT_BUTTON, useAccountModal } from "./parts";
 
 /**
  * PRD-01-10 A(2026-11-19): 이메일 로그인·가입은 화면에서 숨긴다. 메일 인증을 갖춘 뒤 재검토한다.
@@ -86,7 +86,6 @@ export function LoginStep({ mode: requested }: { mode: "login" | "signup" }) {
         </b>
         <StepTitle>{mode === "login" ? LOGIN_TITLE : SIGNUP_TITLE}</StepTitle>
         <p className="m-0 text-sm leading-5 text-ink-2 [word-break:keep-all]">{LOGIN_DESCRIPTION}</p>
-        <EmergencyEntrySlot className="justify-center" />
       </div>
       {/* 오른쪽(1열에서는 아래): 로그인 방법 */}
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-3 px-5 pt-5 pb-5 @min-[640px]:pt-14">

@@ -4,15 +4,14 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
 import { NoMascotZone } from "@/components/NoMascotZone";
-import { AccountMenu, AccountModal, EntryChoice, LegalDialog, TargetPicker, isAccountEntryEnabled, openAccountModal } from "@/features/account";
+import { AccountMenu, AccountModal, EntryChoice, LegalDialog, TargetChip, isAccountEntryEnabled, openAccountModal } from "@/features/account";
 import { failureMessage } from "@/features/account/parts";
 import { ChatInput, ExampleChips, HomeHero, PREGNANCY_SAVE_CONSENT_HINT } from "@/features/chat";
-import { EmergencyBanner, FixedNoticeBox, LegalFooter, StartEmergencyLink } from "@/features/emergency";
+import { EmergencyBanner, FixedNoticeBox } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
 import { PhotoModal } from "@/features/photo";
 import type { ChatInputFromPhoto } from "@/features/photo";
 import { groupCandidates } from "@/features/result";
-import { DISCLAIMER, START_EMERGENCY_119 } from "@/lib/fixed/phrases.generated";
 import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation, takeAuthResumeFromLocation } from "@/lib/supabase/callback";
 import { isApiMockingEnabled } from "@/mocks";
 import { cn } from "@/lib/utils";
@@ -33,11 +32,15 @@ import { useViewportWidth } from "./useViewportWidth";
  * 반응형(FE-07-09 B): 1023 이하는 사이드바 숨김·☰ 드로어·근거 상세 시트, 1024 이상은 사이드바 칸과 우측 패널.
  *
  * - 119 배너는 한 번 뜨면 내리지 않고, 사이드바 오버레이·드로어·근거 상세 시트의 스크림 밖(위)에 둔다(층은 배너 아래 영역에만 그린다).
- * - 배너가 없을 때 119 진입점은 머리줄에 있고, 머리줄을 덮는 층(드로어·오버레이·시트) 안에도 같은 진입점을 둔다(G-3).
- * - 고정 안내·고지는 근거 상세 틀 밖의 접히지 않는 영역(입력창 위)에 응답 값 그대로 둔다.
+ * - 배너가 없을 때 119 진입점은 머리줄 하나다(FE-17 U-04: 층 안에는 두지 않는다. 옛 G-3 "층 안 진입점"을 대체).
+ * - 고정 안내는 근거 상세 틀 밖의 접히지 않는 영역(입력창 위)에 응답 값 그대로 둔다.
  * - 사이드바 상태는 사용자 토글이 원천이다. 근거 상세가 새로 열리는 순간의 판정만 예외다(`layout-rules.ts`).
- * - 계정(FE-04): 시작 화면의 진입 선택(게스트로 시작 / 로그인·가입), 사이드바의 계정 자리, 계정 모달, 입력창 위의 대상 선택.
+ * - 계정(FE-04): 시작 화면의 진입 선택(게스트로 시작 / 로그인·가입), 사이드바의 계정 자리, 계정 모달.
+ *   대상 프로필("누가 먹나요", 2026-11-23): 본문 선택 줄은 없다. 입력창 안 프로필 칩(`TargetChip`)과 계정 버튼 메뉴 맨 위 목록에서 고르고,
+ *   값은 계정 스토어의 `targetProfileId` 하나(메모리)라 두 자리와 계정 버튼 표시(병아리 + 이름)가 같이 바뀐다. 요청에 싣는 값은 예전과 같다.
  *   게스트는 지금처럼 바로 질문한다. 계정 모달도 배너 아래 영역에만 그린다(119 배너를 덮지 않는다).
+ * - 입력창 아래 통합 고지(FE-17 U-02): 법적 고지와 입력창 고지의 의미를 한 단락 상수로 합쳐 둔다(`ChatInput`, 사용자 승인 완료 문구).
+ * - 119(FE-17 U-04): 평상시는 머리줄 `emergency-entry`, 응급 키워드가 오면 맨 위 배너 하나. 시작 화면 줄·층(드로어·시트·모달) 안 진입점은 없다.
  * - 임신 여부(FE-11 §7.1, 2026-11-20): 입력창 안 왼쪽 토글 "일반인 | 임산부"가 `context.pregnant`의 원천이다(일반인 false·임산부 true, FE-11-12 A).
  *   시작값은 고른 대상 프로필의 임신 여부(건강 정보 동의가 있을 때, 임신 중이면 임산부)이고 대상을 바꾸면 그 값으로 바뀐다. 게스트는 일반인.
  *   토글을 바꾸면 로그인 + 건강 정보 동의 + 대상 프로필이 있을 때만 그 프로필의 `pregnancy_status`를 PATCH한다(FE-11-13, 양방향);
@@ -277,7 +280,9 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     focusInput();
   };
   // 계정 자리는 항상 그린다: 게스트도 메뉴에서 화면 모드·약관·정책을 연다(계정 기능이 꺼져 있으면 "로그인/가입" 항목만 빠진다)
-  const menuProps = { member, accountEnabled, container: layer, onOpen: openAccount, onLogout: () => void account.getState().logout(), onLegal: openLegal };
+  // 대상 프로필 고르기: 회원 + 프로필이 있을 때만(게스트·프로필 없음은 예전 모양). 계정 버튼 메뉴와 입력창 칩이 같은 값을 쓴다
+  const targetChoice = member && profiles.length > 0 ? { profiles, value: targetProfileId, onChange: changeTarget } : undefined;
+  const menuProps = { member, accountEnabled, container: layer, onOpen: openAccount, onLogout: () => void account.getState().logout(), onLegal: openLegal, target: targetChoice };
   const accountMenu = <AccountMenu {...menuProps} />;
 
   const first = turns[0];
@@ -356,20 +361,16 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
                 onResend={resend}
               />
             )}
-            {/* 접히지 않는 고정 영역: 고정 안내(응답 값 그대로) → 고지 → 입력창. 근거 상세 틀 밖이다 */}
+            {/* 접히지 않는 고정 영역: 고정 안내(응답 값 그대로) → 입력창 → 통합 고지(FE-17 U-02). 근거 상세 틀 밖이다 */}
             <div data-testid="dock" className="flex flex-none flex-col gap-1.5 pb-[max(14px,env(safe-area-inset-bottom,0px))]">
               {dockResponse && <FixedNoticeBox lines={dockResponse.fixed_notice} />}
-              {/* 시작 화면 119 안내 줄(질문을 보내기 전, 입력창 가까이). 백엔드 상수에서 생성한 값 그대로다(FE-01-19 A·FE-01-24 A).
-                  외부 AI 전송 고지는 입력창 아래 고지(INPUT_NOTICE) 하나만 둔다: 시작 화면 고지는 PRD-17-10 A로 삭제(같은 고지 두 번 노출 제거) */}
-              {turns.length === 0 && <StartEmergencyLink text={START_EMERGENCY_119} />}
-              {/* 응답을 받기 전(시작 화면·첫 답을 기다리는 중)의 상시 고지는 백엔드 상수에서 생성한 값이다(FE-01-19 A) */}
-              {!lastFailed && <LegalFooter disclaimer={dockResponse ? dockResponse.disclaimer : DISCLAIMER} />}
-              {/* 대상 선택 "누가 먹나요": 로그인하고 프로필이 있을 때만(게스트는 숨김) */}
-              {member && profiles.length > 0 && <TargetPicker profiles={profiles} value={targetProfileId} onChange={changeTarget} />}
-              {/* 임신 여부 토글은 대상이 남성 프로필이면 그리지 않는다(FE-11-09 C). 안내·오류 줄도 토글과 함께 빠진다 */}
+              {/* 임신 여부 토글은 대상이 남성 프로필이면 그리지 않는다(FE-11-09 C). 안내·오류 줄도 토글과 함께 빠진다.
+                  대상 프로필 칩은 로그인하고 프로필이 있을 때만 입력창 안에 둔다(게스트는 예전 모양).
+                  고지는 입력창 아래 통합 고지 한 단락(FE-17 U-02, `ChatInput`)이다. 시작 화면 119 안내 줄은 없다(FE-17 U-04: 119는 머리줄·응급 배너 두 곳) */}
               <ChatInput
                 onSend={(question) => send(question)}
                 onPhoto={openPhoto}
+                target={targetChoice && <TargetChip {...targetChoice} container={layer} />}
                 pregnancy={
                   pregnancyHidden
                     ? undefined
@@ -396,14 +397,13 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
             mode="sheet"
             open={evidenceResponse !== null}
             onOpenChange={(open) => !open && closeEvidence()}
-            // 응급이면 배너 아래 영역에만 그린다(사용자 결정 2026-11-16 후보 5 B). 아니면 화면 전체(기존 동작)이고, 머리줄 119를 덮으므로 시트 안에 진입점을 둔다
+            // 응급이면 배너 아래 영역에만 그린다(사용자 결정 2026-11-16 후보 5 B). 아니면 화면 전체(기존 동작). 시트 안에 119 진입점은 두지 않는다(FE-17 U-04)
             container={emergency ? layer : undefined}
-            headerAction={!emergency && <EmergencyEntry testId="layer-emergency-entry" />}
           >
             {evidenceResponse && <EvidenceDetail response={evidenceResponse} />}
           </EvidencePanel>
         )}
-        {accountEnabled && <AccountModal store={account} container={layer} hasEmergency={emergency !== null} emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />} />}
+        {accountEnabled && <AccountModal store={account} container={layer} hasEmergency={emergency !== null} />}
         {/* 사진 입력 모달(FE-05 사진 부분): 배너 아래 영역에만 그린다. 승인(`이대로 확인`)만 `/chat`을 부르고 `닫기`·Esc·`글자로 입력`은 버린다(H19) */}
         <PhotoModal
           open={photoOpen}
@@ -413,12 +413,11 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
           onCloseAutoFocus={photoClosed}
           container={layer}
           hasEmergency={emergency !== null}
-          emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />}
         />
         {/* 약관·정책 열람 화면(계정 메뉴 항목): 배너 아래 영역에만 그린다. 게스트도 연다 */}
-        <LegalDialog open={legalOpen} onOpenChange={setLegalOpen} container={layer} member={member} onCloseAutoFocus={legalClosed} emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />} />
-        <SidebarOverlay open={layout.sidebarOverlay} onClose={() => dispatch({ type: "collapseSidebar" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
-        <MenuDrawer open={!layout.desktop && shell.drawerOpen} onClose={() => dispatch({ type: "closeDrawer" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
+        <LegalDialog open={legalOpen} onOpenChange={setLegalOpen} container={layer} member={member} onCloseAutoFocus={legalClosed} />
+        <SidebarOverlay open={layout.sidebarOverlay} onClose={() => dispatch({ type: "collapseSidebar" })} container={layer} {...sidebar} />
+        <MenuDrawer open={!layout.desktop && shell.drawerOpen} onClose={() => dispatch({ type: "closeDrawer" })} container={layer} {...sidebar} />
       </div>
     </div>
   );

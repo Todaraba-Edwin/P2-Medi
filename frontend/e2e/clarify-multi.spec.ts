@@ -107,7 +107,16 @@ for (const width of [393, 1280]) {
       await expect(bubble(page, 1)).toHaveText(QUESTION);
       await expect(bubble(page, 2)).toHaveText("고른 약: 가나다정 100밀리그램, 가나다시럽 키즈로 다시 확인");
       await expect(page.locator("[data-turn]")).toHaveCount(2);
-      await expect(page.getByTestId("candidate-card")).toHaveCount(0); // 지난 되묻기의 후보는 더 고를 수 없다
+      // 지난 되묻기(FE-17 U-05): 고른 줄 요약(A 입력 → 고른 제품 · 바꾸기)은 남고 고를 수 없으며, 안내 줄·확인 줄은 숨는다
+      const turn1 = page.locator('[data-turn="turn-1"]');
+      await expect(turn1.getByTestId("candidate-card")).toHaveAttribute("data-readonly", "true");
+      await expect(turn1.getByTestId("candidate-picked")).toHaveText([/가나다\s*→\s*가나다정 100밀리그램\s*바꾸기/, /가나다시럽\s*→\s*가나다시럽 키즈\s*바꾸기/]);
+      for (const change of await turn1.getByTestId("candidate-change").all()) await expect(change).toBeDisabled();
+      await expect(turn1.getByTestId("candidate")).toHaveCount(0); // 지난 되묻기의 후보는 더 고를 수 없다
+      await expect(turn1.getByTestId("candidates-line")).toHaveCount(0);
+      await expect(turn1.getByTestId("resend-pick")).toHaveCount(0);
+      await expect(turn1.getByTestId("fixed-notice")).toBeVisible(); // 고정 안내는 그대로(코드 강제)
+      await expect(page.getByTestId("candidate-card")).toHaveCount(1);
       await expect(page.getByTestId("resend-pick")).toHaveCount(0);
       // 대화는 저장하지 않는다: 표시용 글자도 브라우저 저장소에 없다
       const stored = await page.evaluate(() => {

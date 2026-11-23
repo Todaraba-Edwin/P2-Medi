@@ -76,11 +76,6 @@ function setup(props: Partial<PhotoModalProps> = {}) {
       onConfirm={onConfirm}
       onTypeInstead={onTypeInstead}
       prepare={fakePrepare}
-      emergencyEntry={
-        <a href="tel:119" data-testid="layer-emergency-entry">
-          119 전화
-        </a>
-      }
       {...props}
     />,
   );
@@ -123,8 +118,8 @@ describe("사진 고르기(P1·P2·P7·P9, PRD-13 코너)", () => {
     expect(within(box).queryByTestId("photo-back")).toBeNull();
     expect(within(box).queryByRole("button", { name: "뒤로" })).toBeNull();
     expect(document.activeElement).toBe(within(box).getByRole("heading", { name: copy.PHOTO_ENTRY_LABEL }));
-    // 모달이 머리줄을 덮는 동안의 119 진입점
-    expect(within(box).getByTestId("layer-emergency-entry")).toHaveAttribute("href", "tel:119");
+    // 119 진입점은 머리줄·응급 배너 두 곳뿐이다(FE-17 U-04): 모달 안에는 없다
+    expect(box.querySelector('a[href="tel:119"]')).toBeNull();
     // 파일 선택은 JPEG·PNG와 HEIC/HEIF(BE-14-08 A: HEIC는 브라우저 안에서 JPEG로 바꿔 보낸다)
     expect(within(box).getByTestId("photo-file")).toHaveAttribute("accept", PHOTO_ACCEPT);
     expect(PHOTO_ACCEPT.split(",")).toEqual(expect.arrayContaining(["image/jpeg", "image/png", "image/heic", "image/heif", ".heic", ".heif"]));
@@ -177,7 +172,7 @@ describe("인식 중·실패(P3·P4·P8)", () => {
   });
 
   it("119가 떠 있으면 인식 중·고르기 화면에 마스코트가 없다", () => {
-    setup({ hasEmergency: true, emergencyEntry: null });
+    setup({ hasEmergency: true });
     expect(within(modal()).queryByTestId("mascot")).toBeNull();
   });
 
@@ -629,7 +624,7 @@ describe("프로필 등록 목적지(FE-04-27 A): 질문칸 없음, 이름만 �
     expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(copy.PHOTO_EXTERNAL_AI_NOTICE);
     expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(OPENAI_NOTICE);
     expect(within(modal()).getByTestId("photo-format-note").textContent).toBe(copy.PHOTO_FORMAT_NOTE);
-    expect(within(modal()).getByTestId("layer-emergency-entry")).toHaveAttribute("href", "tel:119");
+    expect(modal().querySelector('a[href="tel:119"]')).toBeNull(); // 층 안 119 진입점 없음(FE-17 U-04)
   });
 
   it("destination 기본값은 chat: 카드에 질문칸이 있고 data-destination=chat이다(기존 동작 그대로). 전송 고지의 제공자도 OpenAI다", async () => {

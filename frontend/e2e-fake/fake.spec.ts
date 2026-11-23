@@ -81,7 +81,7 @@ test("정상(병용금기 1건): 진행 → 결과 카드·배지·확인하지 
   await expect(page.getByTestId("not-checked-lines").locator("li")).toHaveText(["임신 여부를 알 수 없어 임부금기는 확인하지 못했어요."]);
   // 고정 안내는 접히지 않는 영역에 서버가 준 순서대로(권고 → 고정)
   await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText(["확인하지 못한 항목이 있어요. 복용 전에 꼭 약국·약사에게 확인하세요.", FIXED_NOTICE]);
-  await expect(page.getByTestId("legal-footer")).toContainText("공공데이터 기반 정보 제공이며 진단·처방이 아님");
+  await expect(page.getByTestId("input-combined-notice")).toContainText("공공데이터 기반 정보 제공이며 진단·처방이 아니에요"); // 통합 고지(FE-17 U-02)
   await expect(page.getByTestId("name-corrections")).toHaveCount(0);
   await expect(banner(page)).toHaveCount(0);
   await expect(page.getByTestId("mascot")).toHaveCount(0); // 결과가 오면 진행 표시 마스코트가 사라진다

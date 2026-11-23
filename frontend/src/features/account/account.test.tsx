@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
@@ -18,7 +18,7 @@ vi.mock("@/features/photo/image", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/features/photo/image")>()),
   prepareImage: async () => ({ dataUrl: "data:image/png;base64,iVBORw0KGgo=", width: 10, height: 10, resized: false, bytes: 8 }),
 }));
-import { AccountApiError, DRUG_CANDIDATES_MAX, MEDICATIONS_MAX, accountApi, searchDrugs } from "@/lib/api/account";
+import { AVATAR_COLORS, AccountApiError, DRUG_CANDIDATES_MAX, MEDICATIONS_MAX, accountApi, searchDrugs } from "@/lib/api/account";
 import { createAccountStore } from "@/stores/account";
 import type { AccountStore } from "@/stores/account";
 import { AccountModal, openAccountModal } from "./AccountModal";
@@ -29,7 +29,8 @@ import { AccountMenu } from "./AccountMenu";
 import { EntryChoice } from "./EntryChoice";
 import { Markdown, parseMarkdown } from "./Markdown";
 import { MEDICATION_SEARCH_DEBOUNCE_MS } from "./MedicationPicker";
-import { TargetPicker } from "./TargetPicker";
+import { TargetChip } from "./TargetMenu";
+import { suggestAvatarColor } from "./ProfileForm";
 
 // 계정 화면(모달·진입 선택·대상 선택)을 MSW 목에 붙여 그린다(실제 서버 호출 0).
 const server = setupServer();
@@ -58,7 +59,7 @@ function setup(store: AccountStore = createAccountStore()) {
       <button type="button" onClick={() => openAccountModal(store)}>
         프로필 저장
       </button>
-      <AccountModal store={store} emergencyEntry={<a href="tel:119">119 전화</a>} />
+      <AccountModal store={store} />
     </>,
   );
   return { user, store };
@@ -97,8 +98,8 @@ describe("모달 배치(PRD-13)", () => {
     expect(close.className).toContain("min-w-11");
     expect(screen.getByRole("heading", { name: "프로필을 저장하려면 로그인하세요" })).toHaveFocus(); // ⑤
     expect(modal()).toHaveAccessibleName("프로필을 저장하려면 로그인하세요");
-    // 모달이 머리줄을 덮는 동안의 119 진입점
-    expect(within(modal()).getByRole("link", { name: "119 전화" })).toHaveAttribute("href", "tel:119");
+    // 119 진입점은 머리줄·응급 배너 두 곳뿐이다(FE-17 U-04): 모달 안에는 없다
+    expect(modal().querySelector('a[href="tel:119"]')).toBeNull();
   });
 
   // 사양 변경(PRD-01-10 A): 가입 화면이 화면에서 빠져, `<`가 생기는 첫 단계인 동의 화면에서 같은 배치를 본다
@@ -433,7 +434,7 @@ describe("프로필 화면", () => {
     expect(screen.getByTestId("health-fields")).toBeDisabled();
     expect(screen.queryByTestId("pregnancy-field")).toBeNull(); // 성별 미입력이라 임신 여부 칸은 없다(작업 B)
     await user.selectOptions(screen.getByLabelText("성별"), "female");
-    for (const radio of screen.getAllByRole("radio")) expect(radio).toBeDisabled(); // 여성이어도 동의가 없으면 비활성
+    for (const radio of within(screen.getByTestId("pregnancy-field")).getAllByRole("radio")) expect(radio).toBeDisabled(); // 여성이어도 동의가 없으면 비활성(프로필 색 칸은 건강 정보가 아니라 묶음 밖)
     await user.selectOptions(screen.getByLabelText("성별"), "");
     expect(screen.getByLabelText("복용 중인 약(선택)")).toBeDisabled();
     expect(screen.getByTestId("medication-add")).toBeDisabled();
@@ -445,6 +446,35 @@ describe("프로필 화면", () => {
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(store.getState().profiles).toEqual([expect.objectContaining({ label: "첫째", relation: "child", age_band: "y6_11", sex: null, pregnancy_status: null, medications: [] })]);
+  });
+
+  it("프로필 색(2026-11-23): 이름 아래 8색 라디오(이름은 색 이름, 건강 정보 묶음 밖), 새 가족은 아직 안 쓴 색을 제안하고 고른 색이 저장돼 목록 아바타가 그 색이다", async () => {
+    const { user, store } = setup();
+    await login(user);
+    await consent(user, { health: false });
+    await user.click(screen.getByTestId("add-self"));
+    const group = screen.getByRole("radiogroup", { name: "프로필 색" });
+    expect(screen.getByTestId("health-fields")).not.toContainElement(group);
+    expect(within(group).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["노랑", "코랄", "분홍", "보라", "파랑", "청록", "초록", "회색"]);
+    expect(within(group).getByRole("radio", { name: "노랑" })).toBeChecked(); // 첫 프로필은 기본색
+    for (const option of within(group).getAllByTestId("avatar-color-option")) expect(option.className).toContain("size-11"); // 누르는 영역 44px
+    await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(step()).toBe("profiles"));
+    await user.click(screen.getByTestId("add-family"));
+    const family = screen.getByRole("radiogroup", { name: "프로필 색" });
+    expect(within(family).getByRole("radio", { name: "코랄" })).toBeChecked(); // 노랑은 본인이 쓰고 있다
+    await user.click(within(family).getByRole("radio", { name: "보라" }));
+    expect(within(family).getByRole("radio", { name: "보라" })).toBeChecked();
+    expect(within(family).getByRole("radio", { name: "코랄" })).not.toBeChecked();
+    await user.type(screen.getByLabelText("이름(별명)"), "첫째");
+    await user.click(screen.getByTestId("profile-save"));
+    await waitFor(() => expect(screen.getAllByTestId("profile-item")).toHaveLength(2));
+    expect(store.getState().profiles.map((profile) => profile.avatar_color)).toEqual(["yellow", "purple"]);
+    expect(screen.getAllByTestId("profile-item").map((item) => within(item).getByTestId("profile-avatar").getAttribute("data-color"))).toEqual(["yellow", "purple"]);
+    // 수정하면 저장된 색이 골라져 있다
+    await user.click(screen.getByRole("button", { name: "첫째 수정" }));
+    expect(within(screen.getByRole("radiogroup", { name: "프로필 색" })).getByRole("radio", { name: "보라" })).toBeChecked();
   });
 
   it("성별(선택, FE-11-09 C)은 연령대 아래 기본 칸이다: 처음엔 '선택 안 함'(로그인 정보로 채우지 않음), 건강 정보 동의 없이도 저장·수정·지우기가 되고 목록에 보인다", async () => {
@@ -497,7 +527,11 @@ describe("프로필 화면", () => {
     expect(screen.getAllByTestId("profile-item")[1]).toHaveTextContent("자녀 · 남성");
     // 요청 본문: 성별만 바뀌고 건강 정보 칸은 없다(동의가 없으니 싣지 않는다)
     expect(bodies.map((body) => body.sex)).toEqual([null, "female", null, "male"]);
-    for (const body of bodies) expect(Object.keys(body)).toEqual(["relation", "label", "age_band", "sex"]);
+    // 건강 정보 칸은 없다. 병아리 배경색(`avatar_color`, 건강 정보 아님, FE-17 U-01)은 늘 실린다
+    for (const body of bodies) {
+      expect(Object.keys(body)).toEqual(["relation", "label", "age_band", "sex", "avatar_color"]);
+      expect(AVATAR_COLORS).toContain(body.avatar_color);
+    }
   });
 
   it("건강 정보 동의가 있으면 임신 여부·복용 약(입력 원문)을 넣어 저장하고, 수정·삭제할 수 있다", async () => {
@@ -767,28 +801,109 @@ describe("시작 화면 진입 선택·사이드바 계정 자리", () => {
   });
 });
 
-describe("대상 선택 '누가 먹나요'", () => {
-  it("프로필마다 고를 수 있고 '선택 안 함'으로 되돌린다", async () => {
+describe("대상 선택 '누가 먹나요'(입력창 프로필 칩, 2026-11-23)", () => {
+  const profiles: Profile[] = [
+    { profile_id: "a", relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: null, avatar_color: "yellow", sort_order: 0, medications: [] },
+    { profile_id: "b", relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, avatar_color: "teal", sort_order: 1, medications: [] },
+  ];
+  const chip = () => screen.getByTestId("target-chip");
+  const options = () => within(screen.getByTestId("target-menu")).getAllByRole("menuitemradio");
+
+  it("칩은 고른 프로필의 병아리 아바타(그 색) + 이름이고, 누르면 위로 목록이 열려 프로필마다 고를 수 있으며 '선택 안 함'으로 되돌린다", async () => {
     const onChange = vi.fn();
-    const profiles: Profile[] = [
-      { profile_id: "a", relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: null, sort_order: 0, medications: [] },
-      { profile_id: "b", relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, sort_order: 1, medications: [] },
-    ];
-    const { rerender } = render(<TargetPicker profiles={profiles} value={null} onChange={onChange} />);
-    expect(screen.getByRole("radiogroup", { name: "누가 먹나요" })).toBeInTheDocument();
-    expect(screen.getAllByRole("radio").map((radio) => radio.closest("label")?.textContent)).toEqual(["선택 안 함", "나", "첫째"]);
-    expect(screen.getByRole("radio", { name: "선택 안 함" })).toBeChecked();
-    await userEvent.click(screen.getByRole("radio", { name: "첫째" }));
+    const user = userEvent.setup();
+    const { rerender } = render(<TargetChip profiles={profiles} value={null} onChange={onChange} />);
+    expect(chip()).toHaveAccessibleName("누가 먹나요 선택 안 함");
+    expect(chip()).toHaveAttribute("aria-haspopup", "menu");
+    expect(chip()).toHaveAttribute("aria-expanded", "false");
+    expect(within(chip()).queryByTestId("profile-avatar")).toBeNull();
+    await user.click(chip());
+    expect(chip()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();
+    expect(options().map((option) => option.textContent)).toEqual(["선택 안 함", "나", "첫째"]);
+    expect(screen.getByRole("menuitemradio", { name: "선택 안 함" })).toHaveAttribute("aria-checked", "true");
+    await waitFor(() => expect(options()[0]).toHaveFocus()); // 누르면 첫 항목에 초점
+    // 목록 안 아바타는 프로필마다 그 색이다
+    expect(within(screen.getByRole("menuitemradio", { name: "첫째" })).getByTestId("profile-avatar")).toHaveAttribute("data-color", "teal");
+    await user.click(screen.getByRole("menuitemradio", { name: "첫째" }));
     expect(onChange).toHaveBeenLastCalledWith("b");
-    rerender(<TargetPicker profiles={profiles} value="b" onChange={onChange} />);
-    expect(screen.getByRole("radio", { name: "첫째" })).toBeChecked();
-    await userEvent.click(screen.getByRole("radio", { name: "선택 안 함" }));
+    await waitFor(() => expect(screen.queryByTestId("target-menu")).toBeNull());
+    rerender(<TargetChip profiles={profiles} value="b" onChange={onChange} />);
+    expect(chip()).toHaveAccessibleName("누가 먹나요 첫째");
+    expect(within(chip()).getByTestId("profile-avatar")).toHaveAttribute("data-color", "teal");
+    await user.click(chip());
+    expect(screen.getByRole("menuitemradio", { name: "첫째" })).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByRole("menuitemradio", { name: "선택 안 함" }));
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
 
-  it("별명이 없는 프로필(서버는 label null을 허용한다)은 관계 글자로 보인다", () => {
-    render(<TargetPicker profiles={[{ profile_id: "c", relation: "parent", label: null, age_band: null, sex: null, pregnancy_status: null, sort_order: 0, medications: [] }]} value={null} onChange={() => {}} />);
-    expect(screen.getByRole("radio", { name: "부모" })).toBeInTheDocument();
+  it("키보드: 칩에서 Enter로 열고 ↓·Enter로 고르며, Esc로 닫으면 초점이 칩으로 돌아온다", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<TargetChip profiles={profiles} value={null} onChange={onChange} />);
+    chip().focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(options()[0]).toHaveFocus());
+    await user.keyboard("{ArrowDown}");
+    expect(options()[1]).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("a");
+    await waitFor(() => expect(screen.queryByTestId("target-menu")).toBeNull());
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(options()[0]).toHaveFocus());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("target-menu")).toBeNull());
+    expect(chip()).toHaveFocus();
+  });
+
+  it("마우스를 올리면 초점을 옮기지 않고 열리고(입력 중인 글자 칸 유지), 내리면 닫히며, 열린 채 누르면 닫지 않고 고정한다", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(
+        <>
+          <textarea aria-label="질문" />
+          <TargetChip profiles={profiles} value={null} onChange={() => {}} />
+        </>,
+      );
+      const box = screen.getByRole("textbox", { name: "질문" });
+      box.focus();
+      await user.hover(chip());
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      expect(screen.getByTestId("target-menu")).toBeInTheDocument();
+      expect(box).toHaveFocus();
+      await user.unhover(chip());
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      expect(screen.queryByTestId("target-menu")).toBeNull();
+      expect(box).toHaveFocus();
+      // 다시 올려 열고, 누르면 고정(첫 항목 초점), 포인터가 나가도 열려 있다
+      await user.hover(chip());
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      await user.click(chip());
+      await act(() => vi.advanceTimersByTimeAsync(50));
+      expect(screen.getByTestId("target-menu")).toBeInTheDocument();
+      expect(options()[0]).toHaveFocus();
+      await user.unhover(chip());
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      expect(screen.getByTestId("target-menu")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("별명이 없는 프로필(서버는 label null을 허용한다)은 관계 글자로 보인다", async () => {
+    const user = userEvent.setup();
+    render(<TargetChip profiles={[{ profile_id: "c", relation: "parent", label: null, age_band: null, sex: null, pregnancy_status: null, avatar_color: "yellow", sort_order: 0, medications: [] }]} value="c" onChange={() => {}} />);
+    expect(chip()).toHaveAccessibleName("누가 먹나요 부모");
+    await user.click(chip());
+    expect(screen.getByRole("menuitemradio", { name: "부모" })).toBeInTheDocument();
+  });
+
+  it("새 프로필의 기본 색은 아직 안 쓴 첫 색이고(8색 순서), 모두 쓰였으면 노랑이다", () => {
+    expect(suggestAvatarColor([])).toBe("yellow");
+    expect(suggestAvatarColor([{ avatar_color: "yellow" }])).toBe("coral");
+    expect(suggestAvatarColor([{ avatar_color: "yellow" }, { avatar_color: "pink" }, { avatar_color: "coral" }])).toBe("purple");
+    expect(suggestAvatarColor(AVATAR_COLORS.map((avatar_color) => ({ avatar_color })))).toBe("yellow");
   });
 });
 
@@ -1393,7 +1508,7 @@ describe("복용 약 사진으로 등록(FE-04-27 A): 확인한 이름만 지금
     expect(within(box).getByTestId("photo-privacy-notice").textContent).toBe(PHOTO_PRIVACY_NOTICE);
     expect(within(box).getByTestId("photo-external-ai-notice").textContent).toBe(PHOTO_EXTERNAL_AI_NOTICE);
     expect(within(box).getByTestId("photo-external-ai-notice").textContent).toContain("외부 AI(OpenAI)"); // 사진 판독 제공자 only OpenAI(2026-11-23), 프로필 진입점에서도 같은 글자
-    expect(within(box).getByRole("link", { name: "119 전화" })).toHaveAttribute("href", "tel:119");
+    expect(box.querySelector('a[href="tel:119"]')).toBeNull(); // 층 안 119 진입점 없음(FE-17 U-04)
     expect(document.activeElement).toBe(within(box).getByRole("heading", { name: "사진으로 약 이름 읽기" }));
     expect(modal()).toBeInTheDocument(); // 계정 모달은 그대로 아래에 있다
     await user.click(within(box).getByTestId("photo-close"));
@@ -1628,7 +1743,7 @@ describe("본인 프로필 이름 초기값 = 카카오 닉네임(FE-04-28 B, 20
         const body = (await request.clone().json()) as { label?: unknown };
         written.push({ method: "POST", label: body.label });
         return HttpResponse.json(
-          { profile_id: "00000000-0000-4000-8000-000000000077", relation: "self", label: String(body.label), age_band: null, sex: null, pregnancy_status: null, sort_order: 0, medications: [] } satisfies Profile,
+          { profile_id: "00000000-0000-4000-8000-000000000077", relation: "self", label: String(body.label), age_band: null, sex: null, pregnancy_status: null, avatar_color: "yellow", sort_order: 0, medications: [] } satisfies Profile,
           { status: 201 },
         );
       }),

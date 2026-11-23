@@ -2,7 +2,7 @@ import path from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, expect119Reachable, expectNoHorizontalScroll, expectTouchTarget, openApp } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp } from "./helpers";
 
 // FE-04-27 A(2026-11-22 사용자 승인) e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0, 실제 사진 0):
 // 온보딩·프로필 폼의 "복용 중인 약(선택)" 아래 `사진으로 등록` → 기존 사진 모달(프로필 목적지: 질문칸 없음) → 확인 카드 → `이대로 확인`
@@ -137,7 +137,7 @@ for (const width of [393, 1280]) {
         await expect(box.getByTestId("photo-external-ai-notice")).toHaveText(P2);
         await expect(modal(page)).toBeVisible(); // 계정 모달은 아래에 그대로
         await expect(box).toHaveCSS("pointer-events", "auto");
-        await expect119Reachable(page, box.getByTestId("layer-emergency-entry"));
+        await expect(box.locator('a[href="tel:119"]')).toHaveCount(0); // 119는 머리줄·응급 배너 두 곳뿐, 층 안에는 없다(FE-17 U-04)
         await expectNoHorizontalScroll(page);
         await shot(page, "pick", scheme);
 

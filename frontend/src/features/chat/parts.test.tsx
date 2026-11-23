@@ -119,18 +119,44 @@ describe("ChatInput", () => {
     expect(screen.getByRole("textbox")).toHaveValue("");
   });
 
-  it("입력창 아래 고지(PRD-17-07 A): 승인 원문 그대로, 입력창에 연결되고, 체크·버튼·마스코트가 없다", () => {
+  it("입력창 아래 통합 고지(FE-17 U-02): 한 단락(role=note)이고 입력창의 설명이며, 입력창 아래·체크·버튼·마스코트 없음. 예전 두 줄(legal-footer·input-notice)은 없다", () => {
     render(<ChatInput onSend={() => {}} />);
-    const notice = screen.getByTestId("input-notice");
-    expect(notice.textContent).toBe(copy.INPUT_NOTICE);
-    // 원문 승인(2026-11-22, PRD-17-10 후속, RFP-24-01 요소 보강): 마지막 문장에 프로필 값 전송·제공자 보관 가능성
-    expect(notice.textContent).toBe("질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문과 선택한 프로필 값은 외부 AI(OpenAI)로 전송되며, 제공자 정책에 따라 일정 기간 보관될 수 있어요.");
+    const notice = screen.getByTestId("input-combined-notice");
+    expect(notice.tagName).toBe("P");
+    expect(notice.textContent).toBe(copy.INPUT_COMBINED_NOTICE);
     expect(notice).toHaveAttribute("role", "note");
-    expect(screen.getByRole("textbox")).toHaveAccessibleDescription(copy.INPUT_NOTICE);
-    // 입력창(form) 바로 아래에 있다
+    expect(screen.getByRole("textbox")).toHaveAccessibleDescription(copy.INPUT_COMBINED_NOTICE);
     expect(notice.compareDocumentPosition(screen.getByRole("textbox")) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
-    expect(notice.querySelector("button, a, input")).toBeNull();
+    expect(notice.closest("details, [role=dialog], [data-state=closed]")).toBeNull();
+    expect(notice.querySelector("button, a, input, img")).toBeNull();
     expect(screen.queryByTestId("mascot")).toBeNull();
+    expect(screen.queryByTestId("legal-footer")).toBeNull();
+    expect(screen.queryByTestId("input-notice")).toBeNull();
+  });
+
+  it("통합 고지 문장은 빠지면 안 되는 의미 5가지를 모두 담는다(FE-17 §3.2). 예전 두 상수는 지우지 않고 그대로다", () => {
+    const text = copy.INPUT_COMBINED_NOTICE;
+    // ① 공공데이터 기반 정보 제공·진단·처방 아님 ② 금기 목록에 없다고 안전한 것 아님 ③ DUR 점검 대체 아님 ④ 질문 저장 안 함(탭 닫으면 사라짐) ⑤ 외부 AI(OpenAI) 전송·일정 기간 보관 가능
+    for (const part of ["공공데이터 기반 정보 제공", "진단·처방이 아니", "금기 목록에 없어도 안전하다는 뜻은 아니", "DUR 점검을 대체하지 않", "질문은 저장하지 않", "탭을 닫으면 사라지", "질문과 선택한 프로필 값", "외부 AI(OpenAI)로 전송", "제공자 정책에 따라 일정 기간 보관될 수 있"]) {
+      expect(text, part).toContain(part);
+    }
+    expect(text).toBe(
+      "공공데이터 기반 정보 제공이며 진단·처방이 아니에요. 금기 목록에 없어도 안전하다는 뜻은 아니고, 요양기관의 DUR 점검을 대체하지 않아요. 질문은 저장하지 않고 탭을 닫으면 사라지지만, 답변을 만들기 위해 질문과 선택한 프로필 값이 외부 AI(OpenAI)로 전송되며 제공자 정책에 따라 일정 기간 보관될 수 있어요.",
+    );
+    // 예전 상수(승인 원문)는 그대로 남아 있다(다른 화면·시험이 쓴다)
+    expect(copy.INPUT_NOTICE).toBe("질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문과 선택한 프로필 값은 외부 AI(OpenAI)로 전송되며, 제공자 정책에 따라 일정 기간 보관될 수 있어요.");
+    expect(DISCLAIMER).toBe("공공데이터 기반 정보 제공이며 진단·처방이 아님 · 금기 목록에 없다는 것이 안전하다는 뜻이 아님 · 요양기관의 DUR 점검을 대체하지 않음");
+  });
+
+  it("대상 프로필 칩을 주면 입력창 첫 줄이 '토글 · 칩'이고, 주지 않으면(게스트) 예전 한 줄 모양이다", () => {
+    const pregnancy = { value: false, onChange: () => {} };
+    const { rerender } = render(<ChatInput onSend={() => {}} pregnancy={pregnancy} />);
+    expect(screen.queryByTestId("input-target-row")).toBeNull();
+    rerender(<ChatInput onSend={() => {}} pregnancy={pregnancy} target={<button type="button">칩</button>} />);
+    const row = screen.getByTestId("input-target-row");
+    expect(within(row).getByTestId("pregnancy-toggle")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "칩" })).toBeInTheDocument();
+    expect(row.compareDocumentPosition(screen.getByRole("textbox")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("Enter로 보내고 Shift+Enter·한글 조합 중 Enter·빈 글자는 보내지 않는다", async () => {
