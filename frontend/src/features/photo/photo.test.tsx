@@ -14,6 +14,7 @@ import { buildChatInput, buildProfileMedications, canConfirm, canRegister, empty
 import type { PhotoRow } from "./build-chat-input";
 import * as copy from "./copy";
 import { initialPhotoFlow, photoFlowReducer } from "./flow";
+import { PHOTO_ROW_SEARCH_DEBOUNCE_MS } from "./api";
 import { PHOTO_ACCEPT, PhotoImageError, prepareImage } from "./image";
 import { PhotoModal } from "./PhotoModal";
 import type { PhotoModalProps } from "./PhotoModal";
@@ -25,17 +26,24 @@ import type { IngestDrug } from "./types";
 const server = setupServer();
 let chatCalls = 0;
 let ingestCalls = 0;
+/** 확인 카드 행 검색 요청 기록(검색어는 시험 안에서만 본다): 본문 `q`와 `Authorization` 머리 유무 */
+let searchCalls: { q: string; authorization: string | null }[] = [];
 beforeAll(() => {
   server.listen({ onUnhandledFrame: "error" });
-  server.events.on("request:start", ({ request }) => {
+  server.events.on("request:start", async ({ request }) => {
     const pathname = new URL(request.url).pathname;
     if (pathname.endsWith("/api/chat")) chatCalls += 1;
     if (pathname.endsWith("/api/ingest/image")) ingestCalls += 1;
+    if (pathname.endsWith("/api/ingest/drugs/search") && request.method === "POST") {
+      const body = (await request.clone().json().catch(() => ({ q: "" }))) as { q: string };
+      searchCalls.push({ q: body.q, authorization: request.headers.get("authorization") });
+    }
   });
 });
 beforeEach(() => {
   chatCalls = 0;
   ingestCalls = 0;
+  searchCalls = [];
   server.use(
     http.post("*/api/chat", () => HttpResponse.json({ code: "NOT_IMPLEMENTED", fields: [] }, { status: 501 })),
     ...createPhotoHandlers(),
@@ -61,7 +69,7 @@ function setup(props: Partial<PhotoModalProps> = {}) {
   const onConfirm = vi.fn();
   const onTypeInstead = vi.fn();
   const onOpenChange = vi.fn();
-  render(
+  const view = render(
     <PhotoModal
       open
       onOpenChange={onOpenChange}
@@ -76,7 +84,7 @@ function setup(props: Partial<PhotoModalProps> = {}) {
       {...props}
     />,
   );
-  return { user, onConfirm, onTypeInstead, onOpenChange };
+  return { user, onConfirm, onTypeInstead, onOpenChange, unmount: view.unmount };
 }
 
 const modal = () => screen.getByTestId("photo-modal");
@@ -323,6 +331,179 @@ describe("확인·수정 카드(P5·P6, 〔D6〕A, H19)", () => {
     expect(banner.textContent).toContain(PHRASES.EMERGENCY_119);
     expect(within(banner).getByRole("link")).toHaveAttribute("href", "tel:119");
     expect(within(card).queryByTestId("mascot")).toBeNull();
+  });
+});
+
+describe("확인 카드 행의 사전 후보 검색(2026-11-23 사용자 결정 '아스피린 A': 게스트 허용 /ingest/drugs/search, 디바운스, 최신 입력만)", () => {
+  const DEBOUNCE = PHOTO_ROW_SEARCH_DEBOUNCE_MS;
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  /** 빈 줄만 남기고 `약 추가`로 새 행 하나를 만든다 → 그 행의 입력칸 */
+  const addRow = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(modal()).getByTestId("photo-add-row"));
+    const inputs = nameInputs();
+    return inputs[inputs.length - 1];
+  };
+  const radiosOf = (row: HTMLElement) => within(row).queryAllByRole("radio");
+
+  it("`약 추가` 행에 2글자 이상 적으면 입력이 멈춘 뒤 400ms에 한 번 찾고, 판독 행과 같은 라디오 목록(radiogroup, 기본 선택 없음)·같은 안내 글자(P6)가 붙는다. 토큰 없음·/chat 0회", async () => {
+    const { user } = setup();
+    await toCard(user);
+    const input = await addRow(user);
+    await user.type(input, "가나다시럽");
+    expect(searchCalls).toHaveLength(0); // 글자마다 부르지 않는다(디바운스 전)
+    const row = rows()[2];
+    await waitFor(() => expect(radiosOf(row).length).toBeGreaterThan(0), { timeout: DEBOUNCE + 1500 });
+    expect(searchCalls).toEqual([{ q: "가나다시럽", authorization: null }]); // 마지막 글자로 한 번, 게스트(토큰 없음)
+    expect(within(row).getByRole("radiogroup")).toBeInTheDocument();
+    expect(within(row).getByTestId("photo-candidates-guide").textContent).toBe(copy.PHOTO_CANDIDATES_GUIDE);
+    for (const radio of radiosOf(row)) expect(radio).toHaveAttribute("aria-checked", "false");
+    expect(radiosOf(row).map((radio) => radio.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("가나다시럽")]));
+    // 판독 행의 후보(목 `ok` 시나리오의 2개)는 그대로다(판독 행은 글자를 바꾸지 않았으므로 다시 찾지 않는다)
+    expect(radiosOf(rows()[0])).toHaveLength(2);
+    expect(chatCalls).toBe(0);
+  });
+
+  it("2글자 미만이면 부르지 않는다(공백만도 아니다)", async () => {
+    const { user } = setup();
+    await toCard(user);
+    const input = await addRow(user);
+    await user.type(input, "가");
+    await sleep(DEBOUNCE + 200);
+    expect(searchCalls).toHaveLength(0);
+    await user.type(input, "  ");
+    await sleep(DEBOUNCE + 200);
+    expect(searchCalls).toHaveLength(0);
+    expect(radiosOf(rows()[2])).toHaveLength(0);
+  });
+
+  it("최신 입력만 반영한다: 앞 검색이 늦게 와도 끊겨서 버려지고, 마지막 글자의 후보만 붙는다", async () => {
+    const aborted: string[] = [];
+    const search: PhotoModalProps["search"] = (q, signal) =>
+      new Promise((resolve, reject) => {
+        // "가나다정"은 느리게, 나머지는 바로 답한다. 끊기면 그 검색어를 기록한다
+        const wait = q === "가나다정" ? 600 : 0;
+        const timer = setTimeout(() => resolve({ candidates: [{ ...CANDIDATE, name: `${q} 후보` }], needs_confirmation: false, dict_version: "t" }), wait);
+        signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          aborted.push(q);
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    const { user } = setup({ search });
+    await toCard(user);
+    const input = await addRow(user);
+    await user.type(input, "가나다정");
+    await sleep(DEBOUNCE + 50); // 첫 검색("가나다정", 느림)이 나간 뒤
+    await user.type(input, " 100");
+    const row = rows()[2];
+    await waitFor(() => expect(radiosOf(row)).toHaveLength(1), { timeout: 2000 });
+    expect(radiosOf(row)[0].textContent).toContain("가나다정 100 후보");
+    expect(aborted).toEqual(["가나다정"]);
+    await sleep(700); // 느린 응답이 왔을 시각이 지나도 덮어쓰지 않는다
+    expect(radiosOf(row)[0].textContent).toContain("가나다정 100 후보");
+  });
+
+  it("후보를 고르면 확인된 약(item_seq)으로 넘어가고, 고르지 않으면 적힌 글자 그대로(확인 안 된 약). 판정 호출은 확인 전 0회", async () => {
+    const { user, onConfirm } = setup();
+    await toCard(user);
+    const input = await addRow(user);
+    await user.type(input, "가나다시럽");
+    const row = rows()[2];
+    await waitFor(() => expect(radiosOf(row).length).toBeGreaterThan(0), { timeout: DEBOUNCE + 1500 });
+    const second = await addRow(user);
+    await user.type(second, "가나다시럽 키즈");
+    await waitFor(() => expect(radiosOf(rows()[3]).length).toBeGreaterThan(0), { timeout: DEBOUNCE + 1500 });
+    const exact = radiosOf(row).find((radio) => radio.textContent?.includes("가나다시럽") && !radio.textContent.includes("키즈") && !radio.textContent.includes("플러스"))!;
+    await user.click(exact);
+    expect(exact).toHaveAttribute("aria-checked", "true");
+    await user.type(question(), "같이 먹어도 돼요?");
+    expect(chatCalls).toBe(0);
+    await user.click(confirmButton());
+    expect(onConfirm).toHaveBeenCalledWith({
+      question: "가나다정, 라마바캡슐, 가나다시럽, 가나다시럽 키즈 같이 먹어도 돼요?",
+      confirmedDrugs: [{ name: "가나다시럽", itemSeq: "200000003", inputName: "가나다시럽" }],
+    });
+    expect(chatCalls).toBe(0);
+  });
+
+  it("판독된 행의 글자를 고치면 골랐던 후보가 풀리고 새 글자로 다시 찾는다. 2글자 미만으로 줄이면 후보가 비고 부르지 않는다", async () => {
+    const { user } = setup();
+    await toCard(user);
+    const first = rows()[0];
+    await user.click(radiosOf(first)[0]);
+    await user.clear(nameInputs()[0]);
+    await user.type(nameInputs()[0], "라마바캡슐");
+    await waitFor(() => expect(radiosOf(first).length).toBe(2), { timeout: DEBOUNCE + 1500 });
+    expect(searchCalls.map((call) => call.q)).toEqual(["라마바캡슐"]);
+    for (const radio of radiosOf(first)) expect(radio).toHaveAttribute("aria-checked", "false");
+    await user.clear(nameInputs()[0]);
+    await user.type(nameInputs()[0], "라");
+    expect(radiosOf(first)).toHaveLength(0);
+    await sleep(DEBOUNCE + 200);
+    expect(searchCalls).toHaveLength(1);
+  });
+
+  it("검색 실패(503)·모양 오류는 후보 없음으로 조용히 넘기고 입력·확인을 막지 않는다. 검색어는 상태 밖에 남지 않는다", async () => {
+    const { user, onConfirm } = setup();
+    await toCard(user);
+    const input = await addRow(user);
+    await user.type(input, "가나다 mock-503");
+    await waitFor(() => expect(searchCalls).toHaveLength(1), { timeout: DEBOUNCE + 1500 });
+    await sleep(100);
+    expect(radiosOf(rows()[2])).toHaveLength(0);
+    expect(within(modal()).queryByRole("alert")).toBeNull();
+    server.use(http.post("*/api/ingest/drugs/search", () => HttpResponse.json({ nope: true })));
+    await user.type(input, "x");
+    await waitFor(() => expect(searchCalls).toHaveLength(2), { timeout: DEBOUNCE + 1500 });
+    await sleep(100);
+    expect(radiosOf(rows()[2])).toHaveLength(0);
+    await user.type(question(), "같이 먹어도 돼요?");
+    await user.click(confirmButton());
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ question: "가나다정, 라마바캡슐, 가나다 mock-503x 같이 먹어도 돼요?", confirmedDrugs: [] }));
+  });
+
+  it("행을 지우거나 모달이 내려가면 예약된 검색이 나가지 않는다", async () => {
+    const { user, unmount } = setup();
+    await toCard(user);
+    const input = await addRow(user);
+    await user.type(input, "가나다시럽");
+    await user.click(within(rows()[2]).getByTestId("photo-row-remove"));
+    await sleep(DEBOUNCE + 200);
+    expect(searchCalls).toHaveLength(0);
+    const again = await addRow(user);
+    await user.type(again, "가나다시럽");
+    unmount(); // 닫기(`open=false`)와 같은 정리 경로: 예약·진행 중 요청을 모두 지운다
+    await sleep(DEBOUNCE + 200);
+    expect(searchCalls).toHaveLength(0);
+  });
+
+  it("프로필 등록 목적지에서도 같은 검색이 돌고, 고른 후보는 확인된 약으로 onRegister에 간다", async () => {
+    const onRegister = vi.fn();
+    const { user, onConfirm } = setup({ destination: "profile", onRegister });
+    await toCard(user);
+    const input = await addRow(user);
+    await user.type(input, "가나다시럽 키즈");
+    const row = rows()[2];
+    await waitFor(() => expect(radiosOf(row).length).toBeGreaterThan(0), { timeout: DEBOUNCE + 1500 });
+    await user.click(radiosOf(row)[0]);
+    await user.click(confirmButton());
+    expect(onRegister).toHaveBeenCalledWith([
+      { input_text: "가나다정", item_seq: null },
+      { input_text: "라마바캡슐", item_seq: null },
+      { input_text: "가나다시럽 키즈", item_seq: "200000004" },
+    ]);
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(chatCalls).toBe(0);
+  });
+
+  it("MSW 목: /api/ingest/drugs/search는 토큰 없이 답하고(게스트 허용) 모양은 /drugs/search와 같다. GET은 405", async () => {
+    const response = await fetch("http://localhost/api/ingest/drugs/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q: "아스피린장용정" }) });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({ needs_confirmation: true, dict_version: expect.any(String) });
+    expect(body.candidates.map((candidate: { name: string }) => candidate.name)).toEqual(["아스피린장용정 100밀리그램", "아스피린장용정 500밀리그램"]);
+    expect((await fetch("http://localhost/api/ingest/drugs/search", { method: "GET" })).status).toBe(405);
+    expect((await fetch("http://localhost/api/ingest/drugs/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q: "" }) })).status).toBe(422);
   });
 });
 

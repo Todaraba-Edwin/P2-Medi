@@ -6,7 +6,8 @@ import { HttpResponse, delay, http } from "msw";
 import { z } from "zod";
 import { INGEST_QUESTION_MAX_CHARS } from "@/features/photo/types";
 import type { IngestImageOut } from "@/features/photo/types";
-import { MOCK_DRUG_DICT_VERSION } from "./fixtures/account";
+import { MEDICATION_NAME_MAX_CHARS } from "@/lib/api/account";
+import { MOCK_DRUG_DICT_VERSION, MOCK_DRUG_SEARCH_ERRORS, MOCK_DRUG_SEARCH_SLOW_MARK, MOCK_DRUG_SEARCH_SLOW_MS, searchMockDrugs } from "./fixtures/account";
 import { PHRASES } from "./fixtures/phrases";
 
 export type PhotoScenarioName = "ok" | "unreadable" | "unavailable" | "emergency";
@@ -42,6 +43,9 @@ const IngestImageInSchema = z.strictObject({
   image: z.string().regex(/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+=*$/),
   question: z.string().max(INGEST_QUESTION_MAX_CHARS).optional(),
 });
+
+/** `POST /api/ingest/drugs/search` 요청 모양: 로그인 전용 `/drugs/search`의 `DrugSearchIn`과 같다(`q` 앞뒤 공백 제거 뒤 1~100자) */
+const IngestDrugSearchInSchema = z.strictObject({ q: z.string().trim().min(1).max(MEDICATION_NAME_MAX_CHARS) });
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -83,5 +87,16 @@ export function createPhotoHandlers({ delayMs = 0, scenario }: PhotoHandlerOptio
       // 질문·사진은 되돌려 주지 않는다
       return HttpResponse.json(photoScenarios[name], { headers: { "Cache-Control": "no-store" } });
     }),
+    // ---- 확인 카드 행의 사전 후보 검색(2026-11-23 "아스피린 A"): 게스트 허용(토큰을 보지 않는다). 요청·응답은 `POST /api/drugs/search`와 같은 모양(계약 가정)이고
+    //      같은 합성 사전(`searchMockDrugs`)을 쓴다. 검색어는 되돌려 주지 않는다. 오류·느림 표식도 로그인 전용 목과 같다
+    http.post("*/api/ingest/drugs/search", async ({ request }) => {
+      const body = IngestDrugSearchInSchema.safeParse(await request.json().catch(() => null));
+      if (!body.success) return HttpResponse.json({ code: "INVALID_REQUEST", fields: ["q"] }, { status: 422, headers: { "Cache-Control": "no-store" } });
+      const forced = MOCK_DRUG_SEARCH_ERRORS.find(([mark]) => body.data.q.includes(mark));
+      if (forced && forced[1] !== 401) return HttpResponse.json({ code: forced[2], fields: forced[2] === "INVALID_REQUEST" ? ["q"] : [] }, { status: forced[1], headers: { "Cache-Control": "no-store" } });
+      if (body.data.q.includes(MOCK_DRUG_SEARCH_SLOW_MARK)) await delay(MOCK_DRUG_SEARCH_SLOW_MS);
+      return HttpResponse.json(searchMockDrugs(body.data.q), { headers: { "Cache-Control": "no-store" } });
+    }),
+    http.get("*/api/ingest/drugs/search", () => new HttpResponse(null, { status: 405, headers: { "Cache-Control": "no-store" } })),
   ];
 }

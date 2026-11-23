@@ -6,8 +6,9 @@ import { HOVER_TEXT, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/butto
 import { Mascot } from "@/components/Mascot";
 import { NoMascotZone } from "@/components/NoMascotZone";
 import { cn } from "@/lib/utils";
-import type { MedicationInput } from "@/lib/api/account";
-import { postIngestImage } from "./api";
+import { DRUG_CANDIDATES_MAX } from "@/lib/api/account";
+import type { DrugCandidate, MedicationInput } from "@/lib/api/account";
+import { PHOTO_ROW_SEARCH_DEBOUNCE_MS, PHOTO_ROW_SEARCH_MAX_CHARS, PHOTO_ROW_SEARCH_MIN_CHARS, postIngestImage, searchIngestDrugs } from "./api";
 import { buildChatInput, buildProfileMedications } from "./build-chat-input";
 import type { ChatInputFromPhoto } from "./build-chat-input";
 import {
@@ -63,6 +64,25 @@ export interface PhotoModalProps {
   /** 시험에서 끼워 넣는다(jsdom에는 canvas가 없다) */
   prepare?: typeof prepareImage;
   post?: typeof postIngestImage;
+  /** 확인 카드 행의 사전 후보 검색(게스트 허용 `/ingest/drugs/search`). 시험에서 끼워 넣는다 */
+  search?: typeof searchIngestDrugs;
+}
+
+/** 행마다 예약된 검색(디바운스 타이머와 진행 중 요청). 새 입력이 오면 앞 것을 지우고 끊어 **최신 입력의 결과만** 행에 붙는다 */
+interface PendingRowSearch {
+  timer: ReturnType<typeof setTimeout> | null;
+  controller: AbortController | null;
+}
+/** 그 행에 예약된 검색을 지우고 진행 중 요청을 끊는다(행을 지울 때·새 글자가 올 때·닫을 때) */
+function cancelRowSearch(searches: Map<string, PendingRowSearch>, id: string) {
+  const pending = searches.get(id);
+  if (!pending) return;
+  if (pending.timer) clearTimeout(pending.timer);
+  pending.controller?.abort();
+  searches.delete(id);
+}
+function cancelAllRowSearches(searches: Map<string, PendingRowSearch>) {
+  for (const id of [...searches.keys()]) cancelRowSearch(searches, id);
 }
 
 /**
@@ -74,6 +94,9 @@ export interface PhotoModalProps {
  * - 미식별 결과 카드 아래의 두 번째 입구(`약 사진 올리기`)는 이번에 만들지 않는다(〔D5〕A)
  * - 프로필 등록 목적지(FE-04-27 A): 온보딩·프로필 폼의 `사진으로 등록`이 같은 모달을 `destination="profile"`로 연다. 사진 고르기·인식·실패·고지(P1·P2)는 그대로이고
  *   확인 카드에 질문칸이 없으며 `이대로 확인`은 `onRegister`로 이름만 넘긴다. 사진·data URL은 여기서도 상태에 두지 않는다
+ * - 확인 카드 행의 사전 후보 검색(2026-11-23 사용자 결정 "아스피린 A"): `약 추가`로 만든 행이나 글자를 고친 행은 입력이 멈춘 뒤 400ms·2글자 이상일 때
+ *   게스트 허용 `POST /api/ingest/drugs/search`로 후보를 찾아 그 행에 붙인다(판독으로 후보가 붙은 행은 글자를 바꿀 때만 다시 찾는다). 행마다 앞 요청을 끊어
+ *   최신 입력의 결과만 반영하고, 실패·시간 초과는 후보 없음으로 조용히 처리한다. 검색어·후보는 메모리에만 있다. 판정(`/chat`)은 확인 전에 여전히 부르지 않는다(H19)
  */
 export function PhotoModal({
   open,
@@ -89,12 +112,14 @@ export function PhotoModal({
   emergencyEntry = null,
   prepare = prepareImage,
   post = postIngestImage,
+  search = searchIngestDrugs,
 }: PhotoModalProps) {
   const [flow, dispatch] = useReducer(photoFlowReducer, initialPhotoFlow);
   const content = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const controller = useRef<AbortController | null>(null);
+  const rowSearches = useRef(new Map<string, PendingRowSearch>());
   const focusTitle = () => content.current?.querySelector<HTMLElement>("[data-photo-title]")?.focus();
 
   // 닫히면 진행 중인 요청을 끊고 처음 단계로 돌린다(사진·목록은 메모리에서 사라진다)
@@ -102,8 +127,51 @@ export function PhotoModal({
     if (open) return;
     controller.current?.abort();
     controller.current = null;
+    cancelAllRowSearches(rowSearches.current);
     dispatch({ type: "reset" });
   }, [open]);
+  // 화면에서 내려가면 예약·요청을 모두 지운다(늦게 온 응답이 없는 화면을 건드리지 않게)
+  useEffect(() => {
+    const searches = rowSearches.current;
+    return () => cancelAllRowSearches(searches);
+  }, []);
+
+  /**
+   * 행 글자가 바뀌면: 고른 후보를 풀고(`editName`), 입력이 멈춘 뒤 `PHOTO_ROW_SEARCH_DEBOUNCE_MS`에 그 글자로 사전 후보를 찾아 행에 붙인다.
+   * 2글자 미만·상한 초과면 부르지 않고 후보를 비운다(앞 글자의 후보는 이 글자의 것이 아니다). 판독으로 후보가 붙은 행도 글자가 바뀌면 같은 길을 탄다.
+   * 늦게 온 응답은 끊긴 요청이라 버려진다(최신 입력만 반영). 실패는 후보 없음으로 두고 입력을 막지 않는다
+   */
+  const editName = (id: string, value: string) => {
+    dispatch({ type: "editName", id, value });
+    cancelRowSearch(rowSearches.current, id);
+    const q = value.trim();
+    if (q.length < PHOTO_ROW_SEARCH_MIN_CHARS || q.length > PHOTO_ROW_SEARCH_MAX_CHARS) {
+      dispatch({ type: "setCandidates", id, candidates: [] });
+      return;
+    }
+    const pending: PendingRowSearch = { timer: null, controller: null };
+    rowSearches.current.set(id, pending);
+    pending.timer = setTimeout(async () => {
+      pending.timer = null;
+      const own = new AbortController();
+      pending.controller = own;
+      let candidates: readonly DrugCandidate[] = [];
+      try {
+        const found = await search(q, own.signal);
+        candidates = found.candidates.slice(0, DRUG_CANDIDATES_MAX);
+      } catch {
+        candidates = []; // 연결·상태 코드·모양 오류·끊김: 후보 없음(검색어는 어디에도 남기지 않는다)
+      }
+      if (own.signal.aborted) return;
+      if (rowSearches.current.get(id) === pending) rowSearches.current.delete(id);
+      dispatch({ type: "setCandidates", id, candidates });
+    }, PHOTO_ROW_SEARCH_DEBOUNCE_MS);
+  };
+
+  const removeRow = (id: string) => {
+    cancelRowSearch(rowSearches.current, id);
+    dispatch({ type: "remove", id });
+  };
 
   // 단계가 바뀌면 본문을 맨 위로 올리고 제목을 읽게 한다
   useEffect(() => {
@@ -269,9 +337,9 @@ export function PhotoModal({
                   question={flow.question}
                   destination={destination}
                   emergency={flow.emergency}
-                  onEditName={(id, value) => dispatch({ type: "editName", id, value })}
+                  onEditName={editName}
                   onPick={(id, candidate) => dispatch({ type: "pick", id, candidate })}
-                  onRemove={(id) => dispatch({ type: "remove", id })}
+                  onRemove={removeRow}
                   onAdd={() => dispatch({ type: "add" })}
                   onQuestion={(value) => dispatch({ type: "setQuestion", value })}
                   onConfirm={confirm}

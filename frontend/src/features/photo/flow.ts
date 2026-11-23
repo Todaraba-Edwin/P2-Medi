@@ -23,6 +23,7 @@ export type PhotoFlowAction =
   | { type: "readOk"; drugs: readonly IngestDrug[]; emergency: Emergency | null }
   | { type: "editName"; id: string; value: string }
   | { type: "pick"; id: string; candidate: DrugCandidate | null }
+  | { type: "setCandidates"; id: string; candidates: readonly DrugCandidate[] }
   | { type: "remove"; id: string }
   | { type: "add" }
   | { type: "setQuestion"; value: string };
@@ -51,6 +52,10 @@ export function photoFlowReducer(state: PhotoFlowState, action: PhotoFlowAction)
       return state.step === "confirm" ? { ...state, rows: patchRow(state.rows, action.id, { readName: action.value, picked: null }) } : state;
     case "pick":
       return state.step === "confirm" ? { ...state, rows: patchRow(state.rows, action.id, { picked: action.candidate }) } : state;
+    case "setCandidates":
+      // 직접 추가·수정한 행의 글자로 찾은 사전 후보를 그 행에 붙인다(2026-11-23 "아스피린 A"). 기본 선택은 여전히 없다(FE-04-22 A).
+      // 이미 지워진 행이면 아무 일도 없다(늦게 온 응답이 다른 행을 건드리지 않는다)
+      return state.step === "confirm" ? { ...state, rows: patchRow(state.rows, action.id, { candidates: action.candidates, picked: null }) } : state;
     case "remove":
       return state.step === "confirm" ? { ...state, rows: state.rows.filter((row) => row.id !== action.id) } : state;
     case "add":
