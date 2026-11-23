@@ -73,13 +73,15 @@ export function TargetChip({ profiles, value, onChange, container = null }: Targ
           aria-label={`${TARGET_LABEL} ${shownName}`}
           {...triggerProps}
           // 누르는 영역 44px(버튼), 보이는 칩은 옆 `일반인|임산부` 토글 틀과 같은 28px·같은 글자 크기(12px)·완전히 둥근 모양(FE-17 U-10: 토글 기준으로 통일).
-          // 좁은 폭(393)에서는 이름이 줄어든다(말줄임)
+          // 좁은 폭(393)에서는 이름이 줄어든다(말줄임).
+          // 줄 높이는 16px(`leading-4`, 토글과 같다, FE-17 U-20): 말줄임 칸은 `overflow:hidden`이라 줄 높이가 글꼴 상자(12px 글자 = 약 15px)보다 낮으면
+          // 글자 위아래가 잘린다(예전 `leading-none` = 12px에서 위 2px·아래 1px 잘림, 125% 배율에서도 같은 비율)
           className="group flex h-11 max-w-[11rem] min-w-0 shrink items-center rounded-full focus-visible:outline-none"
         >
           <span
             data-testid="target-chip-face"
             className={cn(
-              "flex h-7 min-w-0 items-center gap-1 rounded-full border border-line-2 bg-bg-soft py-0 pr-2 pl-[3px] text-xs leading-none font-bold text-ink",
+              "flex h-7 min-w-0 items-center gap-1 rounded-full border border-line-2 bg-bg-soft py-0 pr-2 pl-[3px] text-xs leading-4 font-bold text-ink",
               "group-focus-visible:outline-3 group-focus-visible:outline-offset-2 group-focus-visible:outline-ink-2",
               HOVER_ROW,
             )}

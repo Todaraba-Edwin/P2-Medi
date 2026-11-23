@@ -11,6 +11,7 @@ import {
   clarifyResponse,
   clarifyTripleResponse,
   codeNotLinkedResponse,
+  doseDupResponse,
   emergencyResponse,
   fallbackNoneResponse,
   fallbackSomeResponse,
@@ -193,6 +194,9 @@ export const scenarios = {
   redose: normal(redoseResponse),
   /** 약 3개 묶음 요약(`result_summary`·`pair_only_notice`)·구역·짝 참조·접힘 줄 */
   resultSummary: normal(resultSummaryResponse),
+  // ---- FE-17 U-19 후속
+  /** 용량주의 근거가 제형 코드마다 따로 온다: 사유 원문은 같은 내용을 한 박스로 묶어 "같은 내용 N건" */
+  doseDup: normal(doseDupResponse),
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;

@@ -85,13 +85,14 @@ for (const width of [393, 1280]) {
         const start = page.getByTestId("start-target");
         await expect(start).toBeVisible();
         expect(await start.evaluate((el) => el.tagName)).toBe("P");
-        await expect(start).toHaveText("나 프로필로 확인해요. 이 프로필의 연령대·임신 여부가 답변에 쓰여요. 프로필 없이도 확인할 수 있어요. 게스트로 이용");
+        // FE-17 U-23: 링크가 세 번째 문장 중간에 든 사용자 지정 문장(글자·문장 부호까지 같다)
+        await expect(start).toHaveText("나 프로필로 확인해요. 이 프로필의 연령대·임신 여부가 답변에 쓰여요. 프로필 없이 질문을 이어가시려면 게스트로 이용으로 프로필을 변경해주세요.");
         await expect(start.getByTestId("profile-avatar")).toHaveCount(0);
         const keys = ["font-size", "line-height", "color", "font-weight"];
         expect(await style(start, ...keys)).toEqual(await style(notice(page), ...keys));
         expect((await style(start, "border-top-width", "background-color"))["border-top-width"]).toBe("0px");
         await expect(start).not.toContainText("안전");
-        // 링크 모양: 같은 글자 크기, 밑줄, 문장 끝(같은 단락 안). 동작은 버튼(대상 변경)
+        // 링크 모양: 같은 글자 크기, 밑줄, 같은 단락 안(U-23부터 문장 중간). 동작은 버튼(대상 변경)
         const link = start.getByRole("button", { name: "게스트로 이용" });
         const linkStyle = await style(link, "font-size", "text-decoration-line", "border-top-width", "background-color");
         expect(linkStyle["font-size"]).toBe((await style(start, "font-size"))["font-size"]);
@@ -115,8 +116,9 @@ for (const width of [393, 1280]) {
         await page.keyboard.press("Enter");
         await saved;
         await expect(start.getByTestId("start-target-heading")).toHaveText("게스트로 이용 중이에요");
-        await expect(start).toHaveText("게스트로 이용 중이에요. 저장한 프로필 값 없이 확인해요.");
-        await expect(start.getByRole("button")).toHaveCount(0);
+        // FE-17 U-22: "…질문해요." 뒤에 `변경` 링크 하나(U-08의 "버튼 없음"을 대체)
+        await expect(start).toHaveText("게스트로 이용 중이에요. 저장한 프로필 값 없이 질문해요. 변경");
+        await expect(start.getByRole("button")).toHaveText(["변경"]);
         await expect(page.getByTestId("target-chip")).toHaveAccessibleName("누가 먹나요 게스트로 이용");
         await expect(input(page)).toBeFocused();
         expect(puts).toEqual([{ target: "guest" }]);

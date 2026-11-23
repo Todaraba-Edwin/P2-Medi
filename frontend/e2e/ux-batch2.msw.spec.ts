@@ -76,10 +76,11 @@ for (const width of [393, 1280]) {
         await expect(menu.getByText("선택 안 함")).toHaveCount(0);
         await shot(page, `${base}-profile-menu`);
 
-        // 게스트로 이용: 칩은 그 글자, 계정 버튼은 로그인 상태 글자(비로그인 `계정`과 다르다)
+        // 게스트로 이용: 칩도 계정 버튼도 게스트 모드 표시(FE-17 U-21이 U-06의 `로그인됨`을 대체). 비로그인 `계정`과 다르다
         await menu.getByRole("menuitemradio", { name: "게스트로 이용" }).click();
         await expect(menu).toHaveCount(0);
-        await expect(button).toHaveText("로그인됨");
+        await expect(button).toHaveText("게스트로 이용");
+        await expect(button.getByTestId("profile-avatar")).toHaveAttribute("data-color", "none");
         if (mobile) {
           await page.keyboard.press("Escape");
           await expect(page.getByTestId("menu-drawer")).toHaveCount(0);

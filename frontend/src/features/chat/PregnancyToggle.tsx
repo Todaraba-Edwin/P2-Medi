@@ -71,8 +71,9 @@ export function PregnancyToggle({ value, onChange, describedBy }: PregnancyToggl
               onClick={() => onChange(option.pregnant)}
               onKeyDown={onKeyDown}
               className={cn(
-                // 보이는 칸 24px(틀 28px - 안쪽 여백), 누르는 영역은 `before:`로 위아래 10px씩 넓혀 44px
-                "relative flex h-6 items-center rounded-full px-2.5 text-xs leading-none whitespace-nowrap transition-colors",
+                // 보이는 칸 24px(틀 28px - 안쪽 여백), 누르는 영역은 `before:`로 위아래 10px씩 넓혀 44px.
+                // 줄 높이 16px(`leading-4`): 글꼴 상자(약 15px)가 줄 안에 들어가 잘리지 않고, 옆 프로필 칩과 같은 글자 모양이다(FE-17 U-20)
+                "relative flex h-6 items-center rounded-full px-2.5 text-xs leading-4 whitespace-nowrap transition-colors",
                 "before:absolute before:inset-x-0 before:-inset-y-2.5 before:content-['']",
                 "focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ink-2",
                 checked ? "bg-yellow font-extrabold text-on-yellow shadow-sm" : "bg-bg-soft font-normal text-mute",
