@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # 서버 시작 직후 백그라운드 자원 준비(BE-17-01·02 A). 기본 켬. `MEDIAGENT_WARMUP=0`(false·off)이면 지금처럼 첫 요청에서 만든다
     mediagent_warmup: bool = True
 
+    # HTTP 요청 소요 시간 로그(`메서드 경로템플릿 상태 ms` 한 줄, 식별·쿼리·본문 없음). 기본 켬. `MEDIAGENT_REQUEST_TIMING=0`(false·off)이면 끈다
+    mediagent_request_timing: bool = True
+
     # 사진 약 이름 판독 제공자(BE-14, 비밀 아님, 환경변수 `MEDIAGENT_VISION_PROVIDER`). `upstage`는 OCR + solar-pro4, `openai`는 gpt-6-luna 비전.
     # 사용자 최종 결정 2026-11-23: 기본값 openai, Upstage는 `MEDIAGENT_VISION_PROVIDER=upstage`로만 켠다(켜기 전 처리방침·고지·요금제 조건 확인).
     # 처방전·약봉투 사진 고지: 처리방침 v4·사진 고지 승인은 별도 대기(PRD-17-19·20, FE-05-03) — 외부 사용자에게 열기 전 필수.
