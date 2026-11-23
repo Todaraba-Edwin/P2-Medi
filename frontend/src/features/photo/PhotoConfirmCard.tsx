@@ -49,8 +49,9 @@ export interface PhotoConfirmCardProps {
  * 확인·수정 카드(PJ2-PRD.md 15.4 "확인·수정 카드" 행, 되묻기 카드와 같은 틀): 읽은 약을 세로 목록으로 보이고 항목별 수정·삭제, `약 추가`, 질문 입력칸, `이대로 확인`.
  * - 읽은 글자는 입력칸에 그대로 두고(수정 가능), 성분·용량/제형 글자는 작은 글자로 병기한다. 항목 앞은 캡슐 말풍선 아이콘(FE-06-01, 병아리 아님)
  * - 사전 후보는 라디오(`role="radio"`)이고 **기본 선택이 없다**(PRD-08-06 A). 고르지 않으면 적힌 글자로 찾는다(P6). 확신도는 응답에 없고 화면에도 없다
- * - 확인을 누르기 전에는 판정을 찾지 않는다(H19): 이 카드는 서버를 부르지 않는다
- * - `약 추가`는 빈 입력칸 하나다(사전 검색 없음: `/drugs/search`는 로그인 전용이라 게스트가 못 쓴다)
+ * - 확인을 누르기 전에는 **판정**을 찾지 않는다(H19): 이 카드에서 `/chat`(판정·그래프)은 나가지 않는다. 사전 후보 검색은 판정이 아니라 이름 변환이라 H19와 무관하다
+ * - `약 추가`는 빈 입력칸 하나로 시작한다. 그 행(또는 판독된 행의 글자를 고친 경우)에 글자를 적으면 상위(`PhotoModal`)가 게스트 허용 `/ingest/drugs/search`로
+ *   사전 후보를 찾아 `candidates`에 붙이고, 이 카드는 판독 행과 **같은 라디오 목록**(기본 선택 없음)으로 보인다(2026-11-23 사용자 결정 "아스피린 A")
  * - 프로필 등록 목적지(`destination="profile"`, FE-04-27 A): 질문칸이 없고 약 1개 이상이면 `이대로 확인`이 켜진다. 그 밖(안내·고지·후보·119)은 같다
  */
 export function PhotoConfirmCard({ rows, question, destination = "chat", emergency, onEditName, onPick, onRemove, onAdd, onQuestion, onConfirm }: PhotoConfirmCardProps) {
