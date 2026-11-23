@@ -6,7 +6,8 @@
 /me·/legal/{doc_type}·/consents·/profiles: BE-11 계정 API(`app.api.me`·`app.api.account`, 토큰 검증 `app.security.auth`).
   검증기가 없으면 토큰이 온 요청은 501, 계정 저장소(`account.set_repo`)가 없으면 계정 API는 501.
   BE-11-23 A(2026-11-22 원격 `account` 스키마·약관 시드 적용 뒤): `SUPABASE_DB_URL`이 있으면 lifespan이 `PostgresAccountRepo.from_dsn`
-  저장소를 붙인다(`build_account_repo`). 시작 때는 접속·쓰기 0(연결은 요청마다 열고 닫는다, 풀 없음). 연결 실패는 요청 때
+  저장소를 붙인다(`build_account_repo`). 연결 풀(2026-11-23, psycopg-pool, `MEDIAGENT_WARMUP` 켬일 때만)을 lifespan이 열고(기다리지 않음, 연결은 백그라운드) 종료 때 닫는다.
+  준비를 끈 경우는 요청마다 열고 닫는다(기존 동작). 쓰기 0. 연결 실패는 요청 때
   `RepoUnavailable` → 503 `ACCOUNT_UNAVAILABLE`이라 서버 시작을 막지 않는다. DSN이 없거나 형식이 틀리면 저장소 없음 → 501.
 
 앱 시작(lifespan, BE-06-22 A·BE-17-01 A): 설정을 읽어 필수 값이 다 있으면 지연 실행기를 붙이고, 백그라운드 스레드로 무거운 자원을
@@ -28,7 +29,7 @@ from .api import me as me_api
 from .api import service
 from .config import Settings, get_settings, reveal
 from .db.account_repo import AccountRepo
-from .db.account_repo_pg import PostgresAccountRepo
+from .db.account_repo_pg import PostgresAccountRepo, build_pool
 from .logging.console import install_app_console_logging
 from .logging.redact_filter import install_log_redaction
 from .logging.request_timing import RequestTimingMiddleware
@@ -60,6 +61,10 @@ def build_account_repo(settings: Settings) -> AccountRepo | None:
     except Exception:  # noqa: BLE001 - 파싱 오류 메시지에 DSN 조각이 섞일 수 있어 종류도 남기지 않는다
         logger.warning("계정 저장소를 붙이지 않았다: SUPABASE_DB_URL 형식 오류")
         return None
+    if getattr(settings, "mediagent_warmup", False) is True:  # 풀은 준비 스위치를 따른다(끄면 요청별 연결). open은 기다리지 않는다
+        pool = build_pool(dsn)
+        pool.open()
+        return PostgresAccountRepo.from_pool(pool)
     return PostgresAccountRepo.from_dsn(dsn)
 
 
@@ -76,15 +81,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     drugs_api.set_provider(app, dict_provider)
     # BE-11-23 A: 계정 저장소(DSN 없으면 None → 501). FE-04-13 남음 ②: 복용 약 `item_seq`는 같은 사전으로 다시 확인한다
     # (사전에 없는 번호는 원문만 저장, 실행기가 없으면 확인 함수 None). 접속 0
-    account_api.set_repo(app, build_account_repo(settings_now),
+    account_repo = build_account_repo(settings_now)
+    account_api.set_repo(app, account_repo,
                          item_seq_checker=drugs_api.dict_item_seq_checker(dict_provider) if dict_provider is not None else None)
     auth.set_verifier(app, auth.build_verifier(settings_now))  # 접속 0. 설정이 모자라면 None → 토큰이 온 /me는 501
     # BE-11-24 A: 탈퇴 때 auth.users 삭제(Admin API). 접속 0. SUPABASE_URL·SUPABASE_SECRET_KEY가 없으면 None → 탈퇴 502
     auth_admin.set_auth_admin(app, auth_admin.build_auth_admin(settings_now))
     try:
         yield
-    finally:  # 종료: 저장소를 뗀다(풀이 없어 닫을 연결은 없다. 요청마다 연 연결은 요청 안에서 닫힌다)
+    finally:  # 종료: 저장소를 떼고 풀을 닫는다(풀이 없으면 닫을 것 없음. 요청별 연결은 요청 안에서 닫힌다)
         account_api.set_repo(app, None)
+        closer = getattr(account_repo, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:  # noqa: BLE001 - 종료 중 오류는 삼킨다(원인 문자열에 값이 섞일 수 있어 남기지 않는다)
+                logger.warning("계정 DB 풀 닫기 실패")
 
 
 app = FastAPI(title="MediAgent", lifespan=lifespan)
