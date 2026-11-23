@@ -522,7 +522,7 @@ class TestContract:
         op = after["paths"]["/ingest/image"]
         assert set(op) == {"post"} and "security" not in op["post"]
         assert set(op["post"]["responses"]) == {"200", "422"}
-        assert set(after["paths"]) - set(before["paths"]) == {"/ingest/image"}
+        assert set(after["paths"]) - set(before["paths"]) == {"/ingest/image", "/ingest/drugs/search"}
 
     def test_main_app_registers_ingest(self) -> None:
         from app import main as main_mod
