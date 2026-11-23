@@ -204,7 +204,9 @@ for (const width of [360, 1280]) {
       // 고지 문서(처리방침: 외부 AI 전송 안내)는 체크 없는 고지다(FE-04-03 A). 동의 대상은 문서 셋 + 만 14세 확인 체크다
       await expect(agree("privacy_policy")).toHaveCount(0);
       await expect(modal(page).getByRole("checkbox")).toHaveCount(4);
-      await expect(modal(page).getByTestId("legal-not-reviewed")).toHaveCount(4); // 초안·법률 검토 전 표지(문서 카드만)
+      await expect(modal(page).getByTestId("legal-doc")).toHaveCount(4);
+      await expect(modal(page).getByTestId("legal-not-reviewed")).toHaveCount(0); // 초안·법률 검토 전 표지 없음(PRD-17-26 A, 목 문서는 not_reviewed)
+      await expect(modal(page).getByTestId("legal-doc").first().getByText("버전 1 · 시행일 2026-11-18", { exact: true })).toBeVisible();
       await agree("terms").check();
       await expect(submit).toBeDisabled();
       await agree("privacy_consent").check();

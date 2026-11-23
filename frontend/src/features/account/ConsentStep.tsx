@@ -16,7 +16,6 @@ import {
   HEALTH_WITHDRAW_WARNING,
   LEGAL_LOADING,
   LEGAL_LOAD_FAILED,
-  LEGAL_NOT_REVIEWED_TAG,
   NOTICE_TAG,
   OPTIONAL_TAG,
   REQUIRED_TAG,
@@ -33,7 +32,7 @@ type Agreed = ConsentChoices;
  * 약관 동의(S10 2단계). 문서의 제목·본문·버전·필수 여부는 `GET /api/legal/*` 값을 그대로 그린다(프런트에 문구를 두지 않는다).
  * 필수 문서(이용약관·개인정보 수집·이용)에 모두 동의해야 다음으로 갈 수 있다. 선택 문서(건강 정보)는 동의하지 않아도 된다.
  * 고지 문서(`privacy_policy` 처리방침: 외부 AI 전송 안내가 여기 있다)는 **체크 없는 고지**로만 보이고 동의 항목에 들어가지 않는다(FE-04-03 A).
- * 법률 검토 전 문서(`legal_review: "not_reviewed"`)에는 "초안·법률 검토 전" 표지를 붙인다.
+ * `legal_review` 값은 읽기만 하고 화면 표지는 그리지 않는다(PRD-17-26 A, 2026-11-23: 현재 내용을 최종안으로 게시).
  * 동의해 둔 건강 정보 동의를 끄고 보내려 하면 확인 모달을 먼저 띄운다(FE-04-06 A): 철회하면 서버가 건강 정보를 즉시 지우고 되돌릴 수 없다.
  * 만 14세 이상 확인(`age_14`, PRD-17-12 A)은 문서 카드가 아니라 목록 아래의 **별도 필수 체크 한 줄**이다(PRD-17-09 A "체크 위치 A"):
  * 라벨은 화면 상수(`AGE_14_CHECK_LABEL`)이고 버전·필수 여부는 서버 문서 값을 쓴다. 체크하지 않으면 필수 미동의라 다음으로 갈 수 없다.
@@ -94,17 +93,7 @@ export function ConsentStep() {
               <h3 className="m-0 text-sm leading-5 font-bold [word-break:keep-all]">
                 <span className={consentable && doc.required ? "text-red-ink" : "text-mute"}>[{!consentable ? NOTICE_TAG : doc.required ? REQUIRED_TAG : OPTIONAL_TAG}]</span> {doc.title}
               </h3>
-              <p className="m-0 text-xs text-mute">
-                {docVersionLine(doc.version, doc.effective_at)}
-                {doc.legal_review === "not_reviewed" && (
-                  <>
-                    {" · "}
-                    <span data-testid="legal-not-reviewed" className="font-semibold text-ink-2">
-                      {LEGAL_NOT_REVIEWED_TAG}
-                    </span>
-                  </>
-                )}
-              </p>
+              <p className="m-0 text-xs text-mute">{docVersionLine(doc.version, doc.effective_at)}</p>
               {/* 본문은 상자 안에서 스크롤한다. 키보드로도 내려 읽을 수 있게 초점을 받는다 */}
               {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
               <div tabIndex={0} role="group" aria-label={doc.title} className="max-h-36 overflow-y-auto rounded-xl bg-bg-softer p-2.5">
