@@ -1,7 +1,7 @@
-import { SettingsIcon, UserIcon } from "lucide-react";
+import { ScrollTextIcon, SettingsIcon, UserIcon } from "lucide-react";
 import { HOVER_ROW, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/button";
 import { cn } from "@/lib/utils";
-import { ACCOUNT_SIGNED_IN, ENTRY_GROUP_LABEL, GUEST_START_LABEL, LOGIN_ENTRY_LABEL, LOGOUT_LABEL, MANAGE_PROFILES_LABEL } from "./copy";
+import { ACCOUNT_SIGNED_IN, ENTRY_GROUP_LABEL, GUEST_START_LABEL, LEGAL_MENU_LABEL, LOGIN_ENTRY_LABEL, LOGOUT_LABEL, MANAGE_PROFILES_LABEL } from "./copy";
 import { ACCOUNT_MENU_LABEL, SETTINGS_LABEL } from "@/features/settings/copy";
 
 /**
@@ -31,19 +31,27 @@ export interface AccountMenuProps {
   onLogout: () => void;
   /** 설정 화면 열기(화면 모드) */
   onSettings: () => void;
+  /** 약관·정책 열람 열기(설정 화면의 약관·정책 묶음으로, 2026-11-23). 게스트·회원 모두 있다 */
+  onLegal: () => void;
 }
 
 const ROW_CLASS = `flex min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 text-left text-sm font-semibold ${HOVER_ROW}`;
 
 /**
- * 사이드바·드로어 아래쪽의 계정 자리(FE-12-03 B). 게스트: "로그인/가입"(계정 기능이 켜졌을 때) + "설정".
- * 로그인하면: 상태 글자 + "프로필 관리 / 설정 / ─ / 로그아웃".
+ * 사이드바·드로어 아래쪽의 계정 자리(FE-12-03 B). 게스트: "로그인/가입"(계정 기능이 켜졌을 때) + "설정" + "약관·정책".
+ * 로그인하면: 상태 글자 + "프로필 관리 / 설정 / 약관·정책 / ─ / 로그아웃".
  */
-export function AccountMenu({ member, accountEnabled, onOpen, onLogout, onSettings }: AccountMenuProps) {
+export function AccountMenu({ member, accountEnabled, onOpen, onLogout, onSettings, onLegal }: AccountMenuProps) {
   const settingsRow = (
     <button type="button" data-testid="settings-entry" onClick={onSettings} className={ROW_CLASS}>
       <SettingsIcon className="size-[18px]" aria-hidden="true" />
       {SETTINGS_LABEL}
+    </button>
+  );
+  const legalRow = (
+    <button type="button" data-testid="legal-entry" onClick={onLegal} className={ROW_CLASS}>
+      <ScrollTextIcon className="size-[18px]" aria-hidden="true" />
+      {LEGAL_MENU_LABEL}
     </button>
   );
   if (!member) {
@@ -56,6 +64,7 @@ export function AccountMenu({ member, accountEnabled, onOpen, onLogout, onSettin
           </button>
         )}
         {settingsRow}
+        {legalRow}
       </div>
     );
   }
@@ -69,6 +78,7 @@ export function AccountMenu({ member, accountEnabled, onOpen, onLogout, onSettin
         {MANAGE_PROFILES_LABEL}
       </button>
       {settingsRow}
+      {legalRow}
       <hr className="mx-2.5 my-1 border-0 border-t border-line" />
       <button type="button" data-testid="account-logout" onClick={onLogout} className={ROW_CLASS}>
         {LOGOUT_LABEL}

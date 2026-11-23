@@ -305,6 +305,27 @@ export async function fetchLegalDocs(): Promise<LegalDoc[]> {
   return Promise.all(LEGAL_DOC_TYPES.map(fetchLegalDoc));
 }
 
+/**
+ * 열람 목록용 문서 모양(2026-11-23 약관 열람 진입점): `doc_type`을 enum으로 묶지 않는다. 게스트용 문서 종류처럼 서버에 아직 없는 종류를
+ * 목록에 둘 수 있게 하기 위해서다(목록은 `features/account/legal-menu.ts`). 나머지 칸은 `LegalDocSchema`와 같다
+ */
+export const LegalMenuDocSchema = LegalDocSchema.extend({ doc_type: z.string().min(1) });
+export type LegalMenuDoc = z.infer<typeof LegalMenuDocSchema>;
+
+/**
+ * 열람용 문서 한 건. 서버가 그 종류를 모르거나(422 `INVALID_REQUEST`: enum 밖) 게시본이 없으면(404 `NOT_FOUND`) **null**을 돌려주고
+ * 화면은 그 항목을 그리지 않는다("준비 중" 같은 글자를 두지 않는다). 그 밖의 실패(네트워크·5xx)는 그대로 던진다.
+ * 읽기 전용이며 동의 기록을 만들지 않는다
+ */
+export async function fetchLegalDocIfPublished(docType: string): Promise<LegalMenuDoc | null> {
+  try {
+    return await read(await call("get", `legal/${encodeURIComponent(docType)}`), LegalMenuDocSchema);
+  } catch (error) {
+    if (error instanceof AccountApiError && error.kind === "http" && (error.status === 404 || error.status === 422)) return null;
+    throw error;
+  }
+}
+
 /** 동의·철회를 기록하고 갱신된 `Me`를 받는다. `items`는 1~4건(첫 로그인 4종 한 번에)이고 문서 종류가 겹치면 안 된다(서버 규칙) */
 export async function postConsents(items: ConsentItem[], channel: ConsentChannel): Promise<Me> {
   const body: Gen["ConsentRequest"] = { items, channel };
