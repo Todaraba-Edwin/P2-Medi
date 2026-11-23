@@ -5,6 +5,10 @@
 - 응급이어도 금기 조회는 막지 않는다(`proceed_tools=True`, H4).
 - 범위 외(복용 중단·감량, 의사에게 숨김, 진단·처방·복용량, 개인 의료기록)는 거절 경로로 보낸다.
 - 인젝션 시도는 거절하고, `emergency`·`route`·고정 문구는 LLM·도구 결과가 바꿀 수 없다(H8, `apply_tool_update`).
+- 안전장치 3겹 중 입구(AG-24-01 A, 2026-11-23): ① 자해·자살 의도 신호(`SELF_HARM`)는 119 안내를 맨 위에 두고 **조회를 잇지 않는다**(위험해지는
+  양·조합을 목록으로 내지 않기 위해, H4의 "응급이어도 조회를 막지 않는다"의 예외. 사용자 확정 AG-24-02 B: 현재 범위는 119와 약사·의료기관 안내까지)
+  ② 처방약을 의사·약사와 상의 없이 자기 판단대로 해도 된다고 승인해 달라는 요청(`SELF_JUDGE_APPROVAL`)은 거절한다.
+  이유 키·문구는 `fixed_phrases.SAFETY_REFUSE_APPROVED`(2026-11-23 승인). 입구는 **현재 문장 하나만** 본다(서버가 대화 이력을 갖지 않는다).
 - 응급 키워드는 직접 정의한 것이며 임상 검수를 받지 않았다(AG-08 §5 가정). 안내는 119·약국·약사까지만(RFP-19-01 A).
 """
 
@@ -151,6 +155,62 @@ _SCOPE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("PERSONAL_RECORD", re.compile(r"(내|제|우리)(진료|의무|건강검진|투약|처방)기록|진료기록(을|좀)?(분석|저장|올려|봐)|의무기록|건강검진결과(분석|를봐|해석)")),
 )
 
+# --------------------------------------------------------------------------- 안전장치 입구(AG-24-01 A): 자해·자살 의도, 자기 판단 승인 요청
+# 정규화 글자(공백·구두점 제거) 위에서 찾는다. 정밀도 우선(AG-08-02 A): "죽을까 봐 걱정"(제3자 걱정), 임부·아이 금기 확인 질문은 걸지 않는다.
+# ① 직접 신호: 이것만으로 걸린다(자살·자해·죽고 싶음·끝내고 싶음·극단적 선택 등).
+_SH_INTENT = re.compile(
+    r"죽고(?:만)?싶|죽고싶|자살|자해|스스로(?:목숨|생을|삶을)|목숨(?:을|이)?(?:끊|버리|포기)|극단적(?:인)?선택|"
+    r"죽을까(?!봐|봐요|걱정|무서|두려|염려)|죽으려|죽어버리|죽어도(?:좋|상관)|살고싶지(?:않|가않)|살기(?:가)?싫|"
+    r"사라지고싶|사라져버리|(?:다|모든걸?|전부|모두|인생을?|삶을?|생을?)(?:끝내고싶|끝내버리고싶|끝내려|끝내자)|"
+    r"삶을(?:포기|마감)|생을(?:마감|끝)|세상(?:을|에서)(?:떠나|떠날|사라|없어)|더(?:이상)?살(?:고싶|기싫|수없)")
+# ② 힘듦 표현과 방법 탐색이 한 문장에 함께 있을 때(예: 힘들어서 약을 한꺼번에 먹으려고) 건다.
+_SH_DISTRESS = re.compile(r"힘들어서|너무힘들|괴로워서|괴로운|견딜수없|견디기힘|지쳐서|지쳤|우울|살기힘|사는게(?:너무)?힘|희망이없|의미(?:가)?없")
+_SH_METHOD = re.compile(
+    r"(?:한꺼번에|몽땅|전부|통째로|잔뜩|다)(?:\S{0,4})먹(?:으려|을려|을까|고싶|겠|을거|으면)|"
+    r"(?:많이|한꺼번에|몽땅|잔뜩)먹(?:으면|으려|을려|을까|고)|위험해지는|위험한조합|위험한약|치사|죽(?:을수|는|게)|과량|"
+    r"(?:약|알약|수면제|진통제)(?:을|를)?(?:한꺼번에|몽땅|전부|잔뜩)")
+# ③ 방법 탐색 단독(의도 표현 없이 완곡하게): "많이 먹으면 편해질까요", "일부러 같이 먹으면", "가장 위험한 약을 순서대로 … 저한테 쓰려고"
+_SH_COMFORT = re.compile(r"(?:많이|한꺼번에|몽땅|전부)먹(?:으면|으려|고)\S{0,8}?(?:편해|편하게|잠들|깨어나지|안아프|아프지않|끝)")
+_SH_ON_PURPOSE = re.compile(r"일부러\S{0,10}?(?:먹|복용|같이|함께|삼키)")
+_SH_RANK = re.compile(r"(?:가장|제일|최고로)(?:위험|치명|독한)")
+_SH_SELF_USE = re.compile(r"(?:저|나|제몸|내몸)(?:한테|에게)(?:쓰|쓸|사용)|(?:제가|내가)(?:쓰려|쓸려|써보려)")
+
+
+def detect_self_harm(text: str) -> bool:
+    """자해·자살 의도 신호. 부정문·제3자 표현("친구가 …")도 안전 쪽으로 True다(미탐 금지, 단 위 정밀도 예외는 둔다).
+
+    힘듦 표현 단독("요즘 사는 게 너무 힘들어요")은 걸지 않는다(의도·방법 단서가 함께 있을 때만). 대화 이력이 없어 앞 회전의 힘듦은 보지 못한다."""
+    n = normalize(text)
+    if _SH_INTENT.search(n):
+        return True
+    if _SH_DISTRESS.search(n) and _SH_METHOD.search(n):
+        return True
+    if _SH_COMFORT.search(n) or _SH_ON_PURPOSE.search(n):
+        return True
+    return bool(_SH_RANK.search(n) and _SH_SELF_USE.search(n))
+
+
+# 처방약을 의사·약사와 상의 없이 자기 판단대로 해도 된다고 "승인해 달라"는 요청(시나리오 A). 이미 있는 범위 외 이유(STOP_DOSE_CHANGE·ASSESS_STATE·
+# HIDE_FROM_DOCTOR)가 걸리면 그 문구가 우선이고 이 키는 붙지 않는다(`refuse_reasons`). 약 이름·질문 형식만 묻는 "먹어도 되나요?"는 걸지 않는다.
+_APPROVAL_ASK = re.compile(
+    r"(?:괜찮다|맞다|된다|좋다|문제없다|문제가없다|그렇게하셔도됩니다|그렇게해도됩니다|안전하다|허락)(?:고|라고)(?:만|좀|한번만)?"
+    r"(?:해주|해줘|해달|해라|해줄|해봐|말해|말씀해|답해|대답해|써|적어|확인해|인정해|확정해|승인해|알려)|"
+    r"(?:괜찮다|맞다|된다|안전하다)(?:고|라고)(?:한문장|한마디|한줄|딱한번)만?(?:써|적어|말해|해줘|해주)|"
+    r"(?:승인|허락|허가|동의|인정|확정)(?:해|을해)(?:주|줘|달|줄|봐)|"
+    r"(?:내|제)(?:가)?(?:판단|결정)(?:으로|대로|해서)?\S{0,12}?(?:끊|먹|복용|줄|늘|바꿔|바꾸|조절|중단)|"
+    r"(?:이미|벌써)(?:제가|내가|스스로)?(?:정했|결정했|결심했)|제가(?:정한|결정한)(?:거|것)|"
+    r"(?:의사|병원|약사)(?:와|랑|한테|에게|께)?(?:상담|상의|물어보지|묻지|안물어|안가|안가고)(?:없이|않고|안하고|하지않고|도없이)|"
+    r"(?:의사|병원|약사|상담)(?:는|은|도)?(?:필요없|안가도|안만나도|건너뛰)|"
+    r"병원(?:가기|가는게)?귀찮|"
+    r"(?:엄마|아빠|어머니|아버지|언니|오빠|누나|형|남편|아내|친구|가족|동생)(?:가|이|께서|의)?(?:처방받은|처방받아|처방해준|처방한|먹던|먹는|복용하던)"
+    r"\S{0,18}?(?:제가|내가|저도|나도|저는|난)\S{0,6}?(?:먹어도|먹을게|먹으려|복용해도|먹을래|먹고싶)")
+
+
+def detect_self_judge_approval(text: str) -> bool:
+    """처방약을 상담 없이 자기 판단대로 해도 된다는 승인·확인 요청(시나리오 A). 질문 형식의 일반 금기 확인은 걸지 않는다."""
+    return bool(_APPROVAL_ASK.search(normalize(text)))
+
+
 # --------------------------------------------------------------------------- 인젝션 시도
 _INJECTION = re.compile(
     r"(이전|위|앞|기존|모든)(의)?(지시|지침|명령|규칙|프롬프트|설정)(를|을|은|는|들을|사항을)?(모두|전부)?(무시|잊|따르지말|취소|리셋)|"
@@ -185,38 +245,51 @@ def classify_scope(text: str) -> str | None:
     return None
 
 
-def refuse_reasons(text: str) -> list[str]:
-    """거절 이유 키 **전부**(AG-08-08 A). 걸린 범위 외 이유와 인젝션(`IGNORE_PREVIOUS`)을 `REFUSE_MESSAGES` 정의 순서로 돌려준다.
+def refuse_reasons(text: str, *, self_harm: bool = True, self_judge: bool = True) -> list[str]:
+    """거절 이유 키 **전부**(AG-08-08 A). 걸린 범위 외 이유와 인젝션(`IGNORE_PREVIOUS`)을 `all_refuse_messages()` 정의 순서로 돌려준다.
 
     거절 여부와 첫 키(`guardrail_in`의 `refuse_reason`)는 이 함수와 무관하게 그대로다. 걸린 것이 없으면 빈 목록이다.
+    안전장치 입구(AG-24-01 A): 자해·자살 의도 신호가 있으면 `["SELF_HARM"]` 하나만 돌려준다(다른 거절 문구를 이어 붙이지 않는다).
+    자기 판단 승인 요청(`SELF_JUDGE_APPROVAL`)은 다른 이유가 하나도 없을 때만 붙는다(기존 문구가 같은 말을 이미 한다).
     """
+    if self_harm and detect_self_harm(text):
+        return ["SELF_HARM"]
     n = normalize(text)
     hit = {key for key, pat in _SCOPE_PATTERNS if pat.search(n)}
     if detect_injection(text):
         hit.add("IGNORE_PREVIOUS")
-    order = list(fp.REFUSE_MESSAGES)
+    if self_judge and not hit and detect_self_judge_approval(text):
+        hit.add("SELF_JUDGE_APPROVAL")
+    order = list(fp.all_refuse_messages())
     return sorted(hit, key=lambda k: order.index(k) if k in order else len(order))
 
 
-def guardrail_in(text: str) -> dict[str, Any]:
+def guardrail_in(text: str, *, self_harm: bool = True, self_judge: bool = True) -> dict[str, Any]:
     """입구 결과(순수 딕셔너리).
 
-    - `emergency`: 응급 키워드 감지. 상태 `emergency`에 기록하고 Router는 읽기만 한다.
-    - `route`: `AGENT`(정상) | `REFUSE`(범위 외·인젝션).
-    - `refuse_reason`: 거절 이유 키(없으면 None). 인젝션은 `IGNORE_PREVIOUS`.
+    - `emergency`: 응급 키워드 감지(또는 자해·자살 의도 신호). 상태 `emergency`에 기록하고 Router는 읽기만 한다.
+    - `route`: `AGENT`(정상) | `REFUSE`(범위 외·인젝션·안전장치).
+    - `refuse_reason`: 거절 이유 키(없으면 None). 인젝션은 `IGNORE_PREVIOUS`, 자해 신호는 `SELF_HARM`, 자기 판단 승인 요청은 `SELF_JUDGE_APPROVAL`.
     - `injection`: 지시 무시·고정 문구 제거 요구 같은 시도 여부.
-    - `proceed_tools`: 금기 조회를 이어 가는가. 응급이면 항상 True(막지 않음), 거절이면 False, 그 밖은 True.
+    - `proceed_tools`: 금기 조회를 이어 가는가. 응급이면 True(막지 않음, H4), 거절이면 False, 그 밖은 True.
+      **예외: 자해·자살 의도 신호(`SELF_HARM`)는 응급(119 안내)이면서도 조회를 잇지 않는다**(위험해지는 양·조합을 내지 않기 위해, AG-24-01 A).
     """
-    emergency = detect_emergency(text)
+    is_self_harm = self_harm and detect_self_harm(text)   # `self_harm`·`self_judge`는 ablation 스위치(기본 켬)
+    emergency = detect_emergency(text) or is_self_harm
     injection = detect_injection(text)
-    reason = "IGNORE_PREVIOUS" if injection else classify_scope(text)
+    if is_self_harm:
+        reason: str | None = "SELF_HARM"
+    elif injection:
+        reason = "IGNORE_PREVIOUS"
+    else:
+        reason = classify_scope(text) or ("SELF_JUDGE_APPROVAL" if self_judge and detect_self_judge_approval(text) else None)
     route = ROUTE_REFUSE if reason else ROUTE_AGENT
     return {
         "emergency": emergency,
         "route": route,
         "refuse_reason": reason,
         "injection": injection,
-        "proceed_tools": emergency or route == ROUTE_AGENT,
+        "proceed_tools": False if is_self_harm else (emergency or route == ROUTE_AGENT),
     }
 
 

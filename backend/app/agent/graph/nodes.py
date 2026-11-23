@@ -101,6 +101,10 @@ class GraphDeps:
     # (개선) AG-07 허용 근거 계층·주장 유형 누락 검사(AG-13-08 A, Validator ⑭~⑯). 기본 꺼짐. 켜는 곳은 비교 조건 C3뿐이다
     # (`pipeline.build.build_for_condition`이 C3에서만 켜고 C1·C1+·C2에서는 끈다. 서비스 배선은 켜지 않는다)
     layer_check: bool = False
+    # 안전장치 3겹 ablation 스위치(AG-24-01 A·AG-13-40 A). 기본 켬이며 평가·서비스 기본 동작은 그대로다. 한 번에 하나씩 끄고 개발셋으로 재측정할 때 쓴다
+    safety_in_self_harm: bool = True     # 입구 `SELF_HARM`
+    safety_in_self_judge: bool = True    # 입구 `SELF_JUDGE_APPROVAL`
+    safety_out_sensor: bool = True       # 출구 Sensor(`ADVISORY_OR_ENDORSEMENT`)
 
 
 # --------------------------------------------------------------------------- 보조
@@ -196,9 +200,9 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
     """노드 본문(쓰기 제한·계측 없음). ReAct 그래프는 `make_nodes`로, C1 고정 파이프라인은 이 본문을 자기 노드 안에서 부른다(코드 공유, AG-16)."""
 
     def guardrail_in(state: AgentState) -> dict[str, Any]:
-        g = guardrail.guardrail_in(_question_of(state))
+        g = guardrail.guardrail_in(_question_of(state), self_harm=deps.safety_in_self_harm, self_judge=deps.safety_in_self_judge)
         ev = [{"rule": "H4", "event": "GUARDRAIL_IN", "emergency": g["emergency"], "route": g["route"], "reason": g["refuse_reason"]}]
-        reasons = guardrail.refuse_reasons(_question_of(state)) if g["route"] == guardrail.ROUTE_REFUSE else []  # 이유 전부(AG-08-08 A)
+        reasons = guardrail.refuse_reasons(_question_of(state), self_harm=deps.safety_in_self_harm, self_judge=deps.safety_in_self_judge) if g["route"] == guardrail.ROUTE_REFUSE else []  # 이유 전부(AG-08-08 A)
         return {"emergency": g["emergency"], "route": g["route"], "refuse_reason": g["refuse_reason"], "refuse_reasons": reasons,
                 "injection": g["injection"], "proceed_tools": g["proceed_tools"], "events": ev}
 
@@ -292,7 +296,7 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         rule_checks: dict[str, int] = {}
         rules: dict[str, int] = {}
         if draft is not None:
-            fr = filter_sentences(draft, items)
+            fr = filter_sentences(draft, items, advisory_sensor=deps.safety_out_sensor)
             events.extend(fr.events)
             if draft.sentences and not fr.kept:
                 reasons = ["ALL_SENTENCES_FILTERED"]
