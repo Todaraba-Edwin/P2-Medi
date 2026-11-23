@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, expectNoHorizontalScroll, layerTel, openAccountEntry, targetOptionTexts } from "./helpers";
+import { HEIGHT, ask, expectNoHorizontalScroll, layerTel, openAccountEntry, targetOptionTexts, completeRequired } from "./helpers";
 
 // 로그인 콜백 복귀(2026-11-22 사용자 보고, l7): 소셜 로그인은 전체 페이지 이동이라 돌아오면 로그인 모달이 닫혀 있었다.
 // 이제 콜백 라우트가 `/?auth_resume=1`로 돌려보내고, 화면이 그 표시를 한 번 읽어 온보딩(동의 → 프로필)이 남았을 때만 모달을 그 단계로 다시 연다.
@@ -51,12 +51,13 @@ for (const width of [393, 1280]) {
         await modal(page).getByTestId("add-self").click();
         await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
         await modal(page).getByLabel("이름(별명)").fill("나");
+        await completeRequired(modal(page));
         await modal(page).getByTestId("profile-save").click();
         await expect(modal(page).getByTestId("profile-item")).toHaveCount(1);
         await shot(page, "profiles", scheme);
         await modal(page).getByRole("button", { name: "닫기" }).click();
         await expect(modal(page)).toHaveCount(0);
-        expect(await targetOptionTexts(page)).toEqual(["선택 안 함", "나"]);
+        expect(await targetOptionTexts(page)).toEqual(["게스트로 이용", "나"]);
         await ask(page, "합성 질문");
         await expect(page.getByTestId("result-card")).toBeVisible();
       });
@@ -132,6 +133,7 @@ test.describe("로그인 복귀 직후 계정 호출 수", () => {
     expect(seen.legal()).toBe(5); // 동의 화면이 떠도 다시 받지 않는다
     await modal(page).getByTestId("add-self").click();
     await modal(page).getByLabel("이름(별명)").fill("나");
+    await completeRequired(modal(page));
     await modal(page).getByTestId("profile-save").click();
     await expect(modal(page).getByTestId("profile-item")).toHaveCount(1);
     expect(seen.count("POST /api/profiles")).toBe(1);

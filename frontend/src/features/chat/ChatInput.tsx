@@ -28,7 +28,7 @@ export interface ChatInputProps {
   /** 사진 입력 입구(FE-05, PJ2-PRD.md 15.4 "사진 올리기" 행 "버튼이 입력창 옆, 첫 화면"). 주지 않으면(미리보기·시험) 버튼을 그리지 않는다 */
   onPhoto?: () => void;
   /**
-   * 대상 프로필 칩(2026-11-23, `features/account` `TargetChip`). 주면 입력창 안 첫 줄이 `(일반인|임산부) · [병아리] 이름`이 되고 질문 칸은 그 아래 줄이다.
+   * 대상 프로필 칩(2026-11-23, `features/account` `TargetChip`). 주면 질문 칸이 첫 줄이고, 그 아래 줄 왼쪽이 `[사진] (일반인|임산부) · [병아리] 이름` 묶음, 오른쪽이 보내기다(FE-17 U-07).
    * 주지 않으면(게스트·프로필 없음·미리보기) 입력창은 예전 한 줄 모양이다
    */
   target?: React.ReactNode;
@@ -47,6 +47,16 @@ export function ChatInput({ onSend, disabled = false, pregnancy, onPhoto, target
   const canSend = !disabled && value.trim().length > 0;
   const pregnancyNote = pregnancy?.error ?? pregnancy?.hint ?? null;
 
+  // 사진 입력 입구(FE-05 사진 부분, 〔D5〕A: 입구는 여기 하나). 터치 영역 44px, 보이는 원은 36px. 누르면 조립하는 쪽이 사진 모달을 연다.
+  // 대상 프로필이 있으면 아래 줄 묶음의 맨 앞, 없으면 예전처럼 질문 칸 오른쪽이다
+  const photoButton = onPhoto && (
+    <button type="button" data-testid="photo-entry" disabled={disabled} aria-label={PHOTO_ENTRY_LABEL} onClick={onPhoto} className="group grid size-11 flex-none place-items-center">
+      <span className={`grid size-9 place-items-center rounded-full text-ink-2 group-disabled:text-faint ${HOVER_INNER_TEXT}`}>
+        <CameraIcon className="size-5" aria-hidden="true" />
+      </span>
+    </button>
+  );
+
   const submit = () => {
     if (!canSend) return;
     onSend(value.trim());
@@ -62,20 +72,8 @@ export function ChatInput({ onSend, disabled = false, pregnancy, onPhoto, target
           submit();
         }}
       >
-        {/* 대상 프로필이 있으면 첫 줄: 임신 여부 토글 · 프로필 칩(토글이 빠지는 남성 대상도 줄 높이 44px는 그대로) */}
-        {target ? (
-          <div data-testid="input-target-row" className="flex h-11 w-full min-w-0 items-center gap-1.5">
-            {pregnancy && <PregnancyToggle value={pregnancy.value} onChange={pregnancy.onChange} describedBy={pregnancyNote ? pregnancyNoteId : undefined} />}
-            {pregnancy && (
-              <span aria-hidden="true" className="flex-none text-xs text-mute">
-                ·
-              </span>
-            )}
-            {target}
-          </div>
-        ) : (
-          pregnancy && <PregnancyToggle value={pregnancy.value} onChange={pregnancy.onChange} describedBy={pregnancyNote ? pregnancyNoteId : undefined} />
-        )}
+        {/* 대상 프로필이 없으면(게스트·프로필 없음·미리보기) 예전 한 줄: 토글 · 질문 칸 · 사진 · 보내기 */}
+        {!target && pregnancy && <PregnancyToggle value={pregnancy.value} onChange={pregnancy.onChange} describedBy={pregnancyNote ? pregnancyNoteId : undefined} />}
         <label htmlFor={id} className="sr-only">
           {INPUT_LABEL}
         </label>
@@ -87,7 +85,7 @@ export function ChatInput({ onSend, disabled = false, pregnancy, onPhoto, target
           placeholder={INPUT_PLACEHOLDER}
           autoComplete="off"
           aria-describedby={noticeId}
-          className="max-h-32 min-h-11 min-w-0 flex-1 resize-none bg-transparent py-2.5 pl-1.5 text-base leading-6 outline-none placeholder:text-mute"
+          className={cn("max-h-32 min-h-11 min-w-0 flex-1 resize-none bg-transparent py-2.5 pl-1.5 text-base leading-6 outline-none placeholder:text-mute", target && "basis-full")}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
             // 한글 조합 중의 Enter는 보내지 않는다. Shift+Enter는 줄바꿈
@@ -97,13 +95,21 @@ export function ChatInput({ onSend, disabled = false, pregnancy, onPhoto, target
             }
           }}
         />
-        {/* 사진 입력 입구(FE-05 사진 부분, 〔D5〕A: 입구는 여기 하나). 터치 영역 44px, 보이는 원은 36px. 누르면 조립하는 쪽이 사진 모달을 연다 */}
-        {onPhoto && (
-          <button type="button" data-testid="photo-entry" disabled={disabled} aria-label={PHOTO_ENTRY_LABEL} onClick={onPhoto} className="group grid size-11 flex-none place-items-center">
-            <span className={`grid size-9 place-items-center rounded-full text-ink-2 group-disabled:text-faint ${HOVER_INNER_TEXT}`}>
-              <CameraIcon className="size-5" aria-hidden="true" />
-            </span>
-          </button>
+        {/* 대상 프로필이 있으면 질문 칸 아래 줄 왼쪽에 한 묶음(FE-17 U-07, 2026-11-23 사용자 확정 "사진 아이콘 → 일반인|임산부 → 프로필 칩", 좌하단).
+            보내기 버튼은 같은 줄 오른쪽 끝이다. 토글이 빠지는 남성 대상도 줄 높이 44px는 그대로 */}
+        {target ? (
+          <div data-testid="input-target-row" className="flex h-11 min-w-0 flex-1 items-center gap-1">
+            {photoButton}
+            {pregnancy && <PregnancyToggle value={pregnancy.value} onChange={pregnancy.onChange} describedBy={pregnancyNote ? pregnancyNoteId : undefined} />}
+            {pregnancy && (
+              <span aria-hidden="true" className="flex-none text-xs text-mute">
+                ·
+              </span>
+            )}
+            {target}
+          </div>
+        ) : (
+          photoButton
         )}
         {/* 터치 영역 44px(버튼 크기), 보이는 원은 36px */}
         <button type="submit" disabled={!canSend} aria-label={SEND_LABEL} className="group grid size-11 flex-none place-items-center">

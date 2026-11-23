@@ -126,8 +126,17 @@ export const SEX_LABELS: Readonly<Record<Sex, string>> = { female: "여성", mal
 /** 프로필에 보일 이름: 별명이 없으면(서버는 null을 허용한다) 관계 글자 */
 export const profileName = (profile: Pick<Profile, "label" | "relation">) => profile.label ?? RELATION_LABELS[profile.relation];
 
-/** 프로필 폼 */
-export const PROFILE_FORM_NEW_TITLE = "프로필 추가";
+/**
+ * 프로필 폼. 새 프로필 제목·보조 문구는 FE-17 U-07(2026-11-23 사용자 원문 "누구의 프로필인가요? 본인과 가족 3명까지 만들 수 있어요", 원문 승인).
+ * 와이어프레임(Profile-Basic)의 "1명까지"(노트북 보드)와 다르면 사용자 문구를 따른다. 수정 제목은 그대로다
+ */
+export const PROFILE_FORM_NEW_TITLE = "누구의 프로필인가요?";
+export const PROFILE_FORM_NEW_LEAD = "본인과 가족 3명까지 만들 수 있어요";
+/**
+ * 필수 4칸(관계·이름·연령대·성별, FE-17 U-07 2026-11-23 사용자 확정)을 다 채우기 전 `저장` 버튼이 비활성인 이유 한 줄(버튼의 설명으로 연결).
+ * **승인 전(ux-batch2)**: 사용자 원문에 없는 새 글자다
+ */
+export const PROFILE_REQUIRED_HINT = "관계·이름·연령대·성별을 모두 고르면 저장할 수 있어요.";
 export const PROFILE_FORM_EDIT_TITLE = "프로필 수정";
 export const PROFILE_NAME_LABEL = "이름(별명)";
 export const PROFILE_NAME_HINT = "질문할 때 보일 이름이에요. 예: 나, 엄마, 첫째";
@@ -135,6 +144,7 @@ export const RELATION_LABEL = "관계";
 export const AGE_BAND_LABEL = "연령대";
 /** 성별 칸 이름(FE-11-11 A, 2026-11-20 원문 승인 "성별"). 연령대처럼 선택 입력이고 고르지 않으면 `NOT_SELECTED`가 보인다 */
 export const SEX_LABEL = "성별";
+/** 미입력 표기. 2026-11-23(FE-17 U-07)부터 프로필 폼에는 없다(연령대·성별이 필수). 대상 선택 목록의 같은 자리는 `GUEST_USE_LABEL`이다 */
 export const NOT_SELECTED = "선택 안 함";
 export const PREGNANCY_LABEL = "임신 여부";
 export const MEDICATIONS_LABEL = "복용 중인 약(선택)";
@@ -211,6 +221,11 @@ export const WITHDRAW_CONFIRM_LABEL = "탈퇴하기";
  * 계정 버튼 메뉴의 프로필 목록 머리(보조기기 이름 포함)에 쓴다
  */
 export const TARGET_LABEL = "누가 먹나요";
+/**
+ * 대상 목록에서 프로필 값 없이 일반으로 묻는 항목(예전 `선택 안 함`). FE-17 U-06 사용자 원문 "'선택 안 함' 대신 '게스트로 이용'"(2026-11-23, 원문 승인).
+ * 로그인한 사용자의 대상 목록·입력창 칩에만 쓴다. 로그인하지 않은 상태의 계정 버튼(`계정`)·`로그인/가입`과는 다른 자리다
+ */
+export const GUEST_USE_LABEL = "게스트로 이용";
 
 // ---------------------------------------------------------------- 프로필 병아리 배경색(2026-11-23 사용자 요구 "가족추가에서 병아리에 배경색", 8색)
 /** 프로필 폼의 색 고르기 묶음 이름. **승인 전(profile-avatar)** */

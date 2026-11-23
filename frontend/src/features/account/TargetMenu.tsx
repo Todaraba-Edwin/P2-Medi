@@ -1,15 +1,15 @@
 "use client";
 
 import { DropdownMenu } from "radix-ui";
-import { CheckIcon, ChevronUpIcon, UserIcon } from "lucide-react";
+import { CheckIcon, ChevronUpIcon } from "lucide-react";
 import { HOVER_ROW } from "@/components/button";
 import type { Profile } from "@/lib/api/account";
 import { cn } from "@/lib/utils";
-import { NOT_SELECTED, TARGET_LABEL, profileName } from "./copy";
+import { GUEST_USE_LABEL, TARGET_LABEL, profileName } from "./copy";
 import { useHoverMenu } from "./hover-menu";
 import { ProfileAvatar } from "./ProfileAvatar";
 
-/** `선택 안 함`의 라디오 값(프로필 id와 겹치지 않는 값) */
+/** `게스트로 이용`(예전 `선택 안 함`)의 라디오 값(프로필 id와 겹치지 않는 값) */
 const NONE = "";
 
 /** 메뉴 항목 모양(계정 메뉴와 같다): 44px 높이, 키보드 초점은 호버와 같은 바탕 */
@@ -25,10 +25,11 @@ export interface TargetChoiceProps {
 
 /**
  * 대상 프로필("누가 먹나요") 고르기 항목: 메뉴 안의 라디오 묶음(`menuitemradio`). 입력창 프로필 칩과 계정 버튼 메뉴가 같은 부품을 쓴다.
- * 순서는 예전 본문 선택 줄과 같다: `선택 안 함`(프로필 없이 일반으로 묻는 길) → 본인 → 가족. 고른 항목은 체크 + 굵게(색만으로 구분하지 않는다)
+ * 순서는 예전 본문 선택 줄과 같다: `게스트로 이용`(FE-17 U-06, 예전 `선택 안 함`: 프로필 값 없이 일반으로 묻는 길, 요청 의미는 그대로) → 본인 → 가족.
+ * 고른 항목은 체크 + 굵게(색만으로 구분하지 않는다). `게스트로 이용`의 병아리는 색 없는 점선 원이다(프로필 색과 헷갈리지 않게)
  */
-export function TargetChoiceItems({ profiles, value, onChange }: TargetChoiceProps) {
-  return (
+export function TargetChoiceItems({ profiles, value, onChange, nested = false }: TargetChoiceProps & { nested?: boolean }) {
+  const items = (
     <>
       <DropdownMenu.Label className="px-2.5 pt-2 pb-1 text-xs font-bold text-mute">{TARGET_LABEL}</DropdownMenu.Label>
       <DropdownMenu.RadioGroup value={value ?? NONE} onValueChange={(next) => onChange(next === NONE ? null : next)} data-testid="target-picker" aria-label={TARGET_LABEL}>
@@ -37,8 +38,8 @@ export function TargetChoiceItems({ profiles, value, onChange }: TargetChoicePro
           const checked = key === (value ?? NONE);
           return (
             <DropdownMenu.RadioItem key={key || "none"} value={key} data-testid="target-option" data-checked={checked} className={cn(MENU_ITEM_CLASS, !checked && "font-medium text-ink-2")}>
-              {profile ? <ProfileAvatar color={profile.avatar_color} size={28} /> : <UserIcon className="mx-[5px] size-[18px] flex-none" aria-hidden="true" />}
-              <span className="min-w-0 flex-1 truncate">{profile ? profileName(profile) : NOT_SELECTED}</span>
+              <ProfileAvatar color={profile?.avatar_color ?? null} size={28} />
+              <span className="min-w-0 flex-1 truncate">{profile ? profileName(profile) : GUEST_USE_LABEL}</span>
               <DropdownMenu.ItemIndicator>
                 <CheckIcon className="size-4" aria-hidden="true" />
               </DropdownMenu.ItemIndicator>
@@ -47,6 +48,14 @@ export function TargetChoiceItems({ profiles, value, onChange }: TargetChoicePro
         })}
       </DropdownMenu.RadioGroup>
     </>
+  );
+  // `nested`: 계정 메뉴의 `프로필 관리` 아래 하위 묶음(FE-17 U-06). 왼쪽 들여쓰기 + 세로 선으로 하위임을 보인다(글자·순서로도 바로 아래에 있다)
+  return nested ? (
+    <div data-testid="target-choice-nested" className="ml-4 flex flex-col gap-0.5 border-l-2 border-line pl-1.5">
+      {items}
+    </div>
+  ) : (
+    items
   );
 }
 
@@ -59,7 +68,7 @@ export function TargetChoiceItems({ profiles, value, onChange }: TargetChoicePro
 export function TargetChip({ profiles, value, onChange, container = null }: TargetChoiceProps & { container?: HTMLElement | null }) {
   const { open, onOpenChange, attachContent, triggerProps, contentProps } = useHoverMenu();
   const target = profiles.find((profile) => profile.profile_id === value) ?? null;
-  const shownName = target ? profileName(target) : NOT_SELECTED;
+  const shownName = target ? profileName(target) : GUEST_USE_LABEL;
   return (
     <DropdownMenu.Root modal={false} open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
@@ -70,8 +79,8 @@ export function TargetChip({ profiles, value, onChange, container = null }: Targ
           // 접근 가능한 이름 = 묶음 이름 + 보이는 이름(보이는 글자가 이름 안에 그대로 있다, WCAG 2.5.3)
           aria-label={`${TARGET_LABEL} ${shownName}`}
           {...triggerProps}
-          // 누르는 영역 44px(버튼), 보이는 칩은 32px(안쪽)
-          className="group flex h-11 max-w-[11rem] min-w-0 flex-none items-center rounded-full focus-visible:outline-none"
+          // 누르는 영역 44px(버튼), 보이는 칩은 32px(안쪽). 좁은 폭(393)에서는 이름이 줄어든다(말줄임)
+          className="group flex h-11 max-w-[11rem] min-w-0 shrink items-center rounded-full focus-visible:outline-none"
         >
           <span
             className={cn(
@@ -80,7 +89,7 @@ export function TargetChip({ profiles, value, onChange, container = null }: Targ
               HOVER_ROW,
             )}
           >
-            {target ? <ProfileAvatar color={target.avatar_color} size={24} /> : <UserIcon className="mx-1 size-4 flex-none text-ink-2" aria-hidden="true" />}
+            <ProfileAvatar color={target?.avatar_color ?? null} size={24} />
             <span className="min-w-0 truncate">{shownName}</span>
             <ChevronUpIcon className="size-3.5 flex-none text-mute" aria-hidden="true" />
           </span>

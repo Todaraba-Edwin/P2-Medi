@@ -35,7 +35,7 @@ import type { ConsentScreenDocType, Me, Profile, ProfileDraft } from "@/lib/api/
 import { AGE_BAND_LABELS } from "@/features/account/copy";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { MOCK_KAKAO_NICKNAME, MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK } from "@/mocks/fixtures/account";
-import { canAddFamily, canAddSelf, consentChannel, consentItems, createAccountStore, hasHealthConsent, hidesPregnancyToggle, needsConsentStep, onboardingPending, requiredAgreed, selectTargetProfile } from "./account";
+import { canAddFamily, canAddSelf, consentChannel, consentItems, createAccountStore, hasHealthConsent, hidesPregnancyToggle, needsConsentStep, onboardingPending, requiredAgreed, resolveTarget, selectTargetProfile } from "./account";
 import type { ConsentChoices } from "./account";
 import { buildChatRequest, emptyConversationContext } from "./conversation-context";
 import { AGE_BAND_RANGE, profileToContext } from "./profile-context";
@@ -674,12 +674,61 @@ describe("계정 진입점 스위치(FE-04-02 A·FE-04-05 A)", () => {
   });
 });
 
+describe("기본 대상 = 본인(FE-17 U-06, 2026-11-23 '기존 로그인됨 → 선택된 프로필 확인')", () => {
+  const p = (profile_id: string, relation: Profile["relation"]): Profile => ({ profile_id, relation, label: profile_id, age_band: null, sex: null, pregnancy_status: null, avatar_color: "yellow", sort_order: 0, medications: [] });
+
+  it("resolveTarget: 지금 대상이 목록에 있으면 그대로, 없으면 아직 고르지 않았을 때만 본인(없으면 null), 사용자가 고른 값(null 포함)은 덮지 않는다", () => {
+    const list = [p("c", "child"), p("s", "self")];
+    expect(resolveTarget(list, null, false)).toBe("s");
+    expect(resolveTarget(list, "c", false)).toBe("c");
+    expect(resolveTarget(list, "gone", false)).toBe("s");
+    expect(resolveTarget(list, null, true)).toBeNull(); // `게스트로 이용`을 고른 것을 지킨다
+    expect(resolveTarget(list, "gone", true)).toBeNull();
+    expect(resolveTarget([p("c", "child")], null, false)).toBeNull(); // 본인이 없으면 `게스트로 이용`
+    expect(resolveTarget([], null, false)).toBeNull();
+  });
+
+  it("로그인 직후(프로필을 읽은 같은 갱신에서) 본인이 대상이고, 사용자가 `게스트로 이용`을 고르면 다시 읽어도 그대로이며, 로그아웃하면 처음으로 돌아간다", async () => {
+    const store = createAccountStore();
+    const seen: (string | null)[] = [];
+    store.subscribe((state) => seen.push(state.status === "member" ? state.targetProfileId : "guest"));
+    store.getState().open();
+    await store.getState().loginEmail(`${MOCK_ONBOARDED_MARK}@example.com`, "pw");
+    const self = store.getState().profiles.find((profile) => profile.relation === "self")!;
+    expect(store.getState().targetProfileId).toBe(self.profile_id);
+    // 회원이 된 순간부터 대상이 본인이다(대상 없는 회원 상태를 한 번도 거치지 않는다 = 계정 버튼 표시가 깜빡이지 않는다)
+    expect(seen.filter((value) => value !== "guest").every((value) => value === self.profile_id)).toBe(true);
+    store.getState().setTarget(null);
+    await store.getState().loadLegalDocs();
+    expect(await store.getState().submitConsents(ALL)).toBe(true); // 프로필을 다시 읽는다
+    expect(store.getState().targetProfileId).toBeNull();
+    expect(store.getState().targetChosen).toBe(true);
+    expect(await store.getState().logout()).toBe(true);
+    expect(store.getState()).toMatchObject({ status: "guest", targetProfileId: null, targetChosen: false });
+  });
+
+  it("온보딩에서 본인 프로필을 처음 저장하면 그 프로필이 대상이 된다. 가족을 더해도 대상은 본인 그대로다", async () => {
+    const store = await loggedIn();
+    expect(store.getState().targetProfileId).toBeNull(); // 본인이 없으면 `게스트로 이용`
+    store.getState().editProfile({ profileId: null, self: true });
+    await store.getState().saveProfile(selfDraft());
+    const selfId = store.getState().profiles[0].profile_id;
+    expect(store.getState().targetProfileId).toBe(selfId);
+    store.getState().editProfile({ profileId: null, self: false });
+    await store.getState().saveProfile(family("첫째"));
+    expect(store.getState().targetProfileId).toBe(selfId);
+  });
+});
+
 describe("대상 선택 → 요청 context", () => {
   it("고른 프로필의 연령대·임신 여부가 buildChatRequest의 context로 간다(약·성별은 싣지 않는다)", async () => {
     const store = await loggedIn();
     store.getState().editProfile({ profileId: null, self: true });
     await store.getState().saveProfile(selfDraft({ sex: "female", health: { pregnancy_status: "pregnant", medications: [med("가나다정")] } }));
-    expect(selectTargetProfile(store.getState())).toBeNull(); // 고르기 전
+    // 고르기 전에도 본인 프로필이 기본 대상이다(FE-17 U-06). `게스트로 이용`(null)을 고르면 대상이 없다
+    expect(selectTargetProfile(store.getState())?.profile_id).toBe(store.getState().profiles[0].profile_id);
+    store.getState().setTarget(null);
+    expect(selectTargetProfile(store.getState())).toBeNull();
     store.getState().setTarget(store.getState().profiles[0].profile_id);
     expect(selectTargetProfile(store.getState())?.sex).toBe("female");
     const context = profileToContext(selectTargetProfile(store.getState()), hasHealthConsent(store.getState().me));

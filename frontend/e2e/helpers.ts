@@ -132,6 +132,27 @@ export async function targetOptionTexts(page: Page): Promise<string[]> {
   return texts;
 }
 
+/**
+ * 프로필 폼의 버튼 선택 묶음(FE-17 U-07: 관계·연령대·성별은 select가 아니라 radiogroup)에서 보이는 글자로 고른다.
+ * 예: `pickChoice(modal, "성별", "여성")`, `pickChoice(modal, "연령대", "만 19~64세")`
+ */
+export async function pickChoice(scope: Locator, group: string, option: string) {
+  const radio = scope.getByRole("radiogroup", { name: group, exact: true }).getByRole("radio", { name: option, exact: true });
+  await radio.click();
+  await expect(radio).toHaveAttribute("aria-checked", "true");
+}
+
+/**
+ * 프로필 폼의 비어 있는 필수 칸만 채운다(FE-17 U-07: 관계·이름·연령대·성별을 채워야 `저장`이 눌린다). 이름은 시험이 직접 적는다.
+ * 이미 고른 칸은 그대로 둔다. 기본: 관계 `자녀`(가족), 연령대 `만 19~64세`, 성별 `남성`(예전 미입력과 같이 임신 여부가 아니오로 저장된다)
+ */
+export async function completeRequired(scope: Locator, { relation = "자녀", age = "만 19~64세", sex = "남성" }: { relation?: string; age?: string; sex?: string } = {}) {
+  for (const [group, option] of [["관계", relation], ["연령대", age], ["성별", sex]] as const) {
+    const checked = scope.getByRole("radiogroup", { name: group, exact: true }).locator('[role="radio"][aria-checked="true"]');
+    if ((await checked.count()) === 0) await pickChoice(scope, group, option);
+  }
+}
+
 /** 계정 메뉴의 `프로필 관리`(게스트: `로그인/가입`)로 계정 모달을 연다 */
 export async function openAccountEntry(page: Page) {
   const menu = await openAccountMenu(page);

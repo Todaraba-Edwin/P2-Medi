@@ -43,16 +43,17 @@ const TEXT_PAIRS: [string, string][] = [
   ["link", "bg"], ["link", "bg-soft"],
   ["red-ink", "bg"], ["red-ink", "bg-soft"], ["red-ink", "bg-softer"], ["red-ink", "tint"], ["red-ink", "combo-bg"],
   ["on-solid", "red"], ["on-solid", "preg"], ["on-yellow", "yellow"],
-  ["warn-ink", "warn-bg"], ["blue-ink", "blue-bg"], ["preg-ink", "preg-bg"], ["capsule-blue-ink", "capsule-blue"],
+  ["warn-ink", "warn-bg"], ["blue-ink", "blue-bg"], ["ok-ink", "bg"], ["blue-ink", "bg"], ["preg-ink", "preg-bg"], ["capsule-blue-ink", "capsule-blue"],
   ["bg", "ink"],
 ];
 // 비글자 쌍(3:1 이상): 캡슐 테두리와 바탕. 안전 고지 띠 테두리는 다크에서만 그린다(라이트에서는 바탕과 같은 색이라 안 보인다)
-const NON_TEXT_PAIRS: [string, string][] = [["capsule-line", "bg"]];
+// 프로필 폼 진행바 막대(FE-17 U-07): 마친 필수 단계(ok-ink)·선택 단계(blue-ink)는 바탕과 3:1 이상
+const NON_TEXT_PAIRS: [string, string][] = [["capsule-line", "bg"], ["ok-ink", "bg"], ["blue-ink", "bg"]];
 const DARK_ONLY_NON_TEXT_PAIRS: [string, string][] = [["fixed-edge", "fixed"]];
 
 describe("디자인 토큰", () => {
-  it("색 토큰 40개와 --font-sans가 @theme에 있다(FE-12: 짙은 바탕 글자·스크림·고지 띠 테두리 4개, 2026-11-23: 프로필 병아리 배경 8색)", () => {
-    expect(Object.keys(light)).toHaveLength(40);
+  it("색 토큰 41개와 --font-sans가 @theme에 있다(FE-12: 짙은 바탕 글자·스크림·고지 띠 테두리 4개, 2026-11-23: 프로필 병아리 배경 8색·진행바 마친 단계 1색)", () => {
+    expect(Object.keys(light)).toHaveLength(41);
     expect(light["--color-capsule-line"]).toBe("#4e3a2c");
     expect(light["--color-capsule-blue"]).toBe("#c9daec");
     expect(light["--color-capsule-blue-ink"]).toBe("#1f3a5f");

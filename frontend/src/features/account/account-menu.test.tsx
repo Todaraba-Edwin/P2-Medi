@@ -139,7 +139,7 @@ describe("계정 메뉴의 대상 프로필(2026-11-23)", () => {
     { profile_id: "b", relation: "child", label: "첫째", age_band: null, sex: null, pregnancy_status: null, avatar_color: "pink", sort_order: 1, medications: [] },
   ];
 
-  it("고른 프로필이 있으면 버튼이 그 색의 병아리 + 이름이고, 메뉴 맨 위에 '누가 먹나요' 목록(선택 안 함·본인·가족)이 있어 고르면 닫힌다", async () => {
+  it("고른 프로필이 있으면 버튼이 그 색의 병아리 + 이름이고, `프로필 관리` 바로 아래(하위)에 '누가 먹나요' 목록(게스트로 이용·본인·가족)이 있어 고르면 닫힌다(FE-17 U-06)", async () => {
     const onChange = vi.fn();
     const { user, button } = renderMenu({ target: { profiles, value: "b", onChange } });
     expect(button).toHaveTextContent("첫째");
@@ -148,9 +148,17 @@ describe("계정 메뉴의 대상 프로필(2026-11-23)", () => {
     const menu = screen.getByTestId("account-menu");
     expect(within(menu).getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();
     const radios = within(menu).getAllByRole("menuitemradio");
-    expect(radios.slice(0, 3).map((item) => item.textContent)).toEqual(["선택 안 함", "나", "첫째"]);
+    expect(radios.slice(0, 3).map((item) => item.textContent)).toEqual(["게스트로 이용", "나", "첫째"]);
     expect(within(menu).getByRole("menuitemradio", { name: "첫째" })).toHaveAttribute("aria-checked", "true");
-    await waitFor(() => expect(radios[0]).toHaveFocus()); // 첫 항목(프로필 목록 맨 위)에 초점
+    // 순서: 프로필 관리 → (하위) 누가 먹나요 목록 → 화면 모드. 목록은 들여쓴 하위 묶음 안에 있다
+    const manage = within(menu).getByRole("menuitem", { name: "프로필 관리" });
+    const group = within(menu).getByRole("group", { name: "누가 먹나요" });
+    expect(manage.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(group.compareDocumentPosition(within(menu).getByTestId("theme-choice")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(menu).getByTestId("target-choice-nested")).toContainElement(group);
+    const items = within(menu).getAllByRole("menuitem").concat(radios);
+    expect(items.every((item) => !/선택 안 함/.test(item.textContent ?? ""))).toBe(true);
+    await waitFor(() => expect(manage).toHaveFocus()); // 첫 항목(프로필 관리)에 초점
     await user.click(within(menu).getByRole("menuitemradio", { name: "나" }));
     expect(onChange).toHaveBeenLastCalledWith("a");
     await waitFor(() => expect(screen.queryByTestId("account-menu")).toBeNull());
