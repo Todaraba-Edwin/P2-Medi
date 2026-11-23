@@ -167,8 +167,8 @@ def test_plan_lists_new_steps_read_only_and_apply_gate_unchanged(monkeypatch):
     monkeypatch.setenv(m.DSN_ENV, FAKE_REMOTE)
     conn = Conn(applied_answers(legal=[], current=[], enum=("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14")))
     plan = m.main(["plan"], connect_fn=Factory(conn), log=lambda s: None, contact=(None, None))["plan"]
-    assert [s["step"] for s in plan["steps"]][-5:] == ["8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6", "11 migrate profiles.avatar_color",
-                                                              "12 migrate app_users.default_target"]
+    assert [s["step"] for s in plan["steps"]][-6:] == ["8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6", "11 migrate profiles.avatar_color",
+                                                              "12 migrate app_users.default_target", "13 seed final legal docs"]
     assert {"terms_guest v1", "privacy_policy v6"} <= set(plan["seed_rows_to_insert"])
     assert plan["publishable"] is False  # 보호책임자 값이 없으면 자리표시가 남는다
     assert conn.read_only and writes(conn) == [] and conn.commits == 0
