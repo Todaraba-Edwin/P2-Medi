@@ -3,7 +3,7 @@
 // 고정 안내·판정·119 문장도 두지 않는다(S1). 문서·디자인에 원문이 없던 글자는 문구 검토에서 승인됐다(Recap 44, 2026-11-19).
 // 그 뒤 로그인 연결(FE-04c)에서 생긴 안내·오류 문구 7줄은 FE-04-08 A(2026-11-19)로 승인됐다. 이메일 숨김(PRD-01-10 A) 문구 4줄만
 // "승인 전(FE-04c)" 표시를 남겨 두고 이메일 로그인 재검토 때 다시 묻는다. 로그인 제목은 FE-04-17 A(2026-11-19) "간편 로그인"이다.
-// 약관 문서 자체는 법률 검토 전이라 `LEGAL_NOT_REVIEWED_TAG` 표지는 그대로 붙인다.
+// 약관 문서의 "초안·법률 검토 전" 화면 표지는 PRD-17-26 A(2026-11-23)로 없앴다(서버 `legal_review` 값은 그대로 둔다).
 import type { AgeBand, AvatarColor, DrugMatchedBy, PregnancyStatus, Profile, Relation, Sex, SocialProvider } from "@/lib/api/account";
 
 // ---------------------------------------------------------------- 시작 화면 진입(할 일 1)
@@ -61,8 +61,6 @@ export const REQUIRED_TAG = "필수";
 export const OPTIONAL_TAG = "선택";
 /** 고지 문서(`privacy_policy`: 동의 대상이 아니라 체크가 없다) 표지(FE-04-07 A) */
 export const NOTICE_TAG = "안내";
-/** `legal_review: "not_reviewed"`인 문서에 붙는 표지(백엔드 `LegalDocumentOut` 설명·설계 문서 9.3절의 글자 그대로) */
-export const LEGAL_NOT_REVIEWED_TAG = "초안·법률 검토 전";
 /** 문서 머리의 버전·시행일 줄(값은 서버 값: 버전은 정수, 시행일은 일시의 날짜 부분만) */
 export const docVersionLine = (version: number, effectiveAt: string) => `버전 ${version} · 시행일 ${effectiveAt.slice(0, 10)}`;
 /** 동의해 둔 건강 정보 동의의 체크를 껐을 때의 한 줄(철회하면 서버가 즉시 지운다, 설계 문서 6.3절) */

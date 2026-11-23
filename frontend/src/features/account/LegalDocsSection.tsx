@@ -5,7 +5,7 @@ import { ChevronDownIcon } from "lucide-react";
 import { HOVER_ROW, SECONDARY_BUTTON } from "@/components/button";
 import type { LegalMenuDoc } from "@/lib/api/account";
 import { cn } from "@/lib/utils";
-import { LEGAL_LOADING, LEGAL_LOAD_FAILED, LEGAL_MENU_LABEL, LEGAL_NOT_REVIEWED_TAG, RETRY_LOAD_LABEL, docVersionLine } from "./copy";
+import { LEGAL_LOADING, LEGAL_LOAD_FAILED, LEGAL_MENU_LABEL, RETRY_LOAD_LABEL, docVersionLine } from "./copy";
 import { fetchLegalMenu } from "./legal-menu";
 import { Markdown } from "./Markdown";
 
@@ -31,7 +31,7 @@ export interface LegalDocsSectionProps {
 
 /**
  * 약관·정책 열람 묶음(설정 화면 안, 2026-11-23). **읽기 전용**이다: 동의 체크·제출이 없고 동의 기록을 만들지 않는다(철회는 기존 규칙대로 탈퇴로만).
- * - 항목 이름·본문·버전은 서버 문서 값 그대로(화면 상수는 묶음 제목 `LEGAL_MENU_LABEL`뿐)
+ * - 항목 이름·본문·버전은 서버 문서 값 그대로(화면 상수는 묶음 제목 `LEGAL_MENU_LABEL`뿐). `legal_review`는 읽기만 하고 표지를 그리지 않는다(PRD-17-26 A)
  * - 게스트/회원 목록은 `legal-menu.ts`의 매핑 한 곳. 서버에 없는 종류(404·422)는 목록에서 빠진다(안내 글자 없음)
  * - 항목을 누르면 그 자리에서 펼쳐진다(`aria-expanded`·`aria-controls`). 본문은 상자 안에서 스크롤하고 키보드로도 내려 읽게 초점을 받는다(동의 화면과 같은 규칙)
  * - 목록은 묶음이 그려질 때(설정 화면이 열릴 때) 받는다. 실패하면 한 줄 + 다시 불러오기
@@ -102,17 +102,7 @@ export function LegalDocsSection({ member, headingId, labelledBy, load = fetchLe
                 >
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="text-sm leading-5 font-semibold text-ink [word-break:keep-all]">{doc.title}</span>
-                    <span className="text-xs text-mute">
-                      {docVersionLine(doc.version, doc.effective_at)}
-                      {doc.legal_review === "not_reviewed" && (
-                        <>
-                          {" · "}
-                          <span data-testid="legal-not-reviewed" className="font-semibold text-ink-2">
-                            {LEGAL_NOT_REVIEWED_TAG}
-                          </span>
-                        </>
-                      )}
-                    </span>
+                    <span className="text-xs text-mute">{docVersionLine(doc.version, doc.effective_at)}</span>
                   </span>
                   <ChevronDownIcon aria-hidden="true" className={cn("size-4 flex-none text-mute transition-transform", open && "rotate-180")} />
                 </button>

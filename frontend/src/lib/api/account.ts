@@ -6,7 +6,7 @@
 //
 // 백엔드에 **있는** 것(실제 계약)
 // - `GET /api/legal/{doc_type}` → `LegalDocumentOut` (`doc_type`: `terms`·`privacy_policy`·`privacy_consent`·`sensitive_consent`·`age_14`, 게스트 허용).
-//   `privacy_policy`는 고지 문서라 동의 대상이 아니다(체크 없음). `legal_review: "not_reviewed"`면 화면이 "초안·법률 검토 전" 표지를 그린다.
+//   `privacy_policy`는 고지 문서라 동의 대상이 아니다(체크 없음). `legal_review`는 스키마로 읽기만 하고 화면 표지는 그리지 않는다(PRD-17-26 A, 2026-11-23).
 //   `age_14`(만 14세 이상 확인, PRD-17-12 A)는 첫 로그인 동의 화면의 **별도 필수 체크**다: 본문 카드가 아니라 체크 한 줄로 그리고 라벨은 화면 상수다
 // - `GET /api/me` → `MeResponse`(온보딩 단계·문서별 동의 상태·`health_consent_active`). 토큰 없음 401 `AUTH_REQUIRED`
 // - `POST /api/consents` `{items:[{doc_type, version, action: agree|withdraw}], channel}` → 201 `MeResponse`.

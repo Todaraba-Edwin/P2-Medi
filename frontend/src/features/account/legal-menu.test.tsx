@@ -89,11 +89,14 @@ describe("LegalDocsSection", () => {
     expect(consentCalls).not.toHaveBeenCalled();
   });
 
-  it("회원: 동의서·만 14세 문서까지 보이고 버전 줄과 법률 검토 전 표지가 있다", async () => {
+  it("회원: 동의서·만 14세 문서까지 보이고 버전 줄이 있다. '초안·법률 검토 전' 표지는 없다(PRD-17-26 A)", async () => {
     render(<LegalDocsSection member />);
     await waitFor(() => expect(items()).toEqual(["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"]));
-    for (const item of screen.getAllByTestId("legal-menu-item")) expect(item).toHaveTextContent("버전 1 · 시행일 2026-11-18 · 초안·법률 검토 전");
-    expect(screen.getAllByTestId("legal-not-reviewed")).toHaveLength(5);
+    for (const item of screen.getAllByTestId("legal-menu-item")) {
+      expect(within(item).getByText("버전 1 · 시행일 2026-11-18")).toBeInTheDocument(); // 요소 글자 전체가 정확히 이 줄
+      expect(item).not.toHaveTextContent("법률 검토 전"); // 목 문서는 legal_review: not_reviewed지만 화면 표지는 없다
+    }
+    expect(screen.queryAllByTestId("legal-not-reviewed")).toHaveLength(0);
   });
 
   it("서버가 없다고 하는 종류(404)는 항목이 아예 없고 안내 글자도 없다", async () => {

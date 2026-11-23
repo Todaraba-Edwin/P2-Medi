@@ -247,7 +247,7 @@ describe("로그인 화면", () => {
 });
 
 describe("약관 동의 화면", () => {
-  it("문서 제목·본문은 API 값 그대로이고 필수·선택·안내 표지와 버전·시행일, '초안·법률 검토 전' 표지가 붙는다", async () => {
+  it("문서 제목·본문은 API 값 그대로이고 필수·선택·안내 표지와 버전·시행일이 붙는다. '초안·법률 검토 전' 표지는 없다(PRD-17-26 A)", async () => {
     const { user } = setup();
     await login(user);
     const tags: Readonly<Record<string, string>> = { terms: "필수", privacy_policy: "안내", privacy_consent: "필수", sensitive_consent: "선택" }; // 동의 화면 카드 4종(게스트판 `terms_guest`는 동의 화면에 없다)
@@ -257,7 +257,9 @@ describe("약관 동의 화면", () => {
       expect(item).toHaveAttribute("data-required", String(doc.required));
       expect(within(item).getByRole("heading", { level: 3 })).toHaveTextContent(`[${tags[doc.doc_type]}] ${doc.title}`);
       expect(item).toHaveTextContent("버전 1 · 시행일 2026-11-18"); // 버전은 정수, 시행일은 일시의 날짜 부분
-      expect(within(item).getByTestId("legal-not-reviewed")).toHaveTextContent("초안·법률 검토 전"); // legal_review: not_reviewed
+      // legal_review: not_reviewed여도 버전 줄은 버전·시행일뿐이고 표지가 없다(PRD-17-26 A: 서버 값은 그대로, 화면 표지만 제거)
+      expect(within(item).getByText("버전 1 · 시행일 2026-11-18")).toBeInTheDocument(); // 요소 글자 전체가 정확히 이 줄
+      expect(within(item).queryByTestId("legal-not-reviewed")).toBeNull();
     }
     expect(docItem("terms")).toHaveTextContent("이 문서는 화면 개발용 합성 목 문서이며 실제 약관이 아닙니다.");
     // 만 14세 이상 확인(PRD-17-09 A·12 A): 문서 카드가 아니라 목록 맨 아래의 별도 필수 체크 한 줄이다. 라벨은 화면 상수, 본문·버전 줄은 없다
@@ -277,12 +279,15 @@ describe("약관 동의 화면", () => {
     expect(MOCK_LEGAL_DOCS.privacy_policy.body_md).not.toContain(INPUT_NOTICE);
   });
 
-  it("법률 검토를 마친 문서(legal_review: reviewed)에는 '초안·법률 검토 전' 표지가 없다", async () => {
+  it("legal_review 값(reviewed·not_reviewed)과 상관없이 '초안·법률 검토 전' 표지가 없다(PRD-17-26 A)", async () => {
     server.use(http.get("*/api/legal/terms", () => HttpResponse.json({ ...MOCK_LEGAL_DOCS.terms, legal_review: "reviewed" })));
     const { user } = setup();
     await login(user);
-    expect(within(docItem("terms")).queryByTestId("legal-not-reviewed")).toBeNull();
-    expect(within(docItem("privacy_consent")).getByTestId("legal-not-reviewed")).toBeInTheDocument();
+    expect(MOCK_LEGAL_DOCS.privacy_consent.legal_review).toBe("not_reviewed"); // 대조군: 서버 값은 검토 전 그대로
+    for (const docType of ["terms", "privacy_consent"]) {
+      expect(within(docItem(docType)).queryByTestId("legal-not-reviewed")).toBeNull();
+      expect(within(docItem(docType)).getByText("버전 1 · 시행일 2026-11-18")).toBeInTheDocument();
+    }
   });
 
   it("고지 문서(외부 AI 전송 안내가 든 처리방침)는 체크 없는 고지로만 보이고 동의 항목에 들어가지 않는다(FE-04-03 A)", async () => {

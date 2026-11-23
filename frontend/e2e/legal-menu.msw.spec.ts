@@ -66,7 +66,9 @@ for (const width of [393, 1280]) {
         // 첫 항목(게스트용 문서, 제목은 서버 값)을 펼친다
         const first = menu(page).locator('[data-doc-type="terms_guest"]').getByRole("button");
         await expect(first).toContainText("게스트 이용 안내 (합성 목 문서)");
-        await expect(first).toContainText("초안·법률 검토 전");
+        await expect(first).toContainText("버전 1 · 시행일 2026-11-18");
+        await expect(first).not.toContainText("법률 검토 전"); // 표지 없음(PRD-17-26 A, 목 문서는 not_reviewed)
+        await expect(menu(page).getByTestId("legal-not-reviewed")).toHaveCount(0);
         await expectTouchTarget(first, { widthToo: false });
         await first.click();
         await expect(first).toHaveAttribute("aria-expanded", "true");
