@@ -26,6 +26,9 @@ ConsentAction = Literal["agree", "withdraw"]
 ConsentChannel = Literal["onboarding", "settings", "reconsent"]
 Relation = Literal["self", "child", "parent", "spouse", "other"]
 PregnancyStatus = Literal["pregnant", "not_pregnant", "unknown"]
+AvatarColor = Literal["yellow", "coral", "pink", "purple", "blue", "teal", "green", "gray"]  # 병아리 배경색 8색(2026-11-23). 건강 정보 아님
+AVATAR_COLORS: Final = ("yellow", "coral", "pink", "purple", "blue", "teal", "green", "gray")
+DEFAULT_AVATAR_COLOR: Final = "yellow"
 Sex = Literal["female", "male"]  # "기타" 없음, None = 미입력(FE-11-09 C: 남성 프로필만 임신 여부 선택을 숨기는 데 쓴다)
 AgeBand = Literal["m0_2", "m3_5", "m6_11", "y1", "y2", "y3_5", "y6_11", "y12_14", "y15_18", "y19_64", "y65_plus"]
 OnboardingStep = Literal["consent", "profile_self", "family", "done"]
@@ -146,6 +149,7 @@ class Profile:
     sort_order: int
     medications: tuple[Medication, ...] = ()
     sex: Sex | None = None  # 선택(건강 정보 아님)
+    avatar_color: AvatarColor = "yellow"  # 병아리 배경색. 건강 정보가 아니라 동의한 최소 항목(CLAUDE.md 1장)
 
 
 class _Unset:
@@ -174,6 +178,7 @@ class ProfileInput:
     pregnancy_status: PregnancyStatus | None = None
     medications: tuple[MedicationInput, ...] = ()
     sex: Sex | None = None  # 건강 동의 없이 저장(privacy_consent만 필요)
+    avatar_color: AvatarColor = "yellow"  # 건강 동의 불필요
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +189,7 @@ class ProfilePatch:
     pregnancy_status: PregnancyStatus | None | _Unset = UNSET
     medications: tuple[MedicationInput, ...] | _Unset = UNSET  # 보내면 목록 전체 교체
     sex: Sex | None | _Unset = UNSET
+    avatar_color: AvatarColor | _Unset = UNSET  # null 불가(지우면 기본값이 아니라 거부)
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,7 +415,7 @@ class InMemoryAccountRepo:
         used = {p.sort_order for p in data.profiles.values()}
         order = 0 if data_in.relation == "self" else min(i for i in range(1, PROFILE_LIMIT) if i not in used)
         prof = Profile(self._new_id(), data_in.relation, data_in.label, data_in.age_band, data_in.pregnancy_status, order,
-                       self._meds(data_in.medications), sex=data_in.sex)
+                       self._meds(data_in.medications), sex=data_in.sex, avatar_color=data_in.avatar_color)
         data.profiles[prof.profile_id] = prof
         return prof
 
@@ -423,7 +429,7 @@ class InMemoryAccountRepo:
         if not isinstance(patch.relation, _Unset) and patch.relation != cur.relation:
             self._check_relation(data, patch.relation, exclude=profile_id)
             changes["relation"] = patch.relation
-        for name in ("label", "age_band", "pregnancy_status", "sex"):
+        for name in ("label", "age_band", "pregnancy_status", "sex", "avatar_color"):
             value = getattr(patch, name)
             if not isinstance(value, _Unset):
                 changes[name] = value

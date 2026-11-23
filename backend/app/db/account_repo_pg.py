@@ -53,6 +53,7 @@ SEED_V4_FILE = DB_DIR / "seed_legal_v4.sql"  # PRD-17 처리방침 v4(사진 판
 SEED_V5_FILE = DB_DIR / "seed_legal_v5.sql"  # PRD-17 처리방침 v5(사진 판독 OpenAI만·쿠키 7일·카카오 필수 표기·이름 기본값). privacy_policy 한 행만
 SEED_V6_FILE = DB_DIR / "seed_legal_v6.sql"  # PRD-17-23 A 처리방침 v6(v5 + 게스트 안내 절). privacy_policy 한 행만
 SEED_FILES = {1: SEED_FILE, 2: SEED_V2_FILE, 3: SEED_V3_FILE, 4: SEED_V4_FILE, 5: SEED_V5_FILE, 6: SEED_V6_FILE}
+MIGRATE_AVATAR_COLOR_FILE = DB_DIR / "migrate_profiles_avatar_color.sql"  # 2026-11-23: profiles.avatar_color(8색) 이미 적용된 DB용
 MIGRATE_GUEST_ENUM_FILE = DB_DIR / "migrate_doc_type_terms_guest.sql"  # PRD-17-22 A: doc_type 열거형에 terms_guest(별도 트랜잭션·커밋 뒤에 시드)
 SEED_GUEST_FILE = DB_DIR / "seed_legal_guest_v1.sql"  # PRD-17-22 A: 게스트판 이용약관 terms_guest v1(동의 대상 아님)
 SEED_AGE14_FILE = DB_DIR / "seed_legal_age14.sql"  # PRD-17-12 A: 만 14세 확인 문서 v1. 스키마를 커밋한 뒤 따로 실행
@@ -90,6 +91,11 @@ def seed_age14_sql(effective_at: datetime) -> str:
     if effective_at.tzinfo is None:
         raise ValueError("effective_at에는 시간대가 있어야 한다")
     return SEED_AGE14_FILE.read_text(encoding="utf-8").replace(_EFFECTIVE_PLACEHOLDER, effective_at.isoformat())
+
+
+def migrate_avatar_color_sql() -> str:
+    """병아리 배경색 열·CHECK 마이그레이션 SQL(재실행 안전)."""
+    return MIGRATE_AVATAR_COLOR_FILE.read_text(encoding="utf-8")
 
 
 def migrate_guest_enum_sql() -> str:
@@ -153,7 +159,7 @@ def _claims(user_id: str) -> str:
     return json.dumps({"sub": user_id, "role": "authenticated", "aud": "authenticated"})
 
 
-_PROFILE_COLS = "profile_id::text, relation::text, label, age_band::text, pregnancy_status::text, sort_order, sex::text"
+_PROFILE_COLS = "profile_id::text, relation::text, label, age_band::text, pregnancy_status::text, sort_order, sex::text, avatar_color"
 _LEGAL_COLS = "doc_type::text, version, title, body_md, required, requires_reconsent, effective_at, legal_review, body_sha256"
 
 
@@ -281,7 +287,7 @@ class PostgresAccountRepo:
         meds: dict[str, list[Medication]] = {}
         for pid, mid, text, seq, at in cur.fetchall():
             meds.setdefault(pid, []).append(Medication(mid, text, seq.strip() if seq else None, at))
-        return [Profile(r[0], r[1], r[2], r[3], r[4], r[5], tuple(meds.get(r[0], ())), sex=r[6]) for r in rows]
+        return [Profile(r[0], r[1], r[2], r[3], r[4], r[5], tuple(meds.get(r[0], ())), sex=r[6], avatar_color=r[7]) for r in rows]
 
     @staticmethod
     def _user(row: Sequence[Any] | None) -> AppUser | None:
@@ -391,9 +397,9 @@ class PostgresAccountRepo:
                 free = [i for i in (1, 2, 3) if i not in used]
                 order = free[0] if free else 3  # 자리가 없으면 트리거가 PROFILE_LIMIT으로 거부한다
             cur.execute(
-                "INSERT INTO account.profiles (user_id, relation, label, age_band, pregnancy_status, sort_order, sex) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING profile_id::text",
-                (user_id, data.relation, data.label, data.age_band, data.pregnancy_status, order, data.sex))
+                "INSERT INTO account.profiles (user_id, relation, label, age_band, pregnancy_status, sort_order, sex, avatar_color) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING profile_id::text",
+                (user_id, data.relation, data.label, data.age_band, data.pregnancy_status, order, data.sex, data.avatar_color))
             pid = cur.fetchone()[0]
             self._insert_meds(cur, user_id, pid, data.medications)
             return self._profiles(cur, user_id, pid)[0]
@@ -404,7 +410,7 @@ class PostgresAccountRepo:
         def q(cur: Any) -> Profile:
             sets: list[str] = []
             args: list[Any] = []
-            for name in ("relation", "label", "age_band", "pregnancy_status", "sex"):  # 열 이름은 이 상수 목록에서만
+            for name in ("relation", "label", "age_band", "pregnancy_status", "sex", "avatar_color"):  # 열 이름은 이 상수 목록에서만
                 value = getattr(patch, name)
                 if not isinstance(value, _Unset):
                     sets.append(f"{name} = %s")
@@ -440,5 +446,5 @@ class PostgresAccountRepo:
         return await self._run("authenticated", user_id, q)
 
 
-__all__ = ["SCHEMA_FILE", "SEED_AGE14_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "SEED_V3_FILE", "SEED_V4_FILE", "SEED_V5_FILE", "SEED_V6_FILE", "SEED_GUEST_FILE", "MIGRATE_GUEST_ENUM_FILE", "migrate_guest_enum_sql", "seed_guest_sql", "PostgresAccountRepo", "assert_publishable",
+__all__ = ["SCHEMA_FILE", "SEED_AGE14_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "SEED_V3_FILE", "SEED_V4_FILE", "SEED_V5_FILE", "SEED_V6_FILE", "SEED_GUEST_FILE", "MIGRATE_GUEST_ENUM_FILE", "migrate_guest_enum_sql", "MIGRATE_AVATAR_COLOR_FILE", "migrate_avatar_color_sql", "seed_guest_sql", "PostgresAccountRepo", "assert_publishable",
            "schema_sql", "seed_age14_sql", "seed_sql", "unfilled_placeholders"]

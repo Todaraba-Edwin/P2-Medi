@@ -116,12 +116,12 @@ def test_age_14_seed_uses_approved_sentence_and_needs_timezone():
 
 
 def test_profile_sex_column_in_select_insert_update():
-    conn = FakeConn(rows=[("p1",), [("p1", "self", None, None, None, 0, "male")], []])
+    conn = FakeConn(rows=[("p1",), [("p1", "self", None, None, None, 0, "male", "yellow")], []])
     prof = asyncio.run(PostgresAccountRepo(lambda: conn).create_profile(UID, ProfileInput("self", sex="male")))
     assert prof.sex == "male"
     insert = next((s, a) for s, a in conn.log if s.startswith("INSERT INTO account.profiles"))
-    assert "sort_order, sex)" in insert[0] and insert[1][-1] == "male"
-    assert any("sort_order, sex::text FROM account.profiles" in s for s, _ in conn.log)
+    assert "sort_order, sex, avatar_color)" in insert[0] and insert[1][-2:] == ("male", "yellow")
+    assert any("sort_order, sex::text, avatar_color FROM account.profiles" in s for s, _ in conn.log)
 
 
 def test_seed_is_marked_draft_and_needs_timezone():

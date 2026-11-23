@@ -20,7 +20,8 @@ _NOT_COLUMN = {"CHECK", "FOREIGN", "UNIQUE", "PRIMARY", "CONSTRAINT"}
 # 허용 열(설계 4장·BE-11 결정 01·02·03·05·07·08·22 A). 질문·대화·이름·이메일·연락처 열은 없다
 ALLOWED = {
     "app_users": {"user_id", "signup_provider", "onboarding_step", "onboarding_completed_at", "created_at", "updated_at"},
-    "profiles": {"profile_id", "user_id", "relation", "label", "age_band", "pregnancy_status", "sort_order", "created_at", "updated_at", "sex"},
+    "profiles": {"profile_id", "user_id", "relation", "label", "age_band", "pregnancy_status", "sort_order", "created_at", "updated_at", "sex",
+                 "avatar_color"},  # avatar_color: 병아리 배경색 8색(2026-11-23 사용자 결정, 건강 정보 아님)
     "profile_medications": {"medication_id", "profile_id", "user_id", "input_text", "item_seq", "confirmed_at", "created_at"},
     "legal_documents": {"document_id", "doc_type", "version", "title", "body_md", "required", "requires_reconsent", "status", "effective_at",
                         "legal_review", "body_sha256", "created_at"},
