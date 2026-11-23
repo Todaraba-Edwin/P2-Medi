@@ -583,3 +583,50 @@ def test_repo_unavailable_log_has_inner_cause_and_seconds_without_secrets(caplog
     e = Env(Broken(RepoUnavailable("ConnectionTimeout", cause="TimeoutError", elapsed_s=4.94)))
     assert _err(e.req("GET", "/me")) == (503, "ACCOUNT_UNAVAILABLE", [])
     assert "계정 저장소 응답 없음: ConnectionTimeout (원인=TimeoutError 4.9s)" in caplog.text
+
+
+# --------------------------------------------------------------------------- 병아리 배경색 avatar_color(2026-11-23, 8색)
+
+AVATAR_COLORS = ("yellow", "coral", "pink", "purple", "blue", "teal", "green", "gray")
+
+
+def test_avatar_color_defaults_to_yellow_and_is_in_every_response(env):
+    env.onboard()
+    created = env.req("POST", "/profiles", json={"relation": "self"})
+    assert created.status_code == 201 and created.json()["avatar_color"] == "yellow"
+    assert [p["avatar_color"] for p in env.req("GET", "/profiles").json()] == ["yellow"]
+    patched = env.req("PATCH", f"/profiles/{created.json()['profile_id']}", json={"label": "나"})
+    assert patched.json()["avatar_color"] == "yellow"  # 색을 보내지 않은 수정은 그대로
+
+
+def test_avatar_color_roundtrip_for_all_eight_without_health_consent(env):
+    env.onboard()  # 건강(민감) 동의 없음: 색은 건강 정보가 아니다
+    me = env.req("POST", "/profiles", json={"relation": "self", "avatar_color": "coral"}).json()
+    assert me["avatar_color"] == "coral"
+    for color in AVATAR_COLORS:
+        r = env.req("PATCH", f"/profiles/{me['profile_id']}", json={"avatar_color": color})  # 색만 바꾸는 요청
+        assert r.status_code == 200 and r.json()["avatar_color"] == color
+        assert env.req("GET", "/profiles").json()[0]["avatar_color"] == color
+    for color in AVATAR_COLORS[:3]:
+        assert env.req("POST", "/profiles", json={"relation": "child", "avatar_color": color}).json()["avatar_color"] == color
+
+
+@pytest.mark.parametrize("bad", ["red", "Yellow", "", "#ffcc00", None, 3])
+def test_avatar_color_outside_the_eight_is_422(env, bad):
+    env.onboard()
+    pid = env.req("POST", "/profiles", json={"relation": "self"}).json()["profile_id"]
+    r = env.req("POST", "/profiles", json={"relation": "child", "avatar_color": bad})
+    assert _err(r) == (422, "INVALID_REQUEST", ["avatar_color"])
+    r = env.req("PATCH", f"/profiles/{pid}", json={"avatar_color": bad})
+    assert _err(r)[:2] == (422, "INVALID_REQUEST")
+    assert env.req("GET", "/profiles").json()[0]["avatar_color"] == "yellow"  # 거부된 요청은 저장하지 않는다
+    assert "#ffcc00" not in r.text and "Yellow" not in r.text  # 값을 응답에 되돌려 싣지 않는다
+
+
+def test_avatar_color_of_another_account_is_404_and_unchanged(env):
+    env.onboard(TOK_A)
+    env.onboard(TOK_B)
+    a_pid = env.req("POST", "/profiles", TOK_A, json={"relation": "self", "avatar_color": "blue"}).json()["profile_id"]
+    assert _err(env.req("PATCH", f"/profiles/{a_pid}", TOK_B, json={"avatar_color": "pink"})) == (404, "NOT_FOUND", [])
+    assert env.req("GET", "/profiles", TOK_A).json()[0]["avatar_color"] == "blue"
+    assert env.req("GET", "/profiles", TOK_B).json() == []

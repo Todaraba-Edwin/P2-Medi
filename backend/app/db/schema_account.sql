@@ -94,6 +94,16 @@ CREATE TABLE IF NOT EXISTS account.profiles (
 );
 -- 성별(선택, 2026-11-20 GROUP-03 B1). 새 DB와 이미 적용된 DB 모두 이 한 줄로 더한다(재실행 안전)
 ALTER TABLE account.profiles ADD COLUMN IF NOT EXISTS sex account.sex;
+-- 병아리 배경색(2026-11-23 사용자 결정, 8색 중 하나). 건강 정보가 아니라 프로필 저장 동의(privacy_consent)만 있으면 저장한다.
+-- 새 DB와 이미 적용된 DB 모두 재실행 안전(별도 파일 migrate_profiles_avatar_color.sql과 같은 문장).
+ALTER TABLE account.profiles ADD COLUMN IF NOT EXISTS avatar_color text NOT NULL DEFAULT 'yellow';
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'account.profiles'::regclass AND conname = 'profiles_avatar_color_check') THEN
+        ALTER TABLE account.profiles ADD CONSTRAINT profiles_avatar_color_check
+            CHECK (avatar_color IN ('yellow', 'coral', 'pink', 'purple', 'blue', 'teal', 'green', 'gray'));
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_profiles_user ON account.profiles (user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_profiles_self ON account.profiles (user_id) WHERE relation = 'self';
 

@@ -68,7 +68,7 @@ class Cur:
 
 
 def applied_answers(legal=None, enum=("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14", "terms_guest"), sex=True,
-                    current=None):
+                    current=None, avatar_col=True, avatar_check=True, avatar_nulls=0):
     legal = [(t, v, "published") for t, v in ALL_KEYS] if legal is None else legal
     current = [("age_14", 1), ("terms", 3), ("privacy_policy", 6), ("terms_guest", 1)] if current is None else current
     return {
@@ -83,6 +83,8 @@ def applied_answers(legal=None, enum=("terms", "privacy_policy", "privacy_consen
         "COUNT(*) FROM account.legal_documents": [(len(legal),)],
         "FROM account.legal_documents ORDER BY": legal,
         "FROM account.legal_current": current,
+        "pg_constraint": [(avatar_check,)],
+        "avatar_color IS NULL": [(avatar_nulls,)],
     }
 
 
@@ -152,7 +154,7 @@ def run(argv, conn, flag_path, log=None):
 
 def test_steps_order_and_keys():
     steps = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC))
-    assert [s.name for s in steps] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6"]
+    assert [s.name for s in steps] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6", "11 migrate profiles.avatar_color"]
     assert m.expected_keys(steps) == ALL_KEYS
     assert steps[0].keys == [] and steps[0].placeholders == []
 
@@ -201,11 +203,44 @@ def test_verify_ok_and_read_only(remote_env, flag):
     (applied_answers(current=[("age_14", 1), ("terms", 3), ("privacy_policy", 3)]), "terms_v3_privacy_v6_current"),
     (applied_answers(current=[("age_14", 1), ("terms", 3), ("privacy_policy", 6)]), "terms_guest_v1_current"),
     (applied_answers(enum=("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14")), "terms_guest_enum"),
+    (applied_answers(avatar_check=False), "avatar_color_problems"),
+    (applied_answers(avatar_nulls=2), "avatar_color_problems"),
 ])
 def test_verify_fails_when_something_missing(remote_env, flag, answers, problem):
     out, _ = run(["verify"], Conn(answers), flag)
     assert out["verify"]["ok"] is False
     assert out["verify"]["checks"][problem] not in ([], True)  # 문제 목록이 비지 않았거나 age_14_current가 False
+
+
+def test_avatar_step_is_last_and_sql_is_rerun_safe():
+    step = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC))[-1]
+    assert (step.kind, step.keys, step.placeholders) == ("avatar", [], [])
+    assert "ADD COLUMN IF NOT EXISTS avatar_color text NOT NULL DEFAULT 'yellow'" in step.sql
+    assert "profiles_avatar_color_check" in step.sql
+    code = "\n".join(ln for ln in step.sql.splitlines() if not ln.lstrip().startswith("--")).upper()
+    assert "UPDATE " not in code and "DELETE" not in code and "DROP" not in code  # 주석 밖에는 값 변경·삭제 없음
+    for color in ("yellow", "coral", "pink", "purple", "blue", "teal", "green", "gray"):
+        assert f"'{color}'" in step.sql
+    assert "profiles_avatar_color_check" in m.schema_sql()  # 신규 설치용 스키마에도 같은 열·제약
+
+
+def test_plan_reports_avatar_color_needed_and_is_read_only(remote_env, flag):
+    conn = Conn(applied_answers(avatar_col=False, avatar_check=False))
+    out, _ = run(["plan"], conn, flag)
+    plan = out["plan"]
+    assert plan["avatar_color_needed"] is True and plan["steps"][-1]["step"] == "11 migrate profiles.avatar_color"
+    assert writes(conn) == []
+    out, _ = run(["plan"], Conn(applied_answers()), flag)
+    assert out["plan"]["avatar_color_needed"] is False
+
+
+def test_apply_stops_when_avatar_postcheck_fails(remote_env, flag, monkeypatch):
+    monkeypatch.setattr(m, "seed_sql", _fill_v2)
+    monkeypatch.setattr(m, "seed_guest_sql", _fill_guest)
+    conn = Conn(applied_answers(avatar_check=False))
+    with pytest.raises(m.StageAbort, match="avatar_color"):
+        run(["apply", "--yes", "--effective-at", EFFECTIVE], conn, flag)
+    assert conn.commits == 11  # 마지막 단계에서 사후 확인 실패(앞 단계는 커밋됨)
 
 
 # --------------------------------------------------------------------------- apply 거부(연결 전)
@@ -255,15 +290,15 @@ def test_local_dsn_apply_needs_no_flag_but_still_yes(tmp_path):
 
 # --------------------------------------------------------------------------- apply(가짜 연결)
 
-def test_apply_runs_ten_transactions(remote_env, flag, monkeypatch):
+def test_apply_runs_eleven_transactions(remote_env, flag, monkeypatch):
     monkeypatch.setattr(m, "seed_sql", _fill_v2)
     monkeypatch.setattr(m, "seed_guest_sql", _fill_guest)
     conn = Conn(applied_answers())
     out, f = run(["apply", "--yes", "--effective-at", EFFECTIVE], conn, flag)
     assert f.calls == 1 and conn.read_only is False and conn.closed
-    assert conn.commits == 10
+    assert conn.commits == 11
     rep = out["apply"]
-    assert [k for k in rep if k[0].isdigit()] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6"]
+    assert [k for k in rep if k[0].isdigit()] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6", "11 migrate profiles.avatar_color"]
     assert all(rep[k]["inserted"] == 0 for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "9 seed terms_guest v1", "10 seed v6"))  # 가짜 DB는 이미 적용 상태
     schema_text = m.schema_sql()
     assert schema_text in conn.executed
@@ -374,8 +409,8 @@ def test_local_pg_plan_apply_rerun_verify(scratch_dsn, monkeypatch, tmp_path):
     assert [first[k]["inserted"] for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5")] == [4, 4, 1, 2, 1, 1]
     after = first["after"]
     assert "age_14" in after["doc_type_values"] and after["sex_column"] and after["rls_off"] == []
-    assert sorted(after["legal_current"]) == sorted([["age_14", 1], ["privacy_consent", 2], ["privacy_policy", 5],
-                                                      ["sensitive_consent", 2], ["terms", 3]])
+    assert sorted(after["legal_current"]) == sorted([["age_14", 1], ["privacy_consent", 2], ["privacy_policy", 6],
+                                                      ["sensitive_consent", 2], ["terms", 3], ["terms_guest", 1]])  # v6·terms_guest(PRD-17-22~25) 반영, 2026-11-23
 
     second = m.main(["apply", "--yes", "--local-dsn", scratch_dsn, "--effective-at", eff], flag=no_flag, log=quiet)["apply"]
     assert [second[k]["inserted"] for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5")] == [0, 0, 0, 0, 0, 0]

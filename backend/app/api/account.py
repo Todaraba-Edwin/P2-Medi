@@ -47,6 +47,7 @@ from app.db.account_repo import (
     AccountRepoError,
     AgeBand,
     AppUser,
+    AvatarColor,
     ConsentAction,
     ConsentChannel,
     ConsentDocType,
@@ -181,6 +182,7 @@ class ProfileOut(BaseModel):
     sort_order: int
     medications: list[MedicationOut]
     sex: Sex | None  # 선택. null = 미입력
+    avatar_color: AvatarColor  # 병아리 배경색 8색(항상 포함, 기본 yellow). 건강 정보 아님: 동의한 최소 항목(CLAUDE.md 1장)
 
 
 class ProfileCreate(_Strict):
@@ -190,6 +192,7 @@ class ProfileCreate(_Strict):
     pregnancy_status: PregnancyStatus | None = None  # 건강 동의 없이 값이 오면 422 HEALTH_CONSENT_REQUIRED
     medications: list[MedicationIn] = Field(default_factory=list, max_length=MEDICATION_LIMIT)
     sex: Sex | None = None  # 선택, 건강 동의 불필요(PRD-17-13 A)
+    avatar_color: AvatarColor = "yellow"  # 선택(없으면 yellow), 허용 밖 값·null은 422 INVALID_REQUEST
 
 
 class ProfileUpdate(_Strict):
@@ -201,10 +204,11 @@ class ProfileUpdate(_Strict):
     pregnancy_status: PregnancyStatus | None = None
     medications: list[MedicationIn] | None = Field(default=None, max_length=MEDICATION_LIMIT)
     sex: Sex | None = None  # null = 지움
+    avatar_color: AvatarColor | None = None  # 색만 바꾸는 요청 허용. null은 거부
 
     @model_validator(mode="after")
     def _no_null_required(self) -> ProfileUpdate:
-        for name in ("relation", "medications"):
+        for name in ("relation", "medications", "avatar_color"):
             if name in self.model_fields_set and getattr(self, name) is None:
                 raise ValueError(f"{name}은 null일 수 없다")
         return self
@@ -355,7 +359,7 @@ async def build_me(repo: AccountRepo, user: AppUser) -> MeResponse:
 def profile_out(p: Profile) -> ProfileOut:
     return ProfileOut(
         profile_id=p.profile_id, relation=p.relation, label=p.label, age_band=p.age_band, pregnancy_status=p.pregnancy_status,
-        sort_order=p.sort_order, sex=p.sex,
+        sort_order=p.sort_order, sex=p.sex, avatar_color=p.avatar_color,
         medications=[MedicationOut(medication_id=m.medication_id, input_text=m.input_text, item_seq=m.item_seq,
                                    confirmed_at=m.confirmed_at) for m in p.medications],
     )
@@ -459,7 +463,7 @@ async def create_profile(body: ProfileCreate, principal: UserDep, repo: RepoDep,
         raise AccountError(422, CODE_HEALTH_CONSENT_REQUIRED, health)
     meds = await _confirmed_meds(request, body.medications)
     prof = await repo.create_profile(uid, ProfileInput(body.relation, body.label, body.age_band, body.pregnancy_status, meds,
-                                                       sex=body.sex))
+                                                       sex=body.sex, avatar_color=body.avatar_color))
     await sync_onboarding(repo, user, states)
     return profile_out(prof)
 
@@ -494,6 +498,7 @@ async def update_profile(profile_id: uuid.UUID, body: ProfileUpdate, principal: 
         pregnancy_status=body.pregnancy_status if "pregnancy_status" in sent else UNSET,
         medications=meds,
         sex=body.sex if "sex" in sent else UNSET,
+        avatar_color=body.avatar_color if "avatar_color" in sent and body.avatar_color is not None else UNSET,
     )
     prof = await repo.update_profile(uid, pid, patch)
     await sync_onboarding(repo, user, states)
