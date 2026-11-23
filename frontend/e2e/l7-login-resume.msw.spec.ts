@@ -94,3 +94,60 @@ for (const width of [393, 1280]) {
     });
   }
 }
+
+// 복귀 직후 계정 호출 수(FE-04 §3 "복귀 직후 `/me`를 세션이 준비된 뒤 한 번만", 2026-11-23). 워커가 잡은 요청을 페이지 안에서 센다.
+test.describe("로그인 복귀 직후 계정 호출 수", () => {
+  test.use({ viewport: { width: 1280, height: HEIGHT } });
+
+  /** 페이지가 보낸 계정 호출(`/api/me`·`/api/profiles`·`/api/legal/*`·`/api/consents`)과 응답 상태를 순서대로 모은다 */
+  function watch(page: Page) {
+    const seen: { call: string; status: number }[] = [];
+    page.on("response", (response) => {
+      const request = response.request();
+      const pathname = new URL(request.url()).pathname;
+      if (/^\/api\/(me|profiles|legal\/|consents)/.test(pathname)) seen.push({ call: `${request.method()} ${pathname}`, status: response.status() });
+    });
+    return {
+      count: (call: string) => seen.filter((entry) => entry.call === call).length,
+      legal: () => seen.filter((entry) => entry.call.startsWith("GET /api/legal/")).length,
+      statuses: () => seen.map((entry) => entry.status),
+      all: () => seen,
+    };
+  }
+
+  test("복귀(동의 전) → 모달 자동 재개까지: /api/me 1회·/api/profiles 1회·약관 5회, 401 없음. 동의 → 프로필 추가는 그대로 된다", async ({ page }) => {
+    const seen = watch(page);
+    await openApp(page, "?mock_session=new&auth_resume=1");
+    await expect(modal(page)).toHaveAttribute("data-step", "consent");
+    await expect(modal(page).locator('[data-doc-type="terms"]')).toBeVisible(); // 약관 본문이 그려졌다(선반입)
+    expect(seen.count("GET /api/me")).toBe(1);
+    expect(seen.count("GET /api/profiles")).toBe(1);
+    expect(seen.legal()).toBe(5);
+    expect(seen.statuses().filter((status) => status === 401)).toHaveLength(0);
+    // 약관은 `/profiles` 응답을 기다리지 않고 `/me` 응답 직후 받기 시작한다: 응답 순서상 /legal/* 첫 건이 /profiles보다 뒤에 올 수도 있으나 /me보다는 뒤다
+    const order = seen.all().map((entry) => entry.call);
+    expect(order.indexOf("GET /api/me")).toBeLessThan(order.findIndex((call) => call.startsWith("GET /api/legal/")));
+    for (const docType of ["terms", "privacy_consent", "age_14"]) await agree(page, docType).check();
+    await modal(page).getByTestId("consent-submit").click();
+    await expect(modal(page)).toHaveAttribute("data-step", "profiles");
+    expect(seen.count("POST /api/consents")).toBe(1);
+    expect(seen.count("GET /api/me")).toBe(1); // 동의 뒤에도 `/me`를 다시 읽지 않는다(응답이 갱신된 Me다)
+    expect(seen.legal()).toBe(5); // 동의 화면이 떠도 다시 받지 않는다
+    await modal(page).getByTestId("add-self").click();
+    await modal(page).getByLabel("이름(별명)").fill("나");
+    await modal(page).getByTestId("profile-save").click();
+    await expect(modal(page).getByTestId("profile-item")).toHaveCount(1);
+    expect(seen.count("POST /api/profiles")).toBe(1);
+    expect(seen.statuses().filter((status) => status === 401)).toHaveLength(0);
+  });
+
+  test("온보딩을 마친 사용자의 복귀·새로고침: /api/me 1회·/api/profiles 1회, 약관은 받지 않는다", async ({ page }) => {
+    const onboarded = watch(page);
+    await openApp(page, "?mock_session=onboarded&auth_resume=1");
+    await expect(page.getByTestId("target-picker")).toBeVisible();
+    expect(onboarded.count("GET /api/me")).toBe(1);
+    expect(onboarded.count("GET /api/profiles")).toBe(1);
+    expect(onboarded.legal()).toBe(0);
+    expect(onboarded.statuses().filter((status) => status === 401)).toHaveLength(0);
+  });
+});
