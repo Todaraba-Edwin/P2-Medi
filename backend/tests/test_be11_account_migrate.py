@@ -68,10 +68,13 @@ class Cur:
 
 
 def applied_answers(legal=None, enum=("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14", "terms_guest"), sex=True,
-                    current=None, avatar_col=True, avatar_check=True, avatar_nulls=0):
+                    current=None, avatar_col=True, avatar_check=True, avatar_nulls=0, target_cols=2, target_fk=True, target_check=True):
     legal = [(t, v, "published") for t, v in ALL_KEYS] if legal is None else legal
     current = [("age_14", 1), ("terms", 3), ("privacy_policy", 6), ("terms_guest", 1)] if current is None else current
     return {
+        "'default_profile_id', 'default_guest')": [(target_cols,)],  # 가짜 연결은 첫 일치 키가 이기므로 더 구체적인 키를 앞에 둔다
+        "app_users_default_profile_fk": [(target_fk,)],
+        "app_users_default_target_check": [(target_check,)],
         "to_regclass('auth.users')": [(True,)], "to_regprocedure('auth.uid()')": [(True,)],
         "FROM pg_roles": [("anon",), ("authenticated",)],
         "FROM pg_namespace WHERE nspname": [(True,)],
@@ -154,7 +157,7 @@ def run(argv, conn, flag_path, log=None):
 
 def test_steps_order_and_keys():
     steps = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC))
-    assert [s.name for s in steps] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6", "11 migrate profiles.avatar_color"]
+    assert [s.name for s in steps] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6", "11 migrate profiles.avatar_color", "12 migrate app_users.default_target"]
     assert m.expected_keys(steps) == ALL_KEYS
     assert steps[0].keys == [] and steps[0].placeholders == []
 
@@ -205,6 +208,9 @@ def test_verify_ok_and_read_only(remote_env, flag):
     (applied_answers(enum=("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14")), "terms_guest_enum"),
     (applied_answers(avatar_check=False), "avatar_color_problems"),
     (applied_answers(avatar_nulls=2), "avatar_color_problems"),
+    (applied_answers(target_cols=1), "default_target_problems"),
+    (applied_answers(target_fk=False), "default_target_problems"),
+    (applied_answers(target_check=False), "default_target_problems"),
 ])
 def test_verify_fails_when_something_missing(remote_env, flag, answers, problem):
     out, _ = run(["verify"], Conn(answers), flag)
@@ -212,8 +218,8 @@ def test_verify_fails_when_something_missing(remote_env, flag, answers, problem)
     assert out["verify"]["checks"][problem] not in ([], True)  # 문제 목록이 비지 않았거나 age_14_current가 False
 
 
-def test_avatar_step_is_last_and_sql_is_rerun_safe():
-    step = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC))[-1]
+def test_avatar_step_is_second_to_last_and_sql_is_rerun_safe():
+    step = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC))[-2]
     assert (step.kind, step.keys, step.placeholders) == ("avatar", [], [])
     assert "ADD COLUMN IF NOT EXISTS avatar_color text NOT NULL DEFAULT 'yellow'" in step.sql
     assert "profiles_avatar_color_check" in step.sql
@@ -228,7 +234,7 @@ def test_plan_reports_avatar_color_needed_and_is_read_only(remote_env, flag):
     conn = Conn(applied_answers(avatar_col=False, avatar_check=False))
     out, _ = run(["plan"], conn, flag)
     plan = out["plan"]
-    assert plan["avatar_color_needed"] is True and plan["steps"][-1]["step"] == "11 migrate profiles.avatar_color"
+    assert plan["avatar_color_needed"] is True and plan["steps"][-2]["step"] == "11 migrate profiles.avatar_color"
     assert writes(conn) == []
     out, _ = run(["plan"], Conn(applied_answers()), flag)
     assert out["plan"]["avatar_color_needed"] is False
@@ -241,6 +247,37 @@ def test_apply_stops_when_avatar_postcheck_fails(remote_env, flag, monkeypatch):
     with pytest.raises(m.StageAbort, match="avatar_color"):
         run(["apply", "--yes", "--effective-at", EFFECTIVE], conn, flag)
     assert conn.commits == 11  # 마지막 단계에서 사후 확인 실패(앞 단계는 커밋됨)
+
+
+def test_default_target_step_is_last_and_sql_is_rerun_safe():
+    step = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC))[-1]
+    assert (step.name, step.kind, step.keys, step.placeholders) == ("12 migrate app_users.default_target", "default_target", [], [])
+    assert "ADD COLUMN IF NOT EXISTS default_profile_id uuid" in step.sql
+    assert "ADD COLUMN IF NOT EXISTS default_guest boolean NOT NULL DEFAULT false" in step.sql
+    assert "ON DELETE SET NULL" in step.sql and "app_users_default_target_check" in step.sql
+    assert "GRANT UPDATE (default_profile_id, default_guest) ON account.app_users TO authenticated" in step.sql
+    code = "\n".join(ln for ln in step.sql.splitlines() if not ln.lstrip().startswith("--")).upper()
+    assert "UPDATE " not in code.replace("GRANT UPDATE", "") and "DELETE" not in code.replace("ON DELETE SET NULL", "") and "DROP" not in code
+    assert "app_users_default_target_check" in m.schema_sql()  # 신규 설치용 스키마에도 같은 열·제약
+
+
+def test_plan_reports_default_target_needed_and_is_read_only(remote_env, flag):
+    conn = Conn(applied_answers(target_cols=0, target_fk=False, target_check=False))
+    out, _ = run(["plan"], conn, flag)
+    plan = out["plan"]
+    assert plan["default_target_needed"] is True and plan["steps"][-1]["step"] == "12 migrate app_users.default_target"
+    assert writes(conn) == []
+    out, _ = run(["plan"], Conn(applied_answers()), flag)
+    assert out["plan"]["default_target_needed"] is False
+
+
+def test_apply_stops_when_default_target_postcheck_fails(remote_env, flag, monkeypatch):
+    monkeypatch.setattr(m, "seed_sql", _fill_v2)
+    monkeypatch.setattr(m, "seed_guest_sql", _fill_guest)
+    conn = Conn(applied_answers(target_fk=False))
+    with pytest.raises(m.StageAbort, match="default_profile_fk"):
+        run(["apply", "--yes", "--effective-at", EFFECTIVE], conn, flag)
+    assert conn.commits == 12  # 마지막 단계에서 사후 확인 실패(앞 단계는 커밋됨)
 
 
 # --------------------------------------------------------------------------- apply 거부(연결 전)
@@ -290,15 +327,15 @@ def test_local_dsn_apply_needs_no_flag_but_still_yes(tmp_path):
 
 # --------------------------------------------------------------------------- apply(가짜 연결)
 
-def test_apply_runs_eleven_transactions(remote_env, flag, monkeypatch):
+def test_apply_runs_twelve_transactions(remote_env, flag, monkeypatch):
     monkeypatch.setattr(m, "seed_sql", _fill_v2)
     monkeypatch.setattr(m, "seed_guest_sql", _fill_guest)
     conn = Conn(applied_answers())
     out, f = run(["apply", "--yes", "--effective-at", EFFECTIVE], conn, flag)
     assert f.calls == 1 and conn.read_only is False and conn.closed
-    assert conn.commits == 11
+    assert conn.commits == 12
     rep = out["apply"]
-    assert [k for k in rep if k[0].isdigit()] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6", "11 migrate profiles.avatar_color"]
+    assert [k for k in rep if k[0].isdigit()] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6", "11 migrate profiles.avatar_color", "12 migrate app_users.default_target"]
     assert all(rep[k]["inserted"] == 0 for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "9 seed terms_guest v1", "10 seed v6"))  # 가짜 DB는 이미 적용 상태
     schema_text = m.schema_sql()
     assert schema_text in conn.executed
@@ -420,6 +457,8 @@ def test_local_pg_plan_apply_rerun_verify(scratch_dsn, monkeypatch, tmp_path):
     assert ver["ok"] is True, ver["checks"]
     plan2 = m.main(["plan", "--local-dsn", scratch_dsn], flag=no_flag, log=quiet)["plan"]
     assert plan2["schema_needed"] is False and plan2["seed_rows_to_insert"] == []
+    assert plan2["avatar_color_needed"] is False and plan2["default_target_needed"] is False  # 단계 11·12도 적용됨
+    assert ver["checks"]["default_target_problems"] == []
 
 
 # --------------------------------------------------------------------------- 보호책임자 연락처 렌더링(PRD-17 ⑫, 2026-11-20)

@@ -63,7 +63,9 @@ def test_schema_enums_match_decisions():
 def test_consents_cascade_on_account_delete_and_deletion_log_has_no_identifier():
     consents = _create_table("user_consents")
     assert "REFERENCES account.app_users (user_id) ON DELETE CASCADE" in consents  # 22 A: 즉시 파기
-    assert "anonymized_at" not in NO_COMMENTS and "SET NULL" not in NO_COMMENTS
+    assert "anonymized_at" not in NO_COMMENTS
+    # SET NULL은 기본 프로필 FK(프로필 삭제 → 미설정, 2026-11-23 FE-17 U-08) 하나뿐이다. 익명화 용도의 SET NULL은 없다
+    assert NO_COMMENTS.count("SET NULL") == 1 and "FOREIGN KEY (default_profile_id) REFERENCES account.profiles (profile_id) ON DELETE SET NULL" in NO_COMMENTS
     log = _create_table("deletion_log")
     cols = [line.split()[0] for line in log.strip().splitlines()]
     assert cols == ["deleted_on", "accounts", "profiles", "medications", "consents"]
@@ -186,7 +188,7 @@ UID = "33333333-3333-4333-8333-333333333333"
 
 
 def test_user_calls_set_role_and_claims_first_in_same_transaction():
-    conn = FakeConn(rows=[(UID, "consent", None)])
+    conn = FakeConn(rows=[(UID, "consent", None, None, False)])
     repo = PostgresAccountRepo(lambda: conn)
     user = asyncio.run(repo.get_user(UID))
     assert user is not None and user.user_id == UID

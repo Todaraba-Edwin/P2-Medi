@@ -630,3 +630,99 @@ def test_avatar_color_of_another_account_is_404_and_unchanged(env):
     assert _err(env.req("PATCH", f"/profiles/{a_pid}", TOK_B, json={"avatar_color": "pink"})) == (404, "NOT_FOUND", [])
     assert env.req("GET", "/profiles", TOK_A).json()[0]["avatar_color"] == "blue"
     assert env.req("GET", "/profiles", TOK_B).json() == []
+
+
+# --------------------------------------------------------------------------- 기본 프로필(대상) default_target(2026-11-23, FE-17 U-08)
+
+def _put_target(env, target, token=TOK_A):
+    return env.req("PUT", "/me/default-target", token, json={"target": target})
+
+
+def test_default_target_is_null_until_set_and_in_me(env):
+    assert env.req("GET", "/me").json()["default_target"] is None  # 미설정 → 클라이언트가 본인을 고른다
+    env.onboard()
+    assert env.req("GET", "/me").json()["default_target"] is None
+
+
+def test_default_target_guest_and_profile_roundtrip_and_reset(env):
+    env.onboard()
+    me_pid = env.req("POST", "/profiles", json={"relation": "self"}).json()["profile_id"]
+    kid_pid = env.req("POST", "/profiles", json={"relation": "child"}).json()["profile_id"]
+    r = _put_target(env, "guest")
+    assert r.status_code == 200 and r.json() == {"target": "guest"} and r.headers["cache-control"] == "no-store"
+    assert env.req("GET", "/me").json()["default_target"] == "guest"
+    assert _put_target(env, kid_pid).json() == {"target": kid_pid}  # 고를 때마다 저장: guest → 프로필
+    assert env.req("GET", "/me").json()["default_target"] == kid_pid
+    assert _put_target(env, me_pid.upper()).json() == {"target": me_pid}  # 대문자 UUID도 소문자로 저장
+    assert _put_target(env, "guest").json() == {"target": "guest"}  # 프로필 → guest(둘이 동시에 설정되지 않는다)
+    assert _put_target(env, None).json() == {"target": None}
+    assert env.req("GET", "/me").json()["default_target"] is None
+    assert len(env.req("GET", "/profiles").json()) == 2  # 프로필은 그대로
+
+
+def test_default_target_is_unset_after_profile_deleted(env):
+    env.onboard()
+    env.req("POST", "/profiles", json={"relation": "self"})
+    kid = env.req("POST", "/profiles", json={"relation": "child"}).json()["profile_id"]
+    assert _put_target(env, kid).status_code == 200
+    assert env.req("DELETE", f"/profiles/{kid}").status_code == 204
+    assert env.req("GET", "/me").json()["default_target"] is None  # 삭제되면 미설정 → 본인
+
+
+def test_default_target_survives_onboarding_sync(env):
+    """프로필·동의 변경이 온보딩 단계를 다시 쓰는 경로(set_onboarding)가 기본 대상을 지우지 않는다."""
+    env.onboard()
+    me_pid = env.req("POST", "/profiles", json={"relation": "self"}).json()["profile_id"]
+    assert _put_target(env, me_pid).status_code == 200
+    env.req("POST", "/profiles", json={"relation": "child"})
+    assert env.req("GET", "/me").json()["default_target"] == me_pid
+
+
+def test_default_target_other_users_or_missing_profile_is_404_and_unchanged(env):
+    env.onboard(TOK_A)
+    env.onboard(TOK_B)
+    a_pid = env.req("POST", "/profiles", TOK_A, json={"relation": "self"}).json()["profile_id"]
+    b_pid = env.req("POST", "/profiles", TOK_B, json={"relation": "self"}).json()["profile_id"]
+    assert _put_target(env, a_pid, TOK_A).status_code == 200
+    assert _err(_put_target(env, b_pid, TOK_A)) == (404, "NOT_FOUND", [])  # 남의 프로필: 존재 여부 비노출
+    assert _err(_put_target(env, "33333333-3333-4333-8333-333333333333", TOK_A)) == (404, "NOT_FOUND", [])  # 없는 프로필과 같은 응답
+    assert env.req("GET", "/me", TOK_A).json()["default_target"] == a_pid  # 거부된 요청은 저장하지 않는다
+    assert env.req("GET", "/me", TOK_B).json()["default_target"] is None  # 다른 사용자 값은 영향 없음
+
+
+@pytest.mark.parametrize("bad", ["", "Guest", "me", "not-a-uuid", "11111111111141118111111111111111", 3, True, ["guest"]])
+def test_default_target_bad_format_is_422_without_echoing_value(env, bad):
+    env.onboard()
+    r = _put_target(env, bad)
+    assert _err(r) == (422, "INVALID_REQUEST", ["target"])
+    if isinstance(bad, str) and len(bad) > 2:
+        assert bad not in r.text  # 입력 값을 응답에 되돌려 싣지 않는다
+    assert env.req("GET", "/me").json()["default_target"] is None
+
+
+@pytest.mark.parametrize("body", [{}, {"target": "guest", "extra": 1}, {"profile_id": "x"}])
+def test_default_target_requires_target_field_and_rejects_extras(env, body):
+    env.onboard()
+    r = env.req("PUT", "/me/default-target", json=body)
+    assert r.status_code == 422 and r.json()["code"] == "INVALID_REQUEST"
+
+
+def test_default_target_requires_login_and_never_logs_value(env, caplog):
+    caplog.set_level(logging.DEBUG)
+    assert _err(env.req("PUT", "/me/default-target", None, json={"target": "guest"}))[:2] == (401, "AUTH_REQUIRED")  # 게스트(토큰 없음)
+    assert _err(env.req("PUT", "/me/default-target", TOK_BAD, json={"target": "guest"}))[:2] == (401, "AUTH_INVALID")
+    env.onboard()
+    marker = "99999999-9999-4999-8999-999999999999"
+    assert _put_target(env, marker).status_code == 404
+    assert marker not in caplog.text
+
+
+def test_default_target_without_account_row_is_401(env):
+    """첫 GET /me 전(app_users 행 없음)에는 401 AUTH_INVALID(다른 계정 경로와 같은 규칙)."""
+    assert _err(_put_target(env, "guest"))[:2] == (401, "AUTH_INVALID")
+
+
+def test_default_target_in_openapi(env):
+    spec = env.c.get("/openapi.json").json()
+    assert "put" in spec["paths"]["/me/default-target"]
+    assert "default_target" in spec["components"]["schemas"]["MeResponse"]["properties"]

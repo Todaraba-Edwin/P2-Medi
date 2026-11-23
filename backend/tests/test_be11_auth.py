@@ -190,7 +190,7 @@ def test_me_with_valid_token(client):
     r = client.get("/me", headers=_bearer(GOOD))
     assert r.status_code == 200 and r.json() == {
         "user_id": USER_ID, "is_guest": False, "onboarding_step": "consent", "onboarding_completed_at": None,
-        "consents": [], "health_consent_active": False, "profile_limit": 4,
+        "consents": [], "health_consent_active": False, "profile_limit": 4, "default_target": None,
     }  # 약관 문서가 없는 빈 저장소: 동의 상태 목록이 비고 첫 단계(BE-11-10 A로 계정 행 생성)
     assert r.headers["cache-control"] == "no-store"
 

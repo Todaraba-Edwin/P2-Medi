@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from app.db.account_repo import (
+    GUEST_TARGET,
     NO_ACCOUNT_CODE,
     NOT_FOUND_CODE,
     SELF_EXISTS_CODE,
@@ -53,6 +54,7 @@ SEED_V4_FILE = DB_DIR / "seed_legal_v4.sql"  # PRD-17 처리방침 v4(사진 판
 SEED_V5_FILE = DB_DIR / "seed_legal_v5.sql"  # PRD-17 처리방침 v5(사진 판독 OpenAI만·쿠키 7일·카카오 필수 표기·이름 기본값). privacy_policy 한 행만
 SEED_V6_FILE = DB_DIR / "seed_legal_v6.sql"  # PRD-17-23 A 처리방침 v6(v5 + 게스트 안내 절). privacy_policy 한 행만
 SEED_FILES = {1: SEED_FILE, 2: SEED_V2_FILE, 3: SEED_V3_FILE, 4: SEED_V4_FILE, 5: SEED_V5_FILE, 6: SEED_V6_FILE}
+MIGRATE_DEFAULT_TARGET_FILE = DB_DIR / "migrate_app_users_default_target.sql"  # 2026-11-23: app_users.default_profile_id·default_guest 이미 적용된 DB용
 MIGRATE_AVATAR_COLOR_FILE = DB_DIR / "migrate_profiles_avatar_color.sql"  # 2026-11-23: profiles.avatar_color(8색) 이미 적용된 DB용
 MIGRATE_GUEST_ENUM_FILE = DB_DIR / "migrate_doc_type_terms_guest.sql"  # PRD-17-22 A: doc_type 열거형에 terms_guest(별도 트랜잭션·커밋 뒤에 시드)
 SEED_GUEST_FILE = DB_DIR / "seed_legal_guest_v1.sql"  # PRD-17-22 A: 게스트판 이용약관 terms_guest v1(동의 대상 아님)
@@ -96,6 +98,11 @@ def seed_age14_sql(effective_at: datetime) -> str:
 def migrate_avatar_color_sql() -> str:
     """병아리 배경색 열·CHECK 마이그레이션 SQL(재실행 안전)."""
     return MIGRATE_AVATAR_COLOR_FILE.read_text(encoding="utf-8")
+
+
+def migrate_default_target_sql() -> str:
+    """기본 프로필(대상) 열·FK·CHECK·열 권한 마이그레이션 SQL(재실행 안전)."""
+    return MIGRATE_DEFAULT_TARGET_FILE.read_text(encoding="utf-8")
 
 
 def migrate_guest_enum_sql() -> str:
@@ -160,6 +167,9 @@ def _claims(user_id: str) -> str:
 
 
 _PROFILE_COLS = "profile_id::text, relation::text, label, age_band::text, pregnancy_status::text, sort_order, sex::text, avatar_color"
+_USER_COLS = "user_id::text, onboarding_step, onboarding_completed_at, default_profile_id::text, default_guest"
+_SET_ONBOARDING_SQL = ("UPDATE account.app_users SET onboarding_step = %s, onboarding_completed_at = %s WHERE user_id = %s "  # noqa: S608
+                       "RETURNING " + _USER_COLS)  # 상수 조각만
 _LEGAL_COLS = "doc_type::text, version, title, body_md, required, requires_reconsent, effective_at, legal_review, body_sha256"
 
 
@@ -291,7 +301,7 @@ class PostgresAccountRepo:
 
     @staticmethod
     def _user(row: Sequence[Any] | None) -> AppUser | None:
-        return None if row is None else AppUser(row[0], row[1], row[2])
+        return None if row is None else AppUser(row[0], row[1], row[2], default_profile_id=row[3], default_guest=row[4])
 
     @staticmethod
     def _insert_meds(cur: Any, user_id: str, profile_id: str, items: Sequence[MedicationInput]) -> None:
@@ -331,8 +341,7 @@ class PostgresAccountRepo:
     async def ensure_user(self, user_id: str) -> AppUser:
         def q(cur: Any) -> AppUser:
             cur.execute("INSERT INTO account.app_users (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING", (user_id,))
-            cur.execute("SELECT user_id::text, onboarding_step, onboarding_completed_at FROM account.app_users WHERE user_id = %s",
-                        (user_id,))
+            cur.execute(f"SELECT {_USER_COLS} FROM account.app_users WHERE user_id = %s", (user_id,))  # noqa: S608 - 상수 조각만
             user = self._user(cur.fetchone())
             if user is None:
                 raise AccountRepoError(NO_ACCOUNT_CODE)
@@ -342,16 +351,30 @@ class PostgresAccountRepo:
 
     async def get_user(self, user_id: str) -> AppUser | None:
         def q(cur: Any) -> AppUser | None:
-            cur.execute("SELECT user_id::text, onboarding_step, onboarding_completed_at FROM account.app_users WHERE user_id = %s",
-                        (user_id,))
+            cur.execute(f"SELECT {_USER_COLS} FROM account.app_users WHERE user_id = %s", (user_id,))  # noqa: S608 - 상수 조각만
             return self._user(cur.fetchone())
 
         return await self._run("authenticated", user_id, q)
 
     async def set_onboarding(self, user_id: str, step: OnboardingStep, completed_at: datetime | None) -> AppUser:
         def q(cur: Any) -> AppUser:
-            cur.execute("UPDATE account.app_users SET onboarding_step = %s, onboarding_completed_at = %s WHERE user_id = %s "
-                        "RETURNING user_id::text, onboarding_step, onboarding_completed_at", (step, completed_at, user_id))
+            cur.execute(_SET_ONBOARDING_SQL, (step, completed_at, user_id))
+            user = self._user(cur.fetchone())
+            if user is None:
+                raise AccountRepoError(NO_ACCOUNT_CODE)
+            return user
+
+        return await self._run("authenticated", user_id, q)
+
+    async def set_default_target(self, user_id: str, target: str | None) -> AppUser:
+        def q(cur: Any) -> AppUser:
+            profile_id = target if target not in (None, GUEST_TARGET) else None
+            if profile_id is not None:  # 본인 소유 확인(RLS가 남의 행을 숨긴다). 형식은 API가 UUID로 거른 뒤라 캐스트가 실패하지 않는다
+                cur.execute("SELECT 1 FROM account.profiles WHERE profile_id = %s::uuid AND user_id = %s", (profile_id, user_id))
+                if cur.fetchone() is None:
+                    raise AccountRepoError(NOT_FOUND_CODE)
+            cur.execute("UPDATE account.app_users SET default_profile_id = %s::uuid, default_guest = %s WHERE user_id = %s "  # noqa: S608
+                        f"RETURNING {_USER_COLS}", (profile_id, target == GUEST_TARGET, user_id))
             user = self._user(cur.fetchone())
             if user is None:
                 raise AccountRepoError(NO_ACCOUNT_CODE)
@@ -446,5 +469,5 @@ class PostgresAccountRepo:
         return await self._run("authenticated", user_id, q)
 
 
-__all__ = ["SCHEMA_FILE", "SEED_AGE14_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "SEED_V3_FILE", "SEED_V4_FILE", "SEED_V5_FILE", "SEED_V6_FILE", "SEED_GUEST_FILE", "MIGRATE_GUEST_ENUM_FILE", "migrate_guest_enum_sql", "MIGRATE_AVATAR_COLOR_FILE", "migrate_avatar_color_sql", "seed_guest_sql", "PostgresAccountRepo", "assert_publishable",
+__all__ = ["SCHEMA_FILE", "SEED_AGE14_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "SEED_V3_FILE", "SEED_V4_FILE", "SEED_V5_FILE", "SEED_V6_FILE", "SEED_GUEST_FILE", "MIGRATE_GUEST_ENUM_FILE", "migrate_guest_enum_sql", "MIGRATE_AVATAR_COLOR_FILE", "migrate_avatar_color_sql", "MIGRATE_DEFAULT_TARGET_FILE", "migrate_default_target_sql", "seed_guest_sql", "PostgresAccountRepo", "assert_publishable",
            "schema_sql", "seed_age14_sql", "seed_sql", "unfilled_placeholders"]
