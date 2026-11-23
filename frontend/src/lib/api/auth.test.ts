@@ -1,4 +1,5 @@
 import { HttpResponse, http } from "msw";
+import type { JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MOCK_LEGAL_DOCS } from "@/mocks/fixtures/account";
@@ -281,11 +282,14 @@ describe("계정 서버가 준비 전(501)·장애(503)일 때: 화면이 깨지
     const store = createAccountStore();
     await store.getState().bootstrap();
     expect(store.getState()).toMatchObject({ status: "member", me: null, profiles: [], failure: null, flow: [] });
-    expect(seen).toEqual([{ call: "GET /api/me", authorization: `Bearer ${TOKEN}` }]);
+    // `/me`와 `/profiles`는 나란히 나간다(FE-04 §3): `/me`가 501이어도 `/profiles`는 이미 보낸 뒤다. 각각 한 번, 토큰을 붙여서
+    const calls = () => seen.map((entry) => entry.call);
+    expect(calls().sort()).toEqual(["GET /api/me", "GET /api/profiles"]);
+    for (const entry of seen) expect(entry.authorization).toBe(`Bearer ${TOKEN}`);
     // 모달을 열면 프로필 화면이고(동의 화면으로 보내지 않는다) 서버 값을 한 번 더 읽어 본다
     store.getState().open();
     expect(store.getState().flow).toEqual(["profiles"]);
-    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    await vi.waitFor(() => expect(calls().filter((call) => call === "GET /api/me")).toHaveLength(2));
     expect(await store.getState().logout()).toBe(true);
     expect(store.getState().status).toBe("guest");
   });
@@ -333,6 +337,127 @@ describe("계정 서버가 준비 전(501)·장애(503)일 때: 화면이 깨지
     expect(await accountApi.hasSession()).toBe(false);
     session = { access_token: TOKEN, user: { email: EMAIL } };
     expect(await accountApi.hasSession()).toBe(true);
+  });
+});
+
+describe("시작·로그인 복귀 직후 /api/me는 세션이 준비된 뒤 한 번만(FE-04 §3, 2026-11-23)", () => {
+  /** 보낸 계정 호출 경로만(순서대로) */
+  const calls = () => seen.map((entry) => entry.call);
+  const count = (call: string) => calls().filter((entry) => entry === call).length;
+  /** 응답을 붙잡아 두는 핸들러: `release()`를 부를 때까지 답하지 않는다 */
+  const held = (path: string, body: () => JsonBodyType) => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    server.use(
+      http.get(path, async ({ request }) => {
+        record(request);
+        await gate;
+        return HttpResponse.json(body());
+      }),
+    );
+    return () => release();
+  };
+
+  it("세션이 있으면 /api/me·/api/profiles를 토큰을 붙여 각각 한 번만 보내고 401은 없다(새로고침·로그인 유지 시작과 같은 길)", async () => {
+    session = { access_token: TOKEN, user: { email: EMAIL } };
+    const statuses: number[] = [];
+    server.use(
+      http.get("*/api/me", ({ request }) => {
+        record(request);
+        const ok = request.headers.get("authorization") === `Bearer ${TOKEN}`;
+        statuses.push(ok ? 200 : 401);
+        return ok ? HttpResponse.json({ ...ME, onboarding_step: "family" }) : HttpResponse.json({ code: "AUTH_REQUIRED", fields: [] }, { status: 401 });
+      }),
+    );
+    const store = createAccountStore();
+    await store.getState().bootstrap();
+    expect(store.getState()).toMatchObject({ status: "member", me: { onboarding_step: "family" }, profiles: [] });
+    expect(count("GET /api/me")).toBe(1);
+    expect(count("GET /api/profiles")).toBe(1);
+    expect(statuses).toEqual([200]); // 401을 받은 뒤 다시 부르는 길이 없다
+    expect(calls().some((call) => call.startsWith("GET /api/legal/"))).toBe(false); // 온보딩을 마친 사용자는 약관을 미리 받지 않는다
+    for (const entry of seen) expect(entry.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("/api/profiles는 /api/me 응답을 기다리지 않고 나란히 나간다", async () => {
+    session = { access_token: TOKEN, user: { email: EMAIL } };
+    const releaseMe = held("*/api/me", () => ({ ...ME, onboarding_step: "family" }));
+    const store = createAccountStore();
+    const done = store.getState().bootstrap();
+    await vi.waitFor(() => expect(calls().sort()).toEqual(["GET /api/me", "GET /api/profiles"])); // /me가 답하기 전에 /profiles가 이미 나갔다
+    expect(store.getState().status).toBe("guest"); // 아직 답 전
+    releaseMe();
+    await done;
+    expect(store.getState().status).toBe("member");
+    expect(count("GET /api/me")).toBe(1);
+  });
+
+  it("동의 단계면 /api/me 응답 직후 약관 문서(/api/legal/* 5건)를 /api/profiles 응답을 기다리지 않고 받기 시작한다", async () => {
+    session = { access_token: TOKEN, user: { email: EMAIL } };
+    const releaseProfiles = held("*/api/profiles", () => []);
+    const store = createAccountStore();
+    const done = store.getState().bootstrap();
+    await vi.waitFor(() => expect(calls().filter((call) => call.startsWith("GET /api/legal/"))).toHaveLength(5)); // /profiles는 아직 붙잡혀 있다
+    expect(store.getState().status).toBe("guest"); // /profiles가 답하기 전이라 회원 상태는 아직 아니다
+    releaseProfiles();
+    await done;
+    expect(store.getState()).toMatchObject({ status: "member", me: ME, legalDocsStatus: "ready" });
+    expect(store.getState().legalDocs).toHaveLength(5);
+    expect(count("GET /api/me")).toBe(1);
+    expect(count("GET /api/profiles")).toBe(1);
+    // 동의 화면이 떠서 다시 불러도 이미 받은 문서를 쓴다(추가 호출 0)
+    await store.getState().loadLegalDocs();
+    expect(calls().filter((call) => call.startsWith("GET /api/legal/"))).toHaveLength(5);
+  });
+
+  it("bootstrap이 겹쳐 불리면(복귀 효과 + 모달 열기 등) 진행 중인 호출을 나눠 쓴다: /api/me 1회", async () => {
+    session = { access_token: TOKEN, user: { email: EMAIL } };
+    const releaseMe = held("*/api/me", () => ({ ...ME, onboarding_step: "family" }));
+    const store = createAccountStore();
+    const first = store.getState().bootstrap();
+    const second = store.getState().bootstrap();
+    expect(second).toBe(first);
+    releaseMe();
+    await Promise.all([first, second]);
+    expect(count("GET /api/me")).toBe(1);
+    expect(count("GET /api/profiles")).toBe(1);
+    // 끝난 뒤에 다시 부르면 새로 읽는다(모달 열기 때 서버 값 갱신)
+    await store.getState().bootstrap();
+    expect(count("GET /api/me")).toBe(2);
+  });
+
+  it("약관 문서도 받는 중에 다시 부르면 같은 호출을 기다린다: /api/legal/* 5회", async () => {
+    const store = createAccountStore();
+    const first = store.getState().loadLegalDocs();
+    const second = store.getState().loadLegalDocs();
+    expect(second).toBe(first);
+    await second;
+    expect(store.getState()).toMatchObject({ legalDocsStatus: "ready" });
+    expect(calls().filter((call) => call.startsWith("GET /api/legal/"))).toHaveLength(5);
+  });
+
+  it("세션이 없으면(게스트) /api/me·/api/profiles를 부르지 않는다: 호출 0", async () => {
+    const store = createAccountStore();
+    await store.getState().bootstrap();
+    expect(store.getState().status).toBe("guest");
+    expect(seen).toEqual([]);
+    expect(await accountApi.canHaveSession()).toBe(false);
+    session = { access_token: TOKEN, user: { email: EMAIL } };
+    expect(await accountApi.canHaveSession()).toBe(true);
+    vi.stubEnv("NEXT_PUBLIC_API_MOCKING", "enabled");
+    expect(await accountApi.canHaveSession()).toBe(true); // 목은 서버만 안다
+    vi.stubEnv("NEXT_PUBLIC_API_MOCKING", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    expect(await accountApi.canHaveSession()).toBe(false); // 방식 없음
+  });
+
+  it("토큰이 거절되면(401) 한 번만 보고 게스트로 둔다: 다시 부르거나 토큰을 바꿔 재시도하지 않는다", async () => {
+    session = { access_token: "synthetic-rejected-token", user: { email: EMAIL } };
+    const store = createAccountStore();
+    await store.getState().bootstrap();
+    expect(store.getState().status).toBe("guest");
+    expect(count("GET /api/me")).toBe(1);
+    expect(auth.getSession).toHaveBeenCalled(); // 토큰은 Supabase 세션에서만 읽는다
   });
 });
 

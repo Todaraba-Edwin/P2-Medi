@@ -191,14 +191,28 @@ export function hidesPregnancyToggle(profile: Profile | null): boolean {
 // ---------------------------------------------------------------- 스토어
 export function createAccountStore({ api = accountApi }: { api?: AccountApi } = {}): AccountStore {
   return createStore<AccountState>()((set, get) => {
-    /** 서버가 아는 로그인 상태를 읽어 온다. 로그인돼 있으면 true */
+    /**
+     * 서버가 아는 로그인 상태를 읽어 온다. 로그인돼 있으면 true(FE-04 §3 "복귀 직후 `/me`를 세션이 준비된 뒤 한 번만").
+     * - 세션이 있을 수 없으면(Supabase 쿠키 없음·방식 없음) 서버를 부르지 않고 게스트다(토큰 없는 호출은 늘 401이라 보내지 않는다)
+     * - `/me`와 `/profiles`는 같은 토큰만 있으면 되므로 동시에 보낸다(직렬 대기 제거). `/me`가 비로그인(null)이면 `/profiles` 결과는 버린다
+     * - `/me`가 동의 단계라고 하면 `/profiles` 응답을 기다리지 않고 약관 문서(`/legal/*`)도 바로 받기 시작한다(동의 화면이 뜰 때 이미 와 있게)
+     * - 401은 한 번만 본다: `fetchMe`가 null로 바꾸고 다시 부르지 않는다(토큰 갱신은 Supabase 클라이언트가 `getSession`에서 맡는다)
+     */
     const refreshSession = async (): Promise<boolean> => {
+      if (!(await api.canHaveSession().catch(() => false))) {
+        set({ ...guest });
+        return false;
+      }
+      const profilesPromise = api.fetchProfiles();
+      profilesPromise.catch(() => undefined); // `/me`가 비로그인이면 이 결과는 읽지 않는다(미처리 거절 방지)
       const me = await api.fetchMe();
       if (!me) {
         set({ ...guest });
         return false;
       }
-      const profiles = await api.fetchProfiles();
+      // 동의 단계면 약관 문서를 `/profiles`와 나란히 받는다(실패는 `legalDocsStatus: failed`로만 남고 던지지 않는다. 동의 화면의 다시 받기가 있다)
+      const legal = needsConsentStep(me) ? get().loadLegalDocs() : Promise.resolve();
+      const [profiles] = await Promise.all([profilesPromise, legal]);
       set((state) => ({
         status: "member",
         me,
@@ -207,6 +221,11 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
       }));
       return true;
     };
+
+    /** 진행 중인 `bootstrap()`. 겹쳐 불리면(복귀 효과 + 모달 열기 등) 같은 호출을 나눠 쓴다: `/me`는 한 번만 나간다 */
+    let bootstrapping: Promise<void> | null = null;
+    /** 진행 중인 `loadLegalDocs()`(같은 이유로 나눠 쓴다) */
+    let legalLoading: Promise<void> | null = null;
 
     const run = async (task: () => Promise<void>): Promise<boolean> => {
       if (get().pending) return false;
@@ -256,14 +275,20 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
       notice: null,
       entryDismissed: false,
 
-      bootstrap: async () => {
-        try {
-          await refreshSession();
-        } catch (error) {
-          // 서버가 없거나 501(미설정)·503(검증 서버 장애)이면 오류를 띄우지도, 로그아웃시키지도 않는다(BE-11-20 A).
-          // 로그인 세션이 있으면 로그인 상태만 보인다(계정 표시·로그아웃은 되고 동의·프로필은 서버가 답한 뒤에)
-          if (isServiceDown(error)) await keepSignedIn();
-        }
+      bootstrap: () => {
+        if (bootstrapping) return bootstrapping;
+        bootstrapping = (async () => {
+          try {
+            await refreshSession();
+          } catch (error) {
+            // 서버가 없거나 501(미설정)·503(검증 서버 장애)이면 오류를 띄우지도, 로그아웃시키지도 않는다(BE-11-20 A).
+            // 로그인 세션이 있으면 로그인 상태만 보인다(계정 표시·로그아웃은 되고 동의·프로필은 서버가 답한 뒤에)
+            if (isServiceDown(error)) await keepSignedIn();
+          } finally {
+            bootstrapping = null;
+          }
+        })();
+        return bootstrapping;
       },
 
       failLogin: (code) => set({ flow: ["login"], form: null, notice: null, failure: { kind: "http", status: 400, code, fields: [] } }),
@@ -326,15 +351,21 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
         return ok;
       },
 
-      loadLegalDocs: async (force = false) => {
-        const { legalDocsStatus } = get();
-        if (legalDocsStatus === "loading" || (legalDocsStatus === "ready" && !force)) return;
+      loadLegalDocs: (force = false) => {
+        // 이미 받는 중이면(복귀 직후 선반입 등) 그 호출을 나눠 쓴다: `/legal/*`는 한 번만 나가고 부른 쪽은 그 결과를 기다린다
+        if (legalLoading) return legalLoading;
+        if (get().legalDocsStatus === "ready" && !force) return Promise.resolve();
         set({ legalDocsStatus: "loading" });
-        try {
-          set({ legalDocs: await api.fetchLegalDocs(), legalDocsStatus: "ready" });
-        } catch {
-          set({ legalDocsStatus: "failed" });
-        }
+        legalLoading = (async () => {
+          try {
+            set({ legalDocs: await api.fetchLegalDocs(), legalDocsStatus: "ready" });
+          } catch {
+            set({ legalDocsStatus: "failed" });
+          } finally {
+            legalLoading = null;
+          }
+        })();
+        return legalLoading;
       },
 
       submitConsents: async (agreed) => {

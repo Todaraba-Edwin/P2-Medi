@@ -420,6 +420,18 @@ export async function hasSession(): Promise<boolean> {
   return hasAuthSession();
 }
 
+/**
+ * 로그인돼 있을 가능성이 있는가(시작 때 서버를 부를지 정하는 값, FE-04 §3 "복귀 직후 `/me` 1회").
+ * - Supabase: 세션 쿠키가 있을 때만 true. 없으면 게스트가 확실하므로 `/me`·`/profiles`를 부르지 않는다(토큰 없는 호출은 늘 401이다)
+ * - MSW 목: 세션이 워커 메모리에만 있어 서버(`GET /api/me`)만 안다 → true
+ * - 방식 없음(`none`): false(계정 진입점이 숨어 있다)
+ */
+export async function canHaveSession(): Promise<boolean> {
+  const mode = authMode();
+  if (mode === "none") return false;
+  return mode === "mock" ? true : hasAuthSession();
+}
+
 /** 목 전용 응답(`GET /api/auth/identity`, 실제 백엔드에 없다): 공급자와 공급자가 준 표시 이름 */
 const MockIdentitySchema = z.object({ provider: z.string().nullable(), name: z.string().nullable() });
 
@@ -468,6 +480,7 @@ export interface AccountApi {
   logout: typeof logout;
   startSocialLogin: typeof startSocialLogin;
   hasSession: typeof hasSession;
+  canHaveSession: typeof canHaveSession;
   fetchSelfNameDefault: typeof fetchSelfNameDefault;
 }
 
@@ -486,5 +499,6 @@ export const accountApi: AccountApi = {
   logout,
   startSocialLogin,
   hasSession,
+  canHaveSession,
   fetchSelfNameDefault,
 };
