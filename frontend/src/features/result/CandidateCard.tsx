@@ -118,19 +118,21 @@ export function CandidateCard({ candidates, onPick, onOther, selected, readOnly 
                         {pick.name}
                       </b>
                     </p>
-                    <button
-                      type="button"
-                      data-testid="candidate-change"
-                      aria-label={`${group.inputName} ${CANDIDATE_CHANGE_LABEL}`}
-                      disabled={readOnly}
-                      onClick={() => {
-                        focusNext.current = { group: groupIndex, target: "pressed" };
-                        setReopened((prev) => [...prev, group.inputName]);
-                      }}
-                      className={`${TEXT_BUTTON} flex-none`}
-                    >
-                      {CANDIDATE_CHANGE_LABEL}
-                    </button>
+                    {/* 지난 차례(읽기 전용)에는 `바꾸기`를 그리지 않는다(FE-17 U-17이 U-05의 "비활성으로 남김"을 숨김으로 대체) */}
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        data-testid="candidate-change"
+                        aria-label={`${group.inputName} ${CANDIDATE_CHANGE_LABEL}`}
+                        onClick={() => {
+                          focusNext.current = { group: groupIndex, target: "pressed" };
+                          setReopened((prev) => [...prev, group.inputName]);
+                        }}
+                        className={`${TEXT_BUTTON} flex-none`}
+                      >
+                        {CANDIDATE_CHANGE_LABEL}
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <>

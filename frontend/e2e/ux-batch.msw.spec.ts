@@ -50,17 +50,15 @@ for (const width of [393, 1280]) {
         await expect(button.getByTestId("profile-avatar")).toHaveAttribute("data-color", "blue");
         await shot(page, base);
 
-        // 계정 버튼 → 위로 열린 메뉴 맨 위 프로필 목록. 넓은 폭은 마우스를 올리기만 해도 열리고 입력창 초점은 그대로다
+        // 계정 버튼 → 위로 열린 메뉴의 프로필 목록. 마우스를 올려도 열리지 않고 클릭으로 연다(FE-17 U-13이 U-01의 호버 열림을 대체)
         const menu = page.getByTestId("account-menu");
         if (!mobile) {
-          await input(page).focus();
           await button.hover();
-          await expect(menu).toBeVisible();
-          await expect(input(page)).toBeFocused();
-        } else {
-          await button.click();
-          await expect(menu).toBeVisible();
+          await page.waitForTimeout(400);
+          await expect(menu).toHaveCount(0);
         }
+        await button.click();
+        await expect(menu).toBeVisible();
         await expect(menu.getByTestId("target-option")).toHaveText(["게스트로 이용", "나", "첫째"]);
         await expect(menu.getByRole("menuitemradio", { name: "첫째" })).toHaveAttribute("aria-checked", "true");
         const menuBox = (await menu.boundingBox())!;
@@ -100,7 +98,7 @@ for (const width of [393, 1280]) {
         await shot(page, `${base}-color-picker`);
       });
 
-      test("U-05 제품 고르기 뒤: 고른 줄 요약은 남고 안내 줄은 숨으며 말풍선 다음에 진행 표시가 이어진다", async ({ page }) => {
+      test("U-05·U-17 제품 고르기 뒤: 고른 줄 요약은 남고(바꾸기 숨김) 안내 줄은 숨으며 말풍선 없이 진행 표시가 다음 항목으로 이어진다", async ({ page }) => {
         await openApp(page);
         await input(page).fill("mock:되묻기여러 합성 질문");
         await page.getByRole("button", { name: "보내기" }).click();
@@ -110,9 +108,15 @@ for (const width of [393, 1280]) {
         await expect(turn1.getByTestId("candidate-picked")).toHaveCount(2);
         await page.getByTestId("resend-button").click();
         const turn2 = page.locator('[data-turn="turn-2"]');
-        await expect(turn2.getByText(/^고른 약: .+다시 확인$/)).toBeVisible();
-        await expect(turn2.getByRole("status", { name: "진행 상태" })).toBeVisible(); // 기존 진행 표시(약 찾는 중 → 금기 확인 중 → 근거 찾는 중)
+        const progress = turn2.getByRole("status", { name: "진행 상태" });
+        await expect(progress).toBeVisible(); // 기존 진행 표시(약 찾는 중 → 금기 확인 중 → 근거 찾는 중)
+        await expect(page.getByText(/고른 약: /)).toHaveCount(0); // FE-17 U-17: 다시 확인 말풍선은 목록에 없다
+        await expect(turn2.locator('p[data-side="me"]')).toHaveCount(0);
+        // 진행 표시는 고른 줄 요약 카드 바로 다음 항목(사이에 다른 말풍선 없음)
+        expect((await progress.boundingBox())!.y).toBeGreaterThan((await turn1.getByTestId("candidate-card").boundingBox())!.y);
+        expect(await turn2.evaluate((el) => el.firstElementChild?.querySelector('[role="status"]') !== null || el.firstElementChild?.getAttribute("role") === "status")).toBe(true);
         await expect(turn1.getByTestId("candidate-picked")).toHaveCount(2);
+        await expect(turn1.getByTestId("candidate-change")).toHaveCount(0); // FE-17 U-17: 바꾸기 숨김
         await expect(turn1.getByTestId("candidates-line")).toHaveCount(0);
         await expect(turn1.getByTestId("resend-pick")).toHaveCount(0);
         await shot(page, `${base}-u05-progress`);

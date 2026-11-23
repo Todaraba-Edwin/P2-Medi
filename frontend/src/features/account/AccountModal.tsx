@@ -48,9 +48,11 @@ const CORNER_CLASS = `absolute top-2 z-10 grid min-h-11 min-w-11 place-items-cen
  * - 640px 이상 화면: 760×642px(고정 전 로그인 단계의 노트북 표시 크기). 화면이 더 작으면 `min(고정값, 100% - 24px)`
  * - 그보다 좁은 화면: 가로·세로 모두 `100% - 24px`(고정 전 로그인 단계의 모바일 표시 크기)
  * 넘치는 내용은 본문(`account-body`) 안에서만 스크롤한다.
+ * 상자는 `overflow-clip`이다(FE-17 U-14, ISSUE-031): `overflow-hidden`은 스크롤 상자라 안쪽 요소가 초점을 받을 때 브라우저가 상자 자체를 스크롤할 수 있었다
+ * (색 칸의 숨긴 라디오가 상자 기준으로 놓여 상자가 위로 밀리고 아래가 빈 채 남았다). `clip`은 잘라 보이기만 하고 스크롤되지 않는다.
  */
 const MODAL_BOX_CLASS =
-  "@container absolute top-1/2 left-1/2 z-40 flex h-[calc(100%-24px)] w-[calc(100%-24px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-3xl bg-bg shadow-lg outline-none sm:h-[min(642px,calc(100%-24px))] sm:w-[min(760px,calc(100%-24px))]";
+  "@container absolute top-1/2 left-1/2 z-40 flex h-[calc(100%-24px)] w-[calc(100%-24px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-clip rounded-3xl bg-bg shadow-lg outline-none sm:h-[min(642px,calc(100%-24px))] sm:w-[min(760px,calc(100%-24px))]";
 
 export interface AccountModalProps {
   store?: AccountStore;

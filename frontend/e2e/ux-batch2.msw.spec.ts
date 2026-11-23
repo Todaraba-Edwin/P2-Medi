@@ -62,23 +62,17 @@ for (const width of [393, 1280]) {
         await expect(button.getByTestId("profile-avatar")).toBeVisible();
         await shot(page, base);
 
-        // 메뉴: 프로필 관리 → (하위) 누가 먹나요 목록. 넓은 폭은 마우스를 올리기만 해도 열린다
+        // 메뉴: 프로필 관리 → (구분선) 누가 먹나요 섹션. 클릭으로 연다(FE-17 U-13), 섹션은 들여쓰지 않는 독립 섹션(FE-17 U-12가 U-06의 하위 묶음을 대체)
         const menu = page.getByTestId("account-menu");
-        if (!mobile) {
-          await input(page).focus();
-          await button.hover();
-          await expect(menu).toBeVisible();
-          await expect(input(page)).toBeFocused();
-        } else {
-          await button.click();
-          await expect(menu).toBeVisible();
-        }
+        await button.click();
+        await expect(menu).toBeVisible();
         await expect(menu.getByTestId("target-option")).toHaveText(["게스트로 이용", "나", "첫째"]);
         const manageBox = await box(menu.getByTestId("account-entry"));
-        const nested = menu.getByTestId("target-choice-nested");
-        const nestedBox = await box(nested);
-        expect(nestedBox.y).toBeGreaterThanOrEqual(manageBox.y + manageBox.height - 0.5); // 프로필 관리 아래
-        expect(nestedBox.x).toBeGreaterThan(manageBox.x + 8); // 들여쓴 하위
+        const section = menu.getByRole("group", { name: "누가 먹나요" });
+        const sectionBox = await box(section);
+        expect(sectionBox.y).toBeGreaterThanOrEqual(manageBox.y + manageBox.height - 0.5); // 프로필 관리 아래
+        expect(Math.abs((await box(menu.getByTestId("target-option").first())).x - manageBox.x)).toBeLessThanOrEqual(0.5); // 들여쓰지 않는다
+        await expect(menu.getByTestId("target-choice-nested")).toHaveCount(0);
         await expect(menu.getByText("선택 안 함")).toHaveCount(0);
         await shot(page, `${base}-profile-menu`);
 
