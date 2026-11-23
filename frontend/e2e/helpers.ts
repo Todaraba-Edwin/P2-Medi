@@ -143,6 +143,21 @@ export async function pickChoice(scope: Locator, group: string, option: string) 
 }
 
 /**
+ * 프로필 폼의 이름(별명) 칸에 `name`을 적고, 칸 값이 정확히 `name`이 될 때까지 다시 적는다(빈 값 `""`도 같다).
+ * 왜 필요한가(백로그 플래키, 2026-11-23 재현): 카카오 로그인으로 새 본인 프로필을 열면 닉네임 초기값(FE-04-28 B)이 비동기로 도착한다.
+ * Playwright `fill`은 칸을 `select()`한 뒤 **별도 왕복**으로 글자를 넣는데, 그 사이 초기값이 들어오면 커서가 끝으로 가서
+ * 글자가 뒤에 붙는다("삐약이" + "나" = "삐약이나"). 앱은 사용자가 적은 뒤 도착한 초기값으로 칸을 덮지 않으므로(`ProfileForm`의 `typed`)
+ * 한 번 `name`이 들어가면 그대로 남는다. 단언은 약하게 하지 않는다: 적은 직후 값이 `name`과 정확히 같아야 통과한다
+ */
+export async function fillName(scope: Locator, name: string) {
+  const field = scope.getByLabel("이름(별명)");
+  await expect(async () => {
+    await field.fill(name);
+    expect(await field.inputValue()).toBe(name);
+  }).toPass({ intervals: [100, 250, 500], timeout: 5_000 });
+}
+
+/**
  * 프로필 폼의 비어 있는 필수 칸만 채운다(FE-17 U-07: 관계·이름·연령대·성별을 채워야 `저장`이 눌린다). 이름은 시험이 직접 적는다.
  * 이미 고른 칸은 그대로 둔다. 기본: 관계 `자녀`(가족), 연령대 `만 19~64세`, 성별 `남성`(예전 미입력과 같이 임신 여부가 아니오로 저장된다)
  */

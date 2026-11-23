@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, MIN_TOUCH, ask, expectNoHorizontalScroll, expectTouchTarget, openApp, pickTarget, pickChoice, completeRequired } from "./helpers";
+import { HEIGHT, MIN_TOUCH, ask, expectNoHorizontalScroll, expectTouchTarget, openApp, pickTarget, pickChoice, completeRequired, fillName } from "./helpers";
 
 // GROUP-03 2단계 F1(FE-04, 2026-11-20): 프로필 성별(선택) 입력 + 첫 로그인 동의 화면의 "만 14세 이상입니다." 별도 필수 체크.
 // Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다. 실제 백엔드·원격 호출 0.
@@ -108,7 +108,7 @@ for (const width of [393, 1280]) {
       // 글자 색은 토큰이다(하드코딩 색 없음): 버튼이 계산된 색을 갖고 배경과 다르다
       const colors = await sex.getByRole("radio").first().evaluate((el) => ({ fg: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor }));
       expect(colors.fg).not.toBe(colors.bg);
-      await modal(page).getByLabel("이름(별명)").fill("나");
+      await fillName(modal(page), "나");
       await pickChoice(modal(page), "연령대", "만 19~64세");
       await pickChoice(modal(page), "성별", "여성");
       await expectNoHorizontalScroll(page);

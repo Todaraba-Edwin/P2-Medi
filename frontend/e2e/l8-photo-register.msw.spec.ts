@@ -2,7 +2,7 @@ import path from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp, completeRequired } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp, completeRequired, fillName } from "./helpers";
 
 // FE-04-27 A(2026-11-22 사용자 승인) e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0, 실제 사진 0):
 // 온보딩·프로필 폼의 "복용 중인 약(선택)" 아래 `사진으로 등록` → 기존 사진 모달(프로필 목적지: 질문칸 없음) → 확인 카드 → `이대로 확인`
@@ -85,7 +85,7 @@ async function consentToSelfForm(page: Page) {
   await expect(modal(page)).toHaveAttribute("data-step", "profiles");
   await modal(page).getByTestId("add-self").click();
   await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
-  await modal(page).getByLabel("이름(별명)").fill("나");
+  await fillName(modal(page), "나");
 }
 /** 카카오 로그인(목) → 동의 → 본인 프로필 폼(프로필 관리 길) */
 async function openSelfForm(page: Page) {

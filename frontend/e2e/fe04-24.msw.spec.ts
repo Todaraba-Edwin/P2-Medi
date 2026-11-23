@@ -4,7 +4,7 @@ import { deflateSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { AA_NORMAL, failures, measureContrast } from "./contrast";
-import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp, completeRequired } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp, completeRequired, fillName } from "./helpers";
 
 // FE-04-24 A·FE-04-25 A(2026-11-22 사용자 답) e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // - FE-04-24 A 프로필 약 입력: 검색 중(디바운스 대기·요청 중)에는 `그대로 추가`가 비활성, 후보가 있으면 Enter는 첫 후보로 활성만(저장 없음),
@@ -88,7 +88,7 @@ async function openSelfForm(page: Page) {
   await expect(modal(page)).toHaveAttribute("data-step", "profiles");
   await modal(page).getByTestId("add-self").click();
   await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
-  await modal(page).getByLabel("이름(별명)").fill("나");
+  await fillName(modal(page), "나");
 }
 
 /** 사진 입구 → 합성 PNG(ok) → 확인 카드 */

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, expectNoHorizontalScroll, input, openApp, pickTarget, pickChoice, completeRequired } from "./helpers";
+import { HEIGHT, ask, expectNoHorizontalScroll, input, openApp, pickTarget, pickChoice, completeRequired, fillName } from "./helpers";
 
 // GROUP-03 3단계(FE-11-09 C·FE-11-12 A, 2026-11-22) 성별 숨김 e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // - 대상 프로필의 성별이 **남성일 때만** 입력창 안 "일반인 | 임산부" 토글이 숨고 `/chat` `context.pregnant`는 false다
@@ -46,7 +46,7 @@ async function loginWithMaleSelfAndFemaleChild(page: Page) {
   await modal(page).getByTestId("consent-submit").click();
   await expect(modal(page)).toHaveAttribute("data-step", "profiles");
   await modal(page).getByTestId("add-self").click();
-  await modal(page).getByLabel("이름(별명)").fill("나");
+  await fillName(modal(page), "나");
   await pickChoice(modal(page), "성별", "남성");
   await completeRequired(modal(page));
   await modal(page).getByTestId("profile-save").click();

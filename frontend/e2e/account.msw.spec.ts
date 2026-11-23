@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openAccountEntry, openApp, pickTarget, pickChoice, completeRequired } from "./helpers";
+import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openAccountEntry, openApp, pickTarget, pickChoice, completeRequired, fillName } from "./helpers";
 
 // 계정 흐름(FE-04) e2e. Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다.
 // 서버는 브라우저 워커의 목(src/mocks/account-handlers.ts, BE-11 계약과 같은 모양)이고 실제 백엔드·원격 호출은 0이다.
@@ -222,7 +222,7 @@ for (const width of [360, 1280]) {
       await modal(page).getByTestId("add-self").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
       expect(await modalSize(page)).toEqual(size);
-      await modal(page).getByLabel("이름(별명)").fill("나");
+      await fillName(modal(page), "나");
       await pickChoice(modal(page), "연령대", "만 19~64세");
       await pickChoice(modal(page), "성별", "여성"); // 성별(선택)은 `/chat` 요청에 실리지 않는다(아래 bodies)
       await modal(page).getByRole("radio", { name: "예" }).check();
@@ -332,7 +332,7 @@ for (const width of [360, 1280]) {
       await expect(modal(page)).toHaveAttribute("data-step", "profiles");
       await expect(page.getByTestId("confirm-dialog")).toHaveCount(0); // 새로 동의할 때는 확인 모달이 없다
       await modal(page).getByTestId("add-self").click();
-      await modal(page).getByLabel("이름(별명)").fill("나");
+      await fillName(modal(page), "나");
       await pickChoice(modal(page), "성별", "여성"); // 임신 여부 칸은 여성일 때만 보인다(작업 B, 2026-11-22)
       await modal(page).getByRole("radio", { name: "예" }).check();
       await completeRequired(modal(page));
@@ -439,7 +439,7 @@ test.describe("금기 결과 위에서 여는 계정 모달 360px(ISSUE-006 상�
     await modal(page).getByTestId("consent-submit").click();
     await expect(modal(page)).toHaveAttribute("data-step", "profiles");
     await modal(page).getByTestId("add-self").click();
-    await modal(page).getByLabel("이름(별명)").fill("나");
+    await fillName(modal(page), "나");
     await completeRequired(modal(page));
     await modal(page).getByTestId("profile-save").click();
     await modal(page).getByTestId("add-family").click();
