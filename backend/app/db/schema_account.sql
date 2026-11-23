@@ -37,7 +37,7 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
                    WHERE n.nspname = 'account' AND t.typname = 'doc_type') THEN
-        CREATE TYPE account.doc_type AS ENUM ('terms', 'privacy_policy', 'privacy_consent', 'sensitive_consent', 'age_14');
+        CREATE TYPE account.doc_type AS ENUM ('terms', 'privacy_policy', 'privacy_consent', 'sensitive_consent', 'age_14', 'terms_guest');
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
                    WHERE n.nspname = 'account' AND t.typname = 'sex') THEN
@@ -57,6 +57,8 @@ $$;
 -- 이미 적용된 DB(age_14 이전 enum)에 값을 더한다. PG 12+는 트랜잭션 안에서도 되지만 **새 값은 커밋 뒤에만 쓸 수 있다**:
 -- 이 파일 안에서는 'age_14'를 실행 시점에 쓰지 않는다(plpgsql 본문은 호출 때 평가). 시드(seed_legal_age14.sql)는 이 파일을 커밋한 뒤 따로 실행한다
 ALTER TYPE account.doc_type ADD VALUE IF NOT EXISTS 'age_14';
+-- PRD-17-22 A: 게스트판 이용약관 문서 종류. 시드(seed_legal_guest_v1.sql)는 이 값이 커밋된 뒤 따로 실행한다(migrate_doc_type_terms_guest.sql과 같은 문장)
+ALTER TYPE account.doc_type ADD VALUE IF NOT EXISTS 'terms_guest';
 
 -- 문서 본문 해시(생성 열 body_sha256용). convert_to()가 STABLE이라 생성 열에 바로 쓰면 "generation expression is not immutable"로
 -- CREATE TABLE이 실패한다(2026-11-19 로컬 PG 17 재현). 결과는 입력 문자열의 UTF-8 바이트에만 달려 IMMUTABLE로 선언한다.

@@ -96,7 +96,7 @@ def test_triggers_cover_limits_health_and_withdraw():
 def test_schema_sex_column_and_age_14_doc_type():
     """GROUP-03 B1: 성별 enum(female·male, '기타' 없음)·이미 적용된 DB에도 더하는 ALTER 두 줄·age_14 철회 금지."""
     assert "CREATE TYPE account.sex AS ENUM ('female', 'male');" in NO_COMMENTS
-    assert "'sensitive_consent', 'age_14');" in NO_COMMENTS  # 새 DB
+    assert "'sensitive_consent', 'age_14', 'terms_guest');" in NO_COMMENTS  # 새 DB
     assert "ALTER TYPE account.doc_type ADD VALUE IF NOT EXISTS 'age_14';" in NO_COMMENTS  # 이미 적용된 DB
     assert "ALTER TABLE account.profiles ADD COLUMN IF NOT EXISTS sex account.sex;" in NO_COMMENTS
     health = re.search(r"FUNCTION account\.enforce_health_consent_profile\(\).*?\$\$;", NO_COMMENTS, re.S)

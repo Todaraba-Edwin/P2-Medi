@@ -27,7 +27,7 @@ FAKE_REMOTE = "postgresql://user@db.example.invalid:5432/postgres"
 EFFECTIVE = "2026-11-21T00:00:00+09:00"
 ALL_KEYS = [("terms", 1), ("privacy_policy", 1), ("privacy_consent", 1), ("sensitive_consent", 1),
             ("terms", 2), ("privacy_policy", 2), ("privacy_consent", 2), ("sensitive_consent", 2), ("age_14", 1),
-            ("terms", 3), ("privacy_policy", 3), ("privacy_policy", 4), ("privacy_policy", 5)]
+            ("terms", 3), ("privacy_policy", 3), ("privacy_policy", 4), ("privacy_policy", 5), ("terms_guest", 1), ("privacy_policy", 6)]
 
 
 FAKE_NAME, FAKE_EMAIL = "가짜책임자", "officer@example.invalid"  # 시험용 가짜 값(실제 .env 값을 쓰지 않음)
@@ -42,7 +42,12 @@ def _no_env_contact(monkeypatch):
 def _fill_v2(effective_at, version=1, _orig=m.seed_sql):
     """시험 전용: v2의 남은 자리표시를 시험값으로 채운다(원본 파일은 그대로)."""
     sql = _orig(effective_at, version)
-    return re.sub(r"\{\{(?!…\}\})[^{}\n]+\}\}", "시험값", sql) if version in (2, 3, 4, 5) else sql
+    return re.sub(r"\{\{(?!…\}\})[^{}\n]+\}\}", "시험값", sql) if version in (2, 3, 4, 5, 6) else sql
+
+
+def _fill_guest(effective_at, _orig=m.seed_guest_sql):
+    """시험 전용: 게스트판의 연락처 자리표시를 시험값으로 채운다."""
+    return re.sub(r"\{\{(?!…\}\})[^{}\n]+\}\}", "시험값", _orig(effective_at))
 
 
 # --------------------------------------------------------------------------- 가짜 연결
@@ -62,10 +67,10 @@ class Cur:
         return self._res
 
 
-def applied_answers(legal=None, enum=("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"), sex=True,
+def applied_answers(legal=None, enum=("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14", "terms_guest"), sex=True,
                     current=None):
     legal = [(t, v, "published") for t, v in ALL_KEYS] if legal is None else legal
-    current = [("age_14", 1), ("terms", 3), ("privacy_policy", 5)] if current is None else current
+    current = [("age_14", 1), ("terms", 3), ("privacy_policy", 6), ("terms_guest", 1)] if current is None else current
     return {
         "to_regclass('auth.users')": [(True,)], "to_regprocedure('auth.uid()')": [(True,)],
         "FROM pg_roles": [("anon",), ("authenticated",)],
@@ -147,7 +152,7 @@ def run(argv, conn, flag_path, log=None):
 
 def test_steps_order_and_keys():
     steps = m.build_steps(datetime(2026, 11, 21, tzinfo=UTC))
-    assert [s.name for s in steps] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5"]
+    assert [s.name for s in steps] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6"]
     assert m.expected_keys(steps) == ALL_KEYS
     assert steps[0].keys == [] and steps[0].placeholders == []
 
@@ -192,8 +197,10 @@ def test_verify_ok_and_read_only(remote_env, flag):
     (applied_answers(sex=False), "schema_problems"),
     (applied_answers(legal=[(t, v, "published") for t, v in ALL_KEYS if v == 1]), "seed_rows_missing"),
     (applied_answers(current=[("terms", 2)]), "age_14_current"),
-    (applied_answers(current=[("age_14", 1), ("terms", 2), ("privacy_policy", 2)]), "terms_v3_privacy_v5_current"),
-    (applied_answers(current=[("age_14", 1), ("terms", 3), ("privacy_policy", 3)]), "terms_v3_privacy_v5_current"),
+    (applied_answers(current=[("age_14", 1), ("terms", 2), ("privacy_policy", 2)]), "terms_v3_privacy_v6_current"),
+    (applied_answers(current=[("age_14", 1), ("terms", 3), ("privacy_policy", 3)]), "terms_v3_privacy_v6_current"),
+    (applied_answers(current=[("age_14", 1), ("terms", 3), ("privacy_policy", 6)]), "terms_guest_v1_current"),
+    (applied_answers(enum=("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14")), "terms_guest_enum"),
 ])
 def test_verify_fails_when_something_missing(remote_env, flag, answers, problem):
     out, _ = run(["verify"], Conn(answers), flag)
@@ -248,23 +255,25 @@ def test_local_dsn_apply_needs_no_flag_but_still_yes(tmp_path):
 
 # --------------------------------------------------------------------------- apply(가짜 연결)
 
-def test_apply_runs_seven_transactions(remote_env, flag, monkeypatch):
+def test_apply_runs_ten_transactions(remote_env, flag, monkeypatch):
     monkeypatch.setattr(m, "seed_sql", _fill_v2)
+    monkeypatch.setattr(m, "seed_guest_sql", _fill_guest)
     conn = Conn(applied_answers())
     out, f = run(["apply", "--yes", "--effective-at", EFFECTIVE], conn, flag)
     assert f.calls == 1 and conn.read_only is False and conn.closed
-    assert conn.commits == 7
+    assert conn.commits == 10
     rep = out["apply"]
-    assert [k for k in rep if k[0].isdigit()] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5"]
-    assert all(rep[k]["inserted"] == 0 for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5"))  # 가짜 DB는 이미 적용 상태
+    assert [k for k in rep if k[0].isdigit()] == ["1 schema", "2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "8 enum terms_guest", "9 seed terms_guest v1", "10 seed v6"]
+    assert all(rep[k]["inserted"] == 0 for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5", "9 seed terms_guest v1", "10 seed v6"))  # 가짜 DB는 이미 적용 상태
     schema_text = m.schema_sql()
     assert schema_text in conn.executed
     seeds = [s for s in conn.executed if "INSERT INTO account.legal_documents" in s]
-    assert len(seeds) == 6 and all(m.unfilled_placeholders(s) == [] for s in seeds)
+    assert len(seeds) == 8 and all(m.unfilled_placeholders(s) == [] for s in seeds)
 
 
 def test_apply_stops_when_schema_postcheck_fails(remote_env, flag, monkeypatch):
     monkeypatch.setattr(m, "seed_sql", _fill_v2)
+    monkeypatch.setattr(m, "seed_guest_sql", _fill_guest)
     conn = Conn(applied_answers(sex=False))
     with pytest.raises(m.StageAbort, match="profiles.sex"):
         run(["apply", "--yes", "--effective-at", EFFECTIVE], conn, flag)
@@ -274,6 +283,7 @@ def test_apply_stops_when_schema_postcheck_fails(remote_env, flag, monkeypatch):
 
 def test_apply_stops_when_auth_missing(remote_env, flag, monkeypatch):
     monkeypatch.setattr(m, "seed_sql", _fill_v2)
+    monkeypatch.setattr(m, "seed_guest_sql", _fill_guest)
     answers = applied_answers()
     answers["FROM pg_roles"] = [("authenticated",)]
     conn = Conn(answers)
@@ -359,6 +369,7 @@ def test_local_pg_plan_apply_rerun_verify(scratch_dsn, monkeypatch, tmp_path):
     assert m.main(["verify", "--local-dsn", scratch_dsn], flag=no_flag, log=quiet)["verify"]["state"]["account_schema"] is False
 
     monkeypatch.setattr(m, "seed_sql", _fill_v2)
+    monkeypatch.setattr(m, "seed_guest_sql", _fill_guest)
     first = m.main(["apply", "--yes", "--local-dsn", scratch_dsn, "--effective-at", eff], flag=no_flag, log=quiet)["apply"]
     assert [first[k]["inserted"] for k in ("2 seed v1", "3 seed v2", "4 seed age_14", "5 seed v3", "6 seed v4", "7 seed v5")] == [4, 4, 1, 2, 1, 1]
     after = first["after"]
@@ -423,7 +434,7 @@ def test_apply_with_contact_inserts_rendered_seed_and_logs_no_value(remote_env, 
     out = m.main(["apply", "--yes", "--effective-at", EFFECTIVE], connect_fn=Factory(conn), flag=flag, log=logs.append,
                  contact=(FAKE_NAME, FAKE_EMAIL))
     seeds = [s for s in conn.executed if "INSERT INTO account.legal_documents" in s]
-    assert len(seeds) == 6 and all(m.unfilled_placeholders(s) == [] for s in seeds)
+    assert len(seeds) == 8 and all(m.unfilled_placeholders(s) == [] for s in seeds)
     assert any(f"개인정보 보호책임자: {FAKE_NAME}, 문의: {FAKE_EMAIL}" in s for s in seeds)
     text = "\n".join(logs) + repr(out)
     assert FAKE_NAME not in text and FAKE_EMAIL not in text
