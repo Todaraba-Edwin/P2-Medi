@@ -145,6 +145,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/default-target": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 기본 프로필(대상) 저장: 마지막으로 고른 대상(게스트로 이용 포함)
+         * @description 고를 때마다 저장한다. 값은 `"guest"`·본인 프로필 UUID·null(미설정 → 새 세션에서 클라이언트가 본인 선택). 게스트 토큰은 401.
+         *
+         *     받은 값은 로그·오류에 남기지 않는다. 질문·대화는 저장하지 않으며 건강 정보가 아닌 프로필 선택 상태다(CLAUDE.md 1장 최소 항목).
+         */
+        put: operations["put_default_target_me_default_target_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/profiles": {
         parameters: {
             query?: never;
@@ -439,6 +461,19 @@ export interface components {
             label: string;
             /** Value */
             value: string | null;
+        };
+        /**
+         * DefaultTargetBody
+         * @description `PUT /me/default-target` 본문. `target`은 필수 칸(null = 미설정으로 되돌리기)이고 `"guest"` 또는 프로필 UUID 문자열만 받는다.
+         */
+        DefaultTargetBody: {
+            /** Target */
+            target: string | null;
+        };
+        /** DefaultTargetOut */
+        DefaultTargetOut: {
+            /** Target */
+            target: string | null;
         };
         /**
          * DetailItem
@@ -843,6 +878,8 @@ export interface components {
         MeResponse: {
             /** Consents */
             consents: components["schemas"]["ConsentState"][];
+            /** Default Target */
+            default_target?: string | null;
             /** Health Consent Active */
             health_consent_active: boolean;
             /**
@@ -1541,6 +1578,84 @@ export interface operations {
             };
             /** @description AUTH_DELETE_FAILED: 앱 데이터는 지웠고 로그인 계정 삭제가 실패했다. 다시 요청하면 이어서 지운다(멱등). */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description AUTH_UNAVAILABLE(검증 서버) 또는 ACCOUNT_UNAVAILABLE(저장소). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    put_default_target_me_default_target_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefaultTargetBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefaultTargetOut"];
+                };
+            };
+            /** @description AUTH_REQUIRED·AUTH_INVALID(계정 행 없음 포함). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description CONSENT_REQUIRED·RECONSENT_REQUIRED(fields=문서 종류). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 없는 프로필(남의 것 포함, 소유 여부 비노출). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description INVALID_REQUEST 등 형식·상한·건강 정보 동의 오류. 입력 값은 되돌려 주지 않는다. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 토큰 검증기 또는 계정 저장소 미설정(의도된 상태). */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };

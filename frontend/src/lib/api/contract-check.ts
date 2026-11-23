@@ -69,6 +69,11 @@ export type ContractChecks = [
   Expect<Conforms<typeof A.MeSchema, Gen["MeResponse"]>>,
   Expect<Conforms<typeof A.MedicationSchema, Gen["MedicationOut"]>>,
   Expect<Conforms<typeof A.ProfileSchema, Gen["ProfileOut"]>>,
+  // 기본 대상(FE-17 U-08, `PUT /me/default-target`): 응답 모양, 본문 칸, `MeResponse.default_target`
+  Expect<Conforms<typeof A.DefaultTargetResultSchema, Gen["DefaultTargetOut"]>>,
+  Expect<SameKeys<A.DefaultTargetBody, { target: A.DefaultTarget }>>,
+  Expect<Extends<A.DefaultTarget, A.DefaultTargetBody["target"]>>,
+  Expect<Extends<NonNullable<A.Me["default_target"]> | null, NonNullable<Gen["MeResponse"]["default_target"]> | null>>,
   Expect<Extends<Gen["LegalDocumentOut"]["doc_type"], A.LegalDocType>>,
   Expect<Extends<Gen["LegalDocumentOut"]["legal_review"], z.infer<typeof A.LegalReviewSchema>>>,
   Expect<Extends<Gen["ConsentState"]["doc_type"], A.ConsentDocType>>,
