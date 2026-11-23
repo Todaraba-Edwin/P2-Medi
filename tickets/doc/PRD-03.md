@@ -2,7 +2,7 @@
 id: PRD-03
 label: PRD
 title: 평가 리포트 작성(데이터셋·전후 수치·한계)
-sch: SCH-03
+sch: SCH-04
 status: todo
 priority: 필수
 rfp: [DELIV-11, RFP-9장]

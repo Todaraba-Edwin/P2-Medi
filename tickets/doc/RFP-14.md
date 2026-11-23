@@ -2,7 +2,7 @@
 id: RFP-14
 label: RFP
 title: 리스크(12장) 대응 이행 추적
-sch: SCH-03
+sch: SCH-04
 status: todo
 priority: 필수
 rfp: [RISK-12]

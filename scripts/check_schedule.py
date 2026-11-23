@@ -11,7 +11,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 DIRS = {"AG": "agent", "BE": "backend", "FE": "frontend", "RFP": "doc", "PRD": "doc"}
-ORDER = {"SCH-00": 0, "SCH-01": 1, "SCH-02": 2, "SCH-03": 3}
+# 2026-11-23 개편: SCH-03 = W3-1 develop(11-23), SCH-04 = W3-2 evaluation(11-24~26), SCH-05 = 백로그(27일 발표 이후)
+ORDER = {"SCH-00": 0, "SCH-01": 1, "SCH-02": 2, "SCH-03": 3, "SCH-04": 4, "SCH-05": 5}
 errors, warns = [], []
 
 
@@ -49,7 +50,8 @@ for src, text in (("schedule.md", s), ("schedule-done.md", dn)):
             cur = m.group(1)
         elif line.startswith("## ") and not line.startswith("## SCH"):
             cur = None
-        r = re.match(r"^\| `\[(.)\]` \| `([A-Z]+-\d+)` \| \[(.*?)\]\((.*?)\) \|", line)
+        # 2026-11-23 개편: 3열 표(`[ ]` | `ID` [제목](링크) | 메모)와 옛 5열 표(`[ ]` | `ID` | [제목](링크) | ...) 둘 다 읽는다
+        r = re.match(r"^\| `\[(.)\]` \| `([A-Z]+-\d+)` \[(.*?)\]\((.*?)\) \|", line) or re.match(r"^\| `\[(.)\]` \| `([A-Z]+-\d+)` \| \[(.*?)\]\((.*?)\) \|", line)
         if r and cur:
             if src == "schedule.md" and r.group(1) == "x":
                 errors.append(f"{r.group(2)}: 완료([x]) 행은 schedule-done.md로 옮겨야 함")
@@ -131,31 +133,31 @@ for i, m in tick.items():
         errors.append(f"{i}: 깨진 앵커 {bad[:2]}")
 
 # Top 5: 트랙 4표(RFP-30-05 A). 절 제목·앵커는 그대로 두고 그 안의 "### 트랙" 표를 읽는다.
+# 2026-11-23 개편: 트랙 표 제목은 소문자 ag·be·fe·docs(옛 Agent·BackEnd·FrontEnd·Docs도 허용)
 TRACKS = {"Agent": ("AG",), "BackEnd": ("BE",), "FrontEnd": ("FE",), "Docs": ("RFP", "PRD")}
+TRACK_ALIAS = {"ag": "Agent", "be": "BackEnd", "fe": "FrontEnd", "docs": "Docs"}
 PROG = ("병렬", "부분 병렬", "직렬")
 sec = s.split("## 지금 해야 할 일 (Top 5)")[1].split("\n## ")[0] if "## 지금 해야 할 일 (Top 5)" in s else ""
 tsec = {}
 for blk in re.split(r"^### ", sec, flags=re.M)[1:]:
     name = blk.split("\n", 1)[0].strip()
+    name = TRACK_ALIAS.get(name.lower(), name)
     if name in TRACKS:
         tsec[name] = blk
 for name in TRACKS:
     if name not in tsec:
         errors.append(f"Top 5: '### {name}' 트랙 표 없음")
-# 행: 완료 | SCH | Label | Title | 진행 | 선행 | 지금 할 수 있는 것 | ⛔ | 완료일
-ROW = re.compile(r"^\| `\[.\]` \| (SCH-\d+) \| `([A-Z]+-\d+)` \|(.*)\|\s*$", re.M)
+# 2026-11-23 개편: 행은 3열 `| [ID](링크) 제목 | 진행 | ⛔번호 지금 할 일 |`. SCH는 티켓 frontmatter에서 읽는다(옛 9열 표는 더 쓰지 않는다).
+ROW = re.compile(r"^\| \[([A-Z]+-\d+)\]\([^)]*\)[^|]*\|([^|]*)\|(.*)\|\s*$", re.M)
 top, rows = [], []
 for name, blk in tsec.items():
     rs = ROW.findall(blk)
     if len(rs) > 5:
         errors.append(f"Top 5 {name}: 행 수 {len(rs)}개(트랙당 최대 5행)")
-    for sc, i, rest in rs:
-        cells = [c.strip() for c in rest.split("|")]
-        if len(cells) != 6:
-            errors.append(f"Top 5 {name} {i}: 열 수가 맞지 않음(완료·SCH·Label·Title·진행·선행·지금 할 수 있는 것·⛔·완료일)")
-            continue
+    for i, prog_, cell_ in rs:
+        sc = tick[i]["sch"] if i in tick else "?"
         top.append((sc, i))
-        rows.append((name, i, cells[1], cells[3], cells[4]))
+        rows.append((name, i, prog_.strip(), cell_.strip(), cell_.strip()))
         if not i.startswith(tuple(p + "-" for p in TRACKS[name])):
             errors.append(f"Top 5 {name}: {i}는 이 트랙의 접두어({'·'.join(TRACKS[name])})가 아님")
 ids = [i for _, i in top]
@@ -169,15 +171,24 @@ for sc, i in top:
         continue
     if m["status"] in ("done", "dropped"):
         errors.append(f"Top 5: {i}는 {m['status']}라 목록에 있으면 안 됨")
-    if m["sch"] != sc:
-        errors.append(f"Top 5: {i} SCH 표기 불일치")
+    if m["sch"] == "SCH-05":
+        errors.append(f"Top 5: {i}는 백로그(SCH-05)라 목록에 있으면 안 됨")
 for name, i, prog, now, _ in rows:
     # 직렬 그룹(2026-11-19 사용자 지시): `직렬(GROUP-nn …)`도 직렬로 본다
-    if prog not in PROG and not re.fullmatch(r"직렬\(GROUP-\d{2}[^)]*\)", prog):
+    # 2026-11-23 개편: `부분 병렬(AG-12와 병행)`처럼 괄호 설명을 허용한다. 기본형(괄호 앞)과 GROUP 표기로 검사한다
+    grp = bool(re.fullmatch(r"직렬\(GROUP-\d{2}[^)]*\)", prog))
+    base = re.sub(r"\(.*\)$", "", prog).strip()
+    if grp:
+        prog = "직렬(GROUP)"
+    elif base in PROG:
+        prog = base
+    if prog not in PROG and not grp:
         errors.append(f"Top 5 {name} {i}: 진행 '{prog}'는 {'·'.join(PROG)} 중 하나여야 함")
         continue
     undone = [p for p in tick.get(i, {}).get("pre", []) if p in tick and tick[p]["status"] != "done"]
-    if prog == "병렬":
+    if grp:
+        pass
+    elif prog == "병렬":
         for p in undone:
             if p not in ids:
                 errors.append(f"Top 5 {name} {i}: 병렬인데 선행 {p}가 미완이고 트랙 표에도 없음(부분 병렬·직렬로)")
@@ -188,7 +199,7 @@ for name, i, prog, now, _ in rows:
             if p not in ids:
                 warns.append(f"Top 5 {name} {i}: 직렬로 기다리는 선행 {p}가 트랙 표에 없음(진행하는 곳이 없음)")
     elif not now or now == "-":
-        errors.append(f"Top 5 {name} {i}: 부분 병렬인데 '지금 할 수 있는 것'이 비어 있음")
+        errors.append(f"Top 5 {name} {i}: 부분 병렬인데 '지금 할 일'이 비어 있음")
 # Top 5에 들어가야 할 후보 경고: 가장 앞선 SCH의 미완 티켓 중 선행이 모두 done인 필수 티켓이 Top 5 밖에 있는지
 ready = [i for i, m in tick.items() if m["status"] in ("todo", "doing") and m["priority"] == "필수" and all(tick[p]["status"] == "done" for p in m["pre"] if p in tick)]
 lowest = min((ORDER[tick[i]["sch"]] for i in ready), default=None)
@@ -210,14 +221,10 @@ for i, m_ in tick.items():
 pending = {k for k, v in dec.items() if v == "대기"}
 sec2 = s.split("### 먼저 답할 결정")[1].split("\n## ")[0] if "### 먼저 답할 결정" in s else ""
 listed = set(re.findall(r"^\| ((?:RFP|PRD|AG|BE|FE)-\d+-\d{2}) \|", sec2, re.M))
-# "먼저 답할 결정" 표의 읽을 곳 열: 모든 행에 링크가 있어야 한다
-hdr = re.search(r"^\| 번호 \|(.*)$", sec2, re.M)
-if not hdr or "읽을 곳" not in hdr.group(0):
-    errors.append("'먼저 답할 결정' 표에 '읽을 곳' 열이 없음")
-else:
-    for row in re.findall(r"^\| ((?:RFP|PRD|AG|BE|FE)-\d+-\d{2}) \|(.*)$", sec2, re.M):
-        if "](" not in row[1]:
-            errors.append(f"{row[0]}: '읽을 곳'에 링크가 없음")
+# 2026-11-23 개편: 표가 3열(번호·질문·권장)이라 '읽을 곳' 열 대신 각 행 안에 링크가 있어야 한다(검사 유지, 위치만 변경)
+for row in re.findall(r"^\| ((?:RFP|PRD|AG|BE|FE)-\d+-\d{2}) \|(.*)$", sec2, re.M):
+    if "](" not in row[1]:
+        errors.append(f"{row[0]}: '먼저 답할 결정' 행에 읽을 곳 링크가 없음")
 for k in sorted(pending - listed):
     errors.append(f"{k}: 티켓에서 대기인데 schedule.md '먼저 답할 결정' 표에 없음")
 for k in sorted(listed - pending):
@@ -249,7 +256,7 @@ def expand(cell):
         out |= {f"{pre}-{n}" for n in nums.split("·")}
     return out
 for _, i, _, _, cell in rows:
-    shown = expand(cell)
+    shown = expand(cell.split("⛔")[1].split("·")[0]) if "⛔" in cell else set()
     mine = {k for k in pending if k.startswith(i + "-")}
     if not mine <= shown:
         errors.append(f"Top 5 {i}: 대기 결정 {sorted(mine - shown)}이 ⛔ 칸에 없음")
@@ -296,7 +303,8 @@ for m_ in tick.values():
         continue
     cnt[m_["sch"]][1] += 1
     cnt[m_["sch"]][0] += m_["status"] == "done"
-prog = re.findall(r"^\| (SCH-\d+) \| [^|]+\| (\d+)/(\d+) \|", s, re.M)
+# 2026-11-23 개편: 3열 표 `| SCH | 기간 | 완료/전체 · 필수 n / 권장 n |`
+prog = re.findall(r"^\| (SCH-\d+) \| [^|]+\| (\d+)/(\d+)", s, re.M)
 for sc, a, b in prog:
     if [int(a), int(b)] != cnt[sc]:
         errors.append(f"진행 현황 {sc} {a}/{b} != 실제 {cnt[sc][0]}/{cnt[sc][1]}")
@@ -312,7 +320,7 @@ for m_ in tick.values():
     if m_["status"] != "dropped":
         pri[m_["sch"]][m_.get("priority", "").strip()] += 1
 for line in s.split("\n"):
-    r = re.match(r"^\| (SCH-\d+) \| [^|]+\| \d+/(\d+) \|(.*)$", line)
+    r = re.match(r"^\| (SCH-\d+) \| [^|]+\| \d+/(\d+)(.*)$", line)
     mm = r and re.search(r"필수\s*(\d+)\s*/\s*권장\s*(\d+)(?:\s*/\s*확장\s*(\d+))?", r.group(3))
     if not mm:
         continue
@@ -325,6 +333,9 @@ for line in s.split("\n"):
 # ② Recap 표의 번호는 겹치지 않고 오름차순이어야 한다("Recap N번"으로 찾아가므로).
 #    끝난 행을 지워 번호가 비는 것은 허용한다(남은 행 번호를 바꾸면 기존 인용이 어긋난다, 2026-11-16)
 rec = s.split("## Recap")[1].split("\n## ")[0] if "## Recap" in s else ""
+# 2026-11-23 개편 추가: Recap '현재 상태' 단락은 정확히 1개(CLAUDE.md 5장, RFP-30-04)
+if len(re.findall(r"^\*\*현재 상태", rec, re.M)) != 1:
+    errors.append("Recap '**현재 상태' 단락은 정확히 1개여야 함")
 nums = [int(x) for x in re.findall(r"^\| (\d+) \|", rec, re.M)]
 if nums != sorted(set(nums)):
     errors.append(f"Recap 표 번호가 겹치거나 오름차순이 아님: {nums}")

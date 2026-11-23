@@ -2,7 +2,7 @@
 id: PRD-05
 label: PRD
 title: 발표 자료 작성(MediAgent 포트폴리오 발표.pdf)
-sch: SCH-03
+sch: SCH-04
 status: todo
 priority: 필수
 rfp: [DELIV-11]

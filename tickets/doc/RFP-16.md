@@ -2,7 +2,7 @@
 id: RFP-16
 label: RFP
 title: 산출물(11장) 5종 제출 체크
-sch: SCH-03
+sch: SCH-04
 status: todo
 priority: 필수
 rfp: [DELIV-11]
