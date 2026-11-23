@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { AA_NORMAL, failures, measureContrast } from "./contrast";
-import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openAccountEntry, openApp } from "./helpers";
 
 // FE-04-15 A(2026-11-19)·FE-04-26 A(2026-11-22, 문구 1안 승인) e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // 프로필 저장이 끝나면 목록 화면 맨 위(설명 아래)에 완료 안내 한 줄(`role="status"`) + `질문하러 가기`. 버튼은 모달을 닫고 질문 입력창에 초점을 둔다.
@@ -74,12 +74,8 @@ for (const width of [393, 1280]) {
         await expect(modal(page)).toHaveCount(0);
         await expect(page.locator("textarea")).toBeFocused();
         await shot(page, "closed", scheme);
-        // 다시 열면(프로필 관리: 넓은 폭은 사이드바 레일, 좁은 폭은 ☰ 드로어) 안내는 없다
-        if (width >= 1024) await page.getByTestId("account-entry").first().click();
-        else {
-          await page.getByTestId("menu-button").click();
-          await page.getByTestId("menu-drawer").getByTestId("account-entry").click();
-        }
+        // 다시 열면(계정 메뉴의 프로필 관리: 넓은 폭은 사이드바, 좁은 폭은 ☰ 드로어) 안내는 없다
+        await openAccountEntry(page);
         await expect(modal(page)).toHaveAttribute("data-step", "profiles");
         await expect(notice(page)).toHaveCount(0);
       });

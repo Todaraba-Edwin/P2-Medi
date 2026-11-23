@@ -1,18 +1,16 @@
 "use client";
 
 import { useEffect, useReducer, useRef, useState } from "react";
-import { SettingsIcon, UserIcon } from "lucide-react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
 import { NoMascotZone } from "@/components/NoMascotZone";
-import { AccountMenu, AccountModal, EntryChoice, LOGIN_ENTRY_LABEL, MANAGE_PROFILES_LABEL, TargetPicker, isAccountEntryEnabled, openAccountModal } from "@/features/account";
+import { AccountMenu, AccountModal, EntryChoice, LegalDialog, TargetPicker, isAccountEntryEnabled, openAccountModal } from "@/features/account";
 import { failureMessage } from "@/features/account/parts";
 import { ChatInput, ExampleChips, HomeHero, PREGNANCY_SAVE_CONSENT_HINT } from "@/features/chat";
 import { EmergencyBanner, FixedNoticeBox, LegalFooter, StartEmergencyLink } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
 import { PhotoModal } from "@/features/photo";
 import type { ChatInputFromPhoto } from "@/features/photo";
-import { SETTINGS_LABEL, SettingsDialog } from "@/features/settings";
 import { groupCandidates } from "@/features/result";
 import { DISCLAIMER, START_EMERGENCY_119 } from "@/lib/fixed/phrases.generated";
 import { AUTH_CALLBACK_ERROR_CODES, takeAuthErrorFromLocation, takeAuthResumeFromLocation } from "@/lib/supabase/callback";
@@ -27,7 +25,7 @@ import { Conversation } from "./Conversation";
 import { EmergencyEntry } from "./EmergencyEntry";
 import { NOT_SAVED_SHORT, SYNTHETIC_DEMO_NOTICE, resendBubbleText } from "./copy";
 import { computeLayout, initialShellState, isDesktopWidth, shellReducer } from "./layout-rules";
-import { IconButton, MenuButton, MenuDrawer, SidebarColumn, SidebarOverlay } from "./Sidebar";
+import { MenuButton, MenuDrawer, SidebarColumn, SidebarOverlay } from "./Sidebar";
 import { useViewportWidth } from "./useViewportWidth";
 
 /**
@@ -76,10 +74,8 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const turns = useChatStore((state) => state.turns, store);
   const emergency = useChatStore((state) => state.emergency, store);
   const [shell, dispatch] = useReducer(shellReducer, initialShellState);
-  /** 설정 화면(화면 모드) 열림 여부. 계정과 상관없이 게스트도 연다(FE-12-03 B) */
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  /** 설정 화면을 열 때 초점을 둘 묶음: 계정 메뉴의 `약관·정책` 행에서 열면 "legal"(2026-11-23). 닫히면 되돌린다 */
-  const [settingsFocus, setSettingsFocus] = useState<"legal" | null>(null);
+  /** 약관·정책 열람 화면 열림 여부(계정 메뉴의 `약관·정책` 항목, 2026-11-23). 계정과 상관없이 게스트도 연다. 화면 모드는 메뉴 안에서 바로 고른다(FE-12-03 B) */
+  const [legalOpen, setLegalOpen] = useState(false);
   /** 되묻기에서 고른 후보(차례별 → 묶음 `input_name`별, 메모리) */
   const [picked, setPicked] = useState<Record<string, Record<string, Candidate>>>({});
   /** 사이드바 오버레이·드로어를 그릴 자리(119 배너 아래 영역) */
@@ -258,19 +254,31 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     if (layout.sidebarOverlay) dispatch({ type: "collapseSidebar" });
     openAccountModal(account);
   };
-  // 설정 화면을 열 때도 드로어·사이드바 오버레이는 닫는다(층을 겹치지 않는다). `focus: "legal"`이면 약관·정책 묶음으로 초점을 둔다
-  const openSettings = (focus: "legal" | null = null) => {
+  // 약관·정책 열람 화면을 열 때도 드로어·사이드바 오버레이는 닫는다(층을 겹치지 않는다)
+  const openLegal = () => {
     dispatch({ type: "closeDrawer" });
     if (layout.sidebarOverlay) dispatch({ type: "collapseSidebar" });
-    setSettingsFocus(focus);
-    setSettingsOpen(true);
+    setLegalOpen(true);
+  };
+  // 열람 화면이 닫히면 초점은 연 계정 메뉴 버튼으로. 그 버튼이 사라졌으면(드로어·오버레이 안 버튼) ☰·사이드바 버튼으로
+  const legalClosed = (event: Event) => {
+    event.preventDefault();
+    // 셀렉터를 하나씩 찾는다(한 셀렉터로 묶으면 문서 순서상 앞에 있는 사이드바 버튼이 먼저 잡힌다)
+    for (const testId of ["account-menu-button", "menu-button", "sidebar-toggle"]) {
+      const target = layer?.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+      if (target) {
+        target.focus();
+        return;
+      }
+    }
   };
   const startGuest = () => {
     account.getState().startGuest();
     focusInput();
   };
-  // 계정 자리는 항상 그린다: 게스트도 "설정"으로 화면 모드를 고를 수 있다(계정 기능이 꺼져 있으면 "로그인/가입"만 빠진다)
-  const accountMenu = <AccountMenu member={member} accountEnabled={accountEnabled} onOpen={openAccount} onLogout={() => void account.getState().logout()} onSettings={() => openSettings()} onLegal={() => openSettings("legal")} />;
+  // 계정 자리는 항상 그린다: 게스트도 메뉴에서 화면 모드·약관·정책을 연다(계정 기능이 꺼져 있으면 "로그인/가입" 항목만 빠진다)
+  const menuProps = { member, accountEnabled, container: layer, onOpen: openAccount, onLogout: () => void account.getState().logout(), onLegal: openLegal };
+  const accountMenu = <AccountMenu {...menuProps} />;
 
   const first = turns[0];
   const last = turns[turns.length - 1];
@@ -298,14 +306,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               onToggle={() => dispatch({ type: "toggleSidebar" })}
               railAccount={
                 <div className="mt-auto flex flex-col items-center gap-1.5">
-                  {accountEnabled && (
-                    <IconButton label={member ? MANAGE_PROFILES_LABEL : LOGIN_ENTRY_LABEL} data-testid="account-entry" onClick={openAccount}>
-                      <UserIcon className="size-5" aria-hidden="true" />
-                    </IconButton>
-                  )}
-                  <IconButton label={SETTINGS_LABEL} data-testid="settings-entry" onClick={() => openSettings()}>
-                    <SettingsIcon className="size-5" aria-hidden="true" />
-                  </IconButton>
+                  <AccountMenu {...menuProps} variant="icon" />
                 </div>
               }
             />
@@ -414,23 +415,8 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
           hasEmergency={emergency !== null}
           emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />}
         />
-        {/* 설정 화면(FE-12 화면 모드): 배너 아래 영역에만 그린다. 게스트도 연다 */}
-        <SettingsDialog
-          open={settingsOpen}
-          onOpenChange={(open) => {
-            setSettingsOpen(open);
-            if (!open) setSettingsFocus(null);
-          }}
-          container={layer}
-          showLogin={accountEnabled && !member}
-          member={member}
-          focusSection={settingsFocus}
-          onLogin={() => {
-            setSettingsOpen(false);
-            openAccount();
-          }}
-          emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />}
-        />
+        {/* 약관·정책 열람 화면(계정 메뉴 항목): 배너 아래 영역에만 그린다. 게스트도 연다 */}
+        <LegalDialog open={legalOpen} onOpenChange={setLegalOpen} container={layer} member={member} onCloseAutoFocus={legalClosed} emergencyEntry={!emergency && <EmergencyEntry testId="layer-emergency-entry" />} />
         <SidebarOverlay open={layout.sidebarOverlay} onClose={() => dispatch({ type: "collapseSidebar" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
         <MenuDrawer open={!layout.desktop && shell.drawerOpen} onClose={() => dispatch({ type: "closeDrawer" })} container={layer} showEmergencyEntry={!emergency} {...sidebar} />
       </div>

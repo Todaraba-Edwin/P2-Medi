@@ -7,6 +7,7 @@ import {
   AGE_BANDS,
   AccountApiError,
   CONSENT_DOC_TYPES,
+  CONSENT_SCREEN_DOC_TYPES,
   FAMILY_PROFILE_MAX,
   LEGAL_DOC_TYPES,
   MEDICATIONS_MAX,
@@ -30,7 +31,7 @@ import {
   socialLoginUrl,
   updateProfile,
 } from "@/lib/api/account";
-import type { Me, Profile, ProfileDraft } from "@/lib/api/account";
+import type { ConsentScreenDocType, Me, Profile, ProfileDraft } from "@/lib/api/account";
 import { AGE_BAND_LABELS } from "@/features/account/copy";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { MOCK_KAKAO_NICKNAME, MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK } from "@/mocks/fixtures/account";
@@ -78,6 +79,12 @@ describe("계약 값은 백엔드 코드와 같다(읽기만)", () => {
   it("문서 종류·관계·연령대·임신 여부·성별 값 목록", () => {
     expect(literal("DocType")).toEqual([...LEGAL_DOC_TYPES]);
     expect(literal("ConsentDocType")).toEqual([...CONSENT_DOC_TYPES]);
+    // 게스트판 `terms_guest`(2026-11-23 백엔드 추가)는 계약(DocType)에는 있지만 열람 전용이다: 동의 화면 목록·동의 대상 어디에도 없다
+    expect(LEGAL_DOC_TYPES).toContain("terms_guest");
+    expect(CONSENT_SCREEN_DOC_TYPES).not.toContain("terms_guest");
+    expect(CONSENT_DOC_TYPES).not.toContain("terms_guest");
+    expect([...CONSENT_SCREEN_DOC_TYPES]).toEqual(LEGAL_DOC_TYPES.filter((docType) => docType !== "terms_guest"));
+    expect(CONSENT_DOC_TYPES.every((docType) => (CONSENT_SCREEN_DOC_TYPES as readonly string[]).includes(docType))).toBe(true);
     expect(literal("Relation")).toEqual([...RELATIONS]);
     expect(literal("AgeBand")).toEqual([...AGE_BANDS]);
     expect(literal("PregnancyStatus").sort()).toEqual([...PREGNANCY_STATUSES].sort());
@@ -241,11 +248,18 @@ describe("흐름: 게스트 → 로그인 → 동의 → 프로필", () => {
 });
 
 describe("약관 동의", () => {
-  it("문서는 API 값 그대로이고 다섯 종류(동의 대상 넷 + 고지 문서)를 정해진 순서로 받는다", async () => {
+  it("문서는 API 값 그대로이고 다섯 종류(동의 대상 넷 + 고지 문서)를 정해진 순서로 받는다. 게스트판 `terms_guest`는 요청하지 않는다", async () => {
+    const requested: string[] = [];
+    server.events.on("request:start", ({ request }) => {
+      const match = /\/api\/legal\/([^/?]+)/.exec(new URL(request.url).pathname);
+      if (match) requested.push(match[1]);
+    });
     const docs = await fetchLegalDocs();
     expect(docs.map((doc) => doc.doc_type)).toEqual(["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"]);
+    expect(requested.sort()).toEqual(["age_14", "privacy_consent", "privacy_policy", "sensitive_consent", "terms"]);
+    expect(requested).not.toContain("terms_guest");
     expect(docs.map((doc) => doc.required)).toEqual([true, false, true, false, true]);
-    for (const doc of docs) expect(doc).toEqual(MOCK_LEGAL_DOCS[doc.doc_type]);
+    for (const doc of docs) expect(doc).toEqual(MOCK_LEGAL_DOCS[doc.doc_type as ConsentScreenDocType]);
   });
 
   it("고지 문서(privacy_policy)는 동의 항목이 아니다: 요청에 싣지 않고 필수 판정에도 넣지 않는다(FE-04-03 A)", async () => {

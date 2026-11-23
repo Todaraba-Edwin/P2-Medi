@@ -73,6 +73,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ingest/drugs/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 게스트 허용 약 이름 사전 검색(`/drugs/search`와 같은 형식, 토큰 안 읽음, 2~100자, 호출 제한, LLM 0) */
+        post: operations["ingest_drug_search_ingest_drugs_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ingest/image": {
         parameters: {
             query?: never;
@@ -82,7 +99,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 약봉투 사진에서 약 이름 후보를 읽는다(gpt-6-luna 1회, 판정 없음, 게스트 허용, 사진·질문 비저장) */
+        /** 약봉투 사진에서 약 이름 후보를 읽는다(설정 제공자 1회: openai 비전 또는 Upstage OCR + solar-pro4, 판정 없음, 게스트 허용, 사진·질문 비저장) */
         post: operations["ingest_image_ingest_image_post"];
         delete?: never;
         options?: never;
@@ -731,6 +748,14 @@ export interface components {
             strength_or_form: string | null;
         };
         /**
+         * IngestDrugSearchIn
+         * @description `/drugs/search`의 `DrugSearchIn`과 같은 모양, 최소 2자.
+         */
+        IngestDrugSearchIn: {
+            /** Q */
+            q: string;
+        };
+        /**
          * IngestImageIn
          * @description 요청 본문. 길이·형식은 핸들러가 검사해 칸 이름(`image`·`question`)을 422 `fields`에 싣는다.
          */
@@ -791,7 +816,7 @@ export interface components {
              * Doc Type
              * @enum {string}
              */
-            doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent" | "age_14";
+            doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent" | "age_14" | "terms_guest";
             /**
              * Effective At
              * Format: date-time
@@ -1267,6 +1292,66 @@ export interface operations {
             };
         };
     };
+    ingest_drug_search_ingest_drugs_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestDrugSearchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrugSearchOut"];
+                };
+            };
+            /** @description INVALID_REQUEST(fields=["q"]). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description RATE_LIMITED(서버 전체 분당 제한). */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description 사전 공급자 미설정. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description DICT_UNAVAILABLE. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     ingest_image_ingest_image_post: {
         parameters: {
             query?: never;
@@ -1307,7 +1392,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent" | "age_14";
+                doc_type: "terms" | "privacy_policy" | "privacy_consent" | "sensitive_consent" | "age_14" | "terms_guest";
             };
             cookie?: never;
         };

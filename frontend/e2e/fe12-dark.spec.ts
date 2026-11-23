@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { AA_NORMAL, failures, measureContrast } from "./contrast";
-import { HEIGHT, ask, mockChat, openApp, panel, sheet } from "./helpers";
+import { HEIGHT, ask, mockChat, openAccountMenu, openApp, panel, sheet } from "./helpers";
 
 // 다크 모드(FE-12 ③): 시스템 설정·수동 선택에 따라 바탕과 글자가 토큰대로 바뀌고, 결과 화면 글자 대비가 기준 이상이다.
 // 캡처: `FE12_SHOT_DIR`을 주면 그 폴더에 `*-fe12.png`(5a 요소 시험은 `*-fe12-5a.png`)를 남긴다(로컬 전용 `data/mock/fe-issue-shots`. 주지 않으면 찍지 않는다).
@@ -94,21 +94,27 @@ for (const width of [393, 1280]) {
 
 test.describe("화면 모드 선택 저장(1280·393)", () => {
   for (const width of [1280, 393]) {
-    test(`${width}px: 설정에서 밝은 모드를 고르면 바로 바뀌고 새로고침 뒤에도 남는다(서버 저장 없음)`, async ({ page }) => {
+    test(`${width}px: 계정 메뉴의 화면 모드에서 밝은 모드를 고르면 바로 바뀌고 새로고침 뒤에도 남는다(서버 저장 없음)`, async ({ page }) => {
+      const calls: string[] = [];
+      page.on("request", (request) => {
+        if (new URL(request.url()).pathname.startsWith("/api/")) calls.push(request.url());
+      });
       await page.setViewportSize({ width, height: HEIGHT });
       await page.emulateMedia({ colorScheme: "dark" });
       await openApp(page);
       await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-      if (width < 1024) await page.getByTestId("menu-button").click();
-      await page.getByTestId("settings-entry").first().click();
-      const dialog = page.getByTestId("settings-dialog");
-      await expect(dialog).toBeVisible();
-      await expect(dialog.getByRole("radio", { name: "시스템" })).toHaveAttribute("aria-checked", "true");
-      await dialog.getByRole("radio", { name: "밝은 모드" }).click();
+      // 화면 모드는 계정 메뉴(팝오버) 안에서 바로 고른다(2026-11-23 통합). 메뉴는 열린 채라 바뀐 값을 바로 본다
+      const menu = await openAccountMenu(page);
+      await expect(menu.getByRole("menuitemradio", { name: /^시스템/ })).toHaveAttribute("aria-checked", "true");
+      await menu.getByRole("menuitemradio", { name: "밝은 모드" }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-      // 고른 칸은 노랑(#FFCC00)이 된다. 칸 색은 전환(transition-colors)으로 바뀌므로 끝날 때까지 기다린 뒤 찍는다
-      await expect(dialog.getByRole("radio", { name: "밝은 모드" })).toHaveCSS("background-color", "rgb(255, 204, 0)");
+      await expect(menu).toBeVisible();
+      await expect(menu.getByRole("menuitemradio", { name: "밝은 모드" })).toHaveAttribute("aria-checked", "true");
+      await expect(menu.getByRole("menuitemradio", { name: "밝은 모드" }).locator("svg").last()).toBeVisible(); // 체크 표시(색만으로 구분하지 않는다)
+      expect(calls.filter((url) => !url.includes("/api/me"))).toEqual([]); // 서버 저장 없음(로그인 상태 읽기 말고는 호출 0)
       await shot(page, "settings-light");
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
       await page.reload();
       await expect(page.getByTestId("app-shell")).toHaveAttribute("data-ready", "true");
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, expectNoHorizontalScroll, openApp } from "./helpers";
+import { HEIGHT, ask, expectNoHorizontalScroll, openAccountEntry, openApp } from "./helpers";
 
 // GROUP-01 5a(FE-11, 2026-11-20) 로그인 흐름 e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // - FE-11-13: 건강 정보 동의 + 대상 프로필이면 토글 변경이 그 프로필 `pregnancy_status`를 PATCH(양방향)하고 프로필 화면에 바뀐 값이 보인다.
@@ -57,13 +57,9 @@ async function loginAndSaveSelf(page: Page, { healthConsent, pregnancy }: { heal
   await expect(modal(page)).toHaveCount(0);
 }
 
-/** 프로필 화면(계정 모달)을 연다: 넓은 폭은 사이드바 계정 자리, 좁은 폭은 ☰ 드로어 안 */
+/** 프로필 화면(계정 모달)을 연다: 계정 메뉴(넓은 폭은 사이드바, 좁은 폭은 ☰ 드로어 안)의 `프로필 관리` */
 async function openProfiles(page: Page) {
-  if (page.viewportSize()!.width >= 1024) await page.getByTestId("account-entry").first().click();
-  else {
-    await page.getByRole("button", { name: "메뉴 열기" }).click();
-    await page.getByTestId("menu-drawer").getByTestId("account-entry").click();
-  }
+  await openAccountEntry(page);
   await expect(modal(page)).toHaveAttribute("data-step", "profiles");
 }
 

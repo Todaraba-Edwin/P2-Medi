@@ -42,12 +42,19 @@ import { ErrorBodySchema } from "./schemas";
 type Gen = components["schemas"];
 
 // ---------------------------------------------------------------- 모양(zod, 백엔드 응답 모델과 같은 칸. `contract-check.ts`가 생성 타입과 대조한다)
-/** `account_repo.DOC_TYPES` 순서 그대로(화면에 보이는 순서. `age_14`는 카드가 아니라 별도 체크로 보인다) */
-export const LEGAL_DOC_TYPES = ["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"] as const;
+/**
+ * 문서 종류 전체(계약: `account_repo.DocType`·`DOC_TYPES` 순서 그대로). `terms_guest`는 게스트판 이용약관(PRD-17-22 A, 2026-11-23 백엔드 추가)으로
+ * **열람용**이며 동의 화면에 보이지도, `POST /consents`에 실리지도 않는다(`CONSENT_SCREEN_DOC_TYPES`·`CONSENT_DOC_TYPES`에 없다)
+ */
+export const LEGAL_DOC_TYPES = ["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14", "terms_guest"] as const;
 export const LegalDocTypeSchema = z.enum(LEGAL_DOC_TYPES);
 export type LegalDocType = z.infer<typeof LegalDocTypeSchema>;
 
-/** 동의 대상 문서(`account_repo.CONSENT_DOC_TYPES`). `privacy_policy`는 고지 문서라 빠진다 */
+/** 첫 로그인 동의 화면이 받아 보이는 문서(동의 대상 넷 + 고지 문서 `privacy_policy`). 순서는 화면 순서(`age_14`는 카드가 아니라 별도 체크). 게스트판은 없다 */
+export const CONSENT_SCREEN_DOC_TYPES = ["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"] as const;
+export type ConsentScreenDocType = (typeof CONSENT_SCREEN_DOC_TYPES)[number];
+
+/** 동의 대상 문서(`account_repo.CONSENT_DOC_TYPES`). `privacy_policy`·`terms_guest`는 고지·열람 문서라 빠진다 */
 export const CONSENT_DOC_TYPES = ["terms", "privacy_consent", "sensitive_consent", "age_14"] as const;
 export const ConsentDocTypeSchema = z.enum(CONSENT_DOC_TYPES);
 export type ConsentDocType = z.infer<typeof ConsentDocTypeSchema>;
@@ -300,9 +307,9 @@ export async function fetchLegalDoc(docType: LegalDocType): Promise<LegalDoc> {
   return read(await call("get", `legal/${docType}`), LegalDocSchema);
 }
 
-/** 화면에 보일 순서대로 다섯 문서를 받는다(동의 대상 넷 + 고지 문서 `privacy_policy`. `age_14`는 맨 뒤) */
+/** 동의 화면에 보일 순서대로 다섯 문서를 받는다(동의 대상 넷 + 고지 문서 `privacy_policy`. `age_14`는 맨 뒤). 게스트판 `terms_guest`는 받지 않는다 */
 export async function fetchLegalDocs(): Promise<LegalDoc[]> {
-  return Promise.all(LEGAL_DOC_TYPES.map(fetchLegalDoc));
+  return Promise.all(CONSENT_SCREEN_DOC_TYPES.map(fetchLegalDoc));
 }
 
 /**

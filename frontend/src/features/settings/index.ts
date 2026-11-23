@@ -1,3 +1,1 @@
-export { SettingsDialog } from "./SettingsDialog";
-export { ThemeChoice } from "./ThemeChoice";
-export { SETTINGS_LABEL, ACCOUNT_MENU_LABEL } from "./copy";
+export { SCREEN_MODE_LABEL, SYSTEM_MODE_HINT, THEME_LABELS } from "./copy";

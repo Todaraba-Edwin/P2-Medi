@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, expectClickReaches, expectNoHorizontalScroll, expectTouchTarget, layerTel } from "./helpers";
+import { HEIGHT, ask, expectClickReaches, expectNoHorizontalScroll, expectTouchTarget, layerTel, openAccountEntry } from "./helpers";
 
 // 로그인 콜백 복귀(2026-11-22 사용자 보고, l7): 소셜 로그인은 전체 페이지 이동이라 돌아오면 로그인 모달이 닫혀 있었다.
 // 이제 콜백 라우트가 `/?auth_resume=1`로 돌려보내고, 화면이 그 표시를 한 번 읽어 온보딩(동의 → 프로필)이 남았을 때만 모달을 그 단계로 다시 연다.
@@ -23,10 +23,9 @@ async function openApp(page: Page, search: string) {
 
 const modal = (page: Page) => page.getByTestId("account-modal");
 const agree = (page: Page, docType: string) => modal(page).locator(`[data-doc-type="${docType}"]`).getByRole("checkbox");
-/** 사이드바 계정 자리(1280: 펼친 칸, 393: ☰ 드로어)의 `프로필 관리` */
+/** 사이드바 계정 메뉴(1280: 펼친 칸, 393: ☰ 드로어)의 `프로필 관리` */
 async function openProfileManage(page: Page) {
-  if (page.viewportSize()!.width < 1024) await page.getByRole("button", { name: "메뉴 열기" }).click();
-  await page.getByTestId("account-entry").first().click();
+  await openAccountEntry(page);
 }
 
 for (const width of [393, 1280]) {

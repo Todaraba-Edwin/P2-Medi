@@ -1,5 +1,7 @@
 export { AccountModal, closeAccountModalToQuestion, openAccountModal } from "./AccountModal";
-export { AccountMenu, EntryChoice } from "./EntryChoice";
+export { AccountMenu } from "./AccountMenu";
+export { EntryChoice } from "./EntryChoice";
+export { LegalDialog } from "./LegalDialog";
 export { TargetPicker } from "./TargetPicker";
 export { LOGIN_ENTRY_LABEL, MANAGE_PROFILES_LABEL } from "./copy";
 export { isAccountEntryEnabled } from "@/lib/api/account";

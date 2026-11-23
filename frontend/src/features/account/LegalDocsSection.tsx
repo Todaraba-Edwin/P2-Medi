@@ -21,8 +21,10 @@ interface Loaded {
 export interface LegalDocsSectionProps {
   /** 로그인했는가. 게스트/회원 목록이 다르다(`legal-menu.ts`) */
   member: boolean;
-  /** 묶음 제목 요소의 id(설정 화면이 이 묶음으로 바로 초점을 옮길 때 쓴다) */
+  /** 묶음 제목 요소의 id(바깥에서 이 묶음으로 바로 초점을 옮길 때 쓴다) */
   headingId?: string;
+  /** 바깥 제목(열람 화면의 `Dialog.Title`) id. 주면 안쪽 제목을 그리지 않고 그 제목이 묶음 이름이 된다(같은 글자를 두 번 두지 않는다) */
+  labelledBy?: string;
   /** 시험용 주입. 기본은 `fetchLegalMenu` */
   load?: (member: boolean) => Promise<LegalMenuDoc[]>;
 }
@@ -34,7 +36,7 @@ export interface LegalDocsSectionProps {
  * - 항목을 누르면 그 자리에서 펼쳐진다(`aria-expanded`·`aria-controls`). 본문은 상자 안에서 스크롤하고 키보드로도 내려 읽게 초점을 받는다(동의 화면과 같은 규칙)
  * - 목록은 묶음이 그려질 때(설정 화면이 열릴 때) 받는다. 실패하면 한 줄 + 다시 불러오기
  */
-export function LegalDocsSection({ member, headingId, load = fetchLegalMenu }: LegalDocsSectionProps) {
+export function LegalDocsSection({ member, headingId, labelledBy, load = fetchLegalMenu }: LegalDocsSectionProps) {
   const id = useId();
   const [openDocType, setOpenDocType] = useState<string | null>(null);
   /** 다시 불러오기 횟수(효과를 다시 돌리는 열쇠) */
@@ -63,12 +65,14 @@ export function LegalDocsSection({ member, headingId, load = fetchLegalMenu }: L
   // 목록에 문서가 하나도 없으면(서버가 모두 없다고 함) 묶음 자체를 그리지 않는다: "준비 중" 같은 빈 안내를 두지 않는다
   if (status === "ready" && docs.length === 0) return null;
 
-  const heading = headingId ?? `${id}-heading`;
+  const heading = labelledBy ?? headingId ?? `${id}-heading`;
   return (
     <section aria-labelledby={heading} data-testid="legal-menu" data-audience={member ? "member" : "guest"} className="flex flex-col gap-2.5">
-      <h3 id={heading} tabIndex={-1} className="m-0 text-xs font-bold text-mute outline-none">
-        {LEGAL_MENU_LABEL}
-      </h3>
+      {!labelledBy && (
+        <h3 id={heading} tabIndex={-1} className="m-0 text-xs font-bold text-mute outline-none">
+          {LEGAL_MENU_LABEL}
+        </h3>
+      )}
       {status === "loading" ? (
         <p role="status" className="m-0 text-sm text-mute">
           {LEGAL_LOADING}

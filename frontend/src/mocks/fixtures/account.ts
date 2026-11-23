@@ -1,13 +1,13 @@
 // 계정·약관 목의 합성 자료(FE-04). **실제 약관·방침이 아니다.** 실제 문서는 DB에서 버전 관리하고 API가 내려 준다.
 // 화면 코드는 이 파일을 가져다 쓰지 않는다(mock·시험 전용). 모양은 백엔드 `LegalDocumentOut`과 같다(`src/lib/api/account.ts`).
 import { DRUG_CANDIDATES_MAX, DRUG_MATCH_SIMILAR } from "@/lib/api/account";
-import type { DrugCandidate, DrugSearchResult, LegalDoc, LegalDocType, LegalMenuDoc } from "@/lib/api/account";
+import type { ConsentScreenDocType, DrugCandidate, DrugSearchResult, LegalDoc, LegalMenuDoc } from "@/lib/api/account";
 
 /** 합성 본문 지문 자리(64자리 16진수 모양만 맞춘 값. 실제 해시가 아니다) */
 const fakeSha = (digit: string) => digit.repeat(64);
 const EFFECTIVE_AT = "2026-11-18T00:00:00Z";
 
-export const MOCK_LEGAL_DOCS: Readonly<Record<LegalDocType, LegalDoc>> = {
+export const MOCK_LEGAL_DOCS: Readonly<Record<ConsentScreenDocType, LegalDoc>> = {
   terms: {
     doc_type: "terms",
     version: 1,
@@ -107,7 +107,7 @@ export const MOCK_LEGAL_DOCS: Readonly<Record<LegalDocType, LegalDoc>> = {
 };
 
 /**
- * 게스트용 문서 목(2026-11-23 약관 열람 진입점). 백엔드 `DocType` enum에는 아직 없는 종류라 실서버는 422를 내고 화면은 그 항목을 숨긴다.
+ * 게스트용 문서 목(2026-11-23 약관 열람 진입점). 백엔드 `DocType`에 있는 열람 전용 종류(동의 대상 아님). 게시본이 없으면 404라 화면은 그 항목을 숨긴다.
  * 처리방침은 게스트용을 따로 두지 않는다(PRD-17-23 A: 공통 `privacy_policy`). 없는 문서가 목록에서 빠지는 동작은 `?mock_legal_missing=`(핸들러)로 본다.
  * 열람 목록의 모양은 `LegalMenuDoc`(`doc_type`이 enum 밖)이다. **실제 약관이 아니다**
  */
