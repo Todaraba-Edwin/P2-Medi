@@ -117,6 +117,7 @@ MediAgent는 공공 보건·의약품 데이터 기반 Agentic RAG 에이전트 
 | 테스트 계정(2026-11-20 사용자 추가) | `TESTER_ID` | 사용자 본인 테스트 계정 식별자(개인정보). 백엔드 `Settings`에 `SecretStr` 선택 칸으로만 선언, 서비스 동작·로그·응답에 쓰지 않음 |
 | OpenAI 관리자 키(2026-11-22 DevOps 검토) | `OPENAI_ADMIN_KEY` | 사용량·비용 조회(Costs/Usage API) 전용 관리자 키. 서비스·평가 호출에는 쓰지 않고(일반 `OPENAI_API_KEY`와 다른 키) 백엔드 `Settings`에 `SecretStr` 선택 칸으로만 선언, 로그·응답에 남기지 않음. 일 사용량 알림 스크립트(W3 이후)에서만 사용 |
 | 백엔드 서버 시작 준비(2026-11-19 BE-17-01 A) | `MEDIAGENT_WARMUP` | 선택, 비밀값 아님, 기본 켬. `0`·`false`·`off`면 서버 시작 뒤 백그라운드 자원 준비를 끄고 첫 요청에서 만든다(BE-06-27 A 동작) |
+| 요청 소요 시간 로그(2026-11-23) | `MEDIAGENT_REQUEST_TIMING` | 선택, 비밀값 아님, 기본 켬. `0`·`false`·`off`면 끔(서버 시작 때 한 번 읽음). HTTP 요청마다 `메서드 경로템플릿 상태 ms` 한 줄(`app.request_timing`), 1000ms 이상은 WARNING. 쿼리·본문·헤더·토큰·사용자 식별·IP·검색어는 남기지 않음 |
 | 사진 판독 제공자 선택(2026-11-22 BE-14, 2026-11-23 사용자 최종 결정 BE-14-12 A) | `MEDIAGENT_VISION_PROVIDER`, `UPSTAGE_BASE_URL`, `UPSTAGE_MODEL` | 모두 선택, 비밀값 아님. `MEDIAGENT_VISION_PROVIDER`는 `openai` 또는 `upstage`, **기본 `openai`**(사용자 최종 결정 "only OpenAI", Upstage는 코드 전환만 유지). `openai`면 `gpt-6-luna` 비전, `upstage`면 Document OCR + 모델(`UPSTAGE_MODEL`, 기본 `solar-pro4`)을 `UPSTAGE_BASE_URL`(기본 `https://api.upstage.ai/v1`)에서 호출(`UPSTAGE_API_KEY`). Upstage를 켜려면 처리방침(사진 수탁자)·사진 고지·요금제 조건(Free Credit은 이용약관 22조 6항 학습 사용 여부 미확정)을 먼저 맞출 것, 한국 리전(`kr.api.upstage.ai`)은 Closed Beta라 접근 승인 뒤에만. 사진은 서버에 저장하지 않음 |
 - 루트 `.env`에 새 변수를 넣으면 백엔드 `Settings`(`backend/app/config.py`, extra 금지)에도 선언해야 설정 로드가 실패하지 않는다(2026-11-19 재현).
 - 코드에서는 환경변수로만 읽고, 값을 코드나 로그, 응답에 남기지 않는다.
