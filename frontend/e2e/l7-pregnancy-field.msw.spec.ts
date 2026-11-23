@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, MIN_TOUCH, expectNoHorizontalScroll, pickChoice, completeRequired } from "./helpers";
+import { HEIGHT, MIN_TOUCH, expectNoHorizontalScroll, pickChoice, completeRequired, fillName } from "./helpers";
 
 // 프로필 폼의 임신 여부(작업 B, 사용자 지시 2026-11-22): 성별이 여성일 때만 선택 버튼 "예 | 아니오 | 모름"이 나타난다(처음에는 숨김).
 // 목(MSW) 모드에서 `?mock_session=new`로 막 로그인한 세션을 만들고 동의 뒤 프로필 추가 폼을 본다. 실제 백엔드·원격 호출은 0이다.
@@ -67,7 +67,7 @@ for (const width of [393, 1280]) {
         await pickChoice(modal(page), "성별", "여성");
         await expect(option(page, "모름")).toHaveAttribute("aria-checked", "true");
         // 남성으로 저장하면 아니오로 간다(사용자 결정 2026-11-22: 여성이 아니면 '아니오' 저장)
-        await modal(page).getByLabel("이름(별명)").fill("나");
+        await fillName(modal(page), "나");
         await pickChoice(modal(page), "성별", "남성");
         await completeRequired(modal(page));
         await modal(page).getByTestId("profile-save").click();
@@ -89,7 +89,7 @@ for (const width of [393, 1280]) {
 
       test("키보드: 여성을 고른 뒤 ←/→로 옮기며 선택·초점이 따라가고, 여성 프로필의 '예'가 저장돼 수정 화면에 다시 채워진다", async ({ page }) => {
         await openSelfForm(page);
-        await modal(page).getByLabel("이름(별명)").fill("나");
+        await fillName(modal(page), "나");
         await pickChoice(modal(page), "성별", "여성");
         await option(page, "모름").focus();
         await page.keyboard.press("ArrowLeft");

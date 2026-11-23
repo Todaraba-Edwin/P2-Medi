@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { AA_NORMAL, failures, measureContrast } from "./contrast";
-import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openAccountEntry, openApp, completeRequired } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openAccountEntry, openApp, completeRequired, fillName } from "./helpers";
 
 // FE-04-15 A(2026-11-19)·FE-04-26 A(2026-11-22, 문구 1안 승인) e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // 프로필 저장이 끝나면 목록 화면 맨 위(설명 아래)에 완료 안내 한 줄(`role="status"`) + `질문하러 가기`. 버튼은 모달을 닫고 질문 입력창에 초점을 둔다.
@@ -34,7 +34,7 @@ async function openSelfForm(page: Page) {
   await expect(notice(page)).toHaveCount(0); // 처음 목록에는 없다
   await modal(page).getByTestId("add-self").click();
   await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
-  await modal(page).getByLabel("이름(별명)").fill("나");
+  await fillName(modal(page), "나");
 }
 
 for (const width of [393, 1280]) {
