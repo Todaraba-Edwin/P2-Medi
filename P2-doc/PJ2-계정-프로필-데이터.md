@@ -5,7 +5,7 @@
 > 작성 2026-11-18 밤(사용자 요청: "수퍼베이스의 RDB를 활용하여 user 테이블에 대한 관리", "프로필 설정에 자녀와 부모를 추가", "이용약관, 개인정보, 민감정보 들에 대해서도 RDB에서 관리 … 추후 수정시 DB만 손보면 되기에", "온보딩에서 수집한 정보들에 대해서 처리할 ERD 설계와 DB 적재"). 티켓: [BE-11](../tickets/backend/BE-11.md)·[FE-04](../tickets/frontend/FE-04.md). 상태: **설계 초안, 원격 적용 0.** SQL과 시드는 이 문서 부록(A·B)의 초안이며, 파일로 옮기고 원격에 적용하는 일은 승인 flag 뒤다(12장).
 > **2026-11-19 정정**: 결정 BE-11-06~22가 모두 A로 완료(2026-11-18 밤 늦게 사용자 "권장대로")되어 본문·부록을 그 결정에 맞췄다. 14장은 "결정 후보"에서 "결정됨(2026-11-18)"으로 바꿨고(원본은 `tickets/backend/BE-11.md` §6 결정 현황), 오류 본문(9.1절)·탈퇴 때 동의 기록 파기(7장)·`anonymized_at` 열 삭제(4.6절, 부록 A)가 가장 크게 바뀐 곳이다.
 > **2026-11-19 2차 정정(Recap 39, 구현 병합 `aef1446` 반영)**: 부록 A `body_sha256`을 `account.utf8_sha256_hex()`로, `signup_provider` NULL 허용, 프로필 가족 3행 + 전체 4행 제한, 탈퇴 파기 집계 표·함수(`deletion_log`·`delete_my_account()`), 오류 코드 표와 상태 번호(422 `PROFILE_LIMIT`·`HEALTH_CONSENT_REQUIRED`, 503 `AUTH_UNAVAILABLE`, 원격 적용 전 `/me` 501), 9.2·9.3절 구현 차이, 온보딩 단계 계산, 시드 자리표시자 `{{EFFECTIVE_AT}}`를 맞췄다. 부록 A는 여전히 초안이며 실제 DDL은 `backend/app/db/schema_account.sql`이다.
-> 근거로 삼은 결정: PRD-01-05 B(계정 서버 저장), PRD-01-09 A′(소셜 로그인. 요구서·PRD·CLAUDE.md의 "PRD-01-06 A′" 표기는 PRD-01-09 A′로 정정이 끝났다, 14.1절), AG-10-06 A(프로필·온보딩을 축소 순서에서 뺌, W2~W3), RFP-30-08 A(2일 스프린트 S1~S3), BE-11-01 B·BE-11-02~05 A(2026-11-18), BE-11-06~22 A(2026-11-18 밤 늦게, 1.3절). 법률 검토는 거치지 않았다(PJ2-RFP.md 12장 위험 표 ①②). 이 문서의 약관·동의 문서 본문 시드는 모두 "초안·법률 검토 전"이다.
+> 근거로 삼은 결정: PRD-01-05 B(계정 서버 저장), PRD-01-09 A′(소셜 로그인. 요구서·PRD·CLAUDE.md의 "PRD-01-06 A′" 표기는 PRD-01-09 A′로 정정이 끝났다, 14.1절), AG-10-06 A(프로필·온보딩을 축소 순서에서 뺌, W2~W3), RFP-30-08 A(2일 스프린트 S1~S3), BE-11-01 B·BE-11-02~05 A(2026-11-18), BE-11-06~22 A(2026-11-18 밤 늦게, 1.3절). 법률 검토는 거치지 않았다(PJ2-RFP.md 12장 위험 표 ①②). 부록 B의 본문 시드 초안(v1)은 "초안·법률 검토 전" 인용문을 가진 이력이다. **현재 시행본(최종안, 2026-11-23)에서는 그 인용문·제목의 "(초안)"·프런트 표지가 제거됐고**(PRD-17-26 A, `backend/app/db/seed_legal_final.sql`, [PRD-17 §3](../tickets/doc/PRD-17.md#3-하위-작업)·[BE-11 §3](../tickets/backend/BE-11.md#3-하위-작업)) 법률 검토를 거친 것은 아니라서 `legal_review`는 `not_reviewed` 그대로다.
 
 ## Index
 - [1. 목적과 범위](#1-목적과-범위)
@@ -27,6 +27,7 @@
   - [4.6 user_consents(동의·철회 기록)](#46-user_consents동의철회-기록)
   - [4.7 auth.users(Supabase Auth, 우리가 만들지 않음)](#47-authuserssupabase-auth-우리가-만들지-않음)
   - [4.8 age_band ↔ 나이 구간 대응](#48-age_band--나이-구간-대응)
+  - [4.9 2026-11-23 추가 항목(terms_guest·avatar_color·default_target·연결 풀)](#49-2026-11-23-추가-항목terms_guestavatar_colordefault_target연결-풀)
 - [5. RLS 정책](#5-rls-정책)
   - [5.1 정책 표](#51-정책-표)
   - [5.2 백엔드가 RLS 아래에서 도는 방식](#52-백엔드가-rls-아래에서-도는-방식)
@@ -202,7 +203,7 @@ erDiagram
 | `relation` | `self`, `child`, `parent`, `spouse`, `other` | BE-11-01 B "관계 칸: 자녀·부모 등". `spouse`·`other`는 "등"에 해당하며 BE-11-08 A로 확정 |
 | `pregnancy_status` | `pregnant`, `not_pregnant`, `unknown` | NULL = 입력 안 함 또는 건강 동의 없음. `unknown`은 사용자가 "모름"을 고른 것(판정 입력은 `pregnant=None`과 같다, 11장) |
 | `age_band` | 4.8절 표의 11개 | 연령대(PRD-01-03 A). 11구간은 BE-11-07 A로 정해졌고, 경계는 연령금기 기준값에서 흔한 값으로 둔 것이라 원격 분포 확인이 남았다(4.8절) |
-| `doc_type` | `terms`, `privacy_policy`, `privacy_consent`, `sensitive_consent`, `age_14` | `age_14`는 만 14세 이상 확인 기록(PRD-17-12 A, 2026-11-20, `schema_account.sql`, 철회는 `terms`처럼 탈퇴로만). 사용자 "이용약관, 개인정보, 민감정보". 처리방침(`privacy_policy`)은 공개 고지이고 동의 대상이 아니다. 수집·이용 동의(`privacy_consent`)와 민감정보 동의(`sensitive_consent`)는 따로 둔다 |
+| `doc_type` | `terms`, `privacy_policy`, `privacy_consent`, `sensitive_consent`, `age_14`, `terms_guest` | `terms_guest`는 게스트판 이용약관(고지·열람용, 4.9절). `age_14`는 만 14세 이상 확인 기록(PRD-17-12 A, 2026-11-20, `schema_account.sql`, 철회는 `terms`처럼 탈퇴로만). 사용자 "이용약관, 개인정보, 민감정보". 처리방침(`privacy_policy`)은 공개 고지이고 동의 대상이 아니다. 수집·이용 동의(`privacy_consent`)와 민감정보 동의(`sensitive_consent`)는 따로 둔다 |
 | `sex` | `female`, `male` | 프로필 성별(선택). "기타" 값은 두지 않고 NULL = 미입력(FE-11-09 C, PRD-17-13 A, 2026-11-20). 간편 로그인 공급자 정보에서 성별을 가져오지 않는다 |
 | `doc_status` | `draft`, `published`, `retired` | 8장 |
 | `consent_action` | `agree`, `withdraw` | 4.6절 |
@@ -264,7 +265,7 @@ erDiagram
 | `requires_reconsent` | boolean | NOT NULL DEFAULT false | 이 버전이 시행되면 앞 버전 동의자에게 다시 동의를 받는가 |
 | `status` | `doc_status` | NOT NULL DEFAULT `draft` | |
 | `effective_at` | timestamptz | NOT NULL | 시행 시각 |
-| `legal_review` | text | NOT NULL DEFAULT `not_reviewed`, ∈ {not_reviewed, reviewed} | 프런트가 "초안·법률 검토 전" 표지를 그리는 근거 |
+| `legal_review` | text | NOT NULL DEFAULT `not_reviewed`, ∈ {not_reviewed, reviewed} | 값은 `not_reviewed`(법률 검토 보류). 프런트는 2026-11-23 최종안부터 이 값으로 표지를 그리지 않는다(기록용 칸으로 유지) |
 | `body_sha256` | text | 생성 열 `account.utf8_sha256_hex(body_md)`(UTF-8 바이트의 SHA-256 16진 문자열) | 동의한 본문이 무엇이었는지 사후 대조. `convert_to()`가 STABLE이라 생성 열에 직접 쓰면 `generation expression is not immutable`로 실패하므로 IMMUTABLE plpgsql 함수로 감쌌다(2026-11-19 로컬 RLS 시험에서 발견·수정, `aef1446`, 부록 A) |
 | `created_at` | timestamptz | | |
 
@@ -311,6 +312,17 @@ Supabase Auth가 관리하며 이메일·공급자 identity·`raw_user_meta_data
 
 - `upper`는 **만 나이 정수의 포함 상한**으로 쓴다(예: `y3_5`는 만 5세 11개월까지). 그래프가 구간을 이렇게 읽는지(특히 "6세 미만" 기준과 `upper=5`)는 AG 몫이며 확인 필요다. 구간이 기준 나이에 걸리면 판정 대신 나이별 원문 값을 보인다(FE-07-18 A).
 - 출생 연월을 받으면 정밀해지지만 수집 항목이 늘어 PRD-01-03 A("연령대")와 어긋난다. 받지 않는다.
+
+### 4.9 2026-11-23 추가 항목(terms_guest·avatar_color·default_target·연결 풀)
+이 절은 위 4.1~4.8절 작성 뒤에 코드에 들어간 항목을 모은 짧은 기록이다. 근거는 아래 파일이며 이 문서가 원격 DB를 읽지는 않았다.
+
+| 항목 | 내용 | 근거 |
+|---|---|---|
+| `terms_guest` 문서 종류 | 게스트판 이용약관(PRD-17-22 A). `doc_type`에 값 추가(열거형 값은 스키마와 별도 커밋으로 먼저 더하고 시드는 그 뒤 실행). 동의 대상이 아니라 `required=false`·`requires_reconsent=false`이고 `POST /consents`는 이 종류를 받지 않는다. 본문은 회원판에서 회원 전용 항목(계정·연령, 계정 해지, 재동의)을 뺀 것. 현재 시행 v2(최종안) | `backend/app/db/schema_account.sql:40,61`, `seed_legal_guest_v1.sql`, `seed_legal_final.sql` |
+| `profiles.avatar_color` | 병아리 배경색. `text NOT NULL DEFAULT 'yellow'`, CHECK ∈ {yellow, coral, pink, purple, blue, teal, green, gray}(8색). 건강 정보가 아니라 동의한 최소 항목이라 건강 동의 트리거 대상이 아니다. `ProfileOut`에 항상 포함, `ProfileCreate`는 선택(없으면 yellow), `ProfileUpdate`는 색만 바꾸는 요청 허용(null·허용 밖 값은 422) | `schema_account.sql:98-104`, `migrate_profiles_avatar_color.sql`, `backend/app/api/account.py:186,196,208` |
+| `app_users.default_profile_id`·`default_guest` | 마지막으로 고른 대상(기본 대상)을 새 세션의 기본값으로 저장(FE-17 U-08). `default_profile_id`는 `profiles` FK(삭제 시 자동 NULL), `default_guest boolean DEFAULT false`, 둘이 동시에 설정되지 않는 CHECK. 미설정이면 클라이언트가 본인을 고른다. 건강 정보가 아닌 프로필 선택 상태다 | `schema_account.sql:106-121`, `migrate_app_users_default_target.sql` |
+| `default_target` API | 응답 칸 `default_target`(`"guest"`·프로필 UUID 문자열·null)이 `GET /me`(`MeResponse`)에 들어간다. 저장은 `PUT /me/default-target`, 본문 `{"target": "guest" 또는 프로필 UUID 또는 null}`, 응답 `{"target": ...}`, 게스트 토큰은 401, 남의 프로필이면 404(소유 여부 비노출), 받은 값은 로그·오류에 남기지 않는다 | `backend/app/api/account.py:231,235,382,552-563` |
+| 연결 풀 | 계정 API(accounts)의 Postgres 저장소만 `psycopg_pool` 풀을 쓴다(BE-17 지연 개선). min 1·max 4, 대기 한도 20초, 연결 수명 30분, 유휴 5분. 서버 시작 때 열고(기다리지 않음) 종료 때 닫으며 `MEDIAGENT_WARMUP`이 꺼지면 풀을 만들지 않는다. 신원·역할은 `SET LOCAL`/`set_config(..., true)`라 트랜잭션과 함께 사라져 다음 요청에 새지 않는다(5.2절 방식 그대로). 판정·코퍼스 조회 경로는 이 풀을 쓰지 않는다 | `backend/app/db/account_repo_pg.py:8-9,192-207`, `backend/app/main.py:9,65-67` |
 
 ## 5. RLS 정책
 
@@ -457,6 +469,7 @@ COMMIT;
 | `PATCH /me/onboarding` | 필요 | `{"step": "profile_self"}` | `MeResponse`. **미구현**(건너뛰기로 `done`이 되는 경로, 후속) | S2 |
 | `POST /consents` | 필요 | `ConsentRequest` | `MeResponse`(201) | S1 |
 | `DELETE /me` | 필요 | — | 204(멱등) | S1 |
+| `PUT /me/default-target` | 필요(게스트 토큰 401) | `{"target": "guest"\|프로필 UUID\|null}` | `{"target": ...}`(4.9절, 2026-11-23) | FE-17 |
 | `GET /profiles` | 필요(동의 검사 없이 계정만 확인, 쓰기만 403) | — | `ProfileOut[]` | S2 |
 | `POST /profiles` | 필요 + `privacy_consent` | `ProfileCreate`(`medications` 포함 가능) | `ProfileOut`(201) | S2 |
 | `PATCH /profiles/{profile_id}` | 필요 + `privacy_consent` | `ProfileUpdate`(`medications`를 보내면 목록 전체 교체) | `ProfileOut` | S2 |
@@ -476,7 +489,7 @@ class LegalDocument(BaseModel):
     required: bool
     requires_reconsent: bool         # 2026-11-19 추가
     effective_at: datetime
-    legal_review: Literal["not_reviewed", "reviewed"]  # not_reviewed면 프런트가 "초안·법률 검토 전" 표지
+    legal_review: Literal["not_reviewed", "reviewed"]  # 기록용(2026-11-23 표지 제거 전에는 not_reviewed면 프런트가 "초안·법률 검토 전" 표지를 그렸다)
     body_sha256: str
 
 class ConsentState(BaseModel):
@@ -638,7 +651,7 @@ pytest 실행은 공통 규칙의 메인 venv 명령을 쓴다. T1~T3은 Postgre
 | 저장 범위·RLS·약관 DB 관리·건강 정보 별도 동의·탈퇴 보관 조사 뒤 확정 | `P2-doc/PJ2-RFP.md:331`(작업 트리 수정본, 2026-11-18 읽음) |
 | FR-09 가족 최대 3명·소셜 로그인 Google·Kakao S1, Naver S2 | `P2-doc/PJ2-RFP.md:56,321` |
 | 축소 순서에서 프로필·온보딩 제외(AG-10-06 A) | `P2-doc/PJ2-RFP.md:85` |
-| 법률 검토 보류 ①②⑤ | `P2-doc/PJ2-RFP.md:679`(2026-11-19 RFP 편집으로 이전 673에서 밀림) |
+| 법률 검토 보류 ①②⑤ | `P2-doc/PJ2-RFP.md` 12장 리스크 표의 "법률 검토를 하지 않음" 행(줄 번호는 편집으로 밀려 절로 가리킨다) |
 | S10 온보딩 단계, 동의를 받는 곳은 프로필 저장 하나, 외부 AI 고지는 동의 관문 아님 | `P2-doc/PJ2-PRD.md:362,370-378` |
 | 외부 AI 고지 상수 `START_EXTERNAL_AI_NOTICE` | `P2-doc/PJ2-PRD.md:365`(상수 위치 `backend/app/agent/fixed_phrases.py:28`는 PRD 인용이며 이 작업에서 열지 않음) |
 | 연령금기는 프로필 나이로, 특정 불가 시 나이별 원문 | `tickets/frontend/FE-07.md:117`(FE-07-18 A) |
@@ -1032,7 +1045,7 @@ $$;
 - `auth.uid()`·`auth.users`는 Supabase가 제공한다. 로컬 시험(BE-11-14 A)에서는 스텁으로 같은 이름을 만든다.
 
 ## 부록 B. 약관·동의 문서 시드 초안
-> 모든 본문은 **"초안·법률 검토 전"**이다(PJ2-RFP.md:679 ①②). `legal_review='not_reviewed'`로 넣고 프런트는 이 값으로 표지를 그린다. 보관 기간 등 확정되지 않은 값은 본문에 "확정 전"으로 쓰고 숫자를 지어내지 않는다. 시행 시각은 원격 적용 날짜로 바꾼다(아래 `{{EFFECTIVE_AT}}` 자리표시자. 이전 초안의 `:effective_at`을 2026-11-19에 바꿨다).
+> 이 부록의 v1 시드 초안은 **"초안·법률 검토 전"**으로 쓴 이력이다(PJ2-RFP.md 12장 리스크 표 "법률 검토를 하지 않음" 행 ①②). `legal_review='not_reviewed'`로 넣었고 프런트는 당시 이 값으로 표지를 그렸다. 2026-11-23 최종안(`seed_legal_final.sql`)은 이 인용문·제목 "(초안)"·표지를 뺐고 `legal_review`는 그대로 `not_reviewed`다(법률 검토 보류, 4.9절). 보관 기간 등 확정되지 않은 값은 본문에 "확정 전"으로 쓰고 숫자를 지어내지 않는다. 시행 시각은 원격 적용 날짜로 바꾼다(아래 `{{EFFECTIVE_AT}}` 자리표시자. 이전 초안의 `:effective_at`을 2026-11-19에 바꿨다).
 
 ```sql
 INSERT INTO account.legal_documents (doc_type, version, title, body_md, required, status, effective_at)

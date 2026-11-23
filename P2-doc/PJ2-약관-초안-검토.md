@@ -3,8 +3,8 @@
 **PRD (Product Requirements Document): 제품 요구사항 문서 — PRD-17 산출 문서(약관·개인정보·민감정보 문서 초안 검토 현황)**
 
 > **법률 자문이 아니다.** 이 문서는 개발자가 정리한 초안 검토 현황이며 법률 검토를 거치지 않았다. 법률 검토는 [schedule.md Recap 9](../schedule.md#사용자-작업-순서우선순위)(보류)와 같고 `legal_review`는 계속 `not_reviewed`다. 문서의 "해당 여부"·"필요 여부" 표현은 모두 해석이다.
-> 기준일: 2026-11-22(2026-11-20 판을 처리방침 v3·v4, 이용약관 v3, 원격 게시 결과로 현행화). 근거 티켓: [PRD-17](../tickets/doc/PRD-17.md)(§2 완료 조건·§3 하위 작업·§4 결정 현황). 결정의 원본은 티켓 `결정 현황` 표이고 이 문서는 요약만 한다.
-> 원천: 시드 `backend/app/db/seed_legal_v2.sql`·`seed_legal_v3.sql`·`seed_legal_v4.sql`·`seed_legal_age14.sql`(현재 원문), 시험 `backend/tests/test_prd17_no_access_log.py`, 프런트 `frontend/src/features/account/Markdown.tsx`, 로컬 전용 보고 `data/mock/briefs/reports/legal-review.md`·`recap45.md`·`prd17-sex.md`·`upstage-legal.md`·`upstage-live-cost.md`·`seed-v4-upstage.md`·`upstage-kr-region.md`(저장소에는 없다), `schedule-done.md` 종결 기록.
+> 기준일: 2026-11-23(2026-11-22 판을 약관 최종안 원격 게시 결과로 현행화: terms v4·privacy_policy v7·privacy_consent v3·sensitive_consent v3·terms_guest v2, age_14 v1 그대로, 마이그레이션 단계 13). 제목의 "초안"은 문서 이름이 그대로라 유지하며, 현재 시행본의 본문·제목에는 "초안·법률 검토 전" 문구가 없다. 근거 티켓: [PRD-17](../tickets/doc/PRD-17.md)(§2 완료 조건·§3 하위 작업·§4 결정 현황). 결정의 원본은 티켓 `결정 현황` 표이고 이 문서는 요약만 한다.
+> 원천: 시드 `backend/app/db/seed_legal_v2.sql`~`seed_legal_v6.sql`·`seed_legal_guest_v1.sql`·`seed_legal_age14.sql`(이력)과 `backend/app/db/seed_legal_final.sql`(현재 최종안), 시험 `backend/tests/test_prd17_no_access_log.py`, 프런트 `frontend/src/features/account/Markdown.tsx`, 로컬 전용 보고 `data/mock/briefs/reports/legal-review.md`·`recap45.md`·`prd17-sex.md`·`upstage-legal.md`·`upstage-live-cost.md`·`seed-v4-upstage.md`·`upstage-kr-region.md`(저장소에는 없다), `schedule-done.md` 종결 기록.
 
 ## Index
 - [1. 목적과 범위](#1-목적과-범위)
@@ -21,22 +21,24 @@
 - 목적: 이용약관·개인정보 처리방침·개인정보 수집·이용 동의·민감정보(건강 정보) 처리 동의를 DB(Supabase `account.legal_documents`)에서 관리하기 전에, 지금 문서에 무엇이 들어 있고 무엇이 채워졌고 무엇이 비어 있는지를 한 곳에서 확인한다(PRD-17 §1.1, BE-11-02 A).
 - 범위: 개발 단계 반영(초안 검토 → v2 본문 → 시드 SQL → 원격 적용 → 프런트 표시)까지. 서비스는 상용이 아니라 포트폴리오이며 진단·처방·복용량 결정을 하지 않는다.
 - 범위 밖: 법률 검토(Recap 9 보류), 법적 필수 기재 여부의 단정, 개인정보 처리방침 작성지침 PDF·개인정보보호위원회 해설서 대조(열지 못함, 아래 7장).
-- 모든 본문에는 첫 줄 "초안·법률 검토 전" 안내가 있고 프런트 `LEGAL_NOT_REVIEWED_TAG`(`"초안·법률 검토 전"`)가 그대로 남는다.
+- **현재 시행본(최종안, 2026-11-23)에는 본문 첫 줄의 "초안·법률 검토 전" 인용문, 제목의 "(초안)", 프런트의 "초안·법률 검토 전" 표지가 없다**(PRD-17-26 A, 사용자 지시, `backend/app/db/seed_legal_final.sql` 머리 주석, [PRD-17 §3](../tickets/doc/PRD-17.md#3-하위-작업) ⑱, [BE-11 §3](../tickets/backend/BE-11.md#3-하위-작업)). 최종안은 사용자가 정한 것이지 **법률 검토를 거친 것이 아니며** `legal_review`는 `not_reviewed` 그대로다(법률 검토는 보류, `reviewed`·"법률 검토 완료" 표현은 쓰지 않는다). 이전 버전(v1~v6 시드)의 본문에는 그 인용문이 남아 있다(게시본 불변).
 
 ## 2. 문서 4종과 age_14 현황
-기준: 시드 파일 읽음(2026-11-22)과 티켓 PRD-17의 원격 게시 기록(`verify` 결과, §2·§3 ⑯, 이 문서는 원격 DB를 직접 읽지 않았다). 게시본은 트리거 `freeze_published_document`가 제목·본문·버전·종류 수정을 막으므로 고칠 때는 새 버전 행을 넣는다.
+문서 4종에 더해 게스트판 `terms_guest`와 `age_14`를 함께 적는다(제목은 처음 문서 구성을 따라 유지). 기준: 시드 파일 읽음(2026-11-23)과 티켓 PRD-17의 원격 게시 기록(`verify` 결과, §2·§3 ⑯, 이 문서는 원격 DB를 직접 읽지 않았다). 게시본은 트리거 `freeze_published_document`가 제목·본문·버전·종류 수정을 막으므로 고칠 때는 새 버전 행을 넣는다.
 
 | 문서 종류 | 버전 | 필수·선택 | 재동의(`requires_reconsent`) | 게시 상태 |
 |---|---|---|---|---|
-| `terms` 이용약관 | v1(`seed_legal_v1.sql`), v2(`seed_legal_v2.sql`), v3(`seed_legal_v3.sql`) | 필수 | v2 false, v3 false(보호책임자 연락처 줄 구분만 변경) | 원격 게시 완료, 현재 시행 v3(2026-11-22) |
-| `privacy_policy` 개인정보 처리방침 | v1, v2, v3(`seed_legal_v3.sql`), v4(`seed_legal_v4.sql`) | 동의 대상 아님(고지, `required=false`, PRD-17-02 A) | v2·v3·v4 false | 원격 게시 완료, 현재 시행 v4(2026-11-22 밤, v4는 사진 판독 제공자를 Upstage로 고지) |
-| `privacy_consent` 개인정보 수집·이용 동의 | v1, v2 | 필수 | v2 true(수집 항목·외부 AI 전송 추가) | 원격 게시 완료, 현재 시행 v2 |
-| `sensitive_consent` 민감정보(건강) 처리 동의 | v1, v2 | 선택(`required=false`) | v2 true | 원격 게시 완료, 현재 시행 v2 |
-| `age_14` 만 14세 이상 확인 | v1(`seed_legal_age14.sql`) | 필수(첫 로그인 동의 화면의 별도 체크, PRD-17-09 A) | false | 원격 게시 완료, 현재 시행 v1 |
+| `terms` 이용약관 | v1(`seed_legal_v1.sql`), v2, v3, v4(`seed_legal_final.sql`) | 필수 | v2·v3·v4 false(v3 보호책임자 연락처 줄 구분, v4 초안 표지 제거만 변경) | 원격 게시 완료, 현재 시행 v4(2026-11-23) |
+| `privacy_policy` 개인정보 처리방침 | v1~v6(`seed_legal_v2.sql`~`seed_legal_v6.sql`), v7(`seed_legal_final.sql`) | 동의 대상 아님(고지, `required=false`, PRD-17-02 A) | v2~v7 false | 원격 게시 완료, 현재 시행 v7(2026-11-23). v4(2026-11-22)는 사진 판독을 Upstage로 고지했고 v5(2026-11-23 오전)부터 사진은 OpenAI만으로 고지, v6은 게스트 안내 절 추가 |
+| `privacy_consent` 개인정보 수집·이용 동의 | v1, v2, v3(`seed_legal_final.sql`) | 필수 | v2 true(수집 항목·외부 AI 전송 추가), v3 false | 원격 게시 완료, 현재 시행 v3(2026-11-23) |
+| `sensitive_consent` 민감정보(건강) 처리 동의 | v1, v2, v3(`seed_legal_final.sql`) | 선택(`required=false`) | v2 true, v3 false | 원격 게시 완료, 현재 시행 v3(2026-11-23). v3는 첫 줄 설명 문장을 일반 문장으로 남기고 초안·검토 문구 두 문장만 뺐다 |
+| `terms_guest` 게스트판 이용약관 | v1(`seed_legal_guest_v1.sql`, 2026-11-23, PRD-17-22 A), v2(`seed_legal_final.sql`) | 동의 대상 아님(고지·열람용, `required=false`, `POST /consents`에서 받지 않음) | false | 원격 게시 완료, 현재 시행 v2(2026-11-23) |
+| `age_14` 만 14세 이상 확인 | v1(`seed_legal_age14.sql`) | 필수(첫 로그인 동의 화면의 별도 체크, PRD-17-09 A) | false | 원격 게시 완료, 현재 시행 v1(본문·제목에 초안 문구가 없어 최종안에서도 새 버전 없음) |
 
 - **원격 게시 결과(티켓 기록)**: 원격 `account` 스키마 적용(BE-11-23 A) 뒤 v1·v2·`age_14`를 게시하고 `verify`가 정상이었다(2026-11-22). 이어 v3(`terms`·`privacy_policy` 두 행)를 게시해 `legal_documents`가 9행에서 11행이 됐고, v4(`privacy_policy` 1행)를 게시해 12행이 됐다. 최신 `legal_current`는 `age_14` 1·`privacy_consent` 2·`privacy_policy` 4·`sensitive_consent` 2·`terms` 3이고 `verify`의 `terms_v3_privacy_v4_current`가 true다(PRD-17 §3 ⑯). 이 문서를 쓰면서 원격은 다시 읽지 않았다.
 - **게시 차단**: `account_repo_pg.assert_publishable`가 `{{…}}` 자리표시(말줄임표 하나인 `{{…}}`는 제외)가 남은 시드의 원격 게시를 막는다(PRD-17-11 A, 허용 목록 없음). v2·v3·v4 시드에 남은 자리표시는 `{{PRIVACY_CONTACT}}`(와 적용 스크립트가 채우는 `{{EFFECTIVE_AT}}`)뿐이며 `{{확인 필요}}`는 남아 있지 않다. 이 칸은 저장소에 값을 넣지 않고 원격 적용 스크립트(`backend/scripts/be11_account_migrate.py`)가 apply 직전에 env `PRIVACY_OFFICER_NAME`·`PRIVACY_OFFICER_EMAIL`에서 채운다(`account_repo_pg.render_privacy_contact`). 값이 없으면 자리표시가 남아 게시가 차단된다. v3부터 `{{PRIVACY_CONTACT}}`는 홀로 선 줄이고 그 위 줄 `Can I PPiyak 운영자(개발자)\`와 함께 세 줄(운영자 / 개인정보 보호책임자 / 문의)로 렌더링된다(`seed_legal_v3.sql` 머리 주석, PRD-17-18 A). 문서에는 실제 이름·이메일을 쓰지 않는다.
 - **화면 렌더링**: 약관 화면은 표·인용·강제 줄바꿈(`\`)을 렌더링한다(`frontend/src/features/account/Markdown.tsx`, 커밋 `7a586d5`). 실서버 눈 확인은 티켓 기록에 따르며 이 문서가 직접 보지 않았다.
+- **최종안 원격 게시(티켓 기록, 2026-11-23)**: `seed_legal_final.sql`(마이그레이션 단계 13)로 다섯 문서 종류의 새 버전 5행을 넣어(`inserted: 5`, 문서 15→20행) `verify`가 정상이었다. 본문은 직전 최신 판과 같고 달라진 것은 본문 맨 앞 인용문과 제목의 "(초안)"을 뺀 것뿐이며 `tests/test_legal_final_seed.py`가 diff로 검사한다. `requires_reconsent`는 모두 false라 재동의 대상이 없다. 현재 `legal_current`는 terms v4·privacy_policy v7·privacy_consent v3·sensitive_consent v3·terms_guest v2·age_14 v1이다(PRD-17 §3 ⑱, 이 문서는 원격 DB를 직접 읽지 않았다).
 - `age_14` 제목·본문은 "만 14세 이상입니다."이며 사용자 확인으로 확정됐다(PRD-17 §3 ⑬). `[필수 체크]`는 화면 표기라 본문에 넣지 않았다.
 - v2 4종은 2026-11-19 밤(m36) 사용자가 문서별로 원문 승인했다(PRD-17 §3 ②). 이후 2026-11-20 성별 문구·OpenAI 줄·Recap 45 항목 반영도 사용자가 승인했다(4장).
 
@@ -84,6 +86,8 @@ PRD-17-11·12는 사용자 답 원문이 "PRD-17-11, PRD-17-A"였고 메인이 �
 | Upstage 줄(사진 판독, PRD-17-19·20 A) | 받는 자 `Upstage(주식회사 업스테이지, Upstage Co., Ltd., 대한민국 서울특별시 강남구 · 문의 infosec@upstage.ai)`, 위탁 업무 "약봉투 사진에서 약 이름 읽기", 이전 항목은 사진과 사진에서 읽은 글자. 국가 칸: 대한민국 법인이나 글로벌 엔드포인트를 쓰며 처리 국가를 확인하지 못했고 국외(미국 등) 처리 가능성을 밝힌다. 사진은 서비스가 저장하지 않는다. 2절은 사진을 Upstage로 보내고, 사진에서 읽은 약 이름이 확인 뒤 질문에 들어가면 OpenAI로 갈 수 있다고 쓴다(사진 이미지 자체는 OpenAI로 보내지 않음) | `seed_legal_v4.sql:31,38`, 사용자 승인·원격 게시 2026-11-22. 출처 7장 |
 | Upstage 요금제 사실 | 사용자 콘솔 확인(2026-11-22): 요금제 Free, API 크레딧 19.63 USD(티켓 BE-14-10 사실 기록). v4 본문은 "이 서비스가 쓰는 이용 요금제를 확인하지 못했다"고 쓴 채 게시됐고, 이용약관 22조는 무료 서비스 입력의 서비스 개선 사용을 허용한다(6항). 사용자는 BE-14-10 B로 유료 전환과 서면 확인 뒤 v5에서 문구를 정리하기로 했다 | 티켓 `tickets/backend/BE-14.md` BE-14-10, 로컬 `upstage-legal.md` §1, `seed-v4-upstage.md`. 본문과 최신 사실이 다르므로 v5 전까지 이 차이를 둔다 |
 
+- **이력 표시(2026-11-23)**: 위 "Upstage 줄"과 "Upstage 요금제 사실" 두 행은 v4(2026-11-22) 본문 기준이다. BE-14-12 A로 사진 판독 기본값이 `openai`가 되고 처리방침 v5부터 사진을 OpenAI만으로 고지하므로, 현재 시행본(v7)에는 Upstage 줄이 없다고 티켓 기록(PRD-17 §3)이 적는다. 이 문서는 v7 본문을 줄 단위로 대조하지 않았다.
+
 ### 4.2 남은 것
 | 자리표시 | 내용 | 맡은 쪽 |
 |---|---|---|
@@ -91,22 +95,24 @@ PRD-17-11·12는 사용자 답 원문이 "PRD-17-11, PRD-17-A"였고 메인이 �
 | Upstage 처리 국가 | 확인하지 못함. 한국 리전(`kr.api.upstage.ai`)은 Closed Beta로 별도 접근 승인이 필요하고, 2026-11-22 읽기 전용 확인에서 `/v1/models`가 모델 0개를 돌려줬다. 승인 전에는 국가 칸을 "대한민국"으로 바꾸지 않는다 | 사용자(Upstage에 접근 신청·서면 확인 문의, BE-14-10 B ②) |
 | Upstage 요금제와 데이터 조건 | Free + API 크레딧(2026-11-22 사용자 확인). 유료 전환과 서면 확인(학습·개선 사용 여부, 보관 기간, 크레딧 계정이 이용약관 22조의 "무료 서비스"인지) 뒤 v5에서 정리 | 사용자(BE-14-10 B ① ②·③) |
 
+위 표의 Upstage 두 행도 v4 기준 이력이다(4.1 이력 표시 참고). 서비스 기본 제공자가 `openai`가 된 뒤에는 v5에서 정리할 대상이 코드 전환(`upstage`)을 켤 때로 한정된다(`CLAUDE.md` 3장 `MEDIAGENT_VISION_PROVIDER` 줄: Upstage를 켜려면 처리방침·사진 고지·요금제 조건을 먼저 맞출 것).
+
 확인하지 못한 것(`recap45.md` §3): Supabase Auth가 실제로 저장한 열·값, `auth.sessions`·감사 기록의 IP 보관 기간, Vercel 요청 로그, 백엔드 운영 로그 보관 기간(BE-13 배포 방식 미정, 2026-11-20 보류).
 
 ## 5. 축소 범위와 사진 문구
 - **정정(사용자 2026-11-20 "사진은 필수기능이야")**: 약봉투 사진은 필수 기능이다. 축소 대상은 음성 입력뿐이다(PJ2-RFP.md 4장 축소 순서 중 음성). 앞서 적은 "FR-11 사진 축소"는 철회한다.
 - 2026-11-20 판에서 사진 문구는 OpenAI 전송으로 승인됐으나(`recap45.md` §2 ⑦(a)(b)), 사진 판독 수탁자가 BE-14-09 A(2026-11-22)로 Upstage가 되면서 처리방침 v4가 이를 대체했다. 현재 시드(`seed_legal_v4.sql`)의 모양: 2절 마지막 문장은 사진을 Upstage로 전송한다고 쓰고, 사진 이미지는 OpenAI로 보내지 않지만 사진에서 읽은 약 이름이 확인 뒤 질문에 들어가면 OpenAI로 전송될 수 있다고 쓴다. 3절 표는 OpenAI 줄(답변 생성)과 Upstage 줄(사진에서 약 이름 읽기) 두 줄이다. 코드 근거: 프런트가 읽은 약 이름을 질문 글자로 만들어 `/chat`으로 보내고 그래프 model 노드가 질문을 OpenAI 모델에 보낸다(`seed_legal_v4.sql` 머리 주석).
 - Upstage 사실: 법인 Upstage Co., Ltd.(서울특별시 강남구, 한국 법인), 처리방침 시행 2026-11-02, 이용약관 시행 2026-09-21(22조: 입력·출력 데이터는 회원 소유, 무료 서비스 데이터는 서비스 제공·개선·AI R&D에 쓰일 수 있음). 이 서비스는 글로벌 엔드포인트 `api.upstage.ai`를 쓰며 처리 국가를 확인하지 못했다. 한국 리전 `kr.api.upstage.ai`는 Closed Beta로 별도 접근 승인이 필요하고 `solar-pro4`는 지원 목록에 없다고 조사 보고가 기록한다(공식 문서, 읽은 날 2026-11-22, 로컬 `upstage-legal.md`·`upstage-kr-region.md`). 요금제는 Free + API 크레딧(7장·4.1 참고).
-- 사진 판독 제공자의 이력: AG-17-02 A(`gpt-6-luna` 유지)를 BE-14-09 A(Upstage)가 대체했고 서비스 기본값은 `upstage`다(`MEDIAGENT_VISION_PROVIDER=openai`로 복귀 가능, 티켓 BE-14 기록).
+- 사진 판독 제공자의 이력: AG-17-02 A(`gpt-6-luna` 유지)를 BE-14-09 A(Upstage, 2026-11-22)가 대체했으나, **2026-11-23 사용자 최종 결정 BE-14-12 A("only OpenAI")로 서비스 기본값은 `openai`다**(`MEDIAGENT_VISION_PROVIDER`, `upstage`는 코드 전환만 유지, 티켓 BE-14 기록). 처리방침도 v5(2026-11-23 오전)부터 사진은 OpenAI만으로 고지한다(PRD-17 §3 기록). 위 두 항목의 Upstage 서술(v4 본문)은 이력이다.
 - 처리방침 2절의 "약봉투 사진과 음성은 저장하지 않습니다."는 유지한다.
 
 ## 6. 남은 일
-1. **원격 적용(완료)**: v1·v2·`age_14`, v3, v4를 승인 flag 절차(`plan` → `apply --yes` → `verify`)로 게시했고 `verify`는 정상이다(2026-11-22, PRD-17 §2·§3 ⑯, 2장 참고). 이 문서가 원격을 다시 읽지는 않았다.
+1. **원격 적용(완료)**: v1·v2·`age_14`, v3, v4, 이후 v5·v6·`terms_guest` v1, 최종안(2026-11-23, 5행)을 승인 flag 절차(`plan` → `apply --yes` → `verify`)로 게시했고 `verify`는 정상이다(2026-11-22, PRD-17 §2·§3 ⑯, 2장 참고). 이 문서가 원격을 다시 읽지는 않았다.
 2. **자리표시 채우기(⑫, 완료)**: 게시본의 `{{PRIVACY_CONTACT}}`는 env 값으로 채워졌다(값은 문서에 쓰지 않는다). 본문 문장 수정은 계속 사용자 승인 대상이다.
 3. **프런트 표시 확인(⑤)·`age_14` 체크(⑥)**: 약관 화면이 표·인용·강제 줄바꿈을 렌더링하도록 고쳤고(`7a586d5`) 처리방침 표·Upstage 줄은 사용자 실서버 확인 기록이 있다(티켓·`schedule.md` 기록, 이 문서가 직접 보지 않음). 연락처 세 줄·이메일 줄바꿈·만 14세 체크의 눈 확인은 티켓 기록에 없어 사용자 몫으로 남는다. 성별 항목(FE-04)은 해당 티켓 몫이다.
 4. **법률 검토는 보류(Recap 9)**: 개인정보 보호법 조문 대조는 해석이며 처리방침 작성지침 등은 열지 못했다. `legal_review='reviewed'`·"법률 검토 완료" 표현은 어떤 산출물에도 쓰지 않는다.
 5. 시드 머리의 승인 줄은 v4 시드도 "원문 승인 2026-11-19(사용자)"이고 v4 승인(2026-11-22, PRD-17-19·20)은 본문 줄에 없다. 날짜를 남길지는 사용자·메인 판단이다(시험이 그 줄을 글자 그대로 검사하므로 고치면 시험도 함께 고쳐야 한다, `prd17-sex.md` §4).
-6. **Upstage 정리(v5 후보)**: 사용자는 BE-14-10 B로 유료 전환과 Upstage의 서면 확인을 한 뒤 처리방침 v5에서 처리 국가·요금제 문구를 정리하기로 했다. 한국 리전 접근이 승인되면 국가 칸을 바꾸는 v5가 따로 필요할 수 있다(로컬 `upstage-kr-region.md`).
+6. **Upstage 정리(이력, 2026-11-23)**: 아래는 2026-11-22 계획이다. 이후 처리방침 v5가 사진을 OpenAI만으로 고지하는 것으로 정리됐고 최종안 v7이 현재 시행본이다. 아래는 그때 계획 원문이다: 사용자는 BE-14-10 B로 유료 전환과 Upstage의 서면 확인을 한 뒤 처리방침 v5에서 처리 국가·요금제 문구를 정리하기로 했다. 한국 리전 접근이 승인되면 국가 칸을 바꾸는 v5가 따로 필요할 수 있다(로컬 `upstage-kr-region.md`).
 7. **옮길 내용 메모(미해결, PRD-17 §2 완료 조건 ② ③)**: 티켓은 이 문서에 ③ 빈칸 목록(항목별 "필요함/불필요/미확인"과 근거 조문·URL)과 v2 본문 초안 4종이 있기를 요구하지만, 현재 그 내용은 로컬 전용 `data/mock/briefs/reports/legal-review.md` §2(항목 A-1~C-6)와 §3, 시드 `seed_legal_v2.sql`에만 있다. 옮길 위치는 이 문서 4장 뒤에 "빈칸 목록" 장과 "본문 링크" 장을 새로 두는 것이다(이번에는 옮기지 않음). 옮길 때도 "필요함·불필요" 표현은 해석이며 법적 단정이나 법률 자문이 아니라는 한계를 그대로 유지한다.
 
 ## 7. 출처

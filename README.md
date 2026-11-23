@@ -46,6 +46,7 @@ ReAct 에이전트가 중심이며 LangGraph 6노드 `guardrail_in → router �
 |---|---|---|
 | 에이전트 | LangGraph(ReAct) | Agent-RAG가 중심이므로 그래프로 노드·분기를 더해 개선한다 |
 | LLM | OpenAI 계열 `gpt-6-luna` | RFP 8.2절, `tickets/doc/RFP-22.md` |
+| 약봉투 사진 판독 | 기본 제공자 OpenAI(`gpt-6-luna` 비전, 환경변수 `MEDIAGENT_VISION_PROVIDER` 기본 `openai`) | BE-14-12 A(2026-11-23 사용자 최종 결정). Upstage는 코드 전환만 유지하며 켜기 전에 처리방침·사진 고지·요금제 조건을 맞춰야 한다. 사진은 서버에 저장하지 않는다 |
 | 평가 judge | Claude Sonnet 5.5(`claude-sonnet-5-5`) 고정 | 평가 기간 중 모델·루브릭 변경 금지(RFP-26-01) |
 | DB·벡터 | Supabase Pro(Postgres + pgvector, Auth) | 배포 요건(RFP-15-03). 근거 코퍼스 용량 추정 약 970MB가 무료 한도(500MB)를 넘어 Pro로 변경(BE-05-03 D, 2026-11-11) |
 | 로그인 | Supabase Auth, 소셜 Google·Kakao | PRD-01-10 A. 이메일 로그인은 숨김 |
@@ -174,10 +175,10 @@ backend/.venv/bin/python evaluation/eval_runner.py --set dev --agent offline-fix
 - **결과**: 개발셋 Router 출력 변화 0/150, `P2-doc/PJ2-RFP.md` 9장 변경 없음(`tickets/agent/AG-21.md`).
 - **하네스와의 관계**: 모르면 안전한 쪽(확인)으로 가고, 약 확정은 LLM이 아니라 코드 규칙이 한다.
 
-### (4) 용량주의 표현과 주의 조회 — 구현 완료, 병합 대기
+### (4) 용량주의 표현과 주의 조회 — 구현·병합 완료
 - **문제**: 재복용·추가 복용 질문(예: 점심에 먹은 뒤 오후에 또 먹어도 되는지)이 입구 용량 패턴에 걸리지 않아 에이전트 경로로 가고, 용량주의가 "판정"처럼 보일 수 있었다. 주의 3종 조회를 LLM의 `include_cautions` 선택에 맡겨 실행마다 조회 행 수가 달라질 수 있었다(AG-22).
 - **결정·구현**: 용량주의를 성분 속성 고지 + 예/아니요 되묻기로 보이게 하고, 주의 조회를 LLM 선택에서 코드 규칙으로 옮겼다. 복용 여부·용량을 정해 주지 않는 원칙은 출구 Sensor가 지킨다.
-- **상태**: GROUP-01 2·3단계는 **구현 완료·develop 병합 대기**다. 개발셋에서 주의 규칙 변경으로 `entries`가 바뀌는 문항은 55/150이고 9장 지표는 불변으로 추정한다(측정 전, `tickets/agent/AG-22.md` §5). 병합 뒤 새 기준선 판을 둘지는 AG-13-30에서 정한다(5장).
+- **상태**: GROUP-01 2·3단계는 **구현 완료·develop 병합 완료**다. 개발셋에서 주의 규칙 변경으로 `entries`가 바뀌는 문항은 55/150이고 9장 지표는 불변으로 추정한다(측정 전, `tickets/agent/AG-22.md` §5). 병합 뒤 새 기준선 판을 둘지는 AG-13-30에서 정한다(5장).
 - **하네스와의 관계**: 고정 문구와 판정은 프롬프트가 아니라 코드가 강제한다는 원칙의 적용이다.
 
 ## 7. 데이터 출처와 이용 조건
