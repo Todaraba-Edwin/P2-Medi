@@ -45,8 +45,8 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 const PNG_URL = "data:image/png;base64,iVBORw0KGgo=";
-/** P2 원문(제공자 이름만 Upstage로 교체, 2026-11-22 작업 D). 상수가 아니라 글자로 적어 둘 다 검사한다 */
-const UPSTAGE_NOTICE = "올린 사진은 약 이름을 읽기 위해 외부 AI(Upstage)로 보내요. 이 서비스는 사진을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요.";
+/** P2 승인 원문(제공자 OpenAI, 2026-11-23 only OpenAI 확정으로 복원). 상수가 아니라 글자로 적어 둘 다 검사한다 */
+const OPENAI_NOTICE = "올린 사진은 약 이름을 읽기 위해 외부 AI(OpenAI)로 보내요. 이 서비스는 사진을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요.";
 const fakePrepare: typeof prepareImage = async () => ({ dataUrl: PNG_URL, width: 10, height: 10, resized: false, bytes: 8 });
 const pngFile = () => new File([new Uint8Array([1, 2, 3, 4])], "pouch.png", { type: "image/png" });
 
@@ -442,26 +442,27 @@ describe("프로필 등록 목적지(FE-04-27 A): 질문칸 없음, 이름만 �
     expect(ingestCalls).toBe(1);
   });
 
-  it("destination=profile: 사진 고르기 화면의 가림 안내(P1)·외부 AI 전송 고지(P2, 제공자 Upstage)·형식 안내(P7)는 채팅 목적지와 같은 글자 그대로 보인다", () => {
+  it("destination=profile: 사진 고르기 화면의 가림 안내(P1)·외부 AI 전송 고지(P2, 제공자 OpenAI)·형식 안내(P7)는 채팅 목적지와 같은 글자 그대로 보인다", () => {
     setup({ destination: "profile", onRegister: vi.fn() });
     expect(within(modal()).getByTestId("photo-privacy-notice").textContent).toBe(copy.PHOTO_PRIVACY_NOTICE);
     expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(copy.PHOTO_EXTERNAL_AI_NOTICE);
-    expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(UPSTAGE_NOTICE);
+    expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(OPENAI_NOTICE);
     expect(within(modal()).getByTestId("photo-format-note").textContent).toBe(copy.PHOTO_FORMAT_NOTE);
     expect(within(modal()).getByTestId("layer-emergency-entry")).toHaveAttribute("href", "tel:119");
   });
 
-  it("destination 기본값은 chat: 카드에 질문칸이 있고 data-destination=chat이다(기존 동작 그대로). 전송 고지의 제공자도 Upstage다", async () => {
+  it("destination 기본값은 chat: 카드에 질문칸이 있고 data-destination=chat이다(기존 동작 그대로). 전송 고지의 제공자도 OpenAI다", async () => {
     const { user } = setup();
-    expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(UPSTAGE_NOTICE);
+    expect(within(modal()).getByTestId("photo-external-ai-notice").textContent).toBe(OPENAI_NOTICE);
     const card = await toCard(user);
     expect(modal()).toHaveAttribute("data-destination", "chat");
     expect(within(card).getByTestId("photo-question")).toBeInTheDocument();
   });
 
-  it("사진 전송 고지(P2)는 제공자 이름만 OpenAI → Upstage로 바뀌었고(작업 D, FE-05-03 A 해당) 질문 경로 입력창 고지(INPUT_NOTICE)는 OpenAI 그대로다", () => {
-    expect(copy.PHOTO_EXTERNAL_AI_NOTICE).toBe(UPSTAGE_NOTICE);
-    expect(copy.PHOTO_EXTERNAL_AI_NOTICE).not.toContain("OpenAI");
+  it("사진 전송 고지(P2)는 제공자가 OpenAI다(2026-11-23 only OpenAI 확정, Upstage 표기 없음) 질문 경로 입력창 고지(INPUT_NOTICE)도 OpenAI 그대로다", () => {
+    expect(copy.PHOTO_EXTERNAL_AI_NOTICE).toBe(OPENAI_NOTICE);
+    expect(copy.PHOTO_EXTERNAL_AI_NOTICE).toContain("외부 AI(OpenAI)");
+    expect(copy.PHOTO_EXTERNAL_AI_NOTICE).not.toContain("Upstage");
     expect(INPUT_NOTICE).toContain("외부 AI(OpenAI)");
     expect(INPUT_NOTICE).not.toContain("Upstage");
   });

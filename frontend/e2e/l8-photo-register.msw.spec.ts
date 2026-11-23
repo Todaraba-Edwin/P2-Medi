@@ -12,7 +12,7 @@ import { HEIGHT, expect119Reachable, expectNoHorizontalScroll, expectTouchTarget
 const SHOT_DIR = process.env.L8_SHOT_DIR;
 const PHOTO_LABEL = "사진으로 등록";
 const P1 = "환자 이름·병원·약국은 가리고 찍어도 돼요. 사진은 저장하지 않아요.";
-const P2 = "올린 사진은 약 이름을 읽기 위해 외부 AI(Upstage)로 보내요. 이 서비스는 사진을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요.";
+const P2 = "올린 사진은 약 이름을 읽기 위해 외부 AI(OpenAI)로 보내요. 이 서비스는 사진을 저장하지 않지만, 외부 AI 제공자의 정책에 따라 일정 기간 보관될 수 있어요.";
 /** 사진 목이 `ok` 시나리오를 고르는 PNG 가로 픽셀 수(`src/mocks/photo-handlers.ts`의 `PHOTO_SCENARIO_PNG_WIDTH.ok`. 단위 시험이 그 표를 검사한다) */
 const OK_PNG_WIDTH = 64;
 
