@@ -93,3 +93,17 @@ describe("폭별 배치", () => {
     expect(run(initialShellState, open(1400), { type: "closeEvidence" }).sidebarExpanded).toBe(true);
   });
 });
+
+describe("창 크기 기준선 가로지르기(FE-17 U-18)", () => {
+  it("좁아지면(desktop false) 사이드바·드로어를 닫고, 넓어지면(desktop true) 사이드바를 펼친다. 근거 상세는 그대로", () => {
+    const opened = run(initialShellState, { type: "openDrawer" }, open(1280));
+    expect(run(opened, { type: "viewportCrossed", desktop: false })).toMatchObject({ sidebarExpanded: false, drawerOpen: false, evidenceTurnId: "turn-1" });
+    const collapsed = run(initialShellState, { type: "toggleSidebar" }, { type: "openDrawer" });
+    expect(run(collapsed, { type: "viewportCrossed", desktop: true })).toMatchObject({ sidebarExpanded: true, drawerOpen: false });
+  });
+
+  it("같은 구간 안의 사용자 토글은 가로지르기가 없으면 그대로다(폭만 바뀌면 배치 표현만 바뀐다)", () => {
+    const collapsed = run(initialShellState, { type: "toggleSidebar" });
+    for (const width of [1024, 1100, 1280, 1600]) expect(computeLayout(collapsed, width).sidebarColumn).toBe("rail");
+  });
+});

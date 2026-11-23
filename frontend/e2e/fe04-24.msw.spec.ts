@@ -4,7 +4,7 @@ import { deflateSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { AA_NORMAL, failures, measureContrast } from "./contrast";
-import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp, completeRequired } from "./helpers";
 
 // FE-04-24 A·FE-04-25 A(2026-11-22 사용자 답) e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // - FE-04-24 A 프로필 약 입력: 검색 중(디바운스 대기·요청 중)에는 `그대로 추가`가 비활성, 후보가 있으면 Enter는 첫 후보로 활성만(저장 없음),
@@ -183,6 +183,7 @@ for (const width of [393, 1280]) {
         await shot(page, "profile-as-is");
 
         // ---- 저장 모양: 고른 후보 `{input_text, item_seq}`, 그대로 추가한 약 `item_seq` null
+        await completeRequired(modal(page));
         await modal(page).getByTestId("profile-save").click();
         await expect(modal(page)).toHaveAttribute("data-step", "profiles");
         expect(saves).toHaveLength(1);

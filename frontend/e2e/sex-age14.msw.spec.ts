@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, MIN_TOUCH, ask, expectNoHorizontalScroll, expectTouchTarget, openApp, pickTarget } from "./helpers";
+import { HEIGHT, MIN_TOUCH, ask, expectNoHorizontalScroll, expectTouchTarget, openApp, pickTarget, pickChoice, completeRequired } from "./helpers";
 
 // GROUP-03 2단계 F1(FE-04, 2026-11-20): 프로필 성별(선택) 입력 + 첫 로그인 동의 화면의 "만 14세 이상입니다." 별도 필수 체크.
 // Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다. 실제 백엔드·원격 호출 0.
@@ -88,54 +88,57 @@ for (const width of [393, 1280]) {
         },
       ]);
 
-      // ---- 프로필 폼: 성별(선택)은 연령대 아래, 건강 정보 묶음 밖. 처음엔 '선택 안 함'(로그인 정보로 채우지 않는다)
+      // ---- 프로필 폼: 성별(FE-17 U-07부터 필수, 여성|남성 버튼)은 연령대 아래, 건강 정보 묶음 밖. 처음엔 고르지 않은 상태(로그인 정보로 채우지 않는다)
       await modal(page).getByTestId("add-self").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
-      const sex = modal(page).getByLabel("성별");
-      await expect(sex).toBeEnabled(); // 건강 정보 동의가 없어도 고를 수 있다
+      const sex = modal(page).getByRole("radiogroup", { name: "성별", exact: true });
+      for (const radio of await sex.getByRole("radio").all()) await expect(radio).toBeEnabled(); // 건강 정보 동의가 없어도 고를 수 있다
       // 건강 정보 묶음은 비활성이다(fieldset은 Playwright가 disabled 판정을 하지 않으므로 안의 라디오·약 입력으로 본다)
       for (const radio of await modal(page).getByTestId("health-fields").getByRole("radio").all()) await expect(radio).toBeDisabled(); // 프로필 색(건강 정보 아님)은 묶음 밖
       await expect(modal(page).getByLabel("복용 중인 약(선택)")).toBeDisabled();
-      await expect(sex).toHaveValue("");
-      await expect(sex.getByRole("option")).toHaveText(["선택 안 함", "여성", "남성"]);
-      expect(await sex.evaluate((el) => (el as HTMLSelectElement).closest('[data-testid="health-fields"]'))).toBeNull();
-      const ageBandBox = (await modal(page).getByLabel("연령대").boundingBox())!;
+      await expect(sex.locator('[aria-checked="true"]')).toHaveCount(0);
+      await expect(sex.getByRole("radio")).toHaveText(["여성", "남성"]);
+      expect(await sex.evaluate((el) => el.closest('[data-testid="health-fields"]'))).toBeNull();
+      const ageBandBox = (await modal(page).getByRole("radiogroup", { name: "연령대", exact: true }).boundingBox())!;
       const sexBox = (await sex.boundingBox())!;
       expect(sexBox.y).toBeGreaterThanOrEqual(ageBandBox.y + ageBandBox.height - 0.5);
       expect(sexBox.height).toBeGreaterThanOrEqual(MIN_TOUCH);
       const healthBox = (await modal(page).getByTestId("health-fields").boundingBox())!;
       expect(healthBox.y).toBeGreaterThanOrEqual(sexBox.y + sexBox.height - 0.5);
-      // 글자 색은 토큰이다(하드코딩 색 없음): 라벨과 select가 계산된 색을 갖고 배경과 다르다
-      const colors = await sex.evaluate((el) => ({ fg: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor }));
+      // 글자 색은 토큰이다(하드코딩 색 없음): 버튼이 계산된 색을 갖고 배경과 다르다
+      const colors = await sex.getByRole("radio").first().evaluate((el) => ({ fg: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor }));
       expect(colors.fg).not.toBe(colors.bg);
       await modal(page).getByLabel("이름(별명)").fill("나");
-      await modal(page).getByLabel("연령대").selectOption("y19_64");
-      await sex.selectOption("female");
+      await pickChoice(modal(page), "연령대", "만 19~64세");
+      await pickChoice(modal(page), "성별", "여성");
       await expectNoHorizontalScroll(page);
       await shot(page, "profile-form-sex");
+      await completeRequired(modal(page));
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profiles");
       await expect(modal(page).getByTestId("profile-item")).toContainText("본인 · 만 19~64세 · 여성");
       await shot(page, "profiles-sex");
-      // 수정: 지우기('선택 안 함')
+      // 수정: 저장된 값이 골라져 있고 남성으로 바꾼다(필수라 지우기는 없다)
       await modal(page).getByRole("button", { name: "나 수정" }).click();
-      await expect(modal(page).getByLabel("성별")).toHaveValue("female");
-      await modal(page).getByLabel("성별").selectOption("");
+      await expect(sex.getByRole("radio", { name: "여성", exact: true })).toHaveAttribute("aria-checked", "true");
+      await pickChoice(modal(page), "성별", "남성");
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profiles");
-      await expect(modal(page).getByTestId("profile-item")).not.toContainText(/여성|남성/);
+      await expect(modal(page).getByTestId("profile-item")).toContainText("본인 · 만 19~64세 · 남성");
       // 가족 프로필에도 같은 칸
       await modal(page).getByTestId("add-family").click();
       await modal(page).getByLabel("이름(별명)").fill("첫째");
-      await modal(page).getByLabel("성별").selectOption("male");
+      await pickChoice(modal(page), "성별", "남성");
+      await completeRequired(modal(page));
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
-      await expect(modal(page).getByTestId("profile-item").nth(1)).toContainText("자녀 · 남성");
-      expect(profileBodies.map((body) => body.sex)).toEqual(["female", null, "male"]);
+      await expect(modal(page).getByTestId("profile-item").nth(1)).toContainText("자녀 · 만 19~64세 · 남성");
+      expect(profileBodies.map((body) => body.sex)).toEqual(["female", "male", "male"]);
       for (const body of profileBodies) expect(Object.keys(body)).toEqual(["relation", "label", "age_band", "sex", "avatar_color"]); // 건강 칸은 없다(병아리 배경색은 건강 정보가 아니라 늘 실린다, FE-17 U-01)
       // 다시 성별을 넣고 질문: `/chat` 본문에는 성별이 없다
       await modal(page).getByRole("button", { name: "나 수정" }).click();
-      await modal(page).getByLabel("성별").selectOption("female");
+      await pickChoice(modal(page), "성별", "여성");
+      await completeRequired(modal(page));
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profiles");
       await modal(page).getByRole("button", { name: "닫기" }).click();

@@ -4,7 +4,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
 import { NoMascotZone } from "@/components/NoMascotZone";
-import { AccountMenu, AccountModal, EntryChoice, LegalDialog, TargetChip, isAccountEntryEnabled, openAccountModal } from "@/features/account";
+import { AccountMenu, AccountModal, EntryChoice, LegalDialog, StartTargetNotice, TargetChip, isAccountEntryEnabled, openAccountModal } from "@/features/account";
 import { failureMessage } from "@/features/account/parts";
 import { ChatInput, ExampleChips, HomeHero, PREGNANCY_SAVE_CONSENT_HINT } from "@/features/chat";
 import { EmergencyBanner, FixedNoticeBox } from "@/features/emergency";
@@ -36,8 +36,9 @@ import { useViewportWidth } from "./useViewportWidth";
  * - 고정 안내는 근거 상세 틀 밖의 접히지 않는 영역(입력창 위)에 응답 값 그대로 둔다.
  * - 사이드바 상태는 사용자 토글이 원천이다. 근거 상세가 새로 열리는 순간의 판정만 예외다(`layout-rules.ts`).
  * - 계정(FE-04): 시작 화면의 진입 선택(게스트로 시작 / 로그인·가입), 사이드바의 계정 자리, 계정 모달.
- *   대상 프로필("누가 먹나요", 2026-11-23): 본문 선택 줄은 없다. 입력창 안 프로필 칩(`TargetChip`)과 계정 버튼 메뉴 맨 위 목록에서 고르고,
- *   값은 계정 스토어의 `targetProfileId` 하나(메모리)라 두 자리와 계정 버튼 표시(병아리 + 이름)가 같이 바뀐다. 요청에 싣는 값은 예전과 같다.
+ *   대상 프로필("누가 먹나요", 2026-11-23): 본문 선택 줄은 없다. 입력창 안 프로필 칩(`TargetChip`)과 계정 버튼 메뉴의 `프로필 관리` 아래 목록,
+ *   시작 화면 기본 대상 안내(`StartTargetNotice`, FE-17 U-08)에서 고르고, 값은 계정 스토어의 `targetProfileId` 하나(메모리)라 모든 자리와
+ *   계정 버튼 표시(병아리 + 이름)가 같이 바뀐다. 고른 값은 서버 기본 대상으로 저장돼 새 세션의 기본값이 된다(브라우저 저장소에는 두지 않는다). 요청에 싣는 값은 예전과 같다.
  *   게스트는 지금처럼 바로 질문한다. 계정 모달도 배너 아래 영역에만 그린다(119 배너를 덮지 않는다).
  * - 입력창 아래 통합 고지(FE-17 U-02): 법적 고지와 입력창 고지의 의미를 한 단락 상수로 합쳐 둔다(`ChatInput`, 사용자 승인 완료 문구).
  * - 119(FE-17 U-04): 평상시는 머리줄 `emergency-entry`, 응급 키워드가 오면 맨 위 배너 하나. 시작 화면 줄·층(드로어·시트·모달) 안 진입점은 없다.
@@ -133,6 +134,18 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const evidenceTurn = turns.find((turn) => turn.id === shell.evidenceTurnId);
   const evidenceResponse = evidenceTurn?.stream.response ?? null;
   const layout = width === null ? null : computeLayout(shell, width);
+  const desktop = width === null ? null : isDesktopWidth(width);
+
+  // 창 크기 자동 열고 닫기(FE-17 U-18): 폭이 사이드바 기준선(1024px)을 **가로지를 때만** 좁아지면 닫고 넓어지면 펼친다.
+  // 값이 바뀔 때만 도는 효과라 리사이즈 중 매 픽셀 반응하지 않고, 같은 구간 안에서 사용자가 접거나 편 상태는 그대로 둔다. 첫 그리기(폭을 처음 알 때)는 건너뛴다.
+  // 상태만 바꾸므로 대화·입력 중 글자는 그대로다(다시 마운트하지 않는다). 닫히는 층의 초점은 각 층이 토글 버튼으로 돌려준다(`Sidebar` `returnFocus`)
+  const lastDesktop = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (desktop === null) return;
+    const previous = lastDesktop.current;
+    lastDesktop.current = desktop;
+    if (previous !== null && previous !== desktop) dispatch({ type: "viewportCrossed", desktop });
+  }, [desktop]);
 
   const closeEvidence = () => {
     const turnId = shell.evidenceTurnId;
@@ -280,7 +293,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     focusInput();
   };
   // 계정 자리는 항상 그린다: 게스트도 메뉴에서 화면 모드·약관·정책을 연다(계정 기능이 꺼져 있으면 "로그인/가입" 항목만 빠진다)
-  // 대상 프로필 고르기: 회원 + 프로필이 있을 때만(게스트·프로필 없음은 예전 모양). 계정 버튼 메뉴와 입력창 칩이 같은 값을 쓴다
+  // 대상 프로필 고르기: 회원 + 프로필이 있을 때만(게스트·프로필 없음은 칩·시작 화면 안내 없이 같은 입력창 배치). 계정 버튼 메뉴·입력창 칩·시작 화면 안내가 같은 값을 쓴다
   const targetChoice = member && profiles.length > 0 ? { profiles, value: targetProfileId, onChange: changeTarget } : undefined;
   const menuProps = { member, accountEnabled, container: layer, onOpen: openAccount, onLogout: () => void account.getState().logout(), onLegal: openLegal, target: targetChoice };
   const accountMenu = <AccountMenu {...menuProps} />;
@@ -340,8 +353,20 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
           )}
           <div className={cn("mx-auto flex min-h-0 w-full flex-1 flex-col gap-2", layout.desktop ? "max-w-[880px] px-6" : "max-w-[760px] px-3")}>
             {turns.length === 0 ? (
-              <div data-testid="home" className="flex min-h-0 flex-1 flex-col justify-center gap-4 overflow-y-auto py-2">
+              // 내용이 화면보다 길면(좁은 폭 + 기본 대상 안내, FE-17 U-08) 가운데 정렬이 위쪽을 스크롤 밖으로 잘라내지 않게 `safe` 가운데 정렬이다
+              <div data-testid="home" className="flex min-h-0 flex-1 flex-col justify-center-safe gap-4 overflow-y-auto py-2">
                 <HomeHero />
+                {/* 기본 대상 안내(FE-17 U-08): 로그인 + 프로필이 있을 때만, 병아리 이미지 아래에 지금 대상과 `게스트로 이용`(프로필 상태, U-23)·`변경`(게스트 상태, U-22: 칩과 같은 목록)을 둔다.
+                    고르면 대상이 바뀌고(서버 기본 대상도 저장) 초점은 질문 칸으로 간다. 대화가 시작되면 이 영역째 사라진다 */}
+                {targetChoice && (
+                  <StartTargetNotice
+                    profiles={targetChoice.profiles}
+                    value={targetChoice.value}
+                    onChange={changeTarget}
+                    onSettled={focusInput}
+                    container={layer}
+                  />
+                )}
                 {/* 진입 선택: 게스트로 시작(주) / 로그인·가입(보조). 누르지 않아도 아래 입력창으로 바로 질문할 수 있다 */}
                 {accountEnabled && !member && !entryDismissed && <EntryChoice onGuest={startGuest} onLogin={openAccount} />}
                 <ExampleChips onPick={(question) => send(question)} />
@@ -365,7 +390,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
             <div data-testid="dock" className="flex flex-none flex-col gap-1.5 pb-[max(14px,env(safe-area-inset-bottom,0px))]">
               {dockResponse && <FixedNoticeBox lines={dockResponse.fixed_notice} />}
               {/* 임신 여부 토글은 대상이 남성 프로필이면 그리지 않는다(FE-11-09 C). 안내·오류 줄도 토글과 함께 빠진다.
-                  대상 프로필 칩은 로그인하고 프로필이 있을 때만 입력창 안에 둔다(게스트는 예전 모양).
+                  대상 프로필 칩은 로그인하고 프로필이 있을 때만 입력창 안에 둔다. 게스트·프로필 없음도 같은 두 줄 배치다(FE-17 U-09, 칩만 없다).
                   고지는 입력창 아래 통합 고지 한 단락(FE-17 U-02, `ChatInput`)이다. 시작 화면 119 안내 줄은 없다(FE-17 U-04: 119는 머리줄·응급 배너 두 곳) */}
               <ChatInput
                 onSend={(question) => send(question)}

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialStreamState, streamReducer } from "@/lib/api";
 import type { ChatResponse, StreamAction, StreamState } from "@/lib/api";
 import { DISCLAIMER, FIXED_NOTICE } from "@/lib/fixed/phrases.generated";
+import { TargetChip } from "@/features/account";
 import { clarifyResponse, foundResponse } from "@/mocks/fixtures/responses";
 import { scenarios } from "@/mocks/fixtures/scenarios";
 import { ChatInput } from "./ChatInput";
@@ -148,15 +149,45 @@ describe("ChatInput", () => {
     expect(DISCLAIMER).toBe("공공데이터 기반 정보 제공이며 진단·처방이 아님 · 금기 목록에 없다는 것이 안전하다는 뜻이 아님 · 요양기관의 DUR 점검을 대체하지 않음");
   });
 
-  it("대상 프로필 칩을 주면 입력창 첫 줄이 '토글 · 칩'이고, 주지 않으면(게스트) 예전 한 줄 모양이다", () => {
+  it("토글 칸과 프로필 칩은 같은 글자 크기·줄 높이(12px/16px)라 글자 윗부분이 잘리지 않는다(FE-17 U-20: 예전 줄 높이 12px에서 말줄임 칸이 글꼴 상자를 잘랐다)", () => {
+    render(<ChatInput onSend={() => {}} pregnancy={{ value: false, onChange: () => {} }} onPhoto={() => {}} target={<TargetChip profiles={[]} value={null} onChange={() => {}} />} />);
+    const face = screen.getByTestId("target-chip-face");
+    for (const el of [screen.getByTestId("pregnancy-general"), screen.getByTestId("pregnancy-pregnant"), face]) {
+      const tokens = el.className.split(" ");
+      expect(tokens).toContain("text-xs");
+      expect(tokens).toContain("leading-4");
+      expect(tokens).not.toContain("leading-none");
+    }
+    // 실제 잘림(글꼴 상자 ⊂ 잘림 상자)은 브라우저에서만 잴 수 있어 e2e(ux-batch5)가 본다
+  });
+
+  it("질문 칸 아래 줄 왼쪽이 '사진 → 토글 · 칩' 한 묶음이고(FE-17 U-07 좌하단) 보내기는 그 뒤다. 칩을 주지 않아도(게스트·프로필 없음) 같은 배치에서 칩과 점만 빠진다(FE-17 U-09)", () => {
     const pregnancy = { value: false, onChange: () => {} };
-    const { rerender } = render(<ChatInput onSend={() => {}} pregnancy={pregnancy} />);
-    expect(screen.queryByTestId("input-target-row")).toBeNull();
-    rerender(<ChatInput onSend={() => {}} pregnancy={pregnancy} target={<button type="button">칩</button>} />);
+    const { rerender } = render(<ChatInput onSend={() => {}} pregnancy={pregnancy} onPhoto={() => {}} />);
+    // 게스트: 질문 칸(첫 줄 전체) → 아래 줄 [사진 → 토글] → 보내기. 예전 한 줄(토글 → 질문 칸 → 사진)은 없다
+    const guestRow = screen.getByTestId("input-target-row");
+    expect(guestRow.getAttribute("data-target")).toBe("none");
+    const guestPhoto = within(guestRow).getByTestId("photo-entry");
+    const guestToggle = within(guestRow).getByTestId("pregnancy-toggle");
+    expect(guestPhoto.compareDocumentPosition(guestToggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("textbox").compareDocumentPosition(guestRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(guestRow.compareDocumentPosition(screen.getByRole("button", { name: "보내기" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("textbox").className).toContain("basis-full");
+    expect(screen.getAllByTestId("photo-entry")).toHaveLength(1);
+    expect(guestRow.textContent).not.toContain("·"); // 칩이 없으면 구분 점도 없다
+    rerender(<ChatInput onSend={() => {}} pregnancy={pregnancy} onPhoto={() => {}} target={<button type="button">칩</button>} />);
     const row = screen.getByTestId("input-target-row");
-    expect(within(row).getByTestId("pregnancy-toggle")).toBeInTheDocument();
-    expect(within(row).getByRole("button", { name: "칩" })).toBeInTheDocument();
-    expect(row.compareDocumentPosition(screen.getByRole("textbox")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const photo = within(row).getByTestId("photo-entry");
+    const toggle = within(row).getByTestId("pregnancy-toggle");
+    const chip = within(row).getByRole("button", { name: "칩" });
+    expect(screen.getAllByTestId("photo-entry")).toHaveLength(1); // 사진 입구는 하나
+    // 묶음 안 순서: 사진 → 토글 → 칩
+    expect(photo.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(toggle.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 묶음은 질문 칸 아래(뒤), 보내기는 묶음 뒤
+    expect(screen.getByRole("textbox").compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(row.compareDocumentPosition(screen.getByRole("button", { name: "보내기" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("textbox").className).toContain("basis-full"); // 질문 칸이 첫 줄 전체
   });
 
   it("Enter로 보내고 Shift+Enter·한글 조합 중 Enter·빈 글자는 보내지 않는다", async () => {

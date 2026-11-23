@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
@@ -164,7 +164,7 @@ describe("F2 임신 여부 토글(게스트, FE-11-12 A·14 A·FE-11-03 A)", () 
   it("게스트는 일반인으로 시작해 context.pregnant=false를 보내고, 결과 아래 '임산부를 고르면 확인' 한 줄이 있다. 임산부로 바꾸면 true를 보내고 한 줄은 없다", async () => {
     const { user } = setup({ width: 393 });
     expect(checkedLabel()).toBe("일반인");
-    expect(screen.queryByTestId("target-chip")).toBeNull(); // 게스트는 입력창이 예전 모양(프로필 칩 없음)
+    expect(screen.queryByTestId("target-chip")).toBeNull(); // 게스트는 프로필 칩이 없다(배치는 로그인과 같다, FE-17 U-09)
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[0].context).toMatchObject({ pregnant: false, age: null });
     const hint = screen.getByTestId("pregnancy-pick-hint");
@@ -277,18 +277,23 @@ describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
 });
 
 describe("대상 프로필 한 값(2026-11-23): 계정 버튼·입력창 칩·요청 context가 같이 바뀐다, 본문 선택 줄 없음", () => {
-  it("계정 버튼 메뉴 맨 위 목록에서 고르면 버튼이 병아리 + 이름이 되고 입력창 칩도 같은 프로필이며, 요청에는 예전과 같은 값(연령대)만 실린다", async () => {
+  it("로그인 직후 본인이 기본 대상이고(FE-17 U-06), 계정 버튼 메뉴의 `프로필 관리` 아래 목록에서 고르면 버튼이 병아리 + 이름이 되고 입력창 칩도 같은 프로필이며, 요청에는 예전과 같은 값(연령대)만 실린다", async () => {
     const { user, account } = setup({ session: onboardedSession(true), width: 1280 });
     const chip = await screen.findByTestId("target-chip");
     const button = screen.getAllByTestId("account-menu-button")[0];
     expect(screen.queryByRole("radiogroup", { name: "누가 먹나요" })).toBeNull(); // 본문 선택 줄은 없다
-    expect(button).toHaveTextContent("로그인됨"); // 고르기 전에는 기존 상태 글자
-    expect(chip).toHaveAccessibleName("누가 먹나요 선택 안 함");
+    // 고르기 전에도 본인(나)이 대상이라 계정 버튼에 선택된 프로필이 보인다('로그인됨'이 아니다)
+    expect(account.getState().targetProfileId).toBe(SELF_ID);
+    expect(button).toHaveTextContent("나");
+    expect(button).not.toHaveTextContent("로그인됨");
+    expect(within(button).getByTestId("profile-avatar")).toBeInTheDocument();
+    expect(chip).toHaveAccessibleName("누가 먹나요 나");
     await user.click(button);
     const menu = await screen.findByTestId("account-menu");
     const items = within(menu).getAllByRole("menuitemradio").map((item) => item.textContent);
-    expect(items.slice(0, 3)).toEqual(["선택 안 함", "나", "첫째"]); // 맨 위가 프로필 목록
-    expect(within(menu).getByRole("menuitem", { name: "프로필 관리" })).toBeInTheDocument(); // 기존 계정 메뉴 항목과 같은 층
+    expect(items.slice(0, 3)).toEqual(["게스트로 이용", "나", "첫째"]);
+    const manage = within(menu).getByRole("menuitem", { name: "프로필 관리" }); // 기존 계정 메뉴 항목과 같은 층
+    expect(manage.compareDocumentPosition(within(menu).getByRole("group", { name: "누가 먹나요" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // 목록은 프로필 관리 아래
     await user.click(within(menu).getByRole("menuitemradio", { name: "첫째" }));
     await waitFor(() => expect(screen.queryByTestId("account-menu")).toBeNull());
     expect(account.getState().targetProfileId).toBe(CHILD_ID);
@@ -298,13 +303,116 @@ describe("대상 프로필 한 값(2026-11-23): 계정 버튼·입력창 칩·�
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[0].context).toMatchObject({ age: { lower: 6, upper: 11, unit: "세" } });
     expect(JSON.stringify(chatBodies[0])).not.toMatch(/avatar|첫째/); // 색·이름은 요청에 싣지 않는다
-    // 입력창 칩에서 바꾸면 계정 버튼도 바뀐다. '선택 안 함'으로 돌아가면 기존 상태 글자
+    // 입력창 칩에서 바꾸면 계정 버튼도 바뀐다. '게스트로 이용'(프로필 값 없이)을 고르면 칩도 계정 버튼도 게스트 모드 표시(FE-17 U-21이 U-06의 `로그인됨`을 대체):
+    // 색 없는 점선 원 병아리 + `게스트로 이용`. 비로그인의 `계정`과 다르고, 로그인 상태는 메뉴 안의 `프로필 관리`·`로그아웃`으로 구분된다
     await pickTarget(user, "나");
     expect(button).toHaveTextContent("나");
-    await pickTarget(user, "선택 안 함");
-    expect(button).toHaveTextContent("로그인됨");
+    await pickTarget(user, "게스트로 이용");
+    expect(chip).toHaveAccessibleName("누가 먹나요 게스트로 이용");
+    expect(button).toHaveTextContent("게스트로 이용");
+    expect(button).toHaveAttribute("data-target", "guest");
+    expect(within(button).getByTestId("profile-avatar")).toHaveAttribute("data-color", "none");
+    expect(button).not.toHaveTextContent("로그인됨");
+    expect(button).not.toHaveTextContent("계정");
+    await user.click(button);
+    const guestMenu = await screen.findByTestId("account-menu");
+    expect(within(guestMenu).getByRole("menuitem", { name: "프로필 관리" })).toBeInTheDocument();
+    expect(within(guestMenu).getByRole("menuitem", { name: "로그아웃" })).toBeInTheDocument();
+    expect(within(guestMenu).queryByRole("menuitem", { name: "로그인/가입" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("account-menu")).toBeNull());
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[1].context).toMatchObject({ age: null });
+  });
+});
+
+describe("시작 화면 기본 대상 안내·기본 대상 저장(FE-17 U-08)", () => {
+  it("로그인 + 프로필이면 병아리 이미지 아래에 지금 대상과 `게스트로 이용`이 보이고, 누르면 대상·서버 기본 대상이 바뀌며 초점은 질문 칸이다. 대화가 시작되면 안내는 없다", async () => {
+    const { user, account, state } = setup({ session: onboardedSession(true), width: 393 });
+    const notice = await screen.findByTestId("start-target");
+    const home = screen.getByTestId("home");
+    expect(home.contains(notice)).toBe(true);
+    // 시작 화면 병아리(HomeHero) 뒤에 있다
+    const hero = within(home).getByRole("heading", { level: 1 });
+    expect(hero.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(notice).getByTestId("start-target-heading")).toHaveTextContent("나 프로필로 확인해요");
+    expect(within(notice).getByTestId("start-target-lead")).toHaveTextContent("연령대·임신 여부가 답변에 쓰여요");
+    expect(notice.textContent).not.toMatch(/안전/);
+    // FE-17 U-11: 카드·아바타·버튼 모양 없이 `<p>` 한 단락 문장(통합 고지와 같은 글자 모양), `게스트로 이용`은 밑줄 링크 모양의 버튼
+    // FE-17 U-23: 링크는 세 번째 문장 **중간**에 있다(사용자 지정 문구와 글자·문장 부호까지 같다)
+    expect(notice.tagName).toBe("P");
+    expect(notice.textContent).toBe("나 프로필로 확인해요. 이 프로필의 연령대·임신 여부가 답변에 쓰여요. 프로필 없이 질문을 이어가시려면 게스트로 이용으로 프로필을 변경해주세요.");
+    expect(within(notice).queryByTestId("profile-avatar")).toBeNull();
+    const combined = screen.getByTestId("input-combined-notice");
+    for (const token of ["text-xs", "leading-[17px]", "text-mute"]) expect(notice.className.split(" "), token).toContain(token);
+    for (const token of ["text-xs", "leading-[17px]", "text-mute"]) expect(combined.className.split(" "), token).toContain(token);
+    const link = within(notice).getByRole("button", { name: "게스트로 이용" });
+    expect(link.className).toContain("underline");
+    expect(link.className).not.toMatch(/(^| )(border|bg-|min-h-11)/);
+    expect(link.parentElement?.textContent).toBe("프로필 없이 질문을 이어가시려면 게스트로 이용으로 프로필을 변경해주세요."); // 문장 중간(U-23)
+    expect(link.nextSibling?.textContent).toBe("으로 프로필을 변경해주세요.");
+    await user.click(within(notice).getByRole("button", { name: "게스트로 이용" }));
+    expect(account.getState()).toMatchObject({ targetProfileId: null, targetChosen: true });
+    expect(within(notice).getByTestId("start-target-heading")).toHaveTextContent("게스트로 이용 중이에요");
+    // FE-17 U-22: 게스트 상태 문장은 "…질문해요." 뒤에 `변경` 링크 하나(U-08의 "버튼 없음"을 대체)
+    expect(notice.textContent).toBe("게스트로 이용 중이에요. 저장한 프로필 값 없이 질문해요. 변경");
+    expect(within(notice).getAllByRole("button").map((el) => el.textContent)).toEqual(["변경"]);
+    expect(screen.getByTestId("target-chip")).toHaveAccessibleName("누가 먹나요 게스트로 이용");
+    expect(document.activeElement).toBe(screen.getByRole("textbox"));
+    await waitFor(() => expect(state.session?.defaultTarget).toBe("guest"));
+    // 칩에서 다시 고르면 안내도 같은 값
+    await pickTarget(user, "첫째");
+    expect(within(screen.getByTestId("start-target")).getByTestId("start-target-heading")).toHaveTextContent("첫째 프로필로 확인해요");
+    await waitFor(() => expect(state.session?.defaultTarget).toBe(CHILD_ID));
+    // 안내를 무시하고 질문하면 고른 대상 그대로(요청 계약 불변). 대화가 시작되면 안내는 그리지 않는다
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(chatBodies[0].context).toMatchObject({ age: { lower: 6, upper: 11, unit: "세" } });
+    expect(JSON.stringify(chatBodies[0])).not.toMatch(/default_target|guest/);
+    expect(screen.queryByTestId("start-target")).toBeNull();
+  });
+
+  it("게스트 상태 안내의 `변경`은 입력창 칩과 같은 프로필 목록을 열고(첫 항목 초점), 고르면 대상·서버 기본 대상이 바뀌고 초점은 질문 칸, Esc는 `변경`으로 돌아온다(FE-17 U-22)", async () => {
+    const session = { ...onboardedSession(true), defaultTarget: "guest" };
+    const { user, account, state } = setup({ session, width: 393 });
+    const notice = await screen.findByTestId("start-target");
+    expect(notice).toHaveAttribute("data-target", "guest");
+    const change = within(notice).getByRole("button", { name: "변경" });
+    expect(change.className).toContain("underline");
+    expect(change.className).not.toMatch(/(^| )(border|bg-|min-h-11)/);
+    expect(change).toHaveAttribute("aria-haspopup", "menu");
+    expect(change).toHaveAttribute("aria-expanded", "false");
+    // 키보드로 연다 → 칩과 같은 목록(게스트로 이용 · 본인 · 가족), 첫 항목에 초점. Esc로 닫으면 초점은 `변경`
+    change.focus();
+    await user.keyboard("{Enter}");
+    const menu = await screen.findByTestId("start-target-menu");
+    expect(within(menu).getAllByRole("menuitemradio").map((item) => item.textContent)).toEqual(["게스트로 이용", "나", "첫째"]);
+    expect(within(menu).getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();
+    await waitFor(() => expect(within(menu).getAllByRole("menuitemradio")[0]).toHaveFocus());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("start-target-menu")).toBeNull());
+    await waitFor(() => expect(change).toHaveFocus());
+    expect(account.getState().targetProfileId).toBeNull();
+    // 눌러서 열고 가족을 고른다 → 대상·칩·안내가 같이 바뀌고 서버 기본 대상 저장, 초점은 질문 칸
+    await user.click(change);
+    await user.click(within(await screen.findByTestId("start-target-menu")).getByRole("menuitemradio", { name: "첫째" }));
+    expect(account.getState()).toMatchObject({ targetProfileId: CHILD_ID, targetChosen: true });
+    expect(within(screen.getByTestId("start-target")).getByTestId("start-target-heading")).toHaveTextContent("첫째 프로필로 확인해요");
+    expect(screen.getByTestId("target-chip")).toHaveAccessibleName("누가 먹나요 첫째");
+    await waitFor(() => expect(state.session?.defaultTarget).toBe(CHILD_ID));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox")));
+    expect(screen.queryByTestId("start-target-menu")).toBeNull();
+  });
+
+  it("새 세션은 서버 저장값으로 시작한다(`guest` → 게스트로 이용 안내). 게스트(비로그인)에는 안내가 없다", async () => {
+    const session = { ...onboardedSession(true), defaultTarget: "guest" };
+    setup({ session, width: 1280 });
+    const notice = await screen.findByTestId("start-target");
+    expect(notice).toHaveAttribute("data-target", "guest");
+    expect(screen.getByTestId("target-chip")).toHaveAccessibleName("누가 먹나요 게스트로 이용");
+    cleanup();
+    setup({ session: null, width: 1280 });
+    await screen.findByTestId("entry-choice");
+    expect(screen.queryByTestId("start-target")).toBeNull();
   });
 });
 
@@ -318,10 +426,12 @@ describe("GROUP-03 3단계 성별 숨김(FE-11-09 C·FE-11-12 A)", () => {
   const toggleOrNull = () => screen.queryByRole("radiogroup", { name: "임신 여부" });
   const form = () => screen.getByRole("textbox").closest("form")!;
 
-  it("남성 프로필이 대상이면 토글이 없고 context.pregnant=false를 보낸다. 저장 값이 임신이어도 같다. 대상 바꾸기 전(선택 안 함)과 게스트는 보인다", async () => {
+  it("남성 프로필이 대상이면 토글이 없고 context.pregnant=false를 보낸다. 저장 값이 임신이어도 같다. '게스트로 이용'과 게스트는 보인다", async () => {
     const { user, store } = setup({ session: sexedSession(true, { selfSex: "male", childSex: "female", selfPregnancy: "pregnant" }), width: 1280 });
     await screen.findByTestId("target-chip");
-    expect(toggleOrNull()).not.toBeNull(); // 대상을 고르기 전(선택 안 함)은 보인다
+    expect(toggleOrNull()).toBeNull(); // 로그인 직후 본인(남성)이 기본 대상(FE-17 U-06)
+    await pickTarget(user, "게스트로 이용");
+    expect(toggleOrNull()).not.toBeNull(); // 대상 없음(게스트로 이용)은 보인다
     const formBefore = form();
     await pickTarget(user, "나");
     expect(toggleOrNull()).toBeNull();
@@ -350,8 +460,8 @@ describe("GROUP-03 3단계 성별 숨김(FE-11-09 C·FE-11-12 A)", () => {
     expect(store.getState().context.pregnant).toBe(false);
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[1].context.pregnant).toBe(false);
-    // 선택 안 함으로 돌아가면 다시 보이고 일반인이다
-    await pickTarget(user, "선택 안 함");
+    // 게스트로 이용으로 돌아가면 다시 보이고 일반인이다
+    await pickTarget(user, "게스트로 이용");
     expect(toggleOrNull()).not.toBeNull();
     expect(checkedLabel()).toBe("일반인");
   });
@@ -516,5 +626,40 @@ describe("합성 데이터 데모 표시(BE-13-07 A)", () => {
     setup({ width: 393 });
     expect(screen.queryByTestId("demo-notice")).toBeNull();
     expect(document.body.textContent).not.toContain("합성 데이터 데모");
+  });
+});
+
+describe("창 크기 자동 열고 닫기(FE-17 U-18)", () => {
+  const resize = (width: number) =>
+    act(() => {
+      setWidth(width);
+      window.dispatchEvent(new Event("resize"));
+    });
+
+  it("1280 → 393이면 사이드바가 닫히고(☰), 393 → 1280이면 펼쳐진다. 같은 구간 안의 수동 접기는 폭만 바뀌면 그대로이며 입력 중 글자는 남는다", async () => {
+    const { user } = setup({ width: 1280 });
+    await screen.findByTestId("sidebar");
+    await user.type(screen.getByRole("textbox"), "입력 중");
+    // 같은 구간(넓은 폭)에서 사용자가 접는다 → 폭만 바꾸면(1280 → 1100) 그대로 접힘
+    await user.click(screen.getByTestId("sidebar-toggle"));
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
+    resize(1100);
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar")).toBeNull();
+    // 기준선 아래로: 사이드바 칸이 없고 ☰
+    resize(393);
+    expect(screen.queryByTestId("sidebar-rail")).toBeNull();
+    expect(screen.getByTestId("menu-button")).toBeInTheDocument();
+    // 드로어를 열어 둔 채 다시 넓히면 드로어는 닫히고 사이드바가 펼쳐진다(접어 두었던 것과 상관없이)
+    await user.click(screen.getByTestId("menu-button"));
+    expect(await screen.findByTestId("menu-drawer")).toBeInTheDocument();
+    resize(1280);
+    await waitFor(() => expect(screen.queryByTestId("menu-drawer")).toBeNull());
+    expect(screen.getByTestId("sidebar")).toHaveAttribute("data-presentation", "push");
+    expect(screen.getByRole("textbox")).toHaveValue("입력 중"); // 다시 마운트하지 않는다
+    // 같은 구간 안의 크기 변화(1280 → 1500)에는 반응하지 않는다: 다시 접은 뒤 넓혀도 접힘
+    await user.click(screen.getByTestId("sidebar-toggle"));
+    resize(1500);
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
   });
 });

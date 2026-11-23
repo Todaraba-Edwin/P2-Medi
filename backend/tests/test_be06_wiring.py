@@ -428,7 +428,7 @@ def test_runner_does_not_leak_after_fixture_and_openapi_is_unchanged(wired):
     assert TestClient(main_mod.app).post("/chat", json={"question": Q_PAIR}).status_code == 501
 
 
-ACCOUNT_PATHS = {"/me", "/legal/{doc_type}", "/consents", "/profiles", "/profiles/{profile_id}",  # BE-11 계정 API(2026-11-18)
+ACCOUNT_PATHS = {"/me", "/legal/{doc_type}", "/consents", "/profiles", "/profiles/{profile_id}", "/me/default-target",  # BE-11 계정 API(2026-11-18)
                  "/drugs/search"}  # FE-04-13 A 프로필 약 사전 검색(2026-11-20)
 INGEST_PATHS = {"/ingest/image", "/ingest/drugs/search"}  # BE-14 사진 약 이름 추출(2026-11-22, 게스트 허용)
 
@@ -441,6 +441,7 @@ def test_openapi_matches_committed_export_shape():
     assert set(paths["/me"]["get"]["responses"]) == {"200", "401", "501", "503"}
     assert set(paths["/me"]["delete"]["responses"]) == {"204", "401", "501", "502", "503"}  # 502 AUTH_DELETE_FAILED(BE-11-24 A)
     assert set(paths["/me"]) == {"get", "delete"} and set(paths["/legal/{doc_type}"]) == {"get"}
+    assert set(paths["/me/default-target"]) == {"put"}  # FE-17 U-08 기본 프로필(대상) 저장
     assert set(paths["/consents"]) == {"post"} and set(paths["/profiles"]) == {"get", "post"}
     assert set(paths["/profiles/{profile_id}"]) == {"patch", "delete"}
     assert set(paths["/legal/{doc_type}"]["get"]["responses"]) == {"200", "404", "422", "501", "503"}

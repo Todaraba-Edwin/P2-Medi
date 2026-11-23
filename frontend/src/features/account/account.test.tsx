@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { checkedChoice, choiceGroup, completeRequired, pickChoice } from "@/test/profile-form";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,7 +31,7 @@ import { EntryChoice } from "./EntryChoice";
 import { Markdown, parseMarkdown } from "./Markdown";
 import { MEDICATION_SEARCH_DEBOUNCE_MS } from "./MedicationPicker";
 import { TargetChip } from "./TargetMenu";
-import { suggestAvatarColor } from "./ProfileForm";
+import { NEW_PROFILE_AVATAR_COLOR, requiredFilled } from "./ProfileForm";
 
 // 계정 화면(모달·진입 선택·대상 선택)을 MSW 목에 붙여 그린다(실제 서버 호출 0).
 const server = setupServer();
@@ -364,8 +365,9 @@ describe("약관 동의 화면", () => {
     await consent(user, { health: true });
     await user.click(screen.getByTestId("add-self"));
     await user.type(screen.getByLabelText("이름(별명)"), "나");
-    await user.selectOptions(screen.getByLabelText("성별"), "female"); // 임신 여부 칸은 여성일 때만 보인다(작업 B)
+    await pickChoice(user, "성별", "여성"); // 임신 여부 칸은 여성일 때만 보인다(작업 B)
     await user.click(screen.getByRole("radio", { name: "예" }));
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     await user.click(screen.getByRole("button", { name: "동의 내용 보기" }));
@@ -433,22 +435,25 @@ describe("프로필 화면", () => {
     expect(step()).toBe("profile-form");
     expect(screen.getByTestId("health-fields")).toBeDisabled();
     expect(screen.queryByTestId("pregnancy-field")).toBeNull(); // 성별 미입력이라 임신 여부 칸은 없다(작업 B)
-    await user.selectOptions(screen.getByLabelText("성별"), "female");
+    await pickChoice(user, "성별", "여성");
     for (const radio of within(screen.getByTestId("pregnancy-field")).getAllByRole("radio")) expect(radio).toBeDisabled(); // 여성이어도 동의가 없으면 비활성(프로필 색 칸은 건강 정보가 아니라 묶음 밖)
-    await user.selectOptions(screen.getByLabelText("성별"), "");
+    await pickChoice(user, "성별", "남성"); // 여성이 아니면 임신 여부 칸은 사라진다
+    expect(screen.queryByTestId("pregnancy-field")).toBeNull();
     expect(screen.getByLabelText("복용 중인 약(선택)")).toBeDisabled();
     expect(screen.getByTestId("medication-add")).toBeDisabled();
     expect(screen.getByTestId("health-consent-notice")).toHaveTextContent(HEALTH_CONSENT_REQUIRED_FALLBACK);
     // 저장해도 건강 정보는 가지 않는다(서버가 422로 막지 않는다 = 건강 칸이 요청에 없다)
     await user.type(screen.getByLabelText("이름(별명)"), "첫째");
-    expect(within(screen.getByLabelText("연령대")).getAllByRole("option").map((option) => option.textContent)).toEqual(["선택 안 함", ...Object.values(copy.AGE_BAND_LABELS)]);
-    await user.selectOptions(screen.getByLabelText("연령대"), "y6_11");
+    // 연령대는 11칸 버튼(FE-17 U-07: '선택 안 함' 없음, 필수)
+    expect(within(choiceGroup("연령대")).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(Object.values(copy.AGE_BAND_LABELS));
+    await pickChoice(user, "연령대", "만 6~11세");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
-    expect(store.getState().profiles).toEqual([expect.objectContaining({ label: "첫째", relation: "child", age_band: "y6_11", sex: null, pregnancy_status: null, medications: [] })]);
+    expect(store.getState().profiles).toEqual([expect.objectContaining({ label: "첫째", relation: "child", age_band: "y6_11", sex: "male", pregnancy_status: null, medications: [] })]);
   });
 
-  it("프로필 색(2026-11-23): 이름 아래 8색 라디오(이름은 색 이름, 건강 정보 묶음 밖), 새 가족은 아직 안 쓴 색을 제안하고 고른 색이 저장돼 목록 아바타가 그 색이다", async () => {
+  it("프로필 색(2026-11-23): 8색 라디오(이름은 색 이름, 건강 정보 묶음 밖, 폼 첫 번째 입력 FE-17 U-15), 새 프로필은 늘 노랑이 골라져 있고(FE-17 U-07) 고른 색이 저장돼 목록 아바타가 그 색이다. 체크 표시는 고른 원 안에 있다", async () => {
     const { user, store } = setup();
     await login(user);
     await consent(user, { health: false });
@@ -458,16 +463,43 @@ describe("프로필 화면", () => {
     expect(within(group).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["노랑", "코랄", "분홍", "보라", "파랑", "청록", "초록", "회색"]);
     expect(within(group).getByRole("radio", { name: "노랑" })).toBeChecked(); // 첫 프로필은 기본색
     for (const option of within(group).getAllByTestId("avatar-color-option")) expect(option.className).toContain("size-11"); // 누르는 영역 44px
+    // 체크 표시(ISSUE-026): 고른 칸 하나에만 있고, 색 원(swatch)과 같은 격자 칸에 겹친다(원 밖으로 떨어지지 않는다)
+    expect(within(group).getAllByTestId("avatar-color-check")).toHaveLength(1);
+    const check = within(group).getByTestId("avatar-color-check");
+    expect(check.parentElement).toBe(within(group).getByRole("radio", { name: "노랑" }).closest("label")!.querySelector('[data-testid="avatar-color-swatch"]'));
+    expect(check.getAttribute("class")).toContain("[grid-area:1/1]");
+    expect(within(check.parentElement!).getByTestId("profile-avatar").className).toContain("[grid-area:1/1]");
+    // 폼의 첫 번째 입력(FE-17 U-15): 관계·이름·연령대·성별·건강 정보 묶음보다 앞. 진행바 사양(색은 맨 뒤 선택 칸)은 그대로
+    const form = screen.getByTestId("profile-form").querySelector("form")!;
+    expect(form.querySelector('[role="radiogroup"], input:not([type="radio"])')).toBe(group);
+    for (const later of [choiceGroup("관계"), screen.getByLabelText("이름(별명)"), choiceGroup("연령대"), choiceGroup("성별"), screen.getByTestId("health-fields")]) expect(group.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByTestId("profile-step").map((item) => item.getAttribute("data-step"))).toEqual(["relation", "name", "age", "sex", "medications", "color"]);
+    // 색을 바꾸면 제목 왼쪽 병아리 배경이 바로 같이 바뀐다(FE-17 U-15)
+    const head = screen.getByTestId("profile-form-head");
+    expect(within(head).getByTestId("profile-avatar")).toHaveAttribute("data-color", "yellow");
+    await user.click(within(group).getByRole("radio", { name: "분홍" }));
+    expect(within(head).getByTestId("profile-avatar")).toHaveAttribute("data-color", "pink");
+    await user.keyboard("{ArrowRight}");
+    expect(within(group).getByRole("radio", { name: "보라" })).toBeChecked();
+    expect(within(head).getByTestId("profile-avatar")).toHaveAttribute("data-color", "purple");
+    // 숨긴 라디오의 기준 상자는 그 칸(label)이다(FE-17 U-14: 모달 상자가 스크롤되지 않게), 모달 상자는 스크롤되지 않는 clip
+    for (const option of within(group).getAllByTestId("avatar-color-option")) expect(option.className.split(" ")).toContain("relative");
+    expect(modal().className.split(" ")).toContain("overflow-clip");
+    expect(modal().className.split(" ")).not.toContain("overflow-hidden");
+    await user.click(within(group).getByRole("radio", { name: "노랑" })); // 노랑으로 되돌려 저장(아래 단언은 본인 노랑 기준)
+    expect(within(head).getByTestId("profile-avatar")).toHaveAttribute("data-color", "yellow");
     await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     await user.click(screen.getByTestId("add-family"));
     const family = screen.getByRole("radiogroup", { name: "프로필 색" });
-    expect(within(family).getByRole("radio", { name: "코랄" })).toBeChecked(); // 노랑은 본인이 쓰고 있다
+    expect(within(family).getByRole("radio", { name: "노랑" })).toBeChecked(); // 본인이 노랑이어도 새 가족도 노랑이 기본(FE-17 U-07: 기본값 한 가지)
     await user.click(within(family).getByRole("radio", { name: "보라" }));
     expect(within(family).getByRole("radio", { name: "보라" })).toBeChecked();
-    expect(within(family).getByRole("radio", { name: "코랄" })).not.toBeChecked();
+    expect(within(family).getByRole("radio", { name: "노랑" })).not.toBeChecked();
     await user.type(screen.getByLabelText("이름(별명)"), "첫째");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(screen.getAllByTestId("profile-item")).toHaveLength(2));
     expect(store.getState().profiles.map((profile) => profile.avatar_color)).toEqual(["yellow", "purple"]);
@@ -477,7 +509,7 @@ describe("프로필 화면", () => {
     expect(within(screen.getByRole("radiogroup", { name: "프로필 색" })).getByRole("radio", { name: "보라" })).toBeChecked();
   });
 
-  it("성별(선택, FE-11-09 C)은 연령대 아래 기본 칸이다: 처음엔 '선택 안 함'(로그인 정보로 채우지 않음), 건강 정보 동의 없이도 저장·수정·지우기가 되고 목록에 보인다", async () => {
+  it("성별(FE-11-09 C, FE-17 U-07부터 필수)은 연령대 아래 2칸 버튼(여성|남성)이다: 처음엔 고르지 않은 상태(로그인 정보로 채우지 않음), 건강 정보 동의 없이도 저장·수정되고 목록에 보인다", async () => {
     const bodies: Record<string, unknown>[] = [];
     server.events.on("request:start", async ({ request }) => {
       if ((request.method === "POST" || request.method === "PATCH") && new URL(request.url).pathname.includes("/api/profiles")) bodies.push(await request.clone().json());
@@ -486,47 +518,47 @@ describe("프로필 화면", () => {
     await login(user);
     await consent(user, { health: false }); // 건강 정보 동의 없음
     await user.click(screen.getByTestId("add-self"));
-    const sex = screen.getByLabelText("성별");
-    expect(sex).toBeEnabled(); // 건강 정보 묶음 밖이다
+    const sex = choiceGroup("성별");
+    for (const radio of within(sex).getAllByRole("radio")) expect(radio).toBeEnabled(); // 건강 정보 묶음 밖이다
     expect(screen.getByTestId("health-fields")).not.toContainElement(sex);
-    expect(sex).toHaveValue(""); // 간편 로그인 공급자 정보로 미리 채우지 않는다
-    expect(within(sex).getAllByRole("option").map((option) => option.textContent)).toEqual(["선택 안 함", "여성", "남성"]);
-    expect(within(sex).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(["", "female", "male"]);
+    expect(sex).toHaveAttribute("aria-required", "true");
+    expect(checkedChoice("성별")).toBeNull(); // 간편 로그인 공급자 정보로 미리 채우지 않는다
+    expect(within(sex).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["여성", "남성"]); // '선택 안 함' 없음
+    expect(within(sex).getAllByRole("radio").map((radio) => radio.getAttribute("data-value"))).toEqual(["female", "male"]);
     // 연령대 아래, 건강 정보 묶음 위
-    expect(screen.getByLabelText("연령대").compareDocumentPosition(sex) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(choiceGroup("연령대").compareDocumentPosition(sex) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(sex.compareDocumentPosition(screen.getByTestId("health-fields")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // 미입력으로 저장
+    // 남성으로 저장
     await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await pickChoice(user, "성별", "남성");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
-    expect(store.getState().profiles[0]).toMatchObject({ sex: null });
-    expect(screen.getByTestId("profile-item")).toHaveTextContent("본인");
-    expect(screen.getByTestId("profile-item")).not.toHaveTextContent(/여성|남성/);
-    // 수정: 여성으로
+    expect(store.getState().profiles[0]).toMatchObject({ sex: "male" });
+    expect(screen.getByTestId("profile-item")).toHaveTextContent("본인 · 만 19~64세 · 남성");
+    // 수정: 저장된 값이 채워져 있고 여성으로 바꾼다
     await user.click(screen.getByRole("button", { name: "나 수정" }));
-    expect(screen.getByLabelText("성별")).toHaveValue("");
-    await user.selectOptions(screen.getByLabelText("성별"), "female");
+    expect(checkedChoice("성별")).toBe("남성");
+    await pickChoice(user, "성별", "여성");
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(store.getState().profiles[0]).toMatchObject({ sex: "female", pregnancy_status: null });
-    expect(screen.getByTestId("profile-item")).toHaveTextContent("본인 · 여성");
-    // 다시 열면 저장된 값이 채워져 있고, '선택 안 함'으로 지운다
+    expect(screen.getByTestId("profile-item")).toHaveTextContent("본인 · 만 19~64세 · 여성");
     await user.click(screen.getByRole("button", { name: "나 수정" }));
-    expect(screen.getByLabelText("성별")).toHaveValue("female");
-    await user.selectOptions(screen.getByLabelText("성별"), "");
+    expect(checkedChoice("성별")).toBe("여성");
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
-    expect(store.getState().profiles[0]).toMatchObject({ sex: null });
     // 가족 프로필에도 같은 칸
     await user.click(screen.getByTestId("add-family"));
     await user.type(screen.getByLabelText("이름(별명)"), "첫째");
-    await user.selectOptions(screen.getByLabelText("성별"), "male");
+    await pickChoice(user, "성별", "남성");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(screen.getAllByTestId("profile-item")).toHaveLength(2));
     server.events.removeAllListeners();
-    expect(screen.getAllByTestId("profile-item")[1]).toHaveTextContent("자녀 · 남성");
+    expect(screen.getAllByTestId("profile-item")[1]).toHaveTextContent("자녀 · 만 19~64세 · 남성");
     // 요청 본문: 성별만 바뀌고 건강 정보 칸은 없다(동의가 없으니 싣지 않는다)
-    expect(bodies.map((body) => body.sex)).toEqual([null, "female", null, "male"]);
+    expect(bodies.map((body) => body.sex)).toEqual(["male", "female", "female", "male"]);
     // 건강 정보 칸은 없다. 병아리 배경색(`avatar_color`, 건강 정보 아님, FE-17 U-01)은 늘 실린다
     for (const body of bodies) {
       expect(Object.keys(body)).toEqual(["relation", "label", "age_band", "sex", "avatar_color"]);
@@ -540,10 +572,12 @@ describe("프로필 화면", () => {
     await consent(user, { health: true });
     expect(screen.queryByTestId("health-consent-notice")).toBeNull();
     await user.click(screen.getByTestId("add-self"));
-    expect(screen.getByLabelText("관계")).toBeDisabled(); // 본인은 관계 고정
+    // 본인은 관계 고정: `본인`이 골라져 있고 다른 칸은 비활성(FE-17 U-07 세그먼트)
+    expect(checkedChoice("관계")).toBe("본인");
+    for (const radio of within(choiceGroup("관계")).getAllByRole("radio")) if (radio.textContent !== "본인") expect(radio).toBeDisabled();
     await user.type(screen.getByLabelText("이름(별명)"), "나");
-    await user.selectOptions(screen.getByLabelText("연령대"), "y19_64");
-    await user.selectOptions(screen.getByLabelText("성별"), "female"); // 임신 여부 칸은 여성일 때만(작업 B)
+    await pickChoice(user, "연령대", "만 19~64세");
+    await pickChoice(user, "성별", "여성"); // 임신 여부 칸은 여성일 때만(작업 B)
     await user.click(screen.getByRole("radio", { name: "예" }));
     await user.type(screen.getByLabelText("복용 중인 약(선택)"), "가나다정 100밀리그램");
     // 검색이 끝난 뒤 후보를 고르지 않고 `그대로 추가`(FE-04-24 A: 검색 중에는 막히고, 후보가 있으면 Enter는 저장이 아니다)
@@ -551,6 +585,7 @@ describe("프로필 화면", () => {
     await user.click(screen.getByTestId("medication-add"));
     expect(step()).toBe("profile-form"); // 폼 저장이 아니라 약 추가
     expect(screen.getAllByTestId("medication")).toHaveLength(1);
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(store.getState().profiles[0]).toMatchObject({ relation: "self", label: "나", pregnancy_status: "pregnant", medications: [{ input_text: "가나다정 100밀리그램", item_seq: null }] });
@@ -561,6 +596,7 @@ describe("프로필 화면", () => {
     expect(screen.getByRole("button", { name: "뒤로" })).toBeInTheDocument();
     await user.clear(screen.getByLabelText("이름(별명)"));
     await user.type(screen.getByLabelText("이름(별명)"), "본인");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(screen.getByTestId("profile-item")).toHaveTextContent("본인"));
     expect(store.getState().profiles[0]).toMatchObject({ label: "본인", pregnancy_status: "pregnant", medications: [{ input_text: "가나다정 100밀리그램" }] }); // 수정해도 건강 정보는 그대로
@@ -569,6 +605,7 @@ describe("프로필 화면", () => {
     // 가족 프로필은 삭제할 수 있다(확인 모달)
     await user.click(screen.getByTestId("add-family"));
     await user.type(screen.getByLabelText("이름(별명)"), "첫째");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(screen.getAllByTestId("profile-item")).toHaveLength(2));
     await user.click(screen.getByRole("button", { name: "첫째 삭제" }));
@@ -588,6 +625,7 @@ describe("프로필 화면", () => {
       [422, "HEALTH_CONSENT_REQUIRED", copy.HEALTH_CONSENT_REQUIRED_FALLBACK],
     ] as const) {
       server.use(http.post("*/api/profiles", () => HttpResponse.json({ code, fields: [] }, { status })));
+      await completeRequired(user);
       await user.click(screen.getByTestId("profile-save"));
       await waitFor(() => expect(screen.getByTestId("account-error")).toHaveTextContent(text));
       expect(step()).toBe("profile-form");
@@ -602,6 +640,7 @@ describe("프로필 화면", () => {
       expect(screen.getByTestId("add-family")).toBeEnabled();
       await user.click(screen.getByTestId("add-family"));
       await user.type(screen.getByLabelText("이름(별명)"), name);
+      await completeRequired(user);
       await user.click(screen.getByTestId("profile-save"));
       await waitFor(() => expect(step()).toBe("profiles"));
     }
@@ -612,14 +651,74 @@ describe("프로필 화면", () => {
     expect(screen.getByTestId("add-self")).toBeEnabled(); // 본인 자리는 따로다
   });
 
-  it("이름이 비어 있으면 저장하지 않는다", async () => {
+  it("이름이 비어 있으면(공백만 포함) 저장하지 않는다: 필수 4칸 중 하나라 저장 버튼이 비활성이고 이유 한 줄이 버튼 설명이다(FE-17 U-07)", async () => {
     const { user, store } = setup();
     await login(user);
     await consent(user, { health: false });
     await user.click(screen.getByTestId("add-family"));
+    await completeRequired(user);
+    await user.type(screen.getByLabelText("이름(별명)"), "   ");
+    expect(screen.getByTestId("profile-save")).toBeDisabled();
+    expect(screen.getByTestId("profile-save")).toHaveAccessibleDescription(copy.PROFILE_REQUIRED_HINT);
     await user.click(screen.getByTestId("profile-save"));
-    expect(screen.getByRole("alert")).toHaveTextContent("이름(별명)을 입력해 주세요.");
+    expect(step()).toBe("profile-form");
     expect(store.getState().profiles).toEqual([]);
+  });
+
+  it("새 프로필 폼(FE-17 U-07): 제목·보조 문구, 6단계 진행바(필수 4 = 관계·이름·연령대·성별, 선택 2 = 복용 중인 약·프로필 색), 필수를 다 채워야 저장이 켜진다", async () => {
+    const { user } = setup();
+    await login(user);
+    await consent(user, { health: false });
+    await user.click(screen.getByTestId("add-family"));
+    expect(screen.getByRole("heading", { name: "누구의 프로필인가요?" })).toBeInTheDocument();
+    expect(screen.getByText("본인과 가족 3명까지 만들 수 있어요")).toBeInTheDocument();
+    const steps = () => screen.getAllByTestId("profile-step");
+    expect(steps().map((item) => item.getAttribute("data-step"))).toEqual(["relation", "name", "age", "sex", "medications", "color"]);
+    expect(steps().map((item) => item.getAttribute("data-state"))).toEqual(["todo", "todo", "todo", "todo", "optional", "optional"]);
+    // 선택 2칸은 색이 아니라 글자로도 구분된다: 머리 `선택`, 칸마다 보조기기용 `필수`/`선택`
+    expect(screen.getByTestId("profile-progress-optional")).toHaveTextContent("선택");
+    expect(steps().map((item) => item.textContent)).toEqual(["관계 필수", "이름(별명) 필수", "연령대 필수", "성별 필수", "복용 중인 약 선택", "프로필 색 선택"]);
+    const bar = screen.getByRole("progressbar", { name: "필수" });
+    expect(bar).toHaveAttribute("aria-valuenow", "0");
+    expect(bar).toHaveAttribute("aria-valuemax", "4");
+    expect(screen.getByTestId("profile-save")).toBeDisabled();
+    expect(screen.getByTestId("profile-required-hint")).toHaveTextContent(copy.PROFILE_REQUIRED_HINT);
+    // 하나씩 채우면 그 단계만 완료(초록 + 체크)
+    await pickChoice(user, "관계", "부모");
+    expect(steps()[0]).toHaveAttribute("data-state", "done");
+    expect(steps()[0].querySelector("svg")).not.toBeNull();
+    await user.type(screen.getByLabelText("이름(별명)"), "엄마");
+    await pickChoice(user, "연령대", "만 65세 이상");
+    expect(bar).toHaveAttribute("aria-valuenow", "3");
+    expect(screen.getByTestId("profile-save")).toBeDisabled();
+    await pickChoice(user, "성별", "여성");
+    expect(steps().map((item) => item.getAttribute("data-state"))).toEqual(["done", "done", "done", "done", "optional", "optional"]);
+    expect(bar).toHaveAttribute("aria-valuenow", "4");
+    expect(screen.getByTestId("profile-save")).toBeEnabled();
+    expect(screen.queryByTestId("profile-required-hint")).toBeNull();
+    // 와이어프레임의 119 링크는 넣지 않는다(FE-17 U-04)
+    expect(screen.getByTestId("profile-form").querySelector('a[href="tel:119"]')).toBeNull();
+  });
+
+  it("관계·연령대·성별 버튼 묶음은 키보드로 고른다: Tab은 묶음마다 한 번, ←/→로 옮기며 고르고 비활성 칸(`본인`)은 건너뛴다", async () => {
+    const { user } = setup();
+    await login(user);
+    await consent(user, { health: false });
+    await user.click(screen.getByTestId("add-family"));
+    const relation = choiceGroup("관계");
+    expect(within(relation).getByRole("radio", { name: "본인" })).toBeDisabled(); // 가족 폼에서는 본인을 고를 수 없다
+    const first = within(relation).getByRole("radio", { name: "자녀" });
+    expect(first).toHaveAttribute("tabindex", "0");
+    first.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(checkedChoice("관계")).toBe("부모");
+    expect(within(relation).getByRole("radio", { name: "부모" })).toHaveFocus();
+    await user.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(checkedChoice("관계")).toBe("기타"); // 자녀에서 왼쪽은 끝(기타)으로 돈다(본인 건너뜀)
+    const age = choiceGroup("연령대");
+    within(age).getAllByRole("radio")[0].focus();
+    await user.keyboard("{ArrowDown}");
+    expect(checkedChoice("연령대")).toBe("생후 3~5개월");
   });
 
   it("로그인은 했지만 계정 서버가 준비 전(501)이면 준비 중 안내와 로그아웃만 보인다(추가·동의·탈퇴 버튼 없음)", async () => {
@@ -633,9 +732,29 @@ describe("프로필 화면", () => {
     expect(screen.getByTestId("account-unavailable")).toHaveTextContent(copy.ERROR_NOT_IMPLEMENTED);
     for (const testId of ["add-self", "add-family", "withdraw", "health-consent-notice", "account-error"]) expect(screen.queryByTestId(testId), testId).toBeNull();
     expect(screen.queryByRole("button", { name: "동의 내용 보기" })).toBeNull();
+    expect(screen.getByTestId("profile-list-actions")).toContainElement(screen.getByRole("button", { name: "로그아웃" })); // 바닥 줄(FE-17 U-16)
     await user.click(screen.getByRole("button", { name: "로그아웃" }));
     await waitFor(() => expect(store.getState().status).toBe("guest"));
     await waitFor(() => expect(screen.queryByTestId("account-modal")).toBeNull());
+  });
+
+  it("프로필 관리 화면은 grid 1fr auto: 위는 목록 영역(넘치면 그 안에서만 스크롤), 아래 줄에 동의 내용 보기·로그아웃·탈퇴(FE-17 U-16)", async () => {
+    const { user } = setup();
+    await login(user);
+    await consent(user, { health: false });
+    const list = screen.getByTestId("profile-list");
+    expect(list.className.split(" ")).toEqual(expect.arrayContaining(["grid", "h-full", "grid-rows-[1fr_auto]"]));
+    const [scroller, actions] = Array.from(list.children) as HTMLElement[];
+    expect(scroller).toHaveAttribute("data-testid", "profile-list-scroll");
+    expect(scroller.className.split(" ")).toEqual(expect.arrayContaining(["min-h-0", "overflow-y-auto"]));
+    expect(actions).toHaveAttribute("data-testid", "profile-list-actions");
+    expect(within(actions).getAllByRole("button").map((button) => button.textContent)).toEqual(["동의 내용 보기", "로그아웃", "탈퇴"]);
+    for (const testId of ["add-self", "add-family"]) expect(scroller).toContainElement(screen.getByTestId(testId));
+    expect(within(scroller).getByRole("heading")).toHaveTextContent(copy.PROFILES_TITLE);
+    // 탈퇴는 위험 글자 버튼이고 다른 동작과 떨어져 있다
+    expect(within(actions).getByTestId("withdraw").className).toContain("text-red-ink");
+    expect(within(actions).getByTestId("withdraw").className.split(" ")).toContain("ml-auto");
+    expect(within(actions).getByRole("button", { name: "로그아웃" }).className).not.toContain("text-red-ink");
   });
 
   it("탈퇴는 확인 모달을 거치고, 끝나면 게스트로 돌아가 모달이 닫힌다", async () => {
@@ -714,9 +833,10 @@ describe("브라우저 저장소 미사용(FE-01-08 A)", () => {
     await consent(user, { health: true });
     await user.click(screen.getByTestId("add-self"));
     await user.type(screen.getByLabelText("이름(별명)"), "나");
-    await user.selectOptions(screen.getByLabelText("성별"), "female"); // 임신 여부 칸은 여성일 때만(작업 B)
+    await pickChoice(user, "성별", "여성"); // 임신 여부 칸은 여성일 때만(작업 B)
     await user.click(screen.getByRole("radio", { name: "예" }));
     await user.type(screen.getByLabelText("복용 중인 약(선택)"), "가나다정{Enter}");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(setItem).not.toHaveBeenCalled();
@@ -809,19 +929,25 @@ describe("대상 선택 '누가 먹나요'(입력창 프로필 칩, 2026-11-23)"
   const chip = () => screen.getByTestId("target-chip");
   const options = () => within(screen.getByTestId("target-menu")).getAllByRole("menuitemradio");
 
-  it("칩은 고른 프로필의 병아리 아바타(그 색) + 이름이고, 누르면 위로 목록이 열려 프로필마다 고를 수 있으며 '선택 안 함'으로 되돌린다", async () => {
+  it("칩은 고른 프로필의 병아리 아바타(그 색) + 이름이고, 누르면 위로 목록이 열려 프로필마다 고를 수 있으며 '게스트로 이용'(FE-17 U-06, 예전 '선택 안 함')으로 되돌린다", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     const { rerender } = render(<TargetChip profiles={profiles} value={null} onChange={onChange} />);
-    expect(chip()).toHaveAccessibleName("누가 먹나요 선택 안 함");
+    expect(chip()).toHaveAccessibleName("누가 먹나요 게스트로 이용");
+    expect(chip()).toHaveTextContent("게스트로 이용");
+    expect(chip()).not.toHaveTextContent("선택 안 함");
     expect(chip()).toHaveAttribute("aria-haspopup", "menu");
     expect(chip()).toHaveAttribute("aria-expanded", "false");
-    expect(within(chip()).queryByTestId("profile-avatar")).toBeNull();
+    // `게스트로 이용`의 병아리는 색 없는 원(어느 프로필 색과도 겹치지 않는다)
+    expect(within(chip()).getByTestId("profile-avatar")).toHaveAttribute("data-color", "none");
+    // 보이는 칩은 `일반인|임산부` 토글 틀과 같은 28px(h-7)·12px 글자·완전히 둥근 모양(FE-17 U-10), 누르는 영역은 버튼 44px(h-11)
+    expect(within(chip()).getByTestId("target-chip-face").className.split(" ")).toEqual(expect.arrayContaining(["h-7", "text-xs", "rounded-full", "border", "border-line-2", "bg-bg-soft"]));
+    expect(chip().className.split(" ")).toContain("h-11");
     await user.click(chip());
     expect(chip()).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();
-    expect(options().map((option) => option.textContent)).toEqual(["선택 안 함", "나", "첫째"]);
-    expect(screen.getByRole("menuitemradio", { name: "선택 안 함" })).toHaveAttribute("aria-checked", "true");
+    expect(options().map((option) => option.textContent)).toEqual(["게스트로 이용", "나", "첫째"]);
+    expect(screen.getByRole("menuitemradio", { name: "게스트로 이용" })).toHaveAttribute("aria-checked", "true");
     await waitFor(() => expect(options()[0]).toHaveFocus()); // 누르면 첫 항목에 초점
     // 목록 안 아바타는 프로필마다 그 색이다
     expect(within(screen.getByRole("menuitemradio", { name: "첫째" })).getByTestId("profile-avatar")).toHaveAttribute("data-color", "teal");
@@ -833,7 +959,7 @@ describe("대상 선택 '누가 먹나요'(입력창 프로필 칩, 2026-11-23)"
     expect(within(chip()).getByTestId("profile-avatar")).toHaveAttribute("data-color", "teal");
     await user.click(chip());
     expect(screen.getByRole("menuitemradio", { name: "첫째" })).toHaveAttribute("aria-checked", "true");
-    await user.click(screen.getByRole("menuitemradio", { name: "선택 안 함" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "게스트로 이용" }));
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
 
@@ -899,11 +1025,15 @@ describe("대상 선택 '누가 먹나요'(입력창 프로필 칩, 2026-11-23)"
     expect(screen.getByRole("menuitemradio", { name: "부모" })).toBeInTheDocument();
   });
 
-  it("새 프로필의 기본 색은 아직 안 쓴 첫 색이고(8색 순서), 모두 쓰였으면 노랑이다", () => {
-    expect(suggestAvatarColor([])).toBe("yellow");
-    expect(suggestAvatarColor([{ avatar_color: "yellow" }])).toBe("coral");
-    expect(suggestAvatarColor([{ avatar_color: "yellow" }, { avatar_color: "pink" }, { avatar_color: "coral" }])).toBe("purple");
-    expect(suggestAvatarColor(AVATAR_COLORS.map((avatar_color) => ({ avatar_color })))).toBe("yellow");
+  it("새 프로필의 기본 색은 한 가지로 노랑이다(FE-17 U-07 사용자 확정, 서버 기본값과 같음. 예전 '안 쓴 색 제안'을 대체)", () => {
+    expect(NEW_PROFILE_AVATAR_COLOR).toBe("yellow");
+    expect(AVATAR_COLORS).toContain(NEW_PROFILE_AVATAR_COLOR);
+  });
+
+  it("필수 4칸(관계·이름·연령대·성별)이 모두 있어야 채워진 것이다. 이름은 공백만이면 비어 있다(FE-17 U-07)", () => {
+    const full = { relation: "child", label: "첫째", ageBand: "y6_11", sex: "female" } as const;
+    expect(requiredFilled(full)).toBe(true);
+    for (const missing of [{ relation: "" }, { label: "  " }, { ageBand: "" }, { sex: "" }] as const) expect(requiredFilled({ ...full, ...missing }), JSON.stringify(missing)).toBe(false);
   });
 });
 
@@ -1123,6 +1253,7 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
     expect(input).toHaveAttribute("aria-expanded", "false");
     expect(input).toHaveFocus();
     // 저장: 고른 후보는 `{input_text, item_seq}`로 간다. 목(서버 규칙)은 사전에 있는 번호를 확인 시각과 함께 남긴다
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(store.getState().profiles[0].medications).toEqual([{ medication_id: expect.any(String), input_text: "가나다정 500밀리그램", item_seq: "200000002", confirmed_at: expect.any(String) }]);
@@ -1163,6 +1294,7 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
       { name: "가나다정 100밀리그램 없는약", confirmed: "false" },
       { name: "라마바펜", confirmed: "false" },
     ]);
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(store.getState().profiles[0].medications.map((item) => [item.input_text, item.item_seq, item.confirmed_at])).toEqual([
@@ -1358,6 +1490,7 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
     await user.keyboard("{Enter}");
     expect(chips()).toEqual([{ name: "가나다정 100밀리그램", confirmed: "true" }]);
     expect(input).toHaveValue("");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(store.getState().profiles[0].medications.map((item) => [item.input_text, item.item_seq])).toEqual([["가나다정 100밀리그램", "200000001"]]);
@@ -1386,6 +1519,7 @@ describe("프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21
       { name: "가나다", confirmed: "false" },
       { name: "라마바캡슐 10밀리그램", confirmed: "true" },
     ]);
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(store.getState().profiles[0].medications.map((item) => [item.input_text, item.item_seq])).toEqual([
@@ -1551,6 +1685,7 @@ describe("복용 약 사진으로 등록(FE-04-27 A): 확인한 이름만 지금
     await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
     expect(chips()).toHaveLength(2);
     // 저장: 이름만 간다. 사진 data URL·읽은 성분·용량 글자는 요청 어디에도 없다
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(log.saves).toHaveLength(1);
@@ -1591,6 +1726,7 @@ describe("복용 약 사진으로 등록(FE-04-27 A): 확인한 이름만 지금
     await user.click(within(within(card).getAllByTestId("photo-row")[0]).getAllByRole("radio")[0]);
     await user.click(within(card).getByTestId("photo-confirm"));
     await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     await user.click(screen.getByTestId("add-family"));
@@ -1603,6 +1739,7 @@ describe("복용 약 사진으로 등록(FE-04-27 A): 확인한 이름만 지금
     await user.click(within(familyCard).getByTestId("photo-confirm"));
     await waitFor(() => expect(screen.queryByTestId("photo-modal")).toBeNull());
     expect(chips()).toEqual([{ name: "가나다정 500밀리그램", confirmed: "true" }]);
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(log.saves.map((save) => save.medications)).toEqual([
@@ -1667,6 +1804,7 @@ describe("프로필 저장 완료 안내(FE-04-15 A): 저장 뒤 목록 위에 �
     await user.click(screen.getByTestId("add-self"));
     await user.type(screen.getByLabelText("이름(별명)"), "나");
     expect(modal().querySelector("form")!).toHaveAttribute("aria-busy", "false");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     const box = notice()!;
@@ -1694,6 +1832,7 @@ describe("프로필 저장 완료 안내(FE-04-15 A): 저장 뒤 목록 위에 �
     await consent(user, { health: false });
     await user.click(screen.getByTestId("add-self"));
     await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     await user.click(screen.getByTestId("go-ask"));
@@ -1720,6 +1859,7 @@ describe("프로필 저장 완료 안내(FE-04-15 A): 저장 뒤 목록 위에 �
     await consent(user, { health: false });
     await user.click(screen.getByTestId("add-self"));
     await user.type(screen.getByLabelText("이름(별명)"), "나");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(modal().querySelector("form")!).toHaveAttribute("aria-busy", "true"));
     expect(screen.getByTestId("profile-save")).toBeDisabled();
@@ -1763,10 +1903,11 @@ describe("본인 프로필 이름 초기값 = 카카오 닉네임(FE-04-28 B, 20
     await loginWith(user, "카카오 로그인");
     await user.click(screen.getByTestId("add-self"));
     await waitFor(() => expect(nameField()).toHaveValue(MOCK_KAKAO_NICKNAME));
-    expect(screen.getByLabelText("성별")).toHaveValue(""); // 다른 칸은 공급자 정보로 채우지 않는다
-    expect(screen.getByLabelText("연령대")).toHaveValue("");
+    expect(checkedChoice("성별")).toBeNull(); // 다른 칸은 공급자 정보로 채우지 않는다
+    expect(checkedChoice("연령대")).toBeNull();
     expect(written).toEqual([]); // 저장 전에는 서버로 가지 않는다
     expect(setItem).not.toHaveBeenCalled(); // 닉네임을 브라우저 저장소에 남기지 않는다
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(written).toEqual([{ method: "POST", label: MOCK_KAKAO_NICKNAME }]);
@@ -1779,11 +1920,13 @@ describe("본인 프로필 이름 초기값 = 카카오 닉네임(FE-04-28 B, 20
     await waitFor(() => expect(nameField()).toHaveValue(MOCK_KAKAO_NICKNAME));
     await user.clear(nameField());
     expect(nameField()).toHaveValue("");
+    await completeRequired(user);
+    expect(screen.getByTestId("profile-save")).toBeDisabled(); // 지운 채로는 저장할 수 없다(FE-17 U-07: 이름은 필수 4칸 중 하나)
     await user.click(screen.getByTestId("profile-save"));
-    expect(screen.getByRole("alert")).toHaveTextContent(copy.ERROR_NAME_EMPTY); // 지운 채 저장하면 기존 검증 그대로
     expect(written).toEqual([]);
     await user.type(nameField(), "나");
     expect(nameField()).toHaveValue("나");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(written).toEqual([{ method: "POST", label: "나" }]);
@@ -1822,6 +1965,7 @@ describe("본인 프로필 이름 초기값 = 카카오 닉네임(FE-04-28 B, 20
     await waitFor(() => expect(nameField()).toHaveValue(MOCK_KAKAO_NICKNAME));
     await user.clear(nameField());
     await user.type(nameField(), "본인");
+    await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
     await waitFor(() => expect(step()).toBe("profiles"));
     expect(read).toHaveBeenCalledTimes(1);

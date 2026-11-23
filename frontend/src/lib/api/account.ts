@@ -106,8 +106,28 @@ export const MeSchema = z.strictObject({
   consents: z.array(ConsentStateSchema),
   health_consent_active: z.boolean(),
   profile_limit: z.number().int().default(4),
+  /**
+   * 기본 대상(아래 "기본 대상" 절). 선택 칸이고, 모르는 모양이면 `/me` 전체를 버리지 않고 이 칸만 없는 것으로 읽는다
+   * (저장값이 없으면 본인 자동 선택으로 돌아갈 뿐이다)
+   */
+  default_target: z.string().min(1).nullable().optional().catch(undefined),
 });
 export type Me = z.infer<typeof MeSchema>;
+
+// ---------------------------------------------------------------- 기본 대상(FE-17 U-08·BE-11 기본 프로필 영속화, 2026-11-23)
+// - `GET /me`(와 같은 모양을 돌려주는 `POST /consents`) 응답의 `default_target`: `"guest"` | 프로필 UUID | `null`(미설정). `MeSchema`에 있다
+// - `PUT /me/default-target` 본문 `{"target": "guest" | "<프로필 UUID>" | null}` → 200 `{"target": ...}`(생성 타입 `DefaultTargetBody`·`DefaultTargetOut`).
+//   다른 사용자·없는 프로필 404 `NOT_FOUND`, 형식 오류 422 `INVALID_REQUEST`(대문자·하이픈 없는 UUID 포함), 비로그인 401.
+//   프로필 id는 서버가 준 값(표준 소문자 하이픈 UUID)을 그대로 보낸다. 화면이 id를 만들거나 바꾸지 않는다
+/** 저장된 기본 대상의 `게스트로 이용` 값(프로필 UUID와 겹치지 않는다) */
+export const DEFAULT_TARGET_GUEST = "guest";
+/** 기본 대상: `"guest"` | 프로필 UUID | null(미설정 → 화면은 본인 자동 선택) */
+export type DefaultTarget = string | null;
+const DefaultTargetSchema = z.string().min(1).nullable();
+/** `PUT /me/default-target` 본문(생성 타입) */
+export type DefaultTargetBody = Gen["DefaultTargetBody"];
+/** `PUT /me/default-target` 응답(`DefaultTargetOut`): 저장된 값 그대로 */
+export const DefaultTargetResultSchema = z.object({ target: DefaultTargetSchema });
 
 export const RELATIONS = ["self", "child", "parent", "spouse", "other"] as const;
 export const RelationSchema = z.enum(RELATIONS);
@@ -268,7 +288,7 @@ export class AccountApiError extends Error {
   }
 }
 
-type Method = "get" | "post" | "patch" | "delete";
+type Method = "get" | "post" | "put" | "patch" | "delete";
 
 async function call(method: Method, path: string, json?: unknown, signal?: AbortSignal): Promise<Response> {
   // 로그인해 있으면 토큰을 붙인다(백엔드 `security/auth.py`가 JWKS로 검증한다). 게스트·목 모드는 붙이지 않는다
@@ -397,6 +417,15 @@ export async function searchDrugs(q: string, signal?: AbortSignal): Promise<Drug
   return read(await call("post", "drugs/search", body, signal), DrugSearchResultSchema);
 }
 
+/**
+ * 기본 대상 저장(FE-17 U-08, `PUT /me/default-target`): 사용자가 대상을 고를 때마다 부른다. 저장된 값을 돌려준다.
+ * 값은 프로필 UUID·`"guest"`뿐이고 이름·건강 정보는 싣지 않는다. 실패는 `AccountApiError`로 던지며 재시도는 부르는 쪽(스토어)이 하지 않는다
+ */
+export async function saveDefaultTarget(target: DefaultTarget): Promise<DefaultTarget> {
+  const body: DefaultTargetBody = { target };
+  return (await read(await call("put", "me/default-target", body), DefaultTargetResultSchema)).target;
+}
+
 // ---------------------------------------------------------------- 로그인(Supabase Auth. 목 모드에서는 MSW 목 주소)
 /** 로그인 방식이 없다(목도 아니고 Supabase 설정도 없다). 계정 진입점이 숨어 있어 닿지 않는 길이다 */
 const noAuth = () => new AccountApiError("http", 501, "NOT_IMPLEMENTED");
@@ -523,6 +552,7 @@ export interface AccountApi {
   hasSession: typeof hasSession;
   canHaveSession: typeof canHaveSession;
   fetchSelfNameDefault: typeof fetchSelfNameDefault;
+  saveDefaultTarget: typeof saveDefaultTarget;
 }
 
 export const accountApi: AccountApi = {
@@ -542,4 +572,5 @@ export const accountApi: AccountApi = {
   hasSession,
   canHaveSession,
   fetchSelfNameDefault,
+  saveDefaultTarget,
 };

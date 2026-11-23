@@ -30,6 +30,12 @@ export const SOURCE_HEADERS = { name: "출처 · 자료", dates: "기준일·고
 /** 출처 행의 덧붙임 칸 이름(BE-06-05 A: 고시 번호·판·쪽은 출처 행에 둔다. 값이 있을 때만 그린다) */
 export const SOURCE_EXTRA_LABELS = { noticeNos: "고시 번호", edition: "판", pages: "쪽" } as const;
 
+/**
+ * 사유 원문 박스의 묶음 건수(FE-17 U-19 후속, UX 안 B, **사용자 승인 완료 2026-11-23** "같은 내용 N건"). 같은 내용의 근거 항목이 2건 이상 묶였을 때만 보인다.
+ * 숫자는 묶인 근거 항목 수(응답 `detail` 항목 개수)다
+ */
+export const sameContentCount = (count: number) => `같은 내용 ${count}건`;
+
 /** 허가사항 인용 머리(FE-02 완료 조건 PRD-10-04, 지시서 G-6: `{약 이름} 허가사항 원문({항목})`). 약 이름·항목은 응답 값이다 */
 export const permitHeading = (drugName: string | null, section: string | null) =>
   `${drugName ? `${drugName} ` : ""}허가사항 원문${section ? `(${section})` : ""}`;

@@ -37,7 +37,7 @@ class Cur:
         self.conn.log.append(sql)
 
     def fetchone(self) -> Any:
-        return (UID, "consent", None)
+        return (UID, "consent", None, None, False)
 
 
 class Conn:

@@ -2,7 +2,7 @@ import type { ChatResponse } from "@/lib/api";
 import { NoMascotZone } from "@/components/NoMascotZone";
 import { cn } from "@/lib/utils";
 import { ProductLine, isApiFailNotice } from "@/features/result";
-import { SECTION_TITLES } from "./copy";
+import { SECTION_TITLES, sameContentCount } from "./copy";
 import { EvidenceBox, SourceTag } from "./EvidenceBox";
 import { GradeDefBlock } from "./GradeDefBlock";
 import { LookupPairs } from "./LookupPairs";
@@ -22,7 +22,7 @@ function Section({ id, title, children }: { id: string; title: string; children:
 
 /**
  * 근거 상세 본문. 구역마다 소제목 1개 + 흰 박스이고 순서는 판정 → 사유 원문 → 허가사항 → 출처다(PRD-11-01).
- * 박스 하나 = 근거 하나. 판정 줄·배지·성분은 결과 카드와 같은 부품(같은 배지 규칙, PRD-15)으로 그린다.
+ * 박스 하나 = 근거 하나. 단 사유 원문 구역은 같은 내용(종류·제목·표지·원문·덧붙임 줄이 모두 같은)의 근거를 한 박스로 묶고 "같은 내용 N건"을 더한다(FE-17 U-19 후속). 판정 줄·배지·성분은 결과 카드와 같은 부품(같은 배지 규칙, PRD-15)으로 그린다.
  * 모든 글자는 응답 값이고 LLM 문장이 없다. 값이 없는 구역은 그리지 않는다. 마스코트 금지 영역이다.
  *
  * 고정 안내(`FixedNoticeBox`)·고지(`LegalFooter`)는 이 본문 밖, 접히지 않는 영역에 조립하는 쪽이 둔다.
@@ -65,12 +65,25 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
         )}
         {(sections.reasons.length > 0 || sections.reasonsMissing.length > 0) && (
           <Section id="reason" title={SECTION_TITLES.reason}>
-            {sections.reasons.map((item, index) => (
+            {/* 같은 내용(종류·제목·표지·원문·덧붙임 줄이 모두 같은) 항목은 한 박스로 묶고 "같은 내용 N건"만 더한다(FE-17 U-19 후속, UX 안 B).
+                글자는 첫 항목 그대로이고 묶인 근거 ID는 `data-evidence-ids`에 받은 순서대로 남긴다 */}
+            {sections.reasons.map(({ item, items, evidenceIds }, index) => (
               <EvidenceBox
                 key={index}
                 testId="reason-box"
+                data-evidence-ids={evidenceIds.join(" ") || undefined}
+                data-count={items.length}
                 title={item.drugs && item.drugs.length > 0 ? item.drugs.map((drug, i) => <span key={i}>{i > 0 ? " · " : ""}{drug}</span>) : item.drug_name}
-                tag={<SourceTag item={item} />}
+                tag={
+                  <>
+                    <SourceTag item={item} />
+                    {items.length > 1 && (
+                      <span data-testid="reason-same-count" className="flex-none text-xs leading-[17px] font-semibold text-mute">
+                        {sameContentCount(items.length)}
+                      </span>
+                    )}
+                  </>
+                }
               >
                 {rowTexts(item).map((text, i) => (
                   <p key={i} className="m-0 text-[13px] leading-[19px] break-words whitespace-pre-wrap">

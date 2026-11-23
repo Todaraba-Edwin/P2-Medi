@@ -42,20 +42,24 @@ for (const width of [393, 1280]) {
   test.describe(`임신 여부 토글·고지 배치 ${width}px`, () => {
     test.use({ viewport: { width, height: HEIGHT } });
 
-    test("토글은 입력창 안 왼쪽에 '일반인 | 임산부' 두 칸이 늘 보이고 기본 일반인이다. 색 토큰·굵기·28px 칸·44px 누르는 영역·←/→", async ({ page }) => {
+    test("토글은 입력창 안 질문 칸 아래 줄 왼쪽(사진 다음, FE-17 U-09)에 '일반인 | 임산부' 두 칸이 늘 보이고 기본 일반인이다. 색 토큰·굵기·28px 칸·44px 누르는 영역·←/→", async ({ page }) => {
       await openApp(page);
       const group = toggle(page);
       await expect(group).toBeVisible();
       await expect(group.getByRole("radio")).toHaveText(["일반인", "임산부"]);
       await expect(radio(page, "일반인")).toHaveAttribute("aria-checked", "true");
       await expect(radio(page, "임산부")).toHaveAttribute("aria-checked", "false");
-      // 입력창(textarea가 든 form) 안, 텍스트 영역 왼쪽, 보내기 버튼보다 앞
+      // 입력창(textarea가 든 form) 안, 질문 칸 아래 줄의 사진 다음, 보내기 버튼보다 앞(FE-17 U-09: 게스트도 로그인과 같은 배치. 예전 "텍스트 영역 왼쪽"을 옮겼다)
       const form = input(page).locator("xpath=ancestor::form");
       expect(await form.locator('[role="radiogroup"]').count()).toBe(1);
       const groupBox = (await group.boundingBox())!;
       const inputBox = (await input(page).boundingBox())!;
       const formBox = (await form.boundingBox())!;
-      expect(groupBox.x + groupBox.width).toBeLessThanOrEqual(inputBox.x + 0.5);
+      expect(groupBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height - 0.5);
+      const photoBox = (await form.getByTestId("photo-entry").boundingBox())!;
+      const sendBox = (await form.getByRole("button", { name: "보내기" }).boundingBox())!;
+      expect(groupBox.x).toBeGreaterThanOrEqual(photoBox.x + photoBox.width - 0.5);
+      expect(groupBox.x + groupBox.width).toBeLessThanOrEqual(sendBox.x + 0.5);
       expect(groupBox.x).toBeGreaterThanOrEqual(formBox.x);
       expect(groupBox.y).toBeGreaterThanOrEqual(formBox.y);
       expect(groupBox.y + groupBox.height).toBeLessThanOrEqual(formBox.y + formBox.height + 0.5);

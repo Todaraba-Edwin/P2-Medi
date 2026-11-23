@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readUiSetting, removeUiSetting, writeUiSetting } from "@/lib/ui-settings";
@@ -20,8 +20,9 @@ afterEach(() => {
 function renderMenu(props: Partial<React.ComponentProps<typeof AccountMenu>> = {}) {
   const user = userEvent.setup();
   const handlers = { onOpen: vi.fn(), onLogout: vi.fn(), onLegal: vi.fn() };
-  render(<AccountMenu member accountEnabled {...handlers} {...props} />);
-  return { user, ...handlers, button: screen.getByTestId("account-menu-button") };
+  const view = render(<AccountMenu member accountEnabled {...handlers} {...props} />);
+  const rerender = (next: Partial<React.ComponentProps<typeof AccountMenu>>) => view.rerender(<AccountMenu member accountEnabled {...handlers} {...next} />);
+  return { user, ...handlers, rerender, button: screen.getByTestId("account-menu-button") };
 }
 const radio = (mode: keyof typeof THEME_LABELS) => screen.getByRole("menuitemradio", { name: new RegExp(`^${THEME_LABELS[mode]}`) });
 
@@ -139,7 +140,7 @@ describe("계정 메뉴의 대상 프로필(2026-11-23)", () => {
     { profile_id: "b", relation: "child", label: "첫째", age_band: null, sex: null, pregnancy_status: null, avatar_color: "pink", sort_order: 1, medications: [] },
   ];
 
-  it("고른 프로필이 있으면 버튼이 그 색의 병아리 + 이름이고, 메뉴 맨 위에 '누가 먹나요' 목록(선택 안 함·본인·가족)이 있어 고르면 닫힌다", async () => {
+  it("고른 프로필이 있으면 버튼이 그 색의 병아리 + 이름이고, `프로필 관리` 아래 구분선 다음에 '누가 먹나요' 독립 섹션(게스트로 이용·본인·가족, FE-17 U-12)이 있어 고르면 닫힌다(FE-17 U-06)", async () => {
     const onChange = vi.fn();
     const { user, button } = renderMenu({ target: { profiles, value: "b", onChange } });
     expect(button).toHaveTextContent("첫째");
@@ -148,18 +149,75 @@ describe("계정 메뉴의 대상 프로필(2026-11-23)", () => {
     const menu = screen.getByTestId("account-menu");
     expect(within(menu).getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();
     const radios = within(menu).getAllByRole("menuitemradio");
-    expect(radios.slice(0, 3).map((item) => item.textContent)).toEqual(["선택 안 함", "나", "첫째"]);
+    expect(radios.slice(0, 3).map((item) => item.textContent)).toEqual(["게스트로 이용", "나", "첫째"]);
     expect(within(menu).getByRole("menuitemradio", { name: "첫째" })).toHaveAttribute("aria-checked", "true");
-    await waitFor(() => expect(radios[0]).toHaveFocus()); // 첫 항목(프로필 목록 맨 위)에 초점
+    // 순서: 프로필 관리 → ─ → 누가 먹나요 섹션 → ─ → 화면 모드(FE-17 U-12). 들여쓴 하위 묶음(세로 선)은 없고, 섹션은 `화면 모드`와 같이 메뉴 바로 아래 형제다
+    const manage = within(menu).getByRole("menuitem", { name: "프로필 관리" });
+    const group = within(menu).getByRole("group", { name: "누가 먹나요" });
+    const theme = within(menu).getByTestId("theme-choice");
+    expect(manage.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(group.compareDocumentPosition(theme) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(menu).queryByTestId("target-choice-nested")).toBeNull();
+    expect(group.parentElement).toBe(theme.parentElement);
+    const order = Array.from(menu.children).map((el) => (el.getAttribute("role") === "separator" ? "─" : el === group ? "[누가 먹나요 항목]" : el === theme ? "[화면 모드 항목]" : (el.textContent ?? "")));
+    expect(order).toEqual(["프로필 관리", "─", "누가 먹나요", "[누가 먹나요 항목]", "─", "화면 모드", "[화면 모드 항목]", "약관·정책", "─", "로그아웃"]);
+    // 섹션 제목 모양이 `화면 모드` 제목과 같다
+    const labels = within(menu).getAllByText(/^(누가 먹나요|화면 모드)$/);
+    expect(labels).toHaveLength(2);
+    expect(labels[0].className).toBe(labels[1].className);
+    const items = within(menu).getAllByRole("menuitem").concat(radios);
+    expect(items.every((item) => !/선택 안 함/.test(item.textContent ?? ""))).toBe(true);
+    await waitFor(() => expect(manage).toHaveFocus()); // 첫 항목(프로필 관리)에 초점
     await user.click(within(menu).getByRole("menuitemradio", { name: "나" }));
     expect(onChange).toHaveBeenLastCalledWith("a");
     await waitFor(() => expect(screen.queryByTestId("account-menu")).toBeNull());
   });
 
-  it("고르지 않았으면 기존 상태 글자 '로그인됨', 게스트·프로필 없음은 목록이 없다", async () => {
-    const { user, button } = renderMenu({ target: { profiles, value: null, onChange: () => {} } });
+  it("마우스를 올려도 열리지 않고 클릭으로만 열리며, 다시 클릭하면 닫힌다(FE-17 U-13이 계정 버튼 호버 열림을 대체)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(
+        <>
+          <textarea aria-label="질문" />
+          <AccountMenu member accountEnabled onOpen={() => {}} onLogout={() => {}} onLegal={() => {}} target={{ profiles, value: "a", onChange: () => {} }} />
+        </>,
+      );
+      const button = screen.getByTestId("account-menu-button");
+      const box = screen.getByRole("textbox", { name: "질문" });
+      box.focus();
+      await user.hover(button);
+      await act(() => vi.advanceTimersByTimeAsync(600));
+      expect(screen.queryByTestId("account-menu")).toBeNull();
+      expect(button).toHaveAttribute("aria-expanded", "false");
+      expect(box).toHaveFocus();
+      await user.click(button);
+      expect(screen.getByTestId("account-menu")).toBeInTheDocument();
+      expect(button).toHaveAttribute("aria-expanded", "true");
+      await user.unhover(button);
+      await act(() => vi.advanceTimersByTimeAsync(600));
+      expect(screen.getByTestId("account-menu")).toBeInTheDocument(); // 포인터가 나가도 닫히지 않는다
+      await user.click(button);
+      await act(() => vi.advanceTimersByTimeAsync(50));
+      expect(screen.queryByTestId("account-menu")).toBeNull();
+      expect(button).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("`게스트로 이용`을 골랐으면 게스트 모드 표시(점선 원 병아리 + 게스트로 이용, FE-17 U-21), 프로필이 없으면 기존 상태 글자 '로그인됨'", async () => {
+    const { user, button, rerender } = renderMenu({ target: { profiles, value: null, onChange: () => {} } });
+    expect(button).toHaveTextContent("게스트로 이용");
+    expect(button).toHaveAttribute("data-target", "guest");
+    expect(within(button).getByTestId("profile-avatar")).toHaveAttribute("data-color", "none");
+    expect(button).not.toHaveTextContent("로그인됨");
+    // 프로필이 없으면(목록 없음) 게스트 모드가 아니라 기존 `로그인됨` + 사람 아이콘
+    rerender({ target: { profiles: [], value: null, onChange: () => {} } });
     expect(button).toHaveTextContent("로그인됨");
+    expect(button).toHaveAttribute("data-target", "none");
     expect(within(button).queryByTestId("profile-avatar")).toBeNull();
+    rerender({ target: { profiles, value: null, onChange: () => {} } });
     await user.click(button);
     expect(screen.getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();
   });

@@ -2,11 +2,11 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, expectNoHorizontalScroll, input, openApp, pickTarget } from "./helpers";
+import { HEIGHT, ask, expectNoHorizontalScroll, input, openApp, pickTarget, pickChoice, completeRequired } from "./helpers";
 
 // GROUP-03 3단계(FE-11-09 C·FE-11-12 A, 2026-11-22) 성별 숨김 e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // - 대상 프로필의 성별이 **남성일 때만** 입력창 안 "일반인 | 임산부" 토글이 숨고 `/chat` `context.pregnant`는 false다
-// - 여성·성별 미입력·게스트·선택 안 함은 토글이 보인다. 가족 프로필을 고르면 그 프로필의 성별을 따른다
+// - 여성·성별 미입력·게스트·게스트로 이용(FE-17 U-06, 예전 선택 안 함)은 토글이 보인다. 로그인 직후 기본 대상은 본인이다(FE-17 U-06). 가족 프로필을 고르면 그 프로필의 성별을 따른다
 // - 토글이 빠져도 입력창 틀의 높이는 같다(레이아웃 흔들림 없음). 가로 스크롤 없음
 // 기존 `g1-5a.msw.spec.ts`(토글 저장 연동)·`sex-age14.msw.spec.ts`(성별 입력)는 건드리지 않고 여기에 따로 둔다.
 // 캡처: `L4_SHOT_DIR`을 주면 그 폴더에 `l4-b-*.png`를 남긴다. 주지 않으면 로컬 전용 `data/mock/fe-issue-shots`를 저장소 루트에서 찾고 없으면 찍지 않는다.
@@ -47,14 +47,16 @@ async function loginWithMaleSelfAndFemaleChild(page: Page) {
   await expect(modal(page)).toHaveAttribute("data-step", "profiles");
   await modal(page).getByTestId("add-self").click();
   await modal(page).getByLabel("이름(별명)").fill("나");
-  await modal(page).getByLabel("성별").selectOption("male");
+  await pickChoice(modal(page), "성별", "남성");
+  await completeRequired(modal(page));
   await modal(page).getByTestId("profile-save").click();
   await expect(modal(page).getByTestId("profile-item")).toHaveCount(1);
   await modal(page).getByTestId("add-family").click();
   await modal(page).getByLabel("이름(별명)").fill("첫째");
-  await modal(page).getByLabel("연령대").selectOption("y19_64");
-  await modal(page).getByLabel("성별").selectOption("female");
+  await pickChoice(modal(page), "연령대", "만 19~64세");
+  await pickChoice(modal(page), "성별", "여성");
   await modal(page).getByRole("radio", { name: "예" }).check(); // 임신 여부 예(건강 정보 동의 있음)
+  await completeRequired(modal(page));
   await modal(page).getByTestId("profile-save").click();
   await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
   await modal(page).getByRole("button", { name: "닫기" }).click();
@@ -66,7 +68,7 @@ for (const width of [393, 1280]) {
     test.describe(`GROUP-03 3단계 성별 숨김 ${scheme} ${width}px`, () => {
       test.use({ viewport: { width, height: HEIGHT }, colorScheme: scheme });
 
-      test("남성 대상만 토글 숨김·pregnant=false, 여성·선택 안 함·게스트는 보임, 입력창 높이는 그대로", async ({ page }) => {
+      test("남성 대상만 토글 숨김·pregnant=false, 여성·게스트로 이용·게스트는 보임, 입력창 높이는 그대로", async ({ page }) => {
         const { chats, patches } = watch(page);
         await openApp(page);
         await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
@@ -78,10 +80,12 @@ for (const width of [393, 1280]) {
 
         await loginWithMaleSelfAndFemaleChild(page);
         await expect(page.getByTestId("target-chip")).toBeVisible();
-        await expect(toggle(page)).toBeVisible(); // 선택 안 함: 보인다
-        // 로그인 + 프로필이면 입력창 첫 줄에 "토글 · 프로필 칩"이 생긴다(2026-11-23). 토글이 빠져도 높이가 그대로인지는 이 틀을 기준으로 본다
+        await expect(toggle(page)).toHaveCount(0); // 로그인 직후 기본 대상은 본인(남성): 숨김(FE-17 U-06)
+        await pickTarget(page, "게스트로 이용");
+        await expect(toggle(page)).toBeVisible(); // 게스트로 이용: 보인다
+        // 로그인 + 프로필이면 입력창 아래 줄이 "사진 → 토글 · 프로필 칩"(FE-17 U-07 좌하단), 게스트도 같은 두 줄 배치다(FE-17 U-09, 칩만 없다). 토글이 빠져도 높이가 그대로인지는 이 틀을 기준으로 본다
         const memberFormBox = (await inputForm(page).boundingBox())!;
-        expect(memberFormBox.height).toBeGreaterThan(guestFormBox.height); // 게스트는 예전 한 줄 모양
+        expect(Math.abs(memberFormBox.height - guestFormBox.height)).toBeLessThanOrEqual(1); // 게스트와 같은 높이(같은 배치)
 
         // ---- 남성(나): 토글이 없다. 입력창 틀 높이는 게스트 때와 같다(흔들림 없음)
         await pickTarget(page, "나");
@@ -118,8 +122,8 @@ for (const width of [393, 1280]) {
         await expect(page.getByTestId("result-card")).toHaveCount(3);
         expect(chats[2].context.pregnant).toBe(false);
 
-        // ---- 선택 안 함: 다시 보이고 일반인
-        await pickTarget(page, "선택 안 함");
+        // ---- 게스트로 이용: 다시 보이고 일반인
+        await pickTarget(page, "게스트로 이용");
         await expect(toggle(page)).toBeVisible();
         await expect(radio(page, "일반인")).toHaveAttribute("aria-checked", "true");
         expect(patches).toEqual([]); // 대상 변경만으로는 저장하지 않는다

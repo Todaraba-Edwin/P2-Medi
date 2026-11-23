@@ -33,9 +33,9 @@ import {
 } from "@/lib/api/account";
 import type { ConsentScreenDocType, Me, Profile, ProfileDraft } from "@/lib/api/account";
 import { AGE_BAND_LABELS } from "@/features/account/copy";
-import { createAccountHandlers } from "@/mocks/account-handlers";
+import { MOCK_CHILD_PROFILE_ID, MOCK_SELF_PROFILE_ID, createAccountHandlers, mockSession } from "@/mocks/account-handlers";
 import { MOCK_KAKAO_NICKNAME, MOCK_LEGAL_DOCS, MOCK_LOGIN_FAIL_MARK, MOCK_ONBOARDED_MARK } from "@/mocks/fixtures/account";
-import { canAddFamily, canAddSelf, consentChannel, consentItems, createAccountStore, hasHealthConsent, hidesPregnancyToggle, needsConsentStep, onboardingPending, requiredAgreed, selectTargetProfile } from "./account";
+import { canAddFamily, canAddSelf, consentChannel, consentItems, createAccountStore, hasHealthConsent, hidesPregnancyToggle, needsConsentStep, onboardingPending, requiredAgreed, resolveTarget, selectTargetProfile } from "./account";
 import type { ConsentChoices } from "./account";
 import { buildChatRequest, emptyConversationContext } from "./conversation-context";
 import { AGE_BAND_RANGE, profileToContext } from "./profile-context";
@@ -674,12 +674,181 @@ describe("계정 진입점 스위치(FE-04-02 A·FE-04-05 A)", () => {
   });
 });
 
+describe("기본 대상 = 본인(FE-17 U-06, 2026-11-23 '기존 로그인됨 → 선택된 프로필 확인')", () => {
+  const p = (profile_id: string, relation: Profile["relation"]): Profile => ({ profile_id, relation, label: profile_id, age_band: null, sex: null, pregnancy_status: null, avatar_color: "yellow", sort_order: 0, medications: [] });
+
+  it("resolveTarget: 지금 대상이 목록에 있으면 그대로, 없으면 아직 고르지 않았을 때만 본인(없으면 null), 사용자가 고른 값(null 포함)은 덮지 않는다", () => {
+    const list = [p("c", "child"), p("s", "self")];
+    expect(resolveTarget(list, null, false)).toBe("s");
+    expect(resolveTarget(list, "c", false)).toBe("c");
+    expect(resolveTarget(list, "gone", false)).toBe("s");
+    expect(resolveTarget(list, null, true)).toBeNull(); // `게스트로 이용`을 고른 것을 지킨다
+    expect(resolveTarget(list, "gone", true)).toBeNull();
+    expect(resolveTarget([p("c", "child")], null, false)).toBeNull(); // 본인이 없으면 `게스트로 이용`
+    expect(resolveTarget([], null, false)).toBeNull();
+  });
+
+  it("로그인 직후(프로필을 읽은 같은 갱신에서) 본인이 대상이고, 사용자가 `게스트로 이용`을 고르면 다시 읽어도 그대로이며, 로그아웃하면 처음으로 돌아간다", async () => {
+    const store = createAccountStore();
+    const seen: (string | null)[] = [];
+    store.subscribe((state) => seen.push(state.status === "member" ? state.targetProfileId : "guest"));
+    store.getState().open();
+    await store.getState().loginEmail(`${MOCK_ONBOARDED_MARK}@example.com`, "pw");
+    const self = store.getState().profiles.find((profile) => profile.relation === "self")!;
+    expect(store.getState().targetProfileId).toBe(self.profile_id);
+    // 회원이 된 순간부터 대상이 본인이다(대상 없는 회원 상태를 한 번도 거치지 않는다 = 계정 버튼 표시가 깜빡이지 않는다)
+    expect(seen.filter((value) => value !== "guest").every((value) => value === self.profile_id)).toBe(true);
+    store.getState().setTarget(null);
+    await store.getState().loadLegalDocs();
+    expect(await store.getState().submitConsents(ALL)).toBe(true); // 프로필을 다시 읽는다
+    expect(store.getState().targetProfileId).toBeNull();
+    expect(store.getState().targetChosen).toBe(true);
+    expect(await store.getState().logout()).toBe(true);
+    expect(store.getState()).toMatchObject({ status: "guest", targetProfileId: null, targetChosen: false });
+  });
+
+  it("온보딩에서 본인 프로필을 처음 저장하면 그 프로필이 대상이 된다. 가족을 더해도 대상은 본인 그대로다", async () => {
+    const store = await loggedIn();
+    expect(store.getState().targetProfileId).toBeNull(); // 본인이 없으면 `게스트로 이용`
+    store.getState().editProfile({ profileId: null, self: true });
+    await store.getState().saveProfile(selfDraft());
+    const selfId = store.getState().profiles[0].profile_id;
+    expect(store.getState().targetProfileId).toBe(selfId);
+    store.getState().editProfile({ profileId: null, self: false });
+    await store.getState().saveProfile(family("첫째"));
+    expect(store.getState().targetProfileId).toBe(selfId);
+  });
+});
+
+describe("기본 대상 서버 저장(FE-17 U-08, 2026-11-23 '새롭게 세션을 시작할 때마다 해당 내용이 기본값')", () => {
+  const p = (profile_id: string, relation: Profile["relation"]): Profile => ({ profile_id, relation, label: profile_id, age_band: null, sex: null, pregnancy_status: null, avatar_color: "yellow", sort_order: 0, medications: [] });
+  /** 저장값이 있는 로그인 세션으로 목을 다시 깐다(새 세션 = 새 스토어 + 같은 목 세션) */
+  const signedIn = (saved: string | null) => {
+    const state = { session: mockSession("onboarded", "email", saved) };
+    server.use(...createAccountHandlers(state));
+    return state;
+  };
+  /** `PUT /me/default-target` 본문을 모은다(목 핸들러 앞에서 보고 그대로 넘긴다) */
+  const watchPuts = () => {
+    const bodies: unknown[] = [];
+    server.events.on("request:start", ({ request }) => {
+      if (request.method === "PUT" && new URL(request.url).pathname.endsWith("/me/default-target")) void request.clone().json().then((body) => bodies.push(body));
+    });
+    return bodies;
+  };
+  afterEach(() => server.events.removeAllListeners());
+
+  it("resolveTarget: 고르지 않았으면 저장값(`guest` → null, 목록의 id → 그 프로필)이 먼저이고, 저장값이 없거나 없는 프로필이면 지금 대상 → 본인. 고른 값은 저장값보다 앞선다", () => {
+    const list = [p("c", "child"), p("s", "self")];
+    expect(resolveTarget(list, null, false, "c")).toBe("c");
+    expect(resolveTarget(list, "s", false, "c")).toBe("c"); // 자동으로 고른 본인보다 저장값이 앞선다
+    expect(resolveTarget(list, "s", false, "guest")).toBeNull();
+    expect(resolveTarget(list, null, false, "gone")).toBe("s"); // 지워진 프로필이면 본인
+    expect(resolveTarget(list, null, false, null)).toBe("s"); // 미설정이면 본인
+    expect(resolveTarget(list, "s", true, "c")).toBe("s"); // 이 세션에서 고른 값은 덮지 않는다
+    expect(resolveTarget(list, null, true, "c")).toBeNull(); // 고른 `게스트로 이용`도 지킨다
+  });
+
+  it("새 세션(새로고침·로그인 복귀)의 기본값은 서버 저장값이다: 가족 id → 그 가족, `guest` → 게스트로 이용, 미설정 → 본인", async () => {
+    for (const [saved, expected] of [
+      [MOCK_CHILD_PROFILE_ID, MOCK_CHILD_PROFILE_ID],
+      ["guest", null],
+      [null, MOCK_SELF_PROFILE_ID],
+    ] as const) {
+      signedIn(saved);
+      const store = createAccountStore();
+      await store.getState().bootstrap();
+      expect(store.getState()).toMatchObject({ status: "member", targetProfileId: expected, targetChosen: false });
+      expect(store.getState().me?.default_target).toBe(saved);
+    }
+  });
+
+  it("고를 때마다 서버에 저장하고(`게스트로 이용`은 \"guest\") 다음 세션의 기본값이 된다. 이 세션에서 고른 값은 다시 읽어도 저장값으로 덮이지 않는다", async () => {
+    const mock = signedIn(null);
+    const puts = watchPuts();
+    const storageWrites = vi.spyOn(Storage.prototype, "setItem");
+    const store = createAccountStore();
+    await store.getState().bootstrap();
+    store.getState().setTarget(MOCK_CHILD_PROFILE_ID);
+    expect(store.getState().targetProfileId).toBe(MOCK_CHILD_PROFILE_ID); // 화면은 저장을 기다리지 않고 바로 바뀐다
+    await vi.waitFor(() => expect(mock.session.defaultTarget).toBe(MOCK_CHILD_PROFILE_ID));
+    store.getState().setTarget(null);
+    await vi.waitFor(() => expect(mock.session.defaultTarget).toBe("guest"));
+    expect(puts).toEqual([{ target: MOCK_CHILD_PROFILE_ID }, { target: "guest" }]); // 값은 id·"guest"뿐(이름·건강 정보 없음)
+    // 다른 곳에서 저장값이 바뀌어도 이 세션의 선택은 지킨다
+    mock.session.defaultTarget = MOCK_CHILD_PROFILE_ID;
+    await store.getState().bootstrap();
+    expect(store.getState().targetProfileId).toBeNull();
+    // 새 세션은 저장값으로 시작한다
+    const next = createAccountStore();
+    await next.getState().bootstrap();
+    expect(next.getState().targetProfileId).toBe(MOCK_CHILD_PROFILE_ID);
+    expect(storageWrites).not.toHaveBeenCalled(); // 브라우저 저장소에는 아무것도 두지 않는다(기본 대상은 서버가 저장)
+    storageWrites.mockRestore();
+  });
+
+  it("저장은 한 번에 하나만 보내고, 보내는 중에 여러 번 고르면 마지막 값 하나만 이어서 보낸다(요청이 쌓이지 않는다)", async () => {
+    const mock = signedIn(null);
+    const puts = watchPuts();
+    const store = createAccountStore();
+    await store.getState().bootstrap();
+    store.getState().setTarget(MOCK_CHILD_PROFILE_ID);
+    store.getState().setTarget(null);
+    store.getState().setTarget(MOCK_SELF_PROFILE_ID);
+    store.getState().setTarget(MOCK_CHILD_PROFILE_ID);
+    expect(store.getState().targetProfileId).toBe(MOCK_CHILD_PROFILE_ID);
+    await vi.waitFor(() => expect(puts).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(puts).toEqual([{ target: MOCK_CHILD_PROFILE_ID }, { target: MOCK_CHILD_PROFILE_ID }]);
+    expect(mock.session.defaultTarget).toBe(MOCK_CHILD_PROFILE_ID);
+  });
+
+  it("저장이 실패해도 선택은 그대로이고 오류를 띄우지 않으며 다시 시도하지 않는다. 게스트·계정 서버 준비 전은 저장하지 않는다", async () => {
+    signedIn(null);
+    let calls = 0;
+    server.use(
+      http.put("*/api/me/default-target", () => {
+        calls += 1;
+        return HttpResponse.json({ code: "ACCOUNT_UNAVAILABLE", fields: [] }, { status: 503 });
+      }),
+    );
+    const store = createAccountStore();
+    await store.getState().bootstrap();
+    store.getState().setTarget(MOCK_CHILD_PROFILE_ID);
+    await vi.waitFor(() => expect(calls).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(calls).toBe(1);
+    expect(store.getState()).toMatchObject({ targetProfileId: MOCK_CHILD_PROFILE_ID, failure: null, pending: false });
+    // 게스트(로그인 전)는 메모리 선택만
+    const guest = createAccountStore();
+    guest.getState().setTarget(null);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(calls).toBe(1);
+  });
+
+  it("`/me`에 `default_target`이 없거나(배포 순서) 모르는 모양이어도 `/me`는 읽히고 본인이 기본이다", async () => {
+    signedIn(null);
+    const { default_target: _drop, ...current } = (await fetchMe())!;
+    void _drop;
+    for (const value of [undefined, 42]) {
+      server.use(http.get("*/api/me", () => HttpResponse.json(value === undefined ? current : { ...current, default_target: value })));
+      const store = createAccountStore();
+      await store.getState().bootstrap();
+      expect(store.getState()).toMatchObject({ status: "member", targetProfileId: MOCK_SELF_PROFILE_ID });
+      expect(store.getState().me?.default_target).toBeUndefined();
+    }
+  });
+});
+
 describe("대상 선택 → 요청 context", () => {
   it("고른 프로필의 연령대·임신 여부가 buildChatRequest의 context로 간다(약·성별은 싣지 않는다)", async () => {
     const store = await loggedIn();
     store.getState().editProfile({ profileId: null, self: true });
     await store.getState().saveProfile(selfDraft({ sex: "female", health: { pregnancy_status: "pregnant", medications: [med("가나다정")] } }));
-    expect(selectTargetProfile(store.getState())).toBeNull(); // 고르기 전
+    // 고르기 전에도 본인 프로필이 기본 대상이다(FE-17 U-06). `게스트로 이용`(null)을 고르면 대상이 없다
+    expect(selectTargetProfile(store.getState())?.profile_id).toBe(store.getState().profiles[0].profile_id);
+    store.getState().setTarget(null);
+    expect(selectTargetProfile(store.getState())).toBeNull();
     store.getState().setTarget(store.getState().profiles[0].profile_id);
     expect(selectTargetProfile(store.getState())?.sex).toBe("female");
     const context = profileToContext(selectTargetProfile(store.getState()), hasHealthConsent(store.getState().me));

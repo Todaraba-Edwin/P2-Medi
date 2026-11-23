@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp, completeRequired } from "./helpers";
 
 // 프로필 약 검색 후보 고르기(FE-04-13 A·FE-04-20 A·FE-04-21 A, 2026-11-20 fedrug). Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가
 // `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다. 서버는 브라우저 워커의 목(`src/mocks/account-handlers.ts`의 `POST /api/drugs/search`,
@@ -138,6 +138,7 @@ for (const width of [393, 1280]) {
       await shot(page, "drug-picked");
 
       // ---- 저장 모양: 고른 후보 `{input_text, item_seq}`, 확인 안 된 약 `item_seq` null
+      await completeRequired(modal(page));
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profiles");
       await expect(modal(page).getByTestId("profile-item")).toContainText("약 3개");

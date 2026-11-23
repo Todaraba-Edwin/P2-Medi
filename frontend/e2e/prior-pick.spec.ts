@@ -29,7 +29,7 @@ for (const width of [393, 1280]) {
       await page.getByRole("button", { name: "이 약으로 다시 묻기" }).click();
       await expect(turn(page, 2).getByTestId("result-card")).toBeVisible();
       expect((await requests(page))[1]).toEqual({ question: QUESTION, context: { ...EMPTY, confirmed_drugs: [PICK] } });
-      await expect(bubble(page, 2)).toHaveText("고른 약: 가나다정 100밀리그램으로 다시 확인");
+      await expect(bubble(page, 2)).toHaveCount(0); // 다시 물은 차례는 말풍선 없음(FE-17 U-17)
 
       // q3: 같은 이름이 든 새 질문. 답이 왔으므로 고른 약은 이전 선택(prior_drugs)이 되고 confirmed_drugs는 비어 간다
       await ask(page, `다시 ${QUESTION}`);

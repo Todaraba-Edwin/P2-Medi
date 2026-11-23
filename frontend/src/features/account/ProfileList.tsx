@@ -59,6 +59,9 @@ export function useHealthConsentNotice(): string {
  * 가족이 3명이면 추가 버튼이 비활성이다(4번째 추가 불가). 본인 프로필에는 삭제 버튼이 없다(서버가 409 `SELF_REQUIRED`로 막는다. 계정을 지우려면 탈퇴).
  * 로그인은 했지만 계정 서버가 아직 답하지 못하면(501 미설정·503 장애, `me`가 null) 준비 중 안내와 로그아웃만 보인다:
  * 눌러도 실패할 추가·동의·탈퇴 버튼은 그리지 않는다(BE-11-23 A).
+ * 배치(FE-17 U-16, 2026-11-23 사용자 지시 "모달의 크기를 높이를 Grid 1fr auto로 두고 해당 내용을 bottom 으로 이동"): 화면 전체가 `grid-rows-[1fr_auto]`다.
+ * 위 `1fr`은 제목·목록·추가 버튼 영역으로 남는 높이를 채우고 넘칠 때만 그 안에서 스크롤하며, 아래 `auto`는 `동의 내용 보기`·`로그아웃`·`탈퇴` 한 줄로 모달 바닥에 고정된다.
+ * 세 동작의 확인 절차·위험 표시(탈퇴 = 위험 글자 버튼 + 확인창)는 그대로다
  */
 export function ProfileList() {
   const { store, hideMascot } = useAccountModal();
@@ -76,87 +79,94 @@ export function ProfileList() {
   const { editProfile, go, logout, removeProfile, withdraw } = store.getState();
 
   return (
-    <StepBody data-testid="profile-list">
-      <StepTitle>{PROFILES_TITLE}</StepTitle>
-      <p className="m-0 text-sm leading-5 text-ink-2">{PROFILES_DESCRIPTION}</p>
-      {/* 저장 완료 안내(FE-04-15 A·FE-04-26 A, 문구 승인 2026-11-22): 저장 직후 한 번, 보조기기가 바로 읽는다(`role="status"`). 초점은 제목에 있고 다음 행동 `질문하러 가기`가 옆에 있다.
-          마스코트·응급·금기 문구는 두지 않는다. 다른 단계로 옮기거나 닫으면 스토어가 지운다 */}
-      {notice === "profile-saved" && (
-        <div role="status" data-testid="profile-saved-notice" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl bg-bg-soft px-3 py-2">
-          <p className="m-0 min-w-0 flex-1 basis-40 text-sm leading-5 font-semibold text-ink [word-break:keep-all]">{PROFILE_SAVED_NOTICE}</p>
-          <button type="button" data-testid="go-ask" onClick={() => closeAccountModalToQuestion(store)} className={PRIMARY_BUTTON}>
-            {GO_ASK_LABEL}
-          </button>
-        </div>
-      )}
-      {unavailable && !failure && (
-        <p role="status" data-testid="account-unavailable" className="m-0 rounded-xl bg-bg-softer px-3 py-2 text-sm leading-5 text-ink-2 [word-break:keep-all]">
-          {ERROR_NOT_IMPLEMENTED}
-        </p>
-      )}
-      {!unavailable && !healthConsent && (
-        <p data-testid="health-consent-notice" className="m-0 rounded-xl bg-bg-softer px-3 py-2 text-xs leading-[17px] text-ink-2">
-          {healthNotice}
-        </p>
-      )}
-      {unavailable ? null : profiles.length === 0 ? (
-        <p className="m-0 text-sm text-mute">{PROFILES_EMPTY}</p>
-      ) : (
-        <ul className="m-0 flex list-none flex-col gap-2 p-0">
-          {profiles.map((profile) => (
-            <li key={profile.profile_id} data-testid="profile-item" data-relation={profile.relation} className="flex flex-wrap items-center gap-2 rounded-2xl border border-line px-3 py-2">
-              {/* 프로필 이미지: 프로필 색 원 + 병아리 얼굴(FE-06-01, 위험 정보와 무관한 자리, 2026-11-23 8색 배경). 119 안내 중에는 색 원만 */}
-              <ProfileAvatar color={profile.avatar_color} size={36} face={!hideMascot} />
-              <div className="min-w-0 flex-1 basis-32">
-                <b className="block truncate text-sm">{profileName(profile)}</b>
-                <span className="block text-xs leading-[17px] text-mute">{profileSummary(profile, healthConsent)}</span>
-              </div>
-              <div className="flex flex-none gap-1">
-                <button type="button" aria-label={editProfileLabel(profileName(profile))} onClick={() => editProfile({ profileId: profile.profile_id, self: profile.relation === "self" })} className={TEXT_BUTTON}>
-                  {EDIT_LABEL}
+    <div data-testid="profile-list" className="grid h-full grid-rows-[1fr_auto]">
+      <div data-testid="profile-list-scroll" className="min-h-0 overflow-x-hidden overflow-y-auto">
+        <StepBody className="pb-4">
+          <StepTitle>{PROFILES_TITLE}</StepTitle>
+          <p className="m-0 text-sm leading-5 text-ink-2">{PROFILES_DESCRIPTION}</p>
+          {/* 저장 완료 안내(FE-04-15 A·FE-04-26 A, 문구 승인 2026-11-22): 저장 직후 한 번, 보조기기가 바로 읽는다(`role="status"`). 초점은 제목에 있고 다음 행동 `질문하러 가기`가 옆에 있다.
+              마스코트·응급·금기 문구는 두지 않는다. 다른 단계로 옮기거나 닫으면 스토어가 지운다 */}
+          {notice === "profile-saved" && (
+            <div role="status" data-testid="profile-saved-notice" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl bg-bg-soft px-3 py-2">
+              <p className="m-0 min-w-0 flex-1 basis-40 text-sm leading-5 font-semibold text-ink [word-break:keep-all]">{PROFILE_SAVED_NOTICE}</p>
+              <button type="button" data-testid="go-ask" onClick={() => closeAccountModalToQuestion(store)} className={PRIMARY_BUTTON}>
+                {GO_ASK_LABEL}
+              </button>
+            </div>
+          )}
+          {unavailable && !failure && (
+            <p role="status" data-testid="account-unavailable" className="m-0 rounded-xl bg-bg-softer px-3 py-2 text-sm leading-5 text-ink-2 [word-break:keep-all]">
+              {ERROR_NOT_IMPLEMENTED}
+            </p>
+          )}
+          {!unavailable && !healthConsent && (
+            <p data-testid="health-consent-notice" className="m-0 rounded-xl bg-bg-softer px-3 py-2 text-xs leading-[17px] text-ink-2">
+              {healthNotice}
+            </p>
+          )}
+          {unavailable ? null : profiles.length === 0 ? (
+            <p className="m-0 text-sm text-mute">{PROFILES_EMPTY}</p>
+          ) : (
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
+              {profiles.map((profile) => (
+                <li key={profile.profile_id} data-testid="profile-item" data-relation={profile.relation} className="flex flex-wrap items-center gap-2 rounded-2xl border border-line px-3 py-2">
+                  {/* 프로필 이미지: 프로필 색 원 + 병아리 얼굴(FE-06-01, 위험 정보와 무관한 자리, 2026-11-23 8색 배경). 119 안내 중에는 색 원만 */}
+                  <ProfileAvatar color={profile.avatar_color} size={36} face={!hideMascot} />
+                  <div className="min-w-0 flex-1 basis-32">
+                    <b className="block truncate text-sm">{profileName(profile)}</b>
+                    <span className="block text-xs leading-[17px] text-mute">{profileSummary(profile, healthConsent)}</span>
+                  </div>
+                  <div className="flex flex-none gap-1">
+                    <button type="button" aria-label={editProfileLabel(profileName(profile))} onClick={() => editProfile({ profileId: profile.profile_id, self: profile.relation === "self" })} className={TEXT_BUTTON}>
+                      {EDIT_LABEL}
+                    </button>
+                    {profile.relation !== "self" && (
+                      <button type="button" aria-label={deleteProfileLabel(profileName(profile))} onClick={() => setDeleting(profile)} className={TEXT_BUTTON}>
+                        {DELETE_LABEL}
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <FailureLine failure={failure} />
+          {!unavailable && (
+            <div className="flex flex-wrap gap-2">
+              {canAddSelf(profiles) && (
+                <button type="button" data-testid="add-self" onClick={() => editProfile({ profileId: null, self: true })} className={PRIMARY_BUTTON}>
+                  {ADD_SELF_LABEL}
                 </button>
-                {profile.relation !== "self" && (
-                  <button type="button" aria-label={deleteProfileLabel(profileName(profile))} onClick={() => setDeleting(profile)} className={TEXT_BUTTON}>
-                    {DELETE_LABEL}
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      <FailureLine failure={failure} />
-      {!unavailable && (
-        <div className="flex flex-wrap gap-2">
-          {canAddSelf(profiles) && (
-            <button type="button" data-testid="add-self" onClick={() => editProfile({ profileId: null, self: true })} className={PRIMARY_BUTTON}>
-              {ADD_SELF_LABEL}
+              )}
+              <button type="button" data-testid="add-family" disabled={!canAddFamily(profiles)} onClick={() => editProfile({ profileId: null, self: false })} className={SECONDARY_BUTTON}>
+                {addFamilyLabel(familyCount, FAMILY_PROFILE_MAX)}
+              </button>
+            </div>
+          )}
+          {!unavailable && !canAddFamily(profiles) && (
+            <p data-testid="family-full" className="m-0 text-xs leading-[17px] text-mute">
+              {FAMILY_FULL_NOTE}
+            </p>
+          )}
+        </StepBody>
+      </div>
+      {/* 모달 바닥 고정 줄(FE-17 U-16): 목록 영역이 스크롤돼도 늘 보인다. 탈퇴는 위험 글자 버튼(빨강)이고 오른쪽 끝에 떨어져 있어 다른 동작과 구분된다 */}
+      <div data-testid="profile-list-actions" className="border-t border-line bg-bg">
+        <div className="mx-auto flex w-full max-w-[520px] flex-wrap items-center gap-x-1 px-5 py-2">
+          {!unavailable && (
+            <button type="button" onClick={() => go("consent")} className={TEXT_BUTTON}>
+              {REVIEW_CONSENT_LABEL}
             </button>
           )}
-          <button type="button" data-testid="add-family" disabled={!canAddFamily(profiles)} onClick={() => editProfile({ profileId: null, self: false })} className={SECONDARY_BUTTON}>
-            {addFamilyLabel(familyCount, FAMILY_PROFILE_MAX)}
+          <button type="button" disabled={pending} onClick={() => void logout()} className={TEXT_BUTTON}>
+            {LOGOUT_LABEL}
           </button>
+          {!unavailable && (
+            <button type="button" data-testid="withdraw" onClick={() => setWithdrawing(true)} className={`${DANGER_TEXT_BUTTON} ml-auto`}>
+              {WITHDRAW_LABEL}
+            </button>
+          )}
         </div>
-      )}
-      {!unavailable && !canAddFamily(profiles) && (
-        <p data-testid="family-full" className="m-0 text-xs leading-[17px] text-mute">
-          {FAMILY_FULL_NOTE}
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-x-1">
-        {!unavailable && (
-          <button type="button" onClick={() => go("consent")} className={TEXT_BUTTON}>
-            {REVIEW_CONSENT_LABEL}
-          </button>
-        )}
-        <button type="button" disabled={pending} onClick={() => void logout()} className={TEXT_BUTTON}>
-          {LOGOUT_LABEL}
-        </button>
-        {!unavailable && (
-          <button type="button" data-testid="withdraw" onClick={() => setWithdrawing(true)} className={DANGER_TEXT_BUTTON}>
-            {WITHDRAW_LABEL}
-          </button>
-        )}
       </div>
       <ConfirmDialog
         open={deleting !== null}
@@ -179,6 +189,6 @@ export function ProfileList() {
         pending={pending}
         onConfirm={() => void withdraw().then((ok) => !ok && setWithdrawing(false))}
       />
-    </StepBody>
+    </div>
   );
 }

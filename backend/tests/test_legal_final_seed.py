@@ -3,7 +3,7 @@
 - 정적: 본문 차이 = 제거한 안내 인용문 줄(+뒤 빈 줄 하나)뿐, 제목의 "(초안)"만 제거, required 유지, requires_reconsent false,
   legal_review를 시드가 건드리지 않음(기본값 not_reviewed), 자리표시자 유지, age_14는 새 버전 없음.
 - 재동의: 기존 동의(직전 판)가 새 판에서도 유효(needs_reconsent False).
-- 마이그레이션 단계 12: plan·verify(be11 시험이 대부분 담당, 여기서는 시드 키·게시 거부).
+- 마이그레이션 단계 13: plan·verify(be11 시험이 대부분 담당, 여기서는 시드 키·게시 거부).
 - 로컬 Postgres(LOCAL_PG_DSN이 로컬 주소일 때만): 전체 단계 적용·재실행·현재 판 조회·불변 트리거.
 """
 
@@ -153,11 +153,11 @@ def test_existing_consent_stays_valid_on_final_version(doc_type):
     assert state.needs_consent is False and state.needs_reconsent is False  # 직전 판 동의가 그대로 유효
 
 
-# --------------------------------------------------------------------------- 마이그레이션 단계 12(로컬, 연결 0)
+# --------------------------------------------------------------------------- 마이그레이션 단계 13(로컬, 연결 0)
 def test_step_12_is_last_seed_with_five_keys_and_blocks_publish_without_contact():
     steps = m.build_steps(EFF)
     last = steps[-1]
-    assert last.name == "12 seed final legal docs" and last.kind == "seed" and last.source == SEED_FINAL_FILE
+    assert last.name == "13 seed final legal docs" and last.kind == "seed" and last.source == SEED_FINAL_FILE
     assert last.keys == [("terms", 4), ("privacy_policy", 7), ("privacy_consent", 3), ("sensitive_consent", 3), ("terms_guest", 2)]
     assert last.placeholders == ["{{PRIVACY_CONTACT}}"]
     with pytest.raises(m.Refused, match="seed_legal_final.sql"):
@@ -192,9 +192,9 @@ def _apply(dsn: str) -> dict:
 
 def test_pg_apply_all_steps_twice_then_verify_and_current_versions(local_dsn):
     first = _apply(local_dsn)["apply"]
-    assert first["12 seed final legal docs"]["inserted"] == 5
+    assert first["13 seed final legal docs"]["inserted"] == 5
     second = _apply(local_dsn)["apply"]  # 재실행 안전: 행이 늘지 않는다
-    assert second["12 seed final legal docs"]["inserted"] == 0
+    assert second["13 seed final legal docs"]["inserted"] == 0
     out = m.main(["verify", "--local-dsn", local_dsn], log=lambda s: None, contact=(FAKE_NAME, FAKE_EMAIL))["verify"]
     assert out["ok"] is True, out["checks"]
     repo = PostgresAccountRepo.from_dsn(local_dsn)

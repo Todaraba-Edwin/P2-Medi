@@ -1365,7 +1365,8 @@ for (const viewport of [
       await expect119Reachable(page, page.getByTestId("emergency-entry")); // 머리줄 119를 누를 수 있다
       // 통합 고지는 입력창 바로 아래다
       const noticeBox = (await combined.boundingBox())!;
-      const inputBox = (await input(page).boundingBox())!;
+      // 입력창 틀(form) 바로 아래. 질문 칸 아래에는 사진·토글 줄이 있어(FE-17 U-09, 게스트 포함) 거리는 틀에서 잰다
+      const inputBox = (await input(page).locator("xpath=ancestor::form").boundingBox())!;
       expect(noticeBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height - 0.5);
       expect(noticeBox.y - (inputBox.y + inputBox.height)).toBeLessThanOrEqual(24);
       // 접히는 틀 밖이고 동의 관문이 아니다(체크·버튼 없음): 고지를 건드리지 않고 바로 질문을 보낼 수 있다

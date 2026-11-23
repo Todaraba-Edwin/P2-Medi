@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, expectNoHorizontalScroll, openAccountEntry, openApp, pickTarget } from "./helpers";
+import { HEIGHT, ask, expectNoHorizontalScroll, openAccountEntry, openApp, pickTarget, pickChoice, completeRequired } from "./helpers";
 
 // GROUP-01 5a(FE-11, 2026-11-20) 로그인 흐름 e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // - FE-11-13: 건강 정보 동의 + 대상 프로필이면 토글 변경이 그 프로필 `pregnancy_status`를 PATCH(양방향)하고 프로필 화면에 바뀐 값이 보인다.
@@ -46,10 +46,12 @@ async function loginAndSaveSelf(page: Page, { healthConsent, pregnancy }: { heal
   await expect(modal(page)).toHaveAttribute("data-step", "profiles");
   await modal(page).getByTestId("add-self").click();
   await modal(page).getByLabel("이름(별명)").fill("나");
-  if (pregnancy) {
-    await modal(page).getByLabel("성별").selectOption("female"); // 임신 여부 칸은 여성일 때만 보인다(작업 B, 2026-11-22)
-    await modal(page).getByRole("radio", { name: pregnancy }).check();
-  }
+  // 성별은 FE-17 U-07부터 필수: 입력창 토글이 보이도록 여성으로 둔다(남성이면 토글이 숨는다). 임신 여부 칸은 여성일 때만 보인다(작업 B, 2026-11-22)
+  await pickChoice(modal(page), "성별", "여성");
+  // 고르지 않으면 예전(성별 미입력 → 아니오)과 같은 저장 값이 되도록 아니오를 고른다(건강 동의가 없으면 칸이 비활성이라 건너뛴다)
+  const choice = pregnancy ?? "아니오";
+  if (healthConsent) await modal(page).getByRole("radio", { name: choice, exact: true }).check();
+  await completeRequired(modal(page));
   await modal(page).getByTestId("profile-save").click();
   await expect(modal(page).getByTestId("profile-item")).toHaveCount(1);
   await modal(page).getByRole("button", { name: "닫기" }).click();
@@ -99,7 +101,7 @@ for (const width of [393, 1280]) {
       // 다시 임산부로 저장해 두고 대상을 바꿨다 돌아오면 임산부로 시작한다(§7.1 규칙 ①·②). 대상 변경은 저장하지 않는다
       await radio(page, "임산부").click();
       await expect.poll(() => patches.length).toBe(3);
-      await pickTarget(page, "선택 안 함");
+      await pickTarget(page, "게스트로 이용");
       await expect(radio(page, "일반인")).toHaveAttribute("aria-checked", "true");
       await pickTarget(page, "나");
       await expect(radio(page, "임산부")).toHaveAttribute("aria-checked", "true");

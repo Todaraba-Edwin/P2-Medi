@@ -13,10 +13,23 @@ export interface JudgmentEntry {
   item: DetailItem | null;
 }
 
+/**
+ * 사유 원문 박스 하나(FE-17 U-19 후속, UX 안 B). 종류·박스 제목·표지·원문 문장·덧붙임 줄이 모두 같은 근거 항목을 한 박스로 묶는다.
+ * 값을 만들거나 바꾸지 않는다: 보이는 글자는 첫 항목(`item`)의 것 그대로이고, 묶인 항목의 근거 ID는 받은 순서대로 `evidenceIds`에 접어 둔다
+ */
+export interface ReasonGroup {
+  /** 박스에 그리는 항목(묶인 것 중 처음 받은 것) */
+  item: DetailItem;
+  /** 묶인 항목 전부(받은 순서) */
+  items: DetailItem[];
+  /** 묶인 항목의 근거 ID(받은 순서, `null`은 뺀다) */
+  evidenceIds: string[];
+}
+
 export interface EvidenceSections {
   judgments: JudgmentEntry[];
-  /** 사유 원문이 있는 판정 근거 */
-  reasons: DetailItem[];
+  /** 사유 원문이 있는 판정 근거. 같은 내용의 항목은 한 박스로 묶었다(`ReasonGroup`) */
+  reasons: ReasonGroup[];
   /** 판정 근거 중 원문을 확보하지 못한 것 */
   reasonsMissing: DetailItem[];
   /** 허가사항 구역(인용 또는 미확보) */
@@ -42,12 +55,44 @@ export const isPermitItem = (item: DetailItem) => item.dataset_key === DATASET_P
 /** 약을 찾지 못한 줄인가(찾아본 곳 표를 보인다) */
 export const isLookupFinding = (finding: Finding) => finding.kind === KIND_IDENTIFY || finding.input_name !== null;
 
+/**
+ * 사유 박스의 "같은 내용" 열쇠: 박스에 보이는 것 전부(종류, 박스 제목, 표지, 원문 문장, 덧붙임 줄).
+ * 하나라도 다르면 다른 박스다(글자가 조금이라도 다른 원문·다른 약·다른 자료는 묶지 않는다)
+ */
+function reasonKey(item: DetailItem): string {
+  return JSON.stringify([
+    item.kind,
+    item.drugs && item.drugs.length > 0 ? item.drugs : null,
+    item.drugs && item.drugs.length > 0 ? null : (item.drug_name ?? null),
+    item.dataset,
+    item.source_kind,
+    item.source_kind_label ?? null,
+    rowTexts(item),
+    item.notes,
+  ]);
+}
+
+/**
+ * 같은 내용의 사유 원문 항목을 한 박스로 묶는다(FE-17 U-19 후속). 성분 이름으로 찾은 약은 제형 코드마다 용량주의 항목이 따로 와서
+ * 같은 문장 박스가 여러 개 보였다. 묶음 순서는 처음 나온 순서, 묶음 안의 순서는 받은 순서 그대로다
+ */
+export function groupReasons(items: readonly DetailItem[]): ReasonGroup[] {
+  const groups = new Map<string, ReasonGroup>();
+  for (const item of items) {
+    const key = reasonKey(item);
+    const group = groups.get(key);
+    if (group) group.items.push(item);
+    else groups.set(key, { item, items: [item], evidenceIds: [] });
+  }
+  return [...groups.values()].map((group) => ({ ...group, evidenceIds: group.items.flatMap((item) => (item.evidence_id === null ? [] : [item.evidence_id])) }));
+}
+
 export function buildSections(response: ChatResponse): EvidenceSections {
   const byId = new Map(response.detail.filter((item) => item.evidence_id !== null).map((item) => [item.evidence_id, item]));
   const judgmentItems = response.detail.filter((item) => item.kind !== KIND_LABEL && item.kind !== KIND_IDENTIFY);
   return {
     judgments: response.findings.map((finding) => ({ finding, item: (finding.evidence_id && byId.get(finding.evidence_id)) || null })),
-    reasons: judgmentItems.filter((item) => item.missing_text === null && rowTexts(item).length > 0),
+    reasons: groupReasons(judgmentItems.filter((item) => item.missing_text === null && rowTexts(item).length > 0)),
     reasonsMissing: judgmentItems.filter((item) => item.missing_text !== null),
     labels: response.detail.filter(isLabelItem),
     citations: response.citations,

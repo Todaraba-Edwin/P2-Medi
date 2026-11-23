@@ -138,7 +138,8 @@ interface LayerProps {
 function returnFocus(container: HTMLElement | null, selector: string) {
   return (event: Event) => {
     event.preventDefault();
-    container?.querySelector<HTMLElement>(selector)?.focus();
+    // 창 크기가 기준선을 넘어 층이 닫히면(FE-17 U-18) 원래 버튼이 없을 수 있다: 그때는 지금 배치의 사이드바·메뉴 버튼으로 돌려준다
+    (container?.querySelector<HTMLElement>(selector) ?? container?.querySelector<HTMLElement>('[data-testid="sidebar-toggle"], [data-testid="menu-button"]'))?.focus();
   };
 }
 

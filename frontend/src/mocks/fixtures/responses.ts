@@ -1024,6 +1024,74 @@ export const resultSummaryResponse = make({
   sentence_refs: [{ evidence_id: "ev-pair-1", sentence_index: 0 }],
 });
 
+// ---------------------------------------------------------------- FE-17 U-19 후속: 사유 원문 같은 내용 묶기
+const DATASET_DOSE = "용량주의 파일"; // backend/app/tools/provenance.py DATASET_LABELS["dose"]
+const doseDates = [{ label: "기준일", value: "2026-07-21" }] as const;
+/** 용량주의 근거 항목 하나(서버 `lookup_caution`의 `dose:{코드}` 모양). 성분 이름으로 찾은 약은 제형 코드마다 하나씩 온다 */
+const doseDetail = (code: string, drug: string, text: string): DetailInput => ({
+  evidence_id: `dose:${code}`,
+  kind: "dose",
+  status: "FOUND",
+  source_kind: "FILE",
+  dataset_key: "dose",
+  dataset: DATASET_DOSE,
+  publisher: PUBLISHER_KIDS,
+  dates: [...doseDates],
+  drug_name: drug,
+  rows: [{ detail: text }],
+  drugs: [drug],
+});
+/** 합성 제형 코드 n개(`{앞}{두 자리}ATB`) */
+const doseCodes = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}${String(i + 1).padStart(2, "0")}ATB`);
+/** 같은 문장 6건(약 A) */
+const DOSE_DUP_A_TEXT = "가나성분으로 4,000mg";
+/** 글자가 조금 다른 문장 1건(약 A, 쉼표·조사가 다름): 묶이지 않는다 */
+const DOSE_DUP_A_VARIANT = "가나성분으로써 4000mg";
+/** 같은 문장 23건(약 B) */
+const DOSE_DUP_B_TEXT = "라마성분 3,200mg";
+const doseDupItems: DetailInput[] = [
+  ...doseCodes("1000", 3).map((code) => doseDetail(code, DRUG_A, DOSE_DUP_A_TEXT)),
+  doseDetail("100099ATB", DRUG_A, DOSE_DUP_A_VARIANT),
+  ...doseCodes("1001", 3).map((code) => doseDetail(code, DRUG_A, DOSE_DUP_A_TEXT)),
+  ...doseCodes("2000", 23).map((code) => doseDetail(code, DRUG_B, DOSE_DUP_B_TEXT)),
+];
+
+/**
+ * 용량주의 근거가 제형 코드마다 따로 오는 응답(FE-17 U-19 사례 모양, 합성 값): 약 A 같은 문장 6건 + 다른 글자 1건, 약 B 같은 문장 23건.
+ * 근거 상세 사유 원문은 같은 내용을 한 박스로 묶어 3박스(6건·1건·23건)로 보여야 한다
+ */
+export const doseDupResponse = make({
+  route: "AGENT",
+  end_reason: "NORMAL",
+  summary: `${DRUG_A}과 ${DRUG_B}은 하루 최대량이 정해진 성분이 있어요.`,
+  findings: [
+    {
+      target: "product",
+      bucket: "identified",
+      evidence_id: null,
+      kind: "identify",
+      drug: DRUG_A,
+      drugs: [DRUG_A],
+      text: PHRASES.IDENTIFIED_LINE,
+      sub_line: INGR_A.name,
+      ingredients: [INGR_A],
+    },
+    {
+      target: "product",
+      bucket: "identified",
+      evidence_id: null,
+      kind: "identify",
+      drug: DRUG_B,
+      drugs: [DRUG_B],
+      text: PHRASES.IDENTIFIED_LINE,
+      sub_line: INGR_B.name,
+      ingredients: [INGR_B],
+    },
+  ],
+  detail: doseDupItems,
+  citations: [{ publisher: PUBLISHER_KIDS, dataset: DATASET_DOSE, dates: [...doseDates], source_kind: "FILE", evidence_ids: doseDupItems.map((item) => item.evidence_id!) }],
+});
+
 /** 거절(복용량 결정 요청) */
 export const refuseResponse = make({
   route: "REFUSE",

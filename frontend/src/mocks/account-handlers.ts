@@ -10,6 +10,7 @@ import {
   AgeBandSchema,
   AvatarColorSchema,
   CONSENT_DOC_TYPES,
+  DEFAULT_TARGET_GUEST,
   ConsentDocTypeSchema,
   FAMILY_PROFILE_MAX,
   HEALTH_CONSENT_DOC,
@@ -23,7 +24,7 @@ import {
   SOCIAL_PROVIDERS,
   SexSchema,
 } from "@/lib/api/account";
-import type { ConsentDocType, ConsentState, LegalDoc, Me, Medication, OnboardingStep, Profile, SocialProvider } from "@/lib/api/account";
+import type { ConsentDocType, ConsentState, DefaultTarget, LegalDoc, Me, Medication, OnboardingStep, Profile, SocialProvider } from "@/lib/api/account";
 import {
   MOCK_DRUG_ITEM_SEQS,
   MOCK_DRUG_SEARCH_ERRORS,
@@ -67,6 +68,8 @@ const ProfileCreateSchema = z.strictObject({ relation: RelationSchema, ...profil
 // `relation`·`medications`는 보낼 수는 있지만 null일 수 없다(백엔드 `_no_null_required`)
 const ProfileUpdateSchema = z.strictObject({ relation: RelationSchema.optional(), ...profileFields, medications: z.array(MedicationInSchema).max(MEDICATIONS_MAX).optional() });
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** `PUT /me/default-target` 본문(FE-17 U-08, 생성 타입 `DefaultTargetBody`): `"guest"` | 프로필 UUID | null. 모르는 칸·다른 모양은 422 */
+const DefaultTargetInSchema = z.strictObject({ target: z.union([z.literal(DEFAULT_TARGET_GUEST), z.string().regex(UUID_SHAPE), z.null()]) });
 
 const NOW = "2026-11-18T00:00:00Z";
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -91,6 +94,8 @@ interface Session {
   completedAt: string | null;
   consents: Partial<Record<ConsentDocType, ConsentRecord>>;
   profiles: Profile[];
+  /** 저장된 기본 대상(FE-17 U-08): `"guest"` | 프로필 id | null(미설정) */
+  defaultTarget?: DefaultTarget;
 }
 
 export interface AccountMockState {
@@ -110,16 +115,26 @@ export const MOCK_LEGAL_MISSING_PARAM = "mock_legal_missing";
 export const MOCK_SESSION_PARAM = "mock_session";
 /** 미리 만드는 목 세션의 공급자 `?mock_provider=google|kakao`(없으면 `email`). 카카오 닉네임 초기값(FE-04-28 B) e2e가 쓴다 */
 export const MOCK_PROVIDER_PARAM = "mock_provider";
+/**
+ * 미리 만드는 목 세션에 저장돼 있던 기본 대상(FE-17 U-08 "새 세션의 기본값" e2e): `?mock_default_target=guest|child`.
+ * `guest` = `게스트로 이용`, `child` = 목 가족 프로필(`MOCK_CHILD_PROFILE_ID`), 없거나 모르는 값 = 미설정(null)
+ */
+export const MOCK_DEFAULT_TARGET_PARAM = "mock_default_target";
 
-export function mockSession(kind: MockSessionKind, provider: MockProvider = "email"): Session {
-  const session: Session = { provider, step: "consent", completedAt: null, consents: {}, profiles: [] };
+/** 목 `onboarded` 세션의 본인·가족 프로필 id(기본 대상 시나리오가 쓴다) */
+export const MOCK_SELF_PROFILE_ID = mockId(1, 9001);
+export const MOCK_CHILD_PROFILE_ID = mockId(1, 9002);
+
+export function mockSession(kind: MockSessionKind, provider: MockProvider = "email", defaultTarget: DefaultTarget = null): Session {
+  const session: Session = { provider, step: "consent", completedAt: null, consents: {}, profiles: [], defaultTarget: null };
   if (kind === "onboarded") {
     for (const docType of CONSENT_DOC_TYPES) session.consents[docType] = { action: "agree", version: MOCK_LEGAL_DOCS[docType].version, acted_at: NOW };
     // 성별은 로그인 공급자 정보가 아니라 사용자가 고른 값이다(목에서는 미리 저장돼 있던 값으로 둔다)
     session.profiles = [
-      { profile_id: mockId(1, 9001), relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: "not_pregnant", avatar_color: "yellow", sort_order: 0, medications: [] },
-      { profile_id: mockId(1, 9002), relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, avatar_color: "blue", sort_order: 1, medications: [] },
+      { profile_id: MOCK_SELF_PROFILE_ID, relation: "self", label: "나", age_band: "y19_64", sex: "female", pregnancy_status: "not_pregnant", avatar_color: "yellow", sort_order: 0, medications: [] },
+      { profile_id: MOCK_CHILD_PROFILE_ID, relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, avatar_color: "blue", sort_order: 1, medications: [] },
     ];
+    session.defaultTarget = defaultTarget;
   }
   return session;
 }
@@ -131,7 +146,9 @@ export function initialMockAccountState(search: string): AccountMockState {
   const provider = params.get(MOCK_PROVIDER_PARAM);
   const mockProvider: MockProvider = (SOCIAL_PROVIDERS as readonly string[]).includes(provider ?? "") ? (provider as SocialProvider) : "email";
   const missingLegal = (params.get(MOCK_LEGAL_MISSING_PARAM) ?? "").split(",").filter((item) => item.length > 0);
-  return { session: value === "new" || value === "onboarded" ? mockSession(value, mockProvider) : null, missingLegal };
+  const savedTarget = params.get(MOCK_DEFAULT_TARGET_PARAM);
+  const defaultTarget: DefaultTarget = savedTarget === DEFAULT_TARGET_GUEST ? DEFAULT_TARGET_GUEST : savedTarget === "child" ? MOCK_CHILD_PROFILE_ID : null;
+  return { session: value === "new" || value === "onboarded" ? mockSession(value, mockProvider, defaultTarget) : null, missingLegal };
 }
 
 /** 핸들러 묶음 하나가 세션 하나를 갖는다(시험마다 새로 만들면 서로 섞이지 않는다) */
@@ -186,6 +203,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
       consents: consentStates(session),
       health_consent_active: healthOk(session),
       profile_limit: 1 + FAMILY_PROFILE_MAX,
+      default_target: session.defaultTarget ?? null,
     };
   };
 
@@ -219,6 +237,18 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
     }),
 
     http.get("*/api/me", () => (state.session ? HttpResponse.json(me(state.session), { headers: NO_STORE }) : error(401, "AUTH_REQUIRED"))),
+
+    // 기본 대상 저장(FE-17 U-08, 백엔드 `PUT /me/default-target`): `"guest"`·내 프로필 id·null. 다른 사용자·없는 프로필 404, 형식 오류 422, 비로그인 401
+    http.put("*/api/me/default-target", async ({ request }) => {
+      const session = state.session;
+      if (!session) return error(401, "AUTH_REQUIRED");
+      const body = DefaultTargetInSchema.safeParse(await request.json().catch(() => null));
+      if (!body.success) return error(422, "INVALID_REQUEST", ["target"]);
+      const target = body.data.target;
+      if (target !== null && target !== DEFAULT_TARGET_GUEST && !session.profiles.some((profile) => profile.profile_id === target)) return error(404, "NOT_FOUND");
+      session.defaultTarget = target;
+      return HttpResponse.json({ target }, { headers: NO_STORE });
+    }),
 
     http.delete("*/api/me", () => {
       if (!state.session) return error(401, "AUTH_REQUIRED");
@@ -370,6 +400,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
       if (!current) return error(404, "NOT_FOUND");
       if (current.relation === "self") return error(409, "SELF_REQUIRED"); // 본인 프로필은 지우지 않는다(계정 삭제는 탈퇴)
       session.profiles = session.profiles.filter((profile) => profile.profile_id !== profileId);
+      if (session.defaultTarget === profileId) session.defaultTarget = null; // 지운 프로필이 기본 대상이었으면 미설정으로(가정: 백엔드도 같은 규칙)
       return noContent();
     }),
   ];

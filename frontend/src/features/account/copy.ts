@@ -126,8 +126,17 @@ export const SEX_LABELS: Readonly<Record<Sex, string>> = { female: "여성", mal
 /** 프로필에 보일 이름: 별명이 없으면(서버는 null을 허용한다) 관계 글자 */
 export const profileName = (profile: Pick<Profile, "label" | "relation">) => profile.label ?? RELATION_LABELS[profile.relation];
 
-/** 프로필 폼 */
-export const PROFILE_FORM_NEW_TITLE = "프로필 추가";
+/**
+ * 프로필 폼. 새 프로필 제목·보조 문구는 FE-17 U-07(2026-11-23 사용자 원문 "누구의 프로필인가요? 본인과 가족 3명까지 만들 수 있어요", 원문 승인).
+ * 와이어프레임(Profile-Basic)의 "1명까지"(노트북 보드)와 다르면 사용자 문구를 따른다. 수정 제목은 그대로다
+ */
+export const PROFILE_FORM_NEW_TITLE = "누구의 프로필인가요?";
+export const PROFILE_FORM_NEW_LEAD = "본인과 가족 3명까지 만들 수 있어요";
+/**
+ * 필수 4칸(관계·이름·연령대·성별, FE-17 U-07 2026-11-23 사용자 확정)을 다 채우기 전 `저장` 버튼이 비활성인 이유 한 줄(버튼의 설명으로 연결).
+ * 원문 승인(2026-11-23 사용자 답 "PROFILE_REQUIRED_HINT 승인", FE-17 §3.8 U-08 원문)
+ */
+export const PROFILE_REQUIRED_HINT = "관계·이름·연령대·성별을 모두 고르면 저장할 수 있어요.";
 export const PROFILE_FORM_EDIT_TITLE = "프로필 수정";
 export const PROFILE_NAME_LABEL = "이름(별명)";
 export const PROFILE_NAME_HINT = "질문할 때 보일 이름이에요. 예: 나, 엄마, 첫째";
@@ -135,6 +144,7 @@ export const RELATION_LABEL = "관계";
 export const AGE_BAND_LABEL = "연령대";
 /** 성별 칸 이름(FE-11-11 A, 2026-11-20 원문 승인 "성별"). 연령대처럼 선택 입력이고 고르지 않으면 `NOT_SELECTED`가 보인다 */
 export const SEX_LABEL = "성별";
+/** 미입력 표기. 2026-11-23(FE-17 U-07)부터 프로필 폼에는 없다(연령대·성별이 필수). 대상 선택 목록의 같은 자리는 `GUEST_USE_LABEL`이다 */
 export const NOT_SELECTED = "선택 안 함";
 export const PREGNANCY_LABEL = "임신 여부";
 export const MEDICATIONS_LABEL = "복용 중인 약(선택)";
@@ -211,11 +221,36 @@ export const WITHDRAW_CONFIRM_LABEL = "탈퇴하기";
  * 계정 버튼 메뉴의 프로필 목록 머리(보조기기 이름 포함)에 쓴다
  */
 export const TARGET_LABEL = "누가 먹나요";
+/**
+ * 대상 목록에서 프로필 값 없이 일반으로 묻는 항목(예전 `선택 안 함`). FE-17 U-06 사용자 원문 "'선택 안 함' 대신 '게스트로 이용'"(2026-11-23, 원문 승인).
+ * 로그인한 사용자의 대상 목록·입력창 칩에만 쓴다. 로그인하지 않은 상태의 계정 버튼(`계정`)·`로그인/가입`과는 다른 자리다
+ */
+export const GUEST_USE_LABEL = "게스트로 이용";
+
+// ---------------------------------------------------------------- 시작 화면 기본 대상 안내(FE-17 U-08, 2026-11-23)
+// **사용자 승인 완료(2026-11-23)**: 사용자 원문에 문안이 없어 후보로 올렸고 4건 모두 승인됐다. 안내의 버튼 글자는 `GUEST_USE_LABEL`(원문 승인)을 그대로 쓴다.
+// 안전을 보증하는 말은 쓰지 않는다. 프로필 값이 답변에 쓰인다는 것과 프로필 없이도 확인할 수 있다는 것만 짧게 알린다
+/** 지금 기본 대상이 프로필일 때 머리 한 줄. **사용자 승인 완료(2026-11-23)** */
+export const startTargetProfileHeading = (name: string) => `${name} 프로필로 확인해요`;
+// FE-17 U-22·U-23(2026-11-23 사용자 지정 문구, 원문 승인): 전체 문장은
+//   프로필: "{이름} 프로필로 확인해요. 이 프로필의 연령대·임신 여부가 답변에 쓰여요. 프로필 없이 질문을 이어가시려면 게스트로 이용으로 프로필을 변경해주세요."
+//   게스트: "게스트로 이용 중이에요. 저장한 프로필 값 없이 질문해요. 변경"
+// 머리 문장 상수에는 마침표가 없고 조립하는 쪽(`StartTargetNotice`)이 문장 사이 마침표 하나와 띄어쓰기를 붙인다
+/** 지금 기본 대상이 프로필일 때 설명 한 줄. **사용자 승인 완료(2026-11-23)**, U-23에서 세 번째 문장을 `START_TARGET_PROFILE_SWITCH`로 옮김 */
+export const START_TARGET_PROFILE_LEAD = "이 프로필의 연령대·임신 여부가 답변에 쓰여요.";
+/** `{link}` 자리 = 밑줄 링크 `게스트로 이용`(`GUEST_USE_LABEL`, 누르면 대상이 게스트로 바뀐다). **사용자 지정 문구(FE-17 U-23, 2026-11-23)** */
+export const START_TARGET_PROFILE_SWITCH = "프로필 없이 질문을 이어가시려면 {link}으로 프로필을 변경해주세요.";
+/** 지금 기본 대상이 `게스트로 이용`일 때 머리 한 줄. **사용자 승인 완료(2026-11-23)** */
+export const START_TARGET_GUEST_HEADING = "게스트로 이용 중이에요";
+/** 지금 기본 대상이 `게스트로 이용`일 때 설명 한 줄. **사용자 지정 문구(FE-17 U-22, 2026-11-23)**: "확인해요" → "질문해요" */
+export const START_TARGET_GUEST_LEAD = "저장한 프로필 값 없이 질문해요.";
+/** 게스트 상태 안내 끝의 밑줄 링크: 누르면 입력창 칩과 같은 프로필 선택 목록이 열린다. **사용자 지정 문구(FE-17 U-22, 2026-11-23)** */
+export const START_TARGET_CHANGE_LABEL = "변경";
 
 // ---------------------------------------------------------------- 프로필 병아리 배경색(2026-11-23 사용자 요구 "가족추가에서 병아리에 배경색", 8색)
-/** 프로필 폼의 색 고르기 묶음 이름. **승인 전(profile-avatar)** */
+/** 프로필 폼의 색 고르기 묶음 이름. **사용자 승인 완료(2026-11-23)** */
 export const AVATAR_COLOR_LABEL = "프로필 색";
-/** 색 칸의 접근 가능한 이름(화면에는 색만 보이고 보조기기가 읽는다). 키는 서버 `avatar_color` 값. **승인 전(profile-avatar)** */
+/** 색 칸의 접근 가능한 이름(화면에는 색만 보이고 보조기기가 읽는다). 키는 서버 `avatar_color` 값. **사용자 승인 완료(2026-11-23)** */
 export const AVATAR_COLOR_LABELS: Readonly<Record<AvatarColor, string>> = {
   yellow: "노랑",
   coral: "코랄",
