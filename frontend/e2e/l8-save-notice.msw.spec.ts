@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { AA_NORMAL, failures, measureContrast } from "./contrast";
-import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openAccountEntry, openApp } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openAccountEntry, openApp, completeRequired } from "./helpers";
 
 // FE-04-15 A(2026-11-19)·FE-04-26 A(2026-11-22, 문구 1안 승인) e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // 프로필 저장이 끝나면 목록 화면 맨 위(설명 아래)에 완료 안내 한 줄(`role="status"`) + `질문하러 가기`. 버튼은 모달을 닫고 질문 입력창에 초점을 둔다.
@@ -45,6 +45,7 @@ for (const width of [393, 1280]) {
       test("저장 뒤 목록 맨 위에 안내(role=status, 초안)와 `질문하러 가기`(44px, 대비 AA). 버튼은 모달을 닫고 입력창에 초점. 다시 열면 없다", async ({ page }) => {
         await openSelfForm(page);
         await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
+        await completeRequired(modal(page));
         await modal(page).getByTestId("profile-save").click();
         await expect(modal(page)).toHaveAttribute("data-step", "profiles");
         const box = notice(page);
@@ -86,21 +87,25 @@ for (const width of [393, 1280]) {
 test.describe("저장 실패·수정 (393px)", () => {
   test.use({ viewport: { width: 393, height: HEIGHT } });
 
-  test("저장이 막히면(이름 비움: 화면 검증 실패) 폼에 남아 오류(role=alert)만 보이고 완료 안내는 없다. 수정 저장 뒤에도 안내가 보이고, 취소로 돌아오면 없다", async ({ page }) => {
+  test("저장이 막히면(이름 비움: 필수 칸이라 저장 버튼 비활성, FE-17 U-07) 폼에 남고 완료 안내는 없다. 수정 저장 뒤에도 안내가 보이고, 취소로 돌아오면 없다", async ({ page }) => {
     await openSelfForm(page);
     // 서버 422 실패 길은 단위 시험(`account.test.tsx` 저장 완료 안내 절)이 본다. 여기서는 목이 거절할 본문을 화면에서 만들 수 없어 화면 검증 실패 길을 본다
     await modal(page).getByLabel("이름(별명)").fill("");
-    await modal(page).getByTestId("profile-save").click();
+    await completeRequired(modal(page));
+    await expect(modal(page).getByTestId("profile-save")).toBeDisabled();
+    await modal(page).getByTestId("profile-save").click({ force: true });
     await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
-    await expect(modal(page).getByRole("alert")).toContainText("이름(별명)을 입력해 주세요.");
+    await expect(modal(page).getByTestId("profile-required-hint")).toHaveText("관계·이름·연령대·성별을 모두 고르면 저장할 수 있어요.");
     await expect(notice(page)).toHaveCount(0);
     // 저장 성공 → 안내. 수정 저장 뒤에도 안내
     await modal(page).getByLabel("이름(별명)").fill("나");
+    await completeRequired(modal(page));
     await modal(page).getByTestId("profile-save").click();
     await expect(notice(page)).toBeVisible();
     await modal(page).getByRole("button", { name: "나 수정" }).click();
     await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
     await modal(page).getByLabel("이름(별명)").fill("나나");
+    await completeRequired(modal(page));
     await modal(page).getByTestId("profile-save").click();
     await expect(modal(page)).toHaveAttribute("data-step", "profiles");
     await expect(notice(page)).toBeVisible();

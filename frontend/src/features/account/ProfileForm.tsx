@@ -4,7 +4,7 @@ import { useId, useRef, useState } from "react";
 import { CameraIcon, CheckIcon, XIcon } from "lucide-react";
 import { PhotoModal } from "@/features/photo/PhotoModal";
 import { AGE_BANDS, AVATAR_COLORS, DEFAULT_AVATAR_COLOR, MEDICATIONS_MAX, PROFILE_LABEL_MAX_CHARS, RELATIONS, SEXES, sameMedication } from "@/lib/api/account";
-import type { AgeBand, AvatarColor, MedicationInput, PregnancyStatus, Profile, ProfileDraft, Relation, Sex } from "@/lib/api/account";
+import type { AgeBand, AvatarColor, MedicationInput, PregnancyStatus, ProfileDraft, Relation, Sex } from "@/lib/api/account";
 import { cn } from "@/lib/utils";
 import { hasHealthConsent, useAccountStore } from "@/stores/account";
 import {
@@ -19,12 +19,15 @@ import {
   MEDICATION_PHOTO_LABEL,
   MEDICATION_UNCONFIRMED_NOTE,
   MEDICATION_UNCONFIRMED_TAG,
-  NOT_SELECTED,
+  OPTIONAL_TAG,
   PREGNANCY_LABEL,
   PROFILE_FORM_EDIT_TITLE,
+  PROFILE_FORM_NEW_LEAD,
   PROFILE_FORM_NEW_TITLE,
   PROFILE_NAME_HINT,
   PROFILE_NAME_LABEL,
+  PROFILE_REQUIRED_HINT,
+  REQUIRED_TAG,
   RELATION_LABEL,
   RELATION_LABELS,
   SAVE_LABEL,
@@ -32,13 +35,13 @@ import {
   SEX_LABELS,
   removeMedicationLabel,
 } from "./copy";
+import { ChoiceButtons } from "./ChoiceButtons";
 import { MedicationPicker } from "./MedicationPicker";
 import { FIELD_CLASS, FailureLine, ICON_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
 import { PregnancySelect } from "./PregnancySelect";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { useHealthConsentNotice } from "./ProfileList";
 
-const FAMILY_RELATIONS = RELATIONS.filter((relation) => relation !== "self");
 const LABEL_CLASS = "text-xs font-bold text-ink-2";
 
 /**
@@ -55,39 +58,112 @@ export function mergeMedications(current: readonly MedicationInput[], added: rea
 }
 
 /**
- * 새 프로필의 기본 색(2026-11-23 "가족추가에서 병아리에 배경색"): 이미 저장된 프로필이 쓰지 않은 첫 색(8색 순서). 모두 쓰였으면 기본색(노랑).
- * 본인 프로필을 처음 만들 때는 저장된 프로필이 없어 노랑이다. 순수 함수라 시험에서 바로 본다
+ * 새 프로필의 기본 색(FE-17 U-07, 2026-11-23 사용자 확정 "프로필 색 기본값은 한 가지로 yellow"): 서버 기본값(`DEFAULT_AVATAR_COLOR`)과 같은 노랑을 미리 골라 둔다.
+ * 직전 구현의 "안 쓴 색 제안"을 대체한다. 사용자는 바꿀 수 있다
  */
-export function suggestAvatarColor(profiles: readonly Pick<Profile, "avatar_color">[]): AvatarColor {
-  return AVATAR_COLORS.find((color) => !profiles.some((profile) => profile.avatar_color === color)) ?? DEFAULT_AVATAR_COLOR;
+export const NEW_PROFILE_AVATAR_COLOR: AvatarColor = DEFAULT_AVATAR_COLOR;
+
+/** 필수 4칸(FE-17 U-07 2026-11-23 사용자 확정: 관계·이름·연령대·성별). 모두 채워야 `저장`이 눌린다. 순수 함수라 시험에서 바로 본다 */
+export function requiredFilled(fields: { relation: Relation | ""; label: string; ageBand: AgeBand | ""; sex: Sex | "" }): boolean {
+  return fields.relation !== "" && fields.label.trim() !== "" && fields.ageBand !== "" && fields.sex !== "";
+}
+
+interface ProgressStep {
+  key: string;
+  label: string;
+  required: boolean;
+  done: boolean;
 }
 
 /**
- * 프로필 색 고르기 8칸(라디오 묶음). 칸은 색 원만 보이고(고른 칸은 체크 표시 + 굵은 테두리: 색만으로 구분하지 않는다) 접근 가능한 이름은 색 이름이다.
- * 누르는 영역 44px, ←/→로 옮기며 고른다(브라우저 기본 라디오). 옆에 고른 색의 병아리 아바타 미리보기
+ * 폼 상단 진행바(FE-17 U-07, 2026-11-23 사용자 확정 "입력 단계별 6단계"): 관계·이름·연령대·성별(필수 4) → 복용 중인 약·프로필 색(선택 2).
+ * - 필수 칸을 채우면 그 막대가 초록(`ok-ink`) + 체크 아이콘, 아직이면 회색 선 색. 선택 2칸은 뒤쪽에 파랑(`blue-ink`) 막대와 `선택` 머리 글자로 구분한다(색만으로 구분하지 않는다).
+ * - 보조기기: 머리의 `필수 n/4`가 `role="progressbar"`(값 0~4)이고, 칸마다 이름 뒤에 `필수`/`선택`을 읽는다. 막대는 장식이다.
+ * - 글자는 기존 상수(칸 이름·`필수`·`선택`)와 숫자뿐이다. 약 칸 이름의 "(선택)"은 머리 `선택`과 겹쳐 뺐다
  */
-function AvatarColorPicker({ id, value, onChange, face }: { id: string; value: AvatarColor; onChange: (color: AvatarColor) => void; face: boolean }) {
+function ProfileProgress({ steps }: { steps: readonly ProgressStep[] }) {
+  const required = steps.filter((step) => step.required);
+  const doneCount = required.filter((step) => step.done).length;
+  const optionalCount = steps.length - required.length;
+  return (
+    <div data-testid="profile-progress" className="flex flex-col gap-1">
+      <div className="grid gap-1 text-xs font-bold" style={{ gridTemplateColumns: `${required.length}fr ${optionalCount}fr` }}>
+        <span
+          role="progressbar"
+          aria-label={REQUIRED_TAG}
+          aria-valuemin={0}
+          aria-valuemax={required.length}
+          aria-valuenow={doneCount}
+          aria-valuetext={`${doneCount}/${required.length}`}
+          data-testid="profile-progress-required"
+          className={doneCount === required.length ? "text-ok-ink" : "text-ink-2"}
+        >
+          {REQUIRED_TAG} {doneCount}/{required.length}
+        </span>
+        <span data-testid="profile-progress-optional" className="text-blue-ink">
+          {OPTIONAL_TAG}
+        </span>
+      </div>
+      <ol className="m-0 grid list-none gap-1 p-0" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
+        {steps.map((step) => {
+          const state = step.required ? (step.done ? "done" : "todo") : "optional";
+          return (
+            <li key={step.key} data-testid="profile-step" data-step={step.key} data-state={state} className="flex min-w-0 flex-col gap-1">
+              <span aria-hidden="true" className={cn("h-1.5 rounded-full", state === "done" ? "bg-ok-ink" : state === "todo" ? "bg-line-2" : "bg-blue-ink")} />
+              <span className={cn("flex min-w-0 items-start gap-0.5 text-[11px] leading-[14px] [word-break:keep-all]", state === "done" ? "font-bold text-ok-ink" : state === "todo" ? "text-mute" : "text-blue-ink")}>
+                {state === "done" && <CheckIcon className="mt-px size-3 flex-none" strokeWidth={3} aria-hidden="true" />}
+                <span className="min-w-0">
+                  {step.label}
+                  <span className="sr-only"> {step.required ? REQUIRED_TAG : OPTIONAL_TAG}</span>
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * 필수 칸의 이름 줄: 칸 이름(라벨) + 옆 표지(기존 글자 `필수`). 표지는 라벨 밖이라 칸의 접근 가능한 이름은 칸 이름 그대로이고,
+ * 보조기기는 칸의 `aria-required`·`required`로 필수임을 읽으므로 표지는 장식이다
+ */
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className={cn(LABEL_CLASS, "flex items-baseline gap-1")}>
+      {children}
+      <span aria-hidden="true" className="font-normal text-mute">
+        {REQUIRED_TAG}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * 프로필 색 고르기 8칸(라디오 묶음). 칸은 색 원만 보이고(고른 칸은 원 한가운데 체크 표시 + 굵은 테두리: 색만으로 구분하지 않는다) 접근 가능한 이름은 색 이름이다.
+ * 누르는 영역 44px, ←/→로 옮기며 고른다(브라우저 기본 라디오). 고른 색의 병아리 미리보기는 폼 머리(제목 옆)에 있다.
+ * 체크 위치(FE-17 U-07, ISSUE-026): 원과 체크를 같은 격자 칸(`[grid-area:1/1]`)에 겹쳐 원 안 가운데에 둔다(예전에는 기준 상자가 없어 원 밖 아래로 떨어졌다)
+ */
+function AvatarColorPicker({ id, value, onChange }: { id: string; value: AvatarColor; onChange: (color: AvatarColor) => void }) {
   return (
     <div className="flex flex-col gap-1">
       <span id={`${id}-avatar`} className={LABEL_CLASS}>
         {AVATAR_COLOR_LABEL}
       </span>
-      <div className="flex items-center gap-2">
-        <ProfileAvatar color={value} size={44} face={face} />
-        <div role="radiogroup" aria-labelledby={`${id}-avatar`} data-testid="avatar-color-picker" className="flex min-w-0 flex-wrap items-center">
-          {AVATAR_COLORS.map((color) => {
-            const checked = color === value;
-            return (
-              <label key={color} data-testid="avatar-color-option" data-color={color} data-checked={checked} className="grid size-11 cursor-pointer place-items-center rounded-full has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-[-4px] has-[:focus-visible]:outline-ink-2">
-                <input type="radio" name={`${id}-avatar-color`} value={color} checked={checked} onChange={() => onChange(color)} aria-label={AVATAR_COLOR_LABELS[color]} className="sr-only" />
-                <span className={cn("grid size-8 place-items-center rounded-full border", checked ? "border-2 border-ink" : "border-line-2")}>
-                  <ProfileAvatar color={color} size={checked ? 28 : 30} face={false} />
-                  {checked && <CheckIcon className="absolute size-4 text-ink" strokeWidth={3} aria-hidden="true" />}
-                </span>
-              </label>
-            );
-          })}
-        </div>
+      <div role="radiogroup" aria-labelledby={`${id}-avatar`} data-testid="avatar-color-picker" className="flex min-w-0 flex-wrap items-center">
+        {AVATAR_COLORS.map((color) => {
+          const checked = color === value;
+          return (
+            <label key={color} data-testid="avatar-color-option" data-color={color} data-checked={checked} className="grid size-11 cursor-pointer place-items-center rounded-full has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-[-4px] has-[:focus-visible]:outline-ink-2">
+              <input type="radio" name={`${id}-avatar-color`} value={color} checked={checked} onChange={() => onChange(color)} aria-label={AVATAR_COLOR_LABELS[color]} className="sr-only" />
+              <span data-testid="avatar-color-swatch" className={cn("grid size-8 place-items-center rounded-full border", checked ? "border-2 border-ink" : "border-line-2")}>
+                <ProfileAvatar color={color} size={checked ? 28 : 30} face={false} className="[grid-area:1/1]" />
+                {checked && <CheckIcon data-testid="avatar-color-check" className="relative size-4 text-ink [grid-area:1/1]" strokeWidth={3} aria-hidden="true" />}
+              </span>
+            </label>
+          );
+        })}
       </div>
     </div>
   );
@@ -110,7 +186,10 @@ export const PREGNANCY_WHEN_NOT_FEMALE: PregnancyStatus = "not_pregnant";
 export const pregnancyToSave = (sex: Sex | "", pregnancy: PregnancyStatus): PregnancyStatus => (showsPregnancyField(sex) ? pregnancy : PREGNANCY_WHEN_NOT_FEMALE);
 
 /**
- * 프로필 추가·수정 폼. 관계·연령대·성별(선택)·임신 여부·복용 중인 약(선택).
+ * 프로필 추가·수정 폼(한 화면 + 상단 진행바, FE-17 U-07 2026-11-23). 필수 4칸 관계·이름·연령대·성별을 버튼 선택(세그먼트·칩)으로 고르고,
+ * 임신 여부(여성일 때)·복용 중인 약(선택)·프로필 색(선택, 기본 노랑)을 둔다. 필수 4칸을 다 채우기 전에는 `저장`이 비활성이다.
+ * 2단계 분리(와이어프레임 Profile-Basic → Health)는 사용자 확인 전이라 하지 않았다. 와이어프레임의 "응급이면 바로 119" 링크는 넣지 않는다(FE-17 U-04 119 위치 정책).
+ * (아래는 FE-17 이전 설명. 성별·연령대의 "선택 안 함"은 2026-11-23부터 없다)
  * 성별(FE-11-09 C·PRD-17-13 A)은 연령대 아래 기본 단계의 선택 칸이다: "여성 | 남성" + 선택 안 함(null). 건강 정보가 아니라 건강 정보 동의 없이도 저장되고,
  * 온보딩에서 사용자가 직접 고른다(간편 로그인 공급자 정보로 미리 채우지 않는다. 처음 열면 늘 "선택 안 함"이다). `/chat` 요청에는 싣지 않는다(S10).
  * 임신 여부(사용자 지시 2026-11-22, 작업 B)는 **성별이 여성일 때만** 나타나는 선택 버튼 "예 | 아니오 | 모름"(`PregnancySelect`)이다. 처음(성별 미입력)에는 숨기고,
@@ -132,7 +211,6 @@ export function ProfileForm() {
   const { store, container, hideMascot } = useAccountModal();
   const target = useAccountStore((state) => state.form, store);
   const existing = useAccountStore((state) => state.profiles.find((profile) => profile.profile_id === state.form?.profileId) ?? null, store);
-  const profiles = useAccountStore((state) => state.profiles, store);
   const me = useAccountStore((state) => state.me, store);
   const pending = useAccountStore((state) => state.pending, store);
   const failure = useAccountStore((state) => state.failure, store);
@@ -145,10 +223,11 @@ export function ProfileForm() {
   // 초기값은 나중에 도착해도 사용자가 아직 적지 않았을 때만 보이고, 지운 값("")도 사용자 값이라 초기값으로 되돌아가지 않는다. 저장은 지금 보이는 값만 보낸다
   const [typed, setTyped] = useState<string | null>(null);
   const label = typed ?? existing?.label ?? target?.labelDefault ?? "";
-  const [relation, setRelation] = useState<Relation>(existing?.relation ?? (self ? "self" : "child"));
+  // 관계(필수): 본인 프로필은 `본인` 고정, 새 가족은 아직 안 고른 상태에서 시작한다(FE-17 U-07: 필수 칸을 진행바로 보인다)
+  const [relation, setRelation] = useState<Relation | "">(existing?.relation ?? (self ? "self" : ""));
   const [ageBand, setAgeBand] = useState<AgeBand | "">(existing?.age_band ?? "");
-  // 병아리 배경색: 고치면 저장된 색, 새 프로필(가족 추가 등)은 아직 안 쓴 색을 제안한다
-  const [avatarColor, setAvatarColor] = useState<AvatarColor>(() => existing?.avatar_color ?? suggestAvatarColor(profiles));
+  // 병아리 배경색: 고치면 저장된 색, 새 프로필은 노랑이 미리 골라져 있다(FE-17 U-07 사용자 확정)
+  const [avatarColor, setAvatarColor] = useState<AvatarColor>(existing?.avatar_color ?? NEW_PROFILE_AVATAR_COLOR);
   // 성별: 저장된 값만 채운다(새 프로필은 늘 미선택. 로그인 공급자 정보는 읽지 않는다)
   const [sex, setSex] = useState<Sex | "">(existing?.sex ?? "");
   // 임신 여부(칸의 값): 여성 프로필의 저장 값만 채운다. 여성이 아니면 칸이 숨겨지고 다시 여성을 고르면 모름(`unknown`)에서 시작한다(고르기 전에는 아니오로 두지 않는다, 2026-11-22 확정).
@@ -184,15 +263,27 @@ export function ProfileForm() {
   };
   const hasUnconfirmed = medications.some((item) => !item.item_seq);
 
+  const complete = requiredFilled({ relation: self ? "self" : relation, label, ageBand, sex });
+  const steps: ProgressStep[] = [
+    { key: "relation", label: RELATION_LABEL, required: true, done: self || relation !== "" },
+    { key: "name", label: PROFILE_NAME_LABEL, required: true, done: label.trim() !== "" },
+    { key: "age", label: AGE_BAND_LABEL, required: true, done: ageBand !== "" },
+    { key: "sex", label: SEX_LABEL, required: true, done: sex !== "" },
+    { key: "medications", label: MEDICATIONS_LABEL.replace(/\(.*\)$/, ""), required: false, done: medications.length > 0 },
+    { key: "color", label: AVATAR_COLOR_LABEL, required: false, done: true },
+  ];
+
   const save = () => {
     const name = label.trim();
     if (!name) return setNameMissing(true);
     setNameMissing(false);
+    // 필수 4칸이 비면 저장하지 않는다(버튼도 비활성이다. Enter 제출도 같은 규칙)
+    if (!complete || relation === "" || ageBand === "" || sex === "") return;
     const draft: ProfileDraft = {
       relation: self ? "self" : relation,
       label: name,
-      age_band: ageBand === "" ? null : ageBand,
-      sex: sex === "" ? null : sex,
+      age_band: ageBand,
+      sex,
       avatar_color: avatarColor,
       // 건강 정보 동의가 없으면 건강 정보 칸을 보내지 않는다. 여성이 아니면 임신 여부는 모름으로 정리해 보낸다(숨겨진 값은 저장하지 않는다)
       health: healthConsent ? { pregnancy_status: pregnancyToSave(sex, pregnancy), medications } : null,
@@ -202,7 +293,15 @@ export function ProfileForm() {
 
   return (
     <StepBody data-testid="profile-form">
-      <StepTitle>{existing ? PROFILE_FORM_EDIT_TITLE : PROFILE_FORM_NEW_TITLE}</StepTitle>
+      {/* 머리(FE-17 U-07, 와이어프레임 Profile-Basic): 고른 색의 병아리 + 제목·보조 문구. 수정 화면은 기존 제목이다. 119 안내 중에는 병아리 없이 색 원만 */}
+      <div className="flex items-center gap-3.5">
+        <ProfileAvatar color={avatarColor} size={56} face={!hideMascot} />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <StepTitle>{existing ? PROFILE_FORM_EDIT_TITLE : PROFILE_FORM_NEW_TITLE}</StepTitle>
+          {!existing && <p className="m-0 text-sm leading-5 text-ink-2 [word-break:keep-all]">{PROFILE_FORM_NEW_LEAD}</p>}
+        </div>
+      </div>
+      <ProfileProgress steps={steps} />
       <form
         noValidate
         aria-busy={pending}
@@ -212,15 +311,30 @@ export function ProfileForm() {
           save();
         }}
       >
-        <label htmlFor={`${id}-name`} className={LABEL_CLASS}>
-          {PROFILE_NAME_LABEL}
-        </label>
+        {/* 관계(필수): 5칸 세그먼트(본인|자녀|부모|배우자|기타). 본인 프로필은 `본인` 고정(다른 칸 비활성), 가족은 `본인`을 고를 수 없다 */}
+        <FieldLabel>
+          <span id={`${id}-relation`}>{RELATION_LABEL}</span>
+        </FieldLabel>
+        <ChoiceButtons
+          data-testid="profile-relation"
+          layout="segment"
+          required
+          labelledBy={`${id}-relation`}
+          value={self ? "self" : relation}
+          onChange={setRelation}
+          options={RELATIONS.map((value) => ({ value, label: RELATION_LABELS[value], disabled: self ? value !== "self" : value === "self" }))}
+        />
+
+        <FieldLabel>
+          <label htmlFor={`${id}-name`}>{PROFILE_NAME_LABEL}</label>
+        </FieldLabel>
         <input
           id={`${id}-name`}
           type="text"
           autoComplete="off"
           maxLength={PROFILE_LABEL_MAX_CHARS}
           value={label}
+          required
           aria-invalid={nameMissing}
           aria-describedby={`${id}-name-hint`}
           onChange={(event) => setTyped(event.target.value)}
@@ -230,45 +344,33 @@ export function ProfileForm() {
           {nameMissing ? ERROR_NAME_EMPTY : PROFILE_NAME_HINT}
         </p>
 
-        {/* 프로필 색(건강 정보 아님): 이름 바로 아래. 계정 버튼·입력창 칩·목록에서 사람을 구분하는 병아리 배경색 */}
-        <AvatarColorPicker id={id} value={avatarColor} onChange={setAvatarColor} face={!hideMascot} />
+        {/* 연령대(필수): 11칸 칩 그리드(3열, 줄바꿈). 예전 `선택 안 함`은 없다(필수 칸) */}
+        <FieldLabel>
+          <span id={`${id}-age`}>{AGE_BAND_LABEL}</span>
+        </FieldLabel>
+        <ChoiceButtons
+          data-testid="profile-age"
+          layout="grid"
+          required
+          labelledBy={`${id}-age`}
+          value={ageBand}
+          onChange={setAgeBand}
+          options={AGE_BANDS.map((value) => ({ value, label: AGE_BAND_LABELS[value] }))}
+        />
 
-        <label htmlFor={`${id}-relation`} className={LABEL_CLASS}>
-          {RELATION_LABEL}
-        </label>
-        {/* 본인 프로필은 관계가 고정이다 */}
-        <select id={`${id}-relation`} value={self ? "self" : relation} disabled={self} onChange={(event) => setRelation(event.target.value as Relation)} className={FIELD_CLASS}>
-          {(self ? (["self"] as const) : FAMILY_RELATIONS).map((value) => (
-            <option key={value} value={value}>
-              {RELATION_LABELS[value]}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor={`${id}-age`} className={LABEL_CLASS}>
-          {AGE_BAND_LABEL}
-        </label>
-        <select id={`${id}-age`} value={ageBand} onChange={(event) => setAgeBand(event.target.value as AgeBand | "")} className={FIELD_CLASS}>
-          <option value="">{NOT_SELECTED}</option>
-          {AGE_BANDS.map((value) => (
-            <option key={value} value={value}>
-              {AGE_BAND_LABELS[value]}
-            </option>
-          ))}
-        </select>
-
-        {/* 성별(선택): 건강 정보 묶음 밖이라 동의와 상관없이 고를 수 있다 */}
-        <label htmlFor={`${id}-sex`} className={LABEL_CLASS}>
-          {SEX_LABEL}
-        </label>
-        <select id={`${id}-sex`} data-testid="profile-sex" value={sex} onChange={(event) => changeSex(event.target.value as Sex | "")} className={FIELD_CLASS}>
-          <option value="">{NOT_SELECTED}</option>
-          {SEXES.map((value) => (
-            <option key={value} value={value}>
-              {SEX_LABELS[value]}
-            </option>
-          ))}
-        </select>
+        {/* 성별(필수): 2칸 세그먼트(여성|남성). 건강 정보 묶음 밖이라 동의와 상관없이 고를 수 있다 */}
+        <FieldLabel>
+          <span id={`${id}-sex`}>{SEX_LABEL}</span>
+        </FieldLabel>
+        <ChoiceButtons
+          data-testid="profile-sex"
+          layout="segment"
+          required
+          labelledBy={`${id}-sex`}
+          value={sex}
+          onChange={changeSex}
+          options={SEXES.map((value) => ({ value, label: SEX_LABELS[value] }))}
+        />
 
         {/* 건강 정보 묶음: 동의가 없으면 통째로 비활성 */}
         <fieldset data-testid="health-fields" disabled={!healthConsent} aria-describedby={healthConsent ? undefined : `${id}-health`} className="m-0 flex min-w-0 flex-col gap-2.5 border-0 p-0">
@@ -345,12 +447,21 @@ export function ProfileForm() {
           )}
         </fieldset>
 
+        {/* 프로필 색(선택, 건강 정보 아님): 진행바 순서대로 맨 뒤. 계정 버튼·입력창 칩·목록에서 사람을 구분하는 병아리 배경색 */}
+        <AvatarColorPicker id={id} value={avatarColor} onChange={setAvatarColor} />
+
         <FailureLine failure={failure} />
+        {/* 필수 4칸을 다 채우기 전에는 `저장`이 비활성이고 이유 한 줄을 버튼 설명으로 잇는다 */}
+        {!complete && (
+          <p id={`${id}-required`} data-testid="profile-required-hint" className="m-0 text-xs leading-[17px] text-ink-2 [word-break:keep-all]">
+            {PROFILE_REQUIRED_HINT}
+          </p>
+        )}
         <div className="mt-1 flex gap-2">
           <button type="button" onClick={() => store.getState().back()} className={`${SECONDARY_BUTTON} flex-1`}>
             {CANCEL_LABEL}
           </button>
-          <button type="submit" data-testid="profile-save" disabled={pending} className={`${PRIMARY_BUTTON} flex-1`}>
+          <button type="submit" data-testid="profile-save" disabled={pending || !complete} aria-describedby={complete ? undefined : `${id}-required`} className={`${PRIMARY_BUTTON} flex-1`}>
             {SAVE_LABEL}
           </button>
         </div>

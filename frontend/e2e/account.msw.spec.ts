@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openAccountEntry, openApp, pickTarget } from "./helpers";
+import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openAccountEntry, openApp, pickTarget, pickChoice, completeRequired } from "./helpers";
 
 // 계정 흐름(FE-04) e2e. Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다.
 // 서버는 브라우저 워커의 목(src/mocks/account-handlers.ts, BE-11 계약과 같은 모양)이고 실제 백엔드·원격 호출은 0이다.
@@ -221,8 +221,8 @@ for (const width of [360, 1280]) {
       await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
       expect(await modalSize(page)).toEqual(size);
       await modal(page).getByLabel("이름(별명)").fill("나");
-      await modal(page).getByLabel("연령대").selectOption("y19_64");
-      await modal(page).getByLabel("성별").selectOption("female"); // 성별(선택)은 `/chat` 요청에 실리지 않는다(아래 bodies)
+      await pickChoice(modal(page), "연령대", "만 19~64세");
+      await pickChoice(modal(page), "성별", "여성"); // 성별(선택)은 `/chat` 요청에 실리지 않는다(아래 bodies)
       await modal(page).getByRole("radio", { name: "예" }).check();
       // 약은 후보를 고르지 않고 `추가`로 글자 그대로 넣는다(확인 안 된 약 표지가 붙는다). 후보 고르기는 `fedrug.msw.spec.ts`가 본다
       await modal(page).getByLabel("복용 중인 약(선택)").fill("가나다정 100밀리그램");
@@ -231,13 +231,15 @@ for (const width of [360, 1280]) {
       await expect(modal(page).getByTestId("medication-unconfirmed")).toHaveCount(1);
       await expectModalFits(page);
       await shot(page, "profile-form");
+      await completeRequired(modal(page));
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page)).toHaveAttribute("data-step", "profiles");
       await expect(modal(page).getByTestId("profile-item")).toHaveCount(1);
       // 가족 한 명 더
       await modal(page).getByTestId("add-family").click();
       await modal(page).getByLabel("이름(별명)").fill("첫째");
-      await modal(page).getByLabel("연령대").selectOption("y6_11");
+      await pickChoice(modal(page), "연령대", "만 6~11세");
+      await completeRequired(modal(page));
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
       expect(await modalSize(page)).toEqual(size);
@@ -255,10 +257,10 @@ for (const width of [360, 1280]) {
       const chipBox = (await chip.boundingBox())!;
       const formBox = (await input(page).locator("xpath=ancestor::form").boundingBox())!;
       expect(chipBox.y).toBeGreaterThanOrEqual(formBox.y - 0.5); // 입력창 틀 안
-      expect(chipBox.y + chipBox.height).toBeLessThanOrEqual((await input(page).boundingBox())!.y + 0.5); // 질문 칸 위 줄
+      expect(chipBox.y).toBeGreaterThanOrEqual((await input(page).boundingBox())!.y + (await input(page).boundingBox())!.height - 0.5); // 질문 칸 아래 줄(FE-17 U-07 좌하단 묶음)
       await chip.click();
       const picker = page.getByTestId("target-menu");
-      await expect(picker.getByTestId("target-option")).toHaveText(["선택 안 함", "나", "첫째"]);
+      await expect(picker.getByTestId("target-option")).toHaveText(["게스트로 이용", "나", "첫째"]);
       for (const option of await picker.getByTestId("target-option").all()) await expectTouchTarget(option, { widthToo: false });
       expect((await picker.boundingBox())!.y + (await picker.boundingBox())!.height).toBeLessThanOrEqual(chipBox.y + 0.5); // 위로 열린다
       await expectNoHorizontalScroll(page);
@@ -278,7 +280,7 @@ for (const width of [360, 1280]) {
       await ask(page, "둘째 합성 질문");
       await expect(page.locator('[data-turn="turn-4"]').getByTestId("result-card")).toBeVisible();
       // "누가 먹나요" 대상을 바꾸면 이전 선택을 비운다(다른 사람의 약을 같은 이름으로 확인하지 않게)
-      await pickTarget(page, "선택 안 함");
+      await pickTarget(page, "게스트로 이용");
       await ask(page, "셋째 합성 질문");
       await expect(page.locator('[data-turn="turn-5"]').getByTestId("result-card")).toBeVisible();
       const pick = { name: "가나다정 100밀리그램", item_seq: "200000001", input_name: "가나다" };
@@ -329,8 +331,9 @@ for (const width of [360, 1280]) {
       await expect(page.getByTestId("confirm-dialog")).toHaveCount(0); // 새로 동의할 때는 확인 모달이 없다
       await modal(page).getByTestId("add-self").click();
       await modal(page).getByLabel("이름(별명)").fill("나");
-      await modal(page).getByLabel("성별").selectOption("female"); // 임신 여부 칸은 여성일 때만 보인다(작업 B, 2026-11-22)
+      await pickChoice(modal(page), "성별", "여성"); // 임신 여부 칸은 여성일 때만 보인다(작업 B, 2026-11-22)
       await modal(page).getByRole("radio", { name: "예" }).check();
+      await completeRequired(modal(page));
       await modal(page).getByTestId("profile-save").click();
       await expect(modal(page).getByTestId("profile-item")).toContainText("임신 여부 예");
 
@@ -435,9 +438,11 @@ test.describe("금기 결과 위에서 여는 계정 모달 360px(ISSUE-006 상�
     await expect(modal(page)).toHaveAttribute("data-step", "profiles");
     await modal(page).getByTestId("add-self").click();
     await modal(page).getByLabel("이름(별명)").fill("나");
+    await completeRequired(modal(page));
     await modal(page).getByTestId("profile-save").click();
     await modal(page).getByTestId("add-family").click();
     await modal(page).getByLabel("이름(별명)").fill("첫째");
+    await completeRequired(modal(page));
     await modal(page).getByTestId("profile-save").click();
     await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
     await closeButton(page).click();

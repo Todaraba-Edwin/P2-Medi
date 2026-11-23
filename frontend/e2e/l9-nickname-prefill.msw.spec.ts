@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { MOCK_KAKAO_NICKNAME } from "../src/mocks/fixtures/account";
-import { HEIGHT, expectNoHorizontalScroll } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, completeRequired } from "./helpers";
 
 // 본인 프로필 이름 초기값 = 카카오 닉네임(FE-04-28 B, 2026-11-22 사용자 결정, l9).
 // 실제 OAuth 왕복은 하지 않는다. 목(MSW) 모드에서 `?mock_session=new&mock_provider=kakao|google`(브라우저 워커 전용)로
@@ -52,12 +52,13 @@ for (const width of [393, 1280]) {
         await modal(page).getByTestId("add-self").click();
         await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
         await expect(nameField(page)).toHaveValue(MOCK_KAKAO_NICKNAME);
-        await expect(modal(page).getByTestId("profile-sex")).toHaveValue(""); // 다른 칸은 채우지 않는다
-        await expect(modal(page).getByLabel("연령대")).toHaveValue("");
+        await expect(modal(page).getByTestId("profile-sex").locator('[aria-checked="true"]')).toHaveCount(0); // 다른 칸은 채우지 않는다
+        await expect(modal(page).getByTestId("profile-age").locator('[aria-checked="true"]')).toHaveCount(0);
         await expectNoHorizontalScroll(page);
         await shot(page, "self-form", scheme);
         expect(writes).toEqual([]); // 초기값은 서버로 가지 않았다
         await nameField(page).fill("나");
+        await completeRequired(modal(page));
         await modal(page).getByTestId("profile-save").click();
         await expect(modal(page).getByTestId("profile-item")).toHaveCount(1);
         await expect(modal(page).getByTestId("profile-item")).toContainText("나");
@@ -67,7 +68,7 @@ for (const width of [393, 1280]) {
         await expect(nameField(page)).toHaveValue("나");
       });
 
-      test("카카오여도 가족 프로필 추가는 비어 있다. 지운 뒤 저장하면 기존 검증(이름 입력) 그대로", async ({ page }) => {
+      test("카카오여도 가족 프로필 추가는 비어 있다. 지우면 저장할 수 없다(FE-17 U-07: 이름은 필수 4칸 중 하나라 저장 버튼 비활성)", async ({ page }) => {
         const writes = await recordProfileWrites(page);
         await openProfiles(page, "kakao");
         await modal(page).getByTestId("add-family").click();
@@ -77,8 +78,11 @@ for (const width of [393, 1280]) {
         await modal(page).getByTestId("add-self").click();
         await expect(nameField(page)).toHaveValue(MOCK_KAKAO_NICKNAME);
         await nameField(page).fill("");
-        await modal(page).getByTestId("profile-save").click();
-        await expect(modal(page).getByRole("alert")).toContainText("이름(별명)을 입력해 주세요.");
+        await completeRequired(modal(page));
+        await expect(modal(page).getByTestId("profile-save")).toBeDisabled();
+        await expect(modal(page).getByTestId("profile-required-hint")).toHaveText("관계·이름·연령대·성별을 모두 고르면 저장할 수 있어요.");
+        await modal(page).getByTestId("profile-save").click({ force: true }); // 눌러도 아무 일도 없다
+        await expect(modal(page)).toHaveAttribute("data-step", "profile-form");
         expect(writes).toEqual([]);
       });
 

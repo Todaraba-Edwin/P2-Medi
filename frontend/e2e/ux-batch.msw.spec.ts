@@ -61,7 +61,7 @@ for (const width of [393, 1280]) {
           await button.click();
           await expect(menu).toBeVisible();
         }
-        await expect(menu.getByTestId("target-option")).toHaveText(["선택 안 함", "나", "첫째"]);
+        await expect(menu.getByTestId("target-option")).toHaveText(["게스트로 이용", "나", "첫째"]);
         await expect(menu.getByRole("menuitemradio", { name: "첫째" })).toHaveAttribute("aria-checked", "true");
         const menuBox = (await menu.boundingBox())!;
         expect(menuBox.y + menuBox.height).toBeLessThanOrEqual((await button.boundingBox())!.y + 0.5); // 위로 열린다
@@ -85,7 +85,7 @@ for (const width of [393, 1280]) {
         await expect(chipMenu).toHaveCount(0);
         await expect(chip).toBeFocused();
 
-        // 가족 추가: 색 8칸, 아직 안 쓴 첫 색(코랄)이 골라져 있다
+        // 가족 추가: 색 8칸, 기본 노랑이 골라져 있다(FE-17 U-07이 U-01의 '안 쓴 첫 색 제안'을 대체)
         if (mobile) await page.getByTestId("menu-button").click();
         await page.getByTestId("account-menu-button").first().click();
         await page.getByTestId("account-entry").click();
@@ -93,7 +93,7 @@ for (const width of [393, 1280]) {
         await modal.getByTestId("add-family").click();
         const colors = modal.getByRole("radiogroup", { name: "프로필 색" });
         await expect(colors.getByRole("radio")).toHaveCount(8);
-        await expect(colors.getByRole("radio", { name: "코랄" })).toBeChecked();
+        await expect(colors.getByRole("radio", { name: "노랑" })).toBeChecked();
         for (const option of await colors.getByTestId("avatar-color-option").all()) await expectTouchTarget(option);
         await colors.locator('[data-testid="avatar-color-option"][data-color="purple"]').click(); // 칸(label)을 누른다(라디오 자체는 화면에서 숨긴 입력)
         await expect(colors.getByRole("radio", { name: "보라" })).toBeChecked();

@@ -2,7 +2,7 @@ import path from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, expectNoHorizontalScroll, openApp } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, openApp, completeRequired } from "./helpers";
 
 // 2026-11-23 사용자 결정 "아스피린 A" e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0, 실제 사진 0):
 // 확인 카드에서 `약 추가` → "아스피린장용정" 입력 → 입력이 멈춘 뒤 게스트 허용 `POST /api/ingest/drugs/search`(토큰 없음) → 그 행에 판독 행과 같은 라디오 목록(기본 선택 없음)
@@ -155,6 +155,7 @@ test.describe("프로필 `사진으로 등록`·미선택 행 (393px)", () => {
     await expect(chips).toHaveCount(3);
     await expect(chips.nth(2).getByTestId("medication-name")).toHaveText(PICKED);
     await expect(chips.nth(2)).toHaveAttribute("data-confirmed", "true");
+    await completeRequired(accountModal(page));
     await accountModal(page).getByTestId("profile-save").click();
     await expect(accountModal(page)).toHaveAttribute("data-step", "profiles");
     expect(log.saves).toHaveLength(1);

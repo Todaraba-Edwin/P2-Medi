@@ -53,8 +53,13 @@ export interface AccountState {
   profiles: Profile[];
   legalDocs: LegalDoc[];
   legalDocsStatus: LegalDocsStatus;
-  /** 질문할 때 고른 대상("누가 먹나요"). 고르지 않았으면 null */
+  /**
+   * 질문할 때 고른 대상("누가 먹나요"). null = `게스트로 이용`(프로필 값 없이 일반으로 묻기, FE-17 U-06).
+   * 사용자가 아직 고르지 않았으면 로그인 직후·프로필이 바뀔 때 **본인 프로필이 기본**이다(`resolveTarget`)
+   */
   targetProfileId: string | null;
+  /** 사용자가 대상을 직접 골랐는가(`setTarget`). 고른 뒤에는 본인 기본 선택으로 덮지 않는다(`게스트로 이용`을 고른 것도 지킨다). 로그아웃·탈퇴하면 false */
+  targetChosen: boolean;
   /** 계정 모달의 단계 이력. 비어 있으면 닫혀 있다. 길이가 2 이상일 때만 `<`(뒤로)가 있다(PRD-13-02 A) */
   flow: AccountStep[];
   form: ProfileFormTarget | null;
@@ -104,7 +109,17 @@ export interface AccountState {
 
 export type AccountStore = StoreApi<AccountState>;
 
-const guest = { status: "guest", me: null, profiles: [] as Profile[], targetProfileId: null, form: null } as const;
+const guest = { status: "guest", me: null, profiles: [] as Profile[], targetProfileId: null, targetChosen: false, form: null } as const;
+
+/**
+ * 프로필 목록이 바뀐 뒤의 대상(FE-17 U-06, 2026-11-23 "기존 '로그인됨' -> 선택된 프로필 확인"): 지금 대상이 목록에 있으면 그대로,
+ * 없으면 사용자가 아직 고르지 않았을 때만 본인 프로필(없으면 null = `게스트로 이용`). 사용자가 고른 값(null 포함)은 덮지 않는다. 순수 함수라 시험에서 바로 본다
+ */
+export function resolveTarget(profiles: readonly Profile[], current: string | null, chosen: boolean): string | null {
+  if (current !== null && profiles.some((profile) => profile.profile_id === current)) return current;
+  if (chosen) return null;
+  return profiles.find((profile) => profile.relation === "self")?.profile_id ?? null;
+}
 
 function toFailure(error: unknown): AccountFailure {
   if (error instanceof AccountApiError) return { kind: error.kind, status: error.status, code: error.code, fields: error.fields };
@@ -217,7 +232,7 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
         status: "member",
         me,
         profiles,
-        targetProfileId: profiles.some((profile) => profile.profile_id === state.targetProfileId) ? state.targetProfileId : null,
+        targetProfileId: resolveTarget(profiles, state.targetProfileId, state.targetChosen),
       }));
       return true;
     };
@@ -377,7 +392,7 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
           const me = await api.postConsents(items, consentChannel(get().me, items));
           // 철회는 서버가 즉시 지운다(건강 동의 → 임신 여부·복용 약, 개인정보 동의 → 프로필): 프로필을 다시 읽어 화면에 남기지 않는다
           const profiles = await api.fetchProfiles();
-          set((state) => ({ me, profiles, targetProfileId: profiles.some((profile) => profile.profile_id === state.targetProfileId) ? state.targetProfileId : null }));
+          set((state) => ({ me, profiles, targetProfileId: resolveTarget(profiles, state.targetProfileId, state.targetChosen) }));
         });
         // 그 사이 문서가 바뀌었으면(409) 새 본문을 다시 받아 보여 준다
         if (!ok && get().failure?.code === "VERSION_MISMATCH") void get().loadLegalDocs(true);
@@ -391,11 +406,13 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
         if (!target) return false;
         const ok = await run(async () => {
           const saved = target.profileId === null ? await api.createProfile(draft) : await api.updateProfile(target.profileId, draft);
-          set((state) => ({
-            profiles: state.profiles.some((profile) => profile.profile_id === saved.profile_id)
+          set((state) => {
+            const profiles = state.profiles.some((profile) => profile.profile_id === saved.profile_id)
               ? state.profiles.map((profile) => (profile.profile_id === saved.profile_id ? saved : profile))
-              : [...state.profiles, saved],
-          }));
+              : [...state.profiles, saved];
+            // 온보딩에서 본인 프로필을 처음 만들면(아직 고르지 않았을 때) 그 프로필이 대상이 된다
+            return { profiles, targetProfileId: resolveTarget(profiles, state.targetProfileId, state.targetChosen) };
+          });
         });
         // 저장이 끝나면 목록으로 돌아가며 완료 안내를 켠다(FE-04-15 A). 실패하면 폼에 남고 `failure`가 보인다
         if (ok) set((state) => ({ form: null, notice: "profile-saved", flow: state.flow.length > 1 ? state.flow.slice(0, -1) : ["profiles"] }));
@@ -417,7 +434,11 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
           await api.deleteProfile(id);
           set((state) => ({
             profiles: state.profiles.filter((profile) => profile.profile_id !== id),
-            targetProfileId: state.targetProfileId === id ? null : state.targetProfileId,
+            targetProfileId: resolveTarget(
+              state.profiles.filter((profile) => profile.profile_id !== id),
+              state.targetProfileId === id ? null : state.targetProfileId,
+              state.targetChosen,
+            ),
           }));
         }),
 
@@ -427,7 +448,7 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
         return ok;
       },
 
-      setTarget: (id) => set({ targetProfileId: id }),
+      setTarget: (id) => set({ targetProfileId: id, targetChosen: true }),
     };
   });
 }

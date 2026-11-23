@@ -36,7 +36,7 @@ export interface AccountMenuProps {
   container?: HTMLElement | null;
   /** `row`: 사이드바·드로어 아래쪽의 한 줄 버튼(아이콘 + 글자 + ⌃). `icon`: 접힌 레일의 아이콘 버튼 */
   variant?: "row" | "icon";
-  /** 회원 + 프로필이 있을 때: 메뉴 맨 위 "누가 먹나요" 목록과 버튼의 아바타·이름(2026-11-23) */
+  /** 회원 + 프로필이 있을 때: `프로필 관리` 아래 "누가 먹나요" 목록과 버튼의 아바타·이름(2026-11-23, FE-17 U-06) */
   target?: AccountTargetChoice;
 }
 
@@ -46,12 +46,13 @@ const ITEM_CLASS = MENU_ITEM_CLASS;
 
 /**
  * 사이드바·드로어 아래쪽의 계정 메뉴(2026-11-23 사용자 요구: claude.ai 앱처럼 계정 버튼 하나를 누르면 메뉴가 위로 열린다).
- * - 버튼 하나: 로그인 + 대상 프로필을 골랐으면 **그 프로필의 병아리 아바타 + 이름**, 고르지 않았으면 기존 상태 글자 `로그인됨`, 게스트는 `계정`.
+ * - 버튼 하나: 로그인 + 대상 프로필이 있으면 **그 프로필의 병아리 아바타 + 이름**(로그인 직후 본인 프로필이 기본 대상, FE-17 U-06),
+ *   대상이 없으면(프로필 없음·`게스트로 이용`을 골랐음·프로필을 읽기 전) 기존 상태 글자 `로그인됨`, 게스트(비로그인)는 `계정`.
  *   `aria-haspopup`·`aria-expanded`는 Radix가 단다
- * - 메뉴 안: 회원 = [누가 먹나요: 선택 안 함 · 본인 · 가족(프로필이 있을 때)] · ─ · 프로필 관리 · 화면 모드(밝은·다크·시스템을 바로 고른다) · 약관·정책 · ─ · 로그아웃.
+ * - 메뉴 안: 회원 = 프로필 관리 · [하위: 누가 먹나요 = 게스트로 이용 · 본인 · 가족(프로필이 있을 때)] · ─ · 화면 모드(밝은·다크·시스템을 바로 고른다) · 약관·정책 · ─ · 로그아웃.
  *   게스트 = 로그인/가입(계정 기능이 켜졌을 때) · 화면 모드 · 약관·정책
  * - 프로필 목록이 있을 때는 마우스를 올리기만 해도 메뉴가 열린다(`useHoverMenu`: 초점은 옮기지 않는다). 누름·탭·키보드는 기존과 같다.
- *   한 팝오버 안에 프로필 구역을 맨 위에 두어 "호버 = 프로필 목록", "누름 = 계정 메뉴"가 같은 층이다(겹치는 두 층을 만들지 않는다)
+ *   한 팝오버 안에 프로필 구역을 `프로필 관리` 아래에 두어 "호버 = 프로필 목록", "누름 = 계정 메뉴"가 같은 층이다(겹치는 두 층을 만들지 않는다)
  * - 화면 모드는 고르는 즉시 적용하고 기기 브라우저 저장소에만 둔다(FE-12-04 A, 서버 호출 없음). 골라도 메뉴는 닫히지 않는다(다른 모드를 바로 비교할 수 있게)
  * - 키보드: 열면 첫 항목에 초점, ↑/↓로 옮기고 끝에서 돈다(`loop`), Enter·Space로 고르고, Esc·바깥 누름으로 닫힌다. 닫히면 초점은 버튼으로 돌아온다(Radix)
  * - 로그아웃은 기존 동작 그대로(확인창 없음. 탈퇴는 프로필 관리 안에서만, 확인창 유지)
@@ -130,14 +131,14 @@ export function AccountMenu({ member, accountEnabled, onOpen, onLogout, onLegal,
           {...contentProps}
           className={cn(MENU_CONTENT_CLASS, "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto")}
         >
-          {/* 대상 프로필(누가 먹나요): 맨 위. 고르면 메뉴가 닫히고 입력창 칩도 같이 바뀐다 */}
+          {(member || accountEnabled) && entry}
+          {/* 대상 프로필(누가 먹나요, FE-17 U-06): `프로필 관리` 바로 아래 하위 묶음. 고르면 메뉴가 닫히고 입력창 칩도 같이 바뀐다 */}
           {choice && (
             <>
-              <TargetChoiceItems profiles={choice.profiles} value={choice.value} onChange={choice.onChange} />
+              <TargetChoiceItems profiles={choice.profiles} value={choice.value} onChange={choice.onChange} nested />
               <DropdownMenu.Separator className="mx-2.5 my-1 border-t border-line" />
             </>
           )}
-          {(member || accountEnabled) && entry}
           {/* 화면 모드(FE-12-03 B): 메뉴 안에서 바로 고른다. 고른 항목은 체크 + 굵게(색만으로 구분하지 않는다) */}
           <DropdownMenu.Label className="px-2.5 pt-2 pb-1 text-xs font-bold text-mute">{SCREEN_MODE_LABEL}</DropdownMenu.Label>
           <DropdownMenu.RadioGroup value={mode} onValueChange={choose} data-testid="theme-choice">

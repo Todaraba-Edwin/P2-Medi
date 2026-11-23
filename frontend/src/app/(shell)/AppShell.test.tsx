@@ -277,18 +277,23 @@ describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
 });
 
 describe("대상 프로필 한 값(2026-11-23): 계정 버튼·입력창 칩·요청 context가 같이 바뀐다, 본문 선택 줄 없음", () => {
-  it("계정 버튼 메뉴 맨 위 목록에서 고르면 버튼이 병아리 + 이름이 되고 입력창 칩도 같은 프로필이며, 요청에는 예전과 같은 값(연령대)만 실린다", async () => {
+  it("로그인 직후 본인이 기본 대상이고(FE-17 U-06), 계정 버튼 메뉴의 `프로필 관리` 아래 목록에서 고르면 버튼이 병아리 + 이름이 되고 입력창 칩도 같은 프로필이며, 요청에는 예전과 같은 값(연령대)만 실린다", async () => {
     const { user, account } = setup({ session: onboardedSession(true), width: 1280 });
     const chip = await screen.findByTestId("target-chip");
     const button = screen.getAllByTestId("account-menu-button")[0];
     expect(screen.queryByRole("radiogroup", { name: "누가 먹나요" })).toBeNull(); // 본문 선택 줄은 없다
-    expect(button).toHaveTextContent("로그인됨"); // 고르기 전에는 기존 상태 글자
-    expect(chip).toHaveAccessibleName("누가 먹나요 선택 안 함");
+    // 고르기 전에도 본인(나)이 대상이라 계정 버튼에 선택된 프로필이 보인다('로그인됨'이 아니다)
+    expect(account.getState().targetProfileId).toBe(SELF_ID);
+    expect(button).toHaveTextContent("나");
+    expect(button).not.toHaveTextContent("로그인됨");
+    expect(within(button).getByTestId("profile-avatar")).toBeInTheDocument();
+    expect(chip).toHaveAccessibleName("누가 먹나요 나");
     await user.click(button);
     const menu = await screen.findByTestId("account-menu");
     const items = within(menu).getAllByRole("menuitemradio").map((item) => item.textContent);
-    expect(items.slice(0, 3)).toEqual(["선택 안 함", "나", "첫째"]); // 맨 위가 프로필 목록
-    expect(within(menu).getByRole("menuitem", { name: "프로필 관리" })).toBeInTheDocument(); // 기존 계정 메뉴 항목과 같은 층
+    expect(items.slice(0, 3)).toEqual(["게스트로 이용", "나", "첫째"]);
+    const manage = within(menu).getByRole("menuitem", { name: "프로필 관리" }); // 기존 계정 메뉴 항목과 같은 층
+    expect(manage.compareDocumentPosition(within(menu).getByRole("group", { name: "누가 먹나요" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // 목록은 프로필 관리 아래
     await user.click(within(menu).getByRole("menuitemradio", { name: "첫째" }));
     await waitFor(() => expect(screen.queryByTestId("account-menu")).toBeNull());
     expect(account.getState().targetProfileId).toBe(CHILD_ID);
@@ -298,11 +303,13 @@ describe("대상 프로필 한 값(2026-11-23): 계정 버튼·입력창 칩·�
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[0].context).toMatchObject({ age: { lower: 6, upper: 11, unit: "세" } });
     expect(JSON.stringify(chatBodies[0])).not.toMatch(/avatar|첫째/); // 색·이름은 요청에 싣지 않는다
-    // 입력창 칩에서 바꾸면 계정 버튼도 바뀐다. '선택 안 함'으로 돌아가면 기존 상태 글자
+    // 입력창 칩에서 바꾸면 계정 버튼도 바뀐다. '게스트로 이용'(프로필 값 없이)을 고르면 칩은 그 글자, 계정 버튼은 로그인 상태 글자(게스트 `계정`과 다르다)
     await pickTarget(user, "나");
     expect(button).toHaveTextContent("나");
-    await pickTarget(user, "선택 안 함");
+    await pickTarget(user, "게스트로 이용");
+    expect(chip).toHaveAccessibleName("누가 먹나요 게스트로 이용");
     expect(button).toHaveTextContent("로그인됨");
+    expect(button).not.toHaveTextContent("계정");
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[1].context).toMatchObject({ age: null });
   });
@@ -318,10 +325,12 @@ describe("GROUP-03 3단계 성별 숨김(FE-11-09 C·FE-11-12 A)", () => {
   const toggleOrNull = () => screen.queryByRole("radiogroup", { name: "임신 여부" });
   const form = () => screen.getByRole("textbox").closest("form")!;
 
-  it("남성 프로필이 대상이면 토글이 없고 context.pregnant=false를 보낸다. 저장 값이 임신이어도 같다. 대상 바꾸기 전(선택 안 함)과 게스트는 보인다", async () => {
+  it("남성 프로필이 대상이면 토글이 없고 context.pregnant=false를 보낸다. 저장 값이 임신이어도 같다. '게스트로 이용'과 게스트는 보인다", async () => {
     const { user, store } = setup({ session: sexedSession(true, { selfSex: "male", childSex: "female", selfPregnancy: "pregnant" }), width: 1280 });
     await screen.findByTestId("target-chip");
-    expect(toggleOrNull()).not.toBeNull(); // 대상을 고르기 전(선택 안 함)은 보인다
+    expect(toggleOrNull()).toBeNull(); // 로그인 직후 본인(남성)이 기본 대상(FE-17 U-06)
+    await pickTarget(user, "게스트로 이용");
+    expect(toggleOrNull()).not.toBeNull(); // 대상 없음(게스트로 이용)은 보인다
     const formBefore = form();
     await pickTarget(user, "나");
     expect(toggleOrNull()).toBeNull();
@@ -350,8 +359,8 @@ describe("GROUP-03 3단계 성별 숨김(FE-11-09 C·FE-11-12 A)", () => {
     expect(store.getState().context.pregnant).toBe(false);
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[1].context.pregnant).toBe(false);
-    // 선택 안 함으로 돌아가면 다시 보이고 일반인이다
-    await pickTarget(user, "선택 안 함");
+    // 게스트로 이용으로 돌아가면 다시 보이고 일반인이다
+    await pickTarget(user, "게스트로 이용");
     expect(toggleOrNull()).not.toBeNull();
     expect(checkedLabel()).toBe("일반인");
   });

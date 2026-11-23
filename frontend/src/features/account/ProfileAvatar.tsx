@@ -17,7 +17,8 @@ const AVATAR_BG: Readonly<Record<AvatarColor, string>> = {
 };
 
 export interface ProfileAvatarProps {
-  color: AvatarColor;
+  /** 프로필 색. null이면 프로필이 아닌 `게스트로 이용`(FE-17 U-06): 색 없이 점선 테두리 원이라 어느 프로필 색과도 헷갈리지 않는다 */
+  color: AvatarColor | null;
   /** 원 지름(px) */
   size?: number;
   /** false면 병아리 없이 색 원만(119 안내가 떠 있는 계정 모달처럼 마스코트를 숨기는 자리) */
@@ -34,9 +35,9 @@ export function ProfileAvatar({ color, size = 28, face = true, className }: Prof
   return (
     <span
       data-testid="profile-avatar"
-      data-color={color}
+      data-color={color ?? "none"}
       aria-hidden="true"
-      className={cn("grid flex-none place-items-center overflow-hidden rounded-full", AVATAR_BG[color], className)}
+      className={cn("grid flex-none place-items-center overflow-hidden rounded-full", color ? AVATAR_BG[color] : "border border-dashed border-mute bg-bg", className)}
       style={{ width: size, height: size }}
     >
       {face && <Mascot variant="face" size={Math.round(size * 0.6)} />}

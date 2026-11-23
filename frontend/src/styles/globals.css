@@ -32,6 +32,8 @@
   --color-warn-ink: #7a4100;
   --color-blue-bg: #e3f2fd;
   --color-blue-ink: #0d47a1;
+  /* 입력을 마친 단계(프로필 폼 진행바, FE-17 U-07). 글자·막대 모두에 쓴다. 판정(안전) 색이 아니며 체크 표시와 함께 쓴다 */
+  --color-ok-ink: #1b5e20;
   --color-preg: #7b1fa2;
   --color-preg-bg: #f3e5f5;
   --color-preg-ink: #6a1b9a;
@@ -84,6 +86,7 @@
     --color-warn-ink: #ffd3a6;
     --color-blue-bg: #10294a;
     --color-blue-ink: #bbdcfb;
+    --color-ok-ink: #9ad29c;
     --color-preg: #7b1fa2;
     --color-preg-bg: #3a1e45;
     --color-preg-ink: #e0b3f0;
@@ -129,6 +132,7 @@
   --color-warn-ink: #ffd3a6;
   --color-blue-bg: #10294a;
   --color-blue-ink: #bbdcfb;
+  --color-ok-ink: #9ad29c;
   --color-preg: #7b1fa2;
   --color-preg-bg: #3a1e45;
   --color-preg-ink: #e0b3f0;
