@@ -356,16 +356,15 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               // 내용이 화면보다 길면(좁은 폭 + 기본 대상 안내, FE-17 U-08) 가운데 정렬이 위쪽을 스크롤 밖으로 잘라내지 않게 `safe` 가운데 정렬이다
               <div data-testid="home" className="flex min-h-0 flex-1 flex-col justify-center-safe gap-4 overflow-y-auto py-2">
                 <HomeHero />
-                {/* 기본 대상 안내(FE-17 U-08): 로그인 + 프로필이 있을 때만, 병아리 이미지 아래에 지금 대상과 `게스트로 이용`을 둔다.
-                    누르면 대상이 바뀌고(서버 기본 대상도 저장) 초점은 질문 칸으로 간다. 대화가 시작되면 이 영역째 사라진다 */}
+                {/* 기본 대상 안내(FE-17 U-08): 로그인 + 프로필이 있을 때만, 병아리 이미지 아래에 지금 대상과 `게스트로 이용`(프로필 상태, U-23)·`변경`(게스트 상태, U-22: 칩과 같은 목록)을 둔다.
+                    고르면 대상이 바뀌고(서버 기본 대상도 저장) 초점은 질문 칸으로 간다. 대화가 시작되면 이 영역째 사라진다 */}
                 {targetChoice && (
                   <StartTargetNotice
                     profiles={targetChoice.profiles}
                     value={targetChoice.value}
-                    onGuest={() => {
-                      changeTarget(null);
-                      focusInput();
-                    }}
+                    onChange={changeTarget}
+                    onSettled={focusInput}
+                    container={layer}
                   />
                 )}
                 {/* 진입 선택: 게스트로 시작(주) / 로그인·가입(보조). 누르지 않아도 아래 입력창으로 바로 질문할 수 있다 */}

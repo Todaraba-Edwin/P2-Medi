@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialStreamState, streamReducer } from "@/lib/api";
 import type { ChatResponse, StreamAction, StreamState } from "@/lib/api";
 import { DISCLAIMER, FIXED_NOTICE } from "@/lib/fixed/phrases.generated";
+import { TargetChip } from "@/features/account";
 import { clarifyResponse, foundResponse } from "@/mocks/fixtures/responses";
 import { scenarios } from "@/mocks/fixtures/scenarios";
 import { ChatInput } from "./ChatInput";
@@ -146,6 +147,18 @@ describe("ChatInput", () => {
     // 예전 상수(승인 원문)는 그대로 남아 있다(다른 화면·시험이 쓴다)
     expect(copy.INPUT_NOTICE).toBe("질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문과 선택한 프로필 값은 외부 AI(OpenAI)로 전송되며, 제공자 정책에 따라 일정 기간 보관될 수 있어요.");
     expect(DISCLAIMER).toBe("공공데이터 기반 정보 제공이며 진단·처방이 아님 · 금기 목록에 없다는 것이 안전하다는 뜻이 아님 · 요양기관의 DUR 점검을 대체하지 않음");
+  });
+
+  it("토글 칸과 프로필 칩은 같은 글자 크기·줄 높이(12px/16px)라 글자 윗부분이 잘리지 않는다(FE-17 U-20: 예전 줄 높이 12px에서 말줄임 칸이 글꼴 상자를 잘랐다)", () => {
+    render(<ChatInput onSend={() => {}} pregnancy={{ value: false, onChange: () => {} }} onPhoto={() => {}} target={<TargetChip profiles={[]} value={null} onChange={() => {}} />} />);
+    const face = screen.getByTestId("target-chip-face");
+    for (const el of [screen.getByTestId("pregnancy-general"), screen.getByTestId("pregnancy-pregnant"), face]) {
+      const tokens = el.className.split(" ");
+      expect(tokens).toContain("text-xs");
+      expect(tokens).toContain("leading-4");
+      expect(tokens).not.toContain("leading-none");
+    }
+    // 실제 잘림(글꼴 상자 ⊂ 잘림 상자)은 브라우저에서만 잴 수 있어 e2e(ux-batch5)가 본다
   });
 
   it("질문 칸 아래 줄 왼쪽이 '사진 → 토글 · 칩' 한 묶음이고(FE-17 U-07 좌하단) 보내기는 그 뒤다. 칩을 주지 않아도(게스트·프로필 없음) 같은 배치에서 칩과 점만 빠진다(FE-17 U-09)", () => {

@@ -12,7 +12,7 @@ import { EvidenceEntryButton, EvidencePanel } from "./EvidencePanel";
 import { GradeDefBlock } from "./GradeDefBlock";
 import { MissingBox, MissingGroup } from "./MissingBox";
 import { PermitText } from "./PermitText";
-import { adviceOf, groupByPublisher, rowTexts } from "./sections";
+import { adviceOf, groupByPublisher, groupReasons, rowTexts } from "./sections";
 import { SourceTable } from "./SourceTable";
 
 const texts = (elements: Element[]) => elements.map((el) => el.textContent);
@@ -81,6 +81,50 @@ describe("EvidenceDetail", () => {
     expect(texts([...box.querySelectorAll("p")])).toEqual(["합성 사유 문장", "둘째 합성 문장"]);
     expect(rowTexts(item)).toEqual(["합성 사유 문장", "둘째 합성 문장"]);
     expect(tagDataset(within(box).getByTestId("source-tag"))).toBe(item.dataset);
+  });
+
+  it("같은 내용(종류·제목·표지·원문)의 사유 박스는 하나로 묶고 '같은 내용 N건'을 더한다. 글자가 다른 원문은 묶지 않고, 근거 ID는 받은 순서대로 남는다(FE-17 U-19 후속)", () => {
+    const response = fixtures.doseDupResponse;
+    const reasonItems = response.detail.filter((item) => item.kind === "dose");
+    expect(reasonItems).toHaveLength(30); // 묶기 전: 항목마다 박스 하나였다(6 + 1 + 23)
+    const groups = groupReasons(reasonItems);
+    expect(groups.map((group) => group.items.length)).toEqual([6, 1, 23]);
+    // 묶음 순서는 처음 나온 순서, 묶음 안은 받은 순서(받은 순서: 같은 문장 3건 → 다른 글자 1건 → 같은 문장 3건 → 약 B 23건). ID는 하나도 빠지거나 바뀌지 않는다
+    const ids = reasonItems.map((item) => item.evidence_id);
+    expect(groups.map((group) => group.evidenceIds)).toEqual([[...ids.slice(0, 3), ...ids.slice(4, 7)], [ids[3]], ids.slice(7)]);
+    expect(new Set(groups.flatMap((group) => group.evidenceIds))).toEqual(new Set(reasonItems.map((item) => item.evidence_id)));
+
+    render(<EvidenceDetail response={response} />);
+    const boxes = screen.getAllByTestId("reason-box");
+    expect(boxes).toHaveLength(3);
+    expect(boxes.map((box) => box.getAttribute("data-count"))).toEqual(["6", "1", "23"]);
+    expect(boxes.map((box) => within(box).queryByTestId("reason-same-count")?.textContent ?? null)).toEqual(["같은 내용 6건", null, "같은 내용 23건"]);
+    expect(copy.sameContentCount(6)).toBe("같은 내용 6건");
+    // 보이는 글자는 받은 값 그대로(용량 숫자 원문 포함, 근거 상세에서는 허용: RFP-21-03), 박스마다 원문 문장 한 번
+    boxes.forEach((box, index) => {
+      expect(texts([...box.querySelectorAll("p")])).toEqual(rowTexts(groups[index].item));
+      expect(within(box).getAllByTestId("source-tag")).toHaveLength(1);
+      expect(box.getAttribute("data-evidence-ids")!.split(" ")).toEqual(groups[index].evidenceIds);
+    });
+    expect(texts([...boxes[0].querySelectorAll("p")])).toEqual(["가나성분으로 4,000mg"]);
+    expect(texts([...boxes[1].querySelectorAll("p")])).toEqual(["가나성분으로써 4000mg"]); // 글자가 다르면 따로
+    expect(texts([...boxes[2].querySelectorAll("p")])).toEqual(["라마성분 3,200mg"]);
+    // 구역 순서·출처 표는 그대로(출처 표는 묶지 않는다)
+    expect(sections()).toEqual(["judgment", "reason", "sources"]);
+  });
+
+  it("묶기 열쇠: 약 이름·자료·출처 종류 글자·덧붙임 줄이 하나라도 다르면 따로 박스다", () => {
+    const base = fixtures.doseDupResponse.detail[0];
+    const variants = [
+      base,
+      { ...base, evidence_id: "x-1" }, // 근거 ID만 다름 → 묶임
+      { ...base, evidence_id: "x-2", drugs: ["다른정"], drug_name: "다른정" },
+      { ...base, evidence_id: "x-3", dataset: "다른 파일" },
+      { ...base, evidence_id: "x-4", source_kind_label: "다른 종류" },
+      { ...base, evidence_id: "x-5", notes: ["덧붙임 한 줄"] },
+      { ...base, evidence_id: "x-6", kind: "lactation" },
+    ];
+    expect(groupReasons(variants).map((group) => group.items.length)).toEqual([2, 1, 1, 1, 1, 1]);
   });
 
   it("표지의 출처 종류 글자는 받은 글자 그대로이고, 오지 않으면 자료 이름만 보인다(프런트가 종류 글자를 짓지 않는다)", () => {

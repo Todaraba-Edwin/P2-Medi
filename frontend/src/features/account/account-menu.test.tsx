@@ -20,8 +20,9 @@ afterEach(() => {
 function renderMenu(props: Partial<React.ComponentProps<typeof AccountMenu>> = {}) {
   const user = userEvent.setup();
   const handlers = { onOpen: vi.fn(), onLogout: vi.fn(), onLegal: vi.fn() };
-  render(<AccountMenu member accountEnabled {...handlers} {...props} />);
-  return { user, ...handlers, button: screen.getByTestId("account-menu-button") };
+  const view = render(<AccountMenu member accountEnabled {...handlers} {...props} />);
+  const rerender = (next: Partial<React.ComponentProps<typeof AccountMenu>>) => view.rerender(<AccountMenu member accountEnabled {...handlers} {...next} />);
+  return { user, ...handlers, rerender, button: screen.getByTestId("account-menu-button") };
 }
 const radio = (mode: keyof typeof THEME_LABELS) => screen.getByRole("menuitemradio", { name: new RegExp(`^${THEME_LABELS[mode]}`) });
 
@@ -205,10 +206,18 @@ describe("계정 메뉴의 대상 프로필(2026-11-23)", () => {
     }
   });
 
-  it("고르지 않았으면 기존 상태 글자 '로그인됨', 게스트·프로필 없음은 목록이 없다", async () => {
-    const { user, button } = renderMenu({ target: { profiles, value: null, onChange: () => {} } });
+  it("`게스트로 이용`을 골랐으면 게스트 모드 표시(점선 원 병아리 + 게스트로 이용, FE-17 U-21), 프로필이 없으면 기존 상태 글자 '로그인됨'", async () => {
+    const { user, button, rerender } = renderMenu({ target: { profiles, value: null, onChange: () => {} } });
+    expect(button).toHaveTextContent("게스트로 이용");
+    expect(button).toHaveAttribute("data-target", "guest");
+    expect(within(button).getByTestId("profile-avatar")).toHaveAttribute("data-color", "none");
+    expect(button).not.toHaveTextContent("로그인됨");
+    // 프로필이 없으면(목록 없음) 게스트 모드가 아니라 기존 `로그인됨` + 사람 아이콘
+    rerender({ target: { profiles: [], value: null, onChange: () => {} } });
     expect(button).toHaveTextContent("로그인됨");
+    expect(button).toHaveAttribute("data-target", "none");
     expect(within(button).queryByTestId("profile-avatar")).toBeNull();
+    rerender({ target: { profiles, value: null, onChange: () => {} } });
     await user.click(button);
     expect(screen.getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();
   });

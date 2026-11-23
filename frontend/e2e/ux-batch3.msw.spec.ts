@@ -32,7 +32,8 @@ for (const width of [393, 1280]) {
         const notice = page.getByTestId("start-target");
         await expect(notice).toBeVisible();
         await expect(notice.getByTestId("start-target-heading")).toHaveText("나 프로필로 확인해요");
-        await expect(notice.getByTestId("start-target-lead")).toContainText("프로필 없이도 확인할 수 있어요");
+        await expect(notice.getByTestId("start-target-lead")).toHaveText("이 프로필의 연령대·임신 여부가 답변에 쓰여요."); // FE-17 U-23: 세 번째 문장은 링크가 든 `start-target-switch`
+        await expect(notice.getByTestId("start-target-switch")).toHaveText("프로필 없이 질문을 이어가시려면 게스트로 이용으로 프로필을 변경해주세요.");
         await expect(notice.getByTestId("profile-avatar")).toHaveCount(0); // FE-17 U-11: 아바타 없는 한 단락 문장
         // 시작 화면 병아리 이미지(HomeHero) 아래, 입력창 위에 있다
         const heroBox = await box(page.getByTestId("home").locator("img").first());
@@ -54,7 +55,8 @@ for (const width of [393, 1280]) {
         await page.keyboard.press("Enter");
         await saved;
         await expect(notice.getByTestId("start-target-heading")).toHaveText("게스트로 이용 중이에요");
-        await expect(notice.getByRole("button")).toHaveCount(0);
+        // FE-17 U-22: 게스트 상태 안내에는 `변경` 링크 하나만 있다(U-08의 "버튼 없음"을 대체)
+        await expect(notice.getByRole("button")).toHaveText(["변경"]);
         await expect(page.getByTestId("target-chip")).toHaveAccessibleName("누가 먹나요 게스트로 이용");
         await expect(input(page)).toBeFocused();
         expect(puts).toEqual([{ target: "guest" }]);
