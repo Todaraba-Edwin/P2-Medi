@@ -83,7 +83,9 @@ def test_question_and_context_are_not_logged(caplog):
     client.post("/chat", json={**body, "question": ""})
     logged = "\n".join(f"{r.getMessage()} {r.args!r}" for r in caplog.records)
     assert MARKER not in logged
-    assert app.user_middleware == []  # 요청 본문을 로깅하는 미들웨어 없음(CORS도 없음: 프런트는 rewrites 프록시, FE-01-06 A)
+    # 요청 본문을 로깅하는 미들웨어 없음(CORS도 없음: 프런트는 rewrites 프록시, FE-01-06 A). 허용은 본문·쿼리를 보지 않는
+    # 소요 시간 미들웨어 하나뿐이다(비노출은 tests/test_request_timing.py)
+    assert [m.cls.__name__ for m in app.user_middleware] == ["RequestTimingMiddleware"]
 
 
 def test_openapi_exposes_contract_models():

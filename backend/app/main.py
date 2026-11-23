@@ -31,6 +31,7 @@ from .db.account_repo import AccountRepo
 from .db.account_repo_pg import PostgresAccountRepo
 from .logging.console import install_app_console_logging
 from .logging.redact_filter import install_log_redaction
+from .logging.request_timing import RequestTimingMiddleware
 from .security import auth, auth_admin
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="MediAgent", lifespan=lifespan)
 settings = get_settings()
+app.add_middleware(RequestTimingMiddleware, enabled=settings.mediagent_request_timing)  # 요청 소요 시간 한 줄(식별·쿼리·본문 없음)
 chat_api.register(app)  # POST /chat(BE-06, 설정이 갖춰지지 않으면 501), 요청 형식 오류 422. 게스트 허용, 토큰을 읽지 않는다
 me_api.register(app)  # BE-11 계정 API(chat 뒤에 등록: 요청 형식 오류 처리기를 계정 경로 분기로 바꾼다), 인증 오류 401·501·503
 drugs_api.register(app)  # POST /drugs/search 프로필 약 사전 검색(FE-04-13 A, 로그인 필요, 계정 오류 처리기 공유)
