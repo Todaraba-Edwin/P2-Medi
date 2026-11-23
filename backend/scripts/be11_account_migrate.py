@@ -4,13 +4,13 @@
                        시드별 남은 자리표시를 출력한다. 쓰기 0.
   apply --yes --effective-at <ISO8601+시간대>
                        쓰기. `--yes`와 승인 파일 `data/mock/review/be11-account.flag`(메인이 실행 직전에 만들고 직후 지운다)가
-                       **둘 다** 있어야 하고, 시드 여섯 개(v1·v2·age_14·v3·v4·v5)가 모두 `assert_publishable`을 통과해야 한다(연결 전에 확인).
-                       단계마다 별도 트랜잭션: ① schema_account.sql → 커밋 → ② seed v1 → ③ seed v2 → ④ seed age_14 → ⑤ seed v3(PRD-17-18 A: terms·privacy_policy v3, 연락처 줄 구분) → ⑥ seed v4(처리방침 v4, 사진 판독 Upstage 전환 고지, BE-14-09 A) → ⑦ seed v5(처리방침 v5, OpenAI만·쿠키 7일·카카오 필수 표기·이름 기본값).
+                       **둘 다** 있어야 하고, 시드 여덟 개(v1·v2·age_14·v3·v4·v5·terms_guest v1·v6)가 모두 `assert_publishable`을 통과해야 한다(연결 전에 확인).
+                       단계마다 별도 트랜잭션: ① schema_account.sql → 커밋 → ② seed v1 → ③ seed v2 → ④ seed age_14 → ⑤ seed v3(PRD-17-18 A: terms·privacy_policy v3, 연락처 줄 구분) → ⑥ seed v4(처리방침 v4, 사진 판독 Upstage 전환 고지, BE-14-09 A) → ⑦ seed v5(처리방침 v5, OpenAI만·쿠키 7일·카카오 필수 표기·이름 기본값) → ⑧ migrate_doc_type_terms_guest.sql(열거형에 terms_guest, 커밋) → ⑨ seed terms_guest v1(게스트판 이용약관, PRD-17-22 A, 동의 대상 아님) → ⑩ seed v6(처리방침 v6 = v5 + 게스트 안내 절, PRD-17-23 A).
                        (`ALTER TYPE … ADD VALUE 'age_14'`는 같은 트랜잭션에서 쓸 수 없으므로 ④는 ① 커밋 뒤 따로 돈다.)
                        단계 사후 확인이 기대와 다르면 그 단계를 롤백하고 중단한다(다음 단계로 넘어가지 않음).
                        시드의 `{{PRIVACY_CONTACT}}`는 env `PRIVACY_OFFICER_NAME`·`PRIVACY_OFFICER_EMAIL`(Settings)로 채운다
                        (PRD-17 ⑫). 값이 없으면 자리표시가 남아 게시 거부. plan·로그·예외에는 값을 싣지 않는다(`<설정됨>`).
-  verify               읽기 전용. age_14 enum·`profiles.sex` 열·표 6개 RLS·시드 행(v1·v2·age_14·v3·v4·v5)·`legal_current`의 age_14 v1·terms v3·privacy_policy v5를 확인한다.
+  verify               읽기 전용. age_14 enum·`profiles.sex` 열·표 6개 RLS·시드 행(v1·v2·age_14·v3·v4·v5)·`legal_current`의 age_14 v1·terms v3·privacy_policy v6·terms_guest enum 값과 v1을 확인한다.
 
   --local-dsn <DSN>    로컬 Postgres 시험용(호스트가 localhost·127.0.0.1·::1·소켓일 때만). 이때는 승인 파일 없이 돈다
                        (`--yes`·자리표시 검사는 그대로). 원격 접속 문자열을 넣으면 거부한다.
@@ -42,13 +42,17 @@ from load_corpus import RemoteLoadRefused, resolve_dsn  # noqa: E402
 
 from app.config import get_settings, reveal  # noqa: E402
 from app.db.account_repo_pg import (  # noqa: E402
+    MIGRATE_GUEST_ENUM_FILE,
     SCHEMA_FILE,
     SEED_AGE14_FILE,
     SEED_FILES,
+    SEED_GUEST_FILE,
     assert_publishable,
+    migrate_guest_enum_sql,
     render_privacy_contact,
     schema_sql,
     seed_age14_sql,
+    seed_guest_sql,
     seed_sql,
     unfilled_placeholders,
 )
@@ -73,7 +77,7 @@ class StageAbort(RuntimeError):
 @dataclass(frozen=True)
 class Step:
     name: str
-    kind: str  # "schema" | "seed"
+    kind: str  # "schema" | "enum"(열거형 값 추가) | "seed"
     source: Path
     sql: str
     masked: tuple[str, ...] = ()  # 로그·예외 메시지에서 지울 값(보호책임자 이름·이메일)
@@ -113,7 +117,10 @@ def build_steps(effective_at: datetime, contact: PrivacyContact | None = None) -
              ("4 seed age_14", SEED_AGE14_FILE, seed_age14_sql(effective_at)),
              ("5 seed v3", SEED_FILES[3], seed_sql(effective_at, 3)),
              ("6 seed v4", SEED_FILES[4], seed_sql(effective_at, 4)),
-             ("7 seed v5", SEED_FILES[5], seed_sql(effective_at, 5))]  # PRD-17-18 A: terms·privacy_policy v3(연락처 줄 구분). age_14 뒤에 둬 기존 단계 번호 유지. v4는 v3 뒤(처리방침 v4, BE-14-09 A)
+             ("7 seed v5", SEED_FILES[5], seed_sql(effective_at, 5)),
+             # PRD-17-22~25(2026-11-23): 8 열거형은 따로 커밋한 뒤 9·10 시드(새 enum 값은 같은 트랜잭션에서 쓸 수 없다)
+             ("9 seed terms_guest v1", SEED_GUEST_FILE, seed_guest_sql(effective_at)),
+             ("10 seed v6", SEED_FILES[6], seed_sql(effective_at, 6))]  # PRD-17-18 A: terms·privacy_policy v3(연락처 줄 구분). age_14 뒤에 둬 기존 단계 번호 유지. v4는 v3 뒤(처리방침 v4, BE-14-09 A)
     masked: tuple[str, ...] = ()
     if contact_set(contact):
         name, email = (contact[0] or "").strip(), (contact[1] or "").strip()  # type: ignore[index]
@@ -122,8 +129,9 @@ def build_steps(effective_at: datetime, contact: PrivacyContact | None = None) -
             seeds = [(n, p, render_privacy_contact(sql, name, email)) for n, p, sql in seeds]
         except ValueError as exc:
             raise Refused(f"보호책임자 값 거부: {exc}") from None
-    return [Step("1 schema", "schema", SCHEMA_FILE, schema_sql()),
-            *(Step(n, "seed", p, sql, masked) for n, p, sql in seeds)]
+    seed_steps = [Step(n, "seed", p, sql, masked) for n, p, sql in seeds]
+    enum_step = Step("8 enum terms_guest", "enum", MIGRATE_GUEST_ENUM_FILE, migrate_guest_enum_sql())
+    return [Step("1 schema", "schema", SCHEMA_FILE, schema_sql()), *seed_steps[:6], enum_step, *seed_steps[6:]]
 
 
 def scrub(text: str, masked: tuple[str, ...]) -> str:
@@ -337,7 +345,11 @@ def do_apply(conn: Any, steps: list[Step], log: Callable[[str], None] = print) -
         raise StageAbort("auth.users·auth.uid()·anon·authenticated 역할이 없다(Supabase가 아니거나 로컬 스텁 미설치)")
     report: dict[str, Any] = {"before": before}
     for s in steps:
-        if s.kind == "schema":
+        if s.kind == "enum":
+            report[s.name] = transaction(conn, s.name, lambda cur, s=s: run_schema(cur, s), log)
+            if "terms_guest" not in read_state(conn)["doc_type_values"]:  # ADD VALUE는 커밋 뒤에 보인다
+                raise StageAbort(f"{s.name} 사후 확인 실패: doc_type에 terms_guest 없음")
+        elif s.kind == "schema":
             report[s.name] = transaction(conn, s.name, lambda cur, s=s: run_schema(cur, s), log)
             problems = schema_ok(read_state(conn))  # ADD VALUE는 커밋 뒤에 보인다
             if problems:
@@ -357,10 +369,13 @@ def do_verify(conn: Any, steps: list[Step], log: Callable[[str], None] = print) 
         "schema_problems": schema_ok(st),
         "seed_rows_missing": missing,
         "age_14_current": ["age_14", 1] in st["legal_current"],
-        "terms_v3_privacy_v5_current": ["terms", 3] in st["legal_current"] and ["privacy_policy", 5] in st["legal_current"],
+        "terms_v3_privacy_v6_current": ["terms", 3] in st["legal_current"] and ["privacy_policy", 6] in st["legal_current"],
+        "terms_guest_enum": "terms_guest" in st["doc_type_values"],
+        "terms_guest_v1_current": ["terms_guest", 1] in st["legal_current"],
     }
     ok = (checks["auth_ready"] and not checks["schema_problems"] and not missing and checks["age_14_current"]
-          and checks["terms_v3_privacy_v5_current"])
+          and checks["terms_v3_privacy_v6_current"]
+          and checks["terms_guest_enum"] and checks["terms_guest_v1_current"])
     out = {"ok": ok, "checks": checks, "state": st}
     log(json.dumps(out, ensure_ascii=False, indent=1, default=str))
     return out

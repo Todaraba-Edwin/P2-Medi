@@ -20,7 +20,7 @@ from datetime import UTC, date, datetime
 from typing import Final, Literal, Protocol, runtime_checkable
 
 # --------------------------------------------------------------------------- 값 집합(SQL enum과 같다)
-DocType = Literal["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"]
+DocType = Literal["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14", "terms_guest"]
 ConsentDocType = Literal["terms", "privacy_consent", "sensitive_consent", "age_14"]
 ConsentAction = Literal["agree", "withdraw"]
 ConsentChannel = Literal["onboarding", "settings", "reconsent"]
@@ -31,8 +31,8 @@ AgeBand = Literal["m0_2", "m3_5", "m6_11", "y1", "y2", "y3_5", "y6_11", "y12_14"
 OnboardingStep = Literal["consent", "profile_self", "family", "done"]
 LegalReview = Literal["not_reviewed", "reviewed"]
 
-DOC_TYPES: Final = ("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14")
-# privacy_policy는 고지 문서(동의 대상 아님)
+DOC_TYPES: Final = ("terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14", "terms_guest")
+# privacy_policy·terms_guest는 고지·열람용 문서(동의 대상 아님, PRD-17-22 A: 게스트판 이용약관은 동의를 저장하지 않는다)
 CONSENT_DOC_TYPES: Final = ("terms", "privacy_consent", "sensitive_consent", "age_14")
 HEALTH_DOC: Final = "sensitive_consent"
 PROFILE_DOC: Final = "privacy_consent"
