@@ -55,7 +55,7 @@ for (const viewport of NARROW) {
       await expect(banner).toHaveAttribute("role", "alert");
       await expectInFirstScreen(page, banner);
       await expectInFirstScreen(page, page.getByTestId("fixed-notice"));
-      await expectInFirstScreen(page, page.getByTestId("legal-footer"));
+      await expectInFirstScreen(page, page.getByTestId("legal-footer")); // 개발 미리보기 화면(/dev/preview)은 고지 부품을 따로 그린다
       expect(await page.getByTestId("emergency-screen").evaluate((el) => el.firstElementChild?.getAttribute("data-testid"))).toBe("emergency-banner");
       const link = banner.getByRole("link", { name: "119 전화" });
       await expect(link).toHaveAttribute("href", "tel:119");

@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PREGNANCY_SAVE_CONSENT_HINT } from "@/features/chat";
+import { INPUT_COMBINED_NOTICE } from "@/features/chat/copy";
 import { PREGNANCY_PICK_HINT } from "@/features/result";
 import { CONSENT_DOC_TYPES, HEALTH_CONSENT_DOC } from "@/lib/api/account";
 import { DISCLAIMER, FIXED_NOTICE } from "@/lib/fixed/phrases.generated";
@@ -59,8 +60,8 @@ function onboardedSession(healthConsent: boolean, selfPregnancy: "pregnant" | "n
     completedAt: null,
     consents: Object.fromEntries(CONSENT_DOC_TYPES.filter((docType) => healthConsent || docType !== HEALTH_CONSENT_DOC).map((docType) => [docType, agree])),
     profiles: [
-      { profile_id: SELF_ID, relation: "self", label: "나", age_band: "y19_64", sex: null, pregnancy_status: selfPregnancy, sort_order: 0, medications: [] },
-      { profile_id: CHILD_ID, relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, sort_order: 1, medications: [] },
+      { profile_id: SELF_ID, relation: "self", label: "나", age_band: "y19_64", sex: null, pregnancy_status: selfPregnancy, avatar_color: "yellow", sort_order: 0, medications: [] },
+      { profile_id: CHILD_ID, relation: "child", label: "첫째", age_band: "y6_11", sex: null, pregnancy_status: null, avatar_color: "yellow", sort_order: 1, medications: [] },
     ],
   };
 }
@@ -86,6 +87,14 @@ const radio = (name: "일반인" | "임산부") => within(toggle()).getByRole("r
 const checkedLabel = () => within(toggle()).getAllByRole("radio").find((el) => el.getAttribute("aria-checked") === "true")?.textContent;
 const count = (text: string, scope: HTMLElement = main()) => (scope.textContent?.match(new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length;
 
+/** 입력창 프로필 칩을 눌러 위로 열린 목록에서 대상을 고른다(2026-11-23: 본문 "누가 먹나요" 선택 줄 대신). 고르면 목록이 닫힌다 */
+async function pickTarget(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByTestId("target-chip"));
+  const menu = await screen.findByTestId("target-menu");
+  await user.click(within(menu).getByRole("menuitemradio", { name }));
+  await waitFor(() => expect(screen.queryByTestId("target-menu")).toBeNull());
+}
+
 async function ask(user: ReturnType<typeof userEvent.setup>, question: string) {
   const before = screen.queryAllByTestId("result-card").length;
   await user.type(screen.getByRole("textbox"), question);
@@ -97,9 +106,13 @@ describe("F3 고지 개수(FE-11-10 A)", () => {
   it.each([1280, 393])("%ipx 시작 화면(게스트): 외부 AI 전송 고지는 입력창 고지 1회뿐이다(PRD-17-10 A: 시작 화면 고지 삭제)", async (width) => {
     setup({ width });
     const body = await screen.findByTestId("main");
-    expect(screen.getByTestId("start-emergency")).toBeInTheDocument(); // 시작 화면 119 줄은 그대로
+    expect(screen.queryByTestId("start-emergency")).toBeNull(); // 시작 화면 119 줄은 없다(FE-17 U-04)
+    expect(document.querySelectorAll('a[href="tel:119"]')).toHaveLength(1); // 평상시 119는 머리줄 하나
+    expect(screen.getByTestId("emergency-entry")).toHaveAttribute("href", "tel:119");
     expect(screen.queryByTestId("external-ai-notice")).toBeNull();
-    expect(within(body).getAllByTestId("input-notice")).toHaveLength(1);
+    expect(within(body).getAllByTestId("input-combined-notice")).toHaveLength(1); // 입력창 아래 통합 고지 하나(FE-17 U-02)
+    expect(within(body).queryByTestId("input-notice")).toBeNull();
+    expect(within(body).queryByTestId("legal-footer")).toBeNull();
     expect(count("외부 AI", body)).toBe(1);
     expect(count("OpenAI", body)).toBe(1);
     expect(count("외부 AI", document.body)).toBe(1);
@@ -113,8 +126,10 @@ describe("F3 고지 개수(FE-11-10 A)", () => {
     expect(count(PHRASES.NOTICE_API_FAIL, body)).toBe(0);
     expect(count(API_NO_CODE_NOTE, body)).toBe(0);
     expect(count(FIXED_NOTICE, body)).toBe(1);
-    expect(count(DISCLAIMER, body)).toBe(1);
-    expect(within(body).getAllByTestId("input-notice")).toHaveLength(1);
+    // 법적 고지는 입력창 아래 통합 고지 한 단락에 합쳤다(FE-17 U-02): 통합 고지 1회, 따로 떨어진 법적 고지 줄은 없다
+    expect(count(INPUT_COMBINED_NOTICE, body)).toBe(1);
+    expect(count(DISCLAIMER, body)).toBe(0);
+    expect(within(body).getAllByTestId("input-combined-notice")).toHaveLength(1);
     expect(within(body).queryByTestId("result-notice")).toBeNull();
     expect(within(body).getByTestId("basis-file-tag").textContent).toBe("기준일 자료");
     // 넓은 폭은 판정 줄이 있는 답이 오면 근거 상세 패널이 열린다: 배너 1 + 줄 노트 1
@@ -130,8 +145,9 @@ describe("F3 고지 개수(FE-11-10 A)", () => {
     await ask(user, "mock:실시간실패 가나다정");
     expect(count("실시간 확인", document.body)).toBe(0); // 시트는 닫혀 있어 그리지 않는다
     expect(count(FIXED_NOTICE)).toBe(1);
-    expect(count(DISCLAIMER)).toBe(1);
-    expect(screen.getAllByTestId("input-notice")).toHaveLength(1);
+    expect(count(INPUT_COMBINED_NOTICE)).toBe(1);
+    expect(count(DISCLAIMER)).toBe(0);
+    expect(screen.getAllByTestId("input-combined-notice")).toHaveLength(1);
     await user.click(screen.getByTestId("evidence-entry"));
     const sheet = await screen.findByRole("dialog", { name: "근거 상세" });
     expect(within(sheet).getByTestId("evidence-api-fail-notice").textContent).toBe(PHRASES.NOTICE_API_FAIL);
@@ -148,7 +164,7 @@ describe("F2 임신 여부 토글(게스트, FE-11-12 A·14 A·FE-11-03 A)", () 
   it("게스트는 일반인으로 시작해 context.pregnant=false를 보내고, 결과 아래 '임산부를 고르면 확인' 한 줄이 있다. 임산부로 바꾸면 true를 보내고 한 줄은 없다", async () => {
     const { user } = setup({ width: 393 });
     expect(checkedLabel()).toBe("일반인");
-    expect(screen.queryByTestId("target-picker")).toBeNull();
+    expect(screen.queryByTestId("target-chip")).toBeNull(); // 게스트는 입력창이 예전 모양(프로필 칩 없음)
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[0].context).toMatchObject({ pregnant: false, age: null });
     const hint = screen.getByTestId("pregnancy-pick-hint");
@@ -183,9 +199,9 @@ describe("F2 임신 여부 토글(게스트, FE-11-12 A·14 A·FE-11-03 A)", () 
 describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
   it("건강 정보 동의 + 대상 프로필: 토글을 바꾸면 그 프로필의 pregnancy_status만 PATCH(양방향)하고 프로필 화면에 바뀐 값이 보인다. 대상을 바꾸면 그 프로필 값으로 시작한다", async () => {
     const { user, account, state } = setup({ session: onboardedSession(true, "not_pregnant"), width: 1280 });
-    const picker = await screen.findByTestId("target-picker");
+    await screen.findByTestId("target-chip");
     expect(checkedLabel()).toBe("일반인"); // 대상을 고르기 전
-    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    await pickTarget(user, "나");
     expect(checkedLabel()).toBe("일반인"); // 프로필 not_pregnant
     await user.click(radio("임산부"));
     expect(checkedLabel()).toBe("임산부");
@@ -212,17 +228,17 @@ describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
     // 임신 중으로 저장된 프로필을 고르면 임산부로 시작한다(§7.1 규칙 ①·②)
     await user.click(radio("임산부"));
     await waitFor(() => expect(account.getState().profiles[0].pregnancy_status).toBe("pregnant"));
-    await user.click(within(picker).getByRole("radio", { name: "첫째" }));
+    await pickTarget(user, "첫째");
     expect(checkedLabel()).toBe("일반인");
-    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    await pickTarget(user, "나");
     expect(checkedLabel()).toBe("임산부");
     expect(patches).toHaveLength(3); // 대상 변경은 저장하지 않는다
   });
 
   it("건강 정보 동의가 없으면 PATCH 없이 이 대화에만 적용하고 안내 한 줄을 둔다(422를 받아도 같은 동작)", async () => {
     const { user, state } = setup({ session: onboardedSession(false), width: 1280 });
-    const picker = await screen.findByTestId("target-picker");
-    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    await screen.findByTestId("target-chip");
+    await pickTarget(user, "나");
     await user.click(radio("임산부"));
     expect(checkedLabel()).toBe("임산부");
     expect(screen.getByTestId("pregnancy-hint").textContent).toBe(PREGNANCY_SAVE_CONSENT_HINT);
@@ -231,7 +247,7 @@ describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
     expect(patches).toEqual([]);
     expect(state.session?.profiles[0].pregnancy_status).toBe("not_pregnant");
     // 대상을 바꾸면 안내는 사라지고 토글은 그 프로필 값(없음 → 일반인)으로 돌아간다
-    await user.click(within(picker).getByRole("radio", { name: "첫째" }));
+    await pickTarget(user, "첫째");
     expect(checkedLabel()).toBe("일반인");
     expect(screen.queryByTestId("pregnancy-hint")).toBeNull();
     // 서버가 422 HEALTH_CONSENT_REQUIRED를 주는 경우는 아래 "저장 실패" 시험이 본다
@@ -239,8 +255,8 @@ describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
 
   it("저장이 다른 이유로 실패하면 대화 값은 유지하고 짧은 오류 안내를 보인다", async () => {
     const { user, account, state } = setup({ session: onboardedSession(true), width: 1280 });
-    const picker = await screen.findByTestId("target-picker");
-    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    await screen.findByTestId("target-chip");
+    await pickTarget(user, "나");
     server.use(http.patch("*/api/profiles/:profileId", () => HttpResponse.json({ code: "ACCOUNT_UNAVAILABLE", fields: [] }, { status: 503 })));
     await user.click(radio("임산부"));
     const error = await screen.findByTestId("pregnancy-save-error");
@@ -260,6 +276,38 @@ describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
   });
 });
 
+describe("대상 프로필 한 값(2026-11-23): 계정 버튼·입력창 칩·요청 context가 같이 바뀐다, 본문 선택 줄 없음", () => {
+  it("계정 버튼 메뉴 맨 위 목록에서 고르면 버튼이 병아리 + 이름이 되고 입력창 칩도 같은 프로필이며, 요청에는 예전과 같은 값(연령대)만 실린다", async () => {
+    const { user, account } = setup({ session: onboardedSession(true), width: 1280 });
+    const chip = await screen.findByTestId("target-chip");
+    const button = screen.getAllByTestId("account-menu-button")[0];
+    expect(screen.queryByRole("radiogroup", { name: "누가 먹나요" })).toBeNull(); // 본문 선택 줄은 없다
+    expect(button).toHaveTextContent("로그인됨"); // 고르기 전에는 기존 상태 글자
+    expect(chip).toHaveAccessibleName("누가 먹나요 선택 안 함");
+    await user.click(button);
+    const menu = await screen.findByTestId("account-menu");
+    const items = within(menu).getAllByRole("menuitemradio").map((item) => item.textContent);
+    expect(items.slice(0, 3)).toEqual(["선택 안 함", "나", "첫째"]); // 맨 위가 프로필 목록
+    expect(within(menu).getByRole("menuitem", { name: "프로필 관리" })).toBeInTheDocument(); // 기존 계정 메뉴 항목과 같은 층
+    await user.click(within(menu).getByRole("menuitemradio", { name: "첫째" }));
+    await waitFor(() => expect(screen.queryByTestId("account-menu")).toBeNull());
+    expect(account.getState().targetProfileId).toBe(CHILD_ID);
+    expect(button).toHaveTextContent("첫째");
+    expect(within(button).getByTestId("profile-avatar")).toBeInTheDocument();
+    expect(chip).toHaveAccessibleName("누가 먹나요 첫째");
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(chatBodies[0].context).toMatchObject({ age: { lower: 6, upper: 11, unit: "세" } });
+    expect(JSON.stringify(chatBodies[0])).not.toMatch(/avatar|첫째/); // 색·이름은 요청에 싣지 않는다
+    // 입력창 칩에서 바꾸면 계정 버튼도 바뀐다. '선택 안 함'으로 돌아가면 기존 상태 글자
+    await pickTarget(user, "나");
+    expect(button).toHaveTextContent("나");
+    await pickTarget(user, "선택 안 함");
+    expect(button).toHaveTextContent("로그인됨");
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(chatBodies[1].context).toMatchObject({ age: null });
+  });
+});
+
 describe("GROUP-03 3단계 성별 숨김(FE-11-09 C·FE-11-12 A)", () => {
   /** 본인은 남성, 첫째는 여성(둘 다 건강 정보 동의 범위 안의 임신 값 포함) */
   function sexedSession(healthConsent: boolean, { selfSex, childSex, selfPregnancy = null as "pregnant" | "not_pregnant" | null }: { selfSex: "male" | "female" | null; childSex: "male" | "female" | null; selfPregnancy?: "pregnant" | "not_pregnant" | null }) {
@@ -272,10 +320,10 @@ describe("GROUP-03 3단계 성별 숨김(FE-11-09 C·FE-11-12 A)", () => {
 
   it("남성 프로필이 대상이면 토글이 없고 context.pregnant=false를 보낸다. 저장 값이 임신이어도 같다. 대상 바꾸기 전(선택 안 함)과 게스트는 보인다", async () => {
     const { user, store } = setup({ session: sexedSession(true, { selfSex: "male", childSex: "female", selfPregnancy: "pregnant" }), width: 1280 });
-    const picker = await screen.findByTestId("target-picker");
+    await screen.findByTestId("target-chip");
     expect(toggleOrNull()).not.toBeNull(); // 대상을 고르기 전(선택 안 함)은 보인다
     const formBefore = form();
-    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    await pickTarget(user, "나");
     expect(toggleOrNull()).toBeNull();
     expect(screen.queryByTestId("pregnancy-hint")).toBeNull();
     expect(screen.queryByTestId("pregnancy-save-error")).toBeNull();
@@ -289,32 +337,32 @@ describe("GROUP-03 3단계 성별 숨김(FE-11-09 C·FE-11-12 A)", () => {
 
   it("가족 프로필을 고르면 그 프로필의 성별을 따른다: 남성(숨김) → 여성(보임, 임신 값으로 시작) → 남성(다시 숨김, false)", async () => {
     const { user, store } = setup({ session: sexedSession(true, { selfSex: "male", childSex: "female" }), width: 1280 });
-    const picker = await screen.findByTestId("target-picker");
-    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    await screen.findByTestId("target-chip");
+    await pickTarget(user, "나");
     expect(toggleOrNull()).toBeNull();
-    await user.click(within(picker).getByRole("radio", { name: "첫째" }));
+    await pickTarget(user, "첫째");
     expect(toggleOrNull()).not.toBeNull();
     expect(checkedLabel()).toBe("임산부"); // 첫째는 임신으로 저장돼 있다(§7.1 규칙 ①)
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[0].context.pregnant).toBe(true);
-    await user.click(within(picker).getByRole("radio", { name: "나" }));
+    await pickTarget(user, "나");
     expect(toggleOrNull()).toBeNull();
     expect(store.getState().context.pregnant).toBe(false);
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[1].context.pregnant).toBe(false);
     // 선택 안 함으로 돌아가면 다시 보이고 일반인이다
-    await user.click(within(picker).getByRole("radio", { name: "선택 안 함" }));
+    await pickTarget(user, "선택 안 함");
     expect(toggleOrNull()).not.toBeNull();
     expect(checkedLabel()).toBe("일반인");
   });
 
   it("여성·성별 미입력 프로필과 게스트는 토글이 보이고 동작한다(동의 없음은 안내 한 줄)", async () => {
     const { user } = setup({ session: sexedSession(false, { selfSex: "female", childSex: null }), width: 393 });
-    const picker = await screen.findByTestId("target-picker");
-    await user.click(within(picker).getByRole("radio", { name: "나" })); // 여성
+    await screen.findByTestId("target-chip");
+    await pickTarget(user, "나"); // 여성
     expect(toggleOrNull()).not.toBeNull();
     expect(checkedLabel()).toBe("일반인");
-    await user.click(within(picker).getByRole("radio", { name: "첫째" })); // 미입력
+    await pickTarget(user, "첫째"); // 미입력
     expect(toggleOrNull()).not.toBeNull();
     await user.click(radio("임산부"));
     expect(checkedLabel()).toBe("임산부");
@@ -355,7 +403,7 @@ describe("사진 입력(FE-05 사진 부분, 〔D5〕·〔D6〕·〔D7〕A)", ()
     expect(main().textContent).not.toContain("약 사진 올리기");
     await user.click(screen.getByTestId("photo-entry"));
     const modal = await screen.findByTestId("photo-modal");
-    expect(within(modal).getByTestId("layer-emergency-entry")).toHaveAttribute("href", "tel:119");
+    expect(modal.querySelector('a[href="tel:119"]')).toBeNull(); // 층 안 119 진입점 없음(FE-17 U-04)
     await user.upload(within(modal).getByTestId("photo-file"), pouch());
     const card = await within(modal).findByTestId("photo-confirm-card");
     expect(chatBodies).toHaveLength(0);
@@ -430,7 +478,7 @@ describe("로그인 콜백 복귀(?auth_resume=1, 2026-11-22 사용자 보고): 
   it("온보딩을 마친 사용자는 모달 없이 바로 채팅이다(대상 선택이 보인다)", async () => {
     setUrl("?auth_resume=1");
     setup({ session: mockSession("onboarded"), width: 1280 });
-    await screen.findByTestId("target-picker");
+    await screen.findByTestId("target-chip");
     expect(window.location.search).toBe("");
     expect(screen.queryByTestId("account-modal")).toBeNull();
   });

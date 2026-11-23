@@ -38,9 +38,10 @@ for (const width of [393, 1280]) {
         const menu = page.getByTestId("account-menu");
         await expect(menu).toBeVisible();
         await expect(trigger).toHaveAttribute("aria-expanded", "true");
-        expect(await itemNames(page)).toEqual(["프로필 관리", "밝은 모드", "다크 모드", "시스템기기 설정을 따라요", "약관·정책", "로그아웃"]);
-        await expect(menu.getByRole("separator")).toHaveCount(1);
-        await expect(menu.getByRole("menuitem", { name: "프로필 관리" })).toBeFocused();
+        // 맨 위는 대상 프로필 목록(FE-17 U-01: 선택 안 함·본인·가족), 그 아래 기존 계정 메뉴
+        expect(await itemNames(page)).toEqual(["선택 안 함", "나", "첫째", "프로필 관리", "밝은 모드", "다크 모드", "시스템기기 설정을 따라요", "약관·정책", "로그아웃"]);
+        await expect(menu.getByRole("separator")).toHaveCount(2);
+        await expect(menu.getByRole("menuitemradio", { name: "선택 안 함" })).toBeFocused();
         for (const item of await menu.locator('[role="menuitem"], [role="menuitemradio"]').all()) await expectTouchTarget(item, { widthToo: false });
         // 메뉴는 버튼 위로 열리고 화면을 벗어나지 않는다
         const menuBox = (await menu.boundingBox())!;
@@ -52,9 +53,9 @@ for (const width of [393, 1280]) {
 
         // 키보드: ↓로 옮기고 끝에서 처음으로 돈다. Esc로 닫히면 초점은 버튼으로
         await page.keyboard.press("ArrowDown");
-        await expect(menu.getByRole("menuitemradio", { name: "밝은 모드" })).toBeFocused();
+        await expect(menu.getByRole("menuitemradio", { name: "나" })).toBeFocused();
         await page.keyboard.press("ArrowUp");
-        await expect(menu.getByRole("menuitem", { name: "프로필 관리" })).toBeFocused(); // 초점 이동은 비동기라 한 번씩 기다린다
+        await expect(menu.getByRole("menuitemradio", { name: "선택 안 함" })).toBeFocused(); // 초점 이동은 비동기라 한 번씩 기다린다
         await page.keyboard.press("ArrowUp");
         await expect(menu.getByRole("menuitem", { name: "로그아웃" })).toBeFocused();
         await page.keyboard.press("Escape");
@@ -66,7 +67,7 @@ for (const width of [393, 1280]) {
         // 바깥을 누르면 닫힌다
         await trigger.click();
         await expect(menu).toBeVisible();
-        await expect(menu.getByRole("menuitem", { name: "프로필 관리" })).toBeFocused(); // 열림이 끝난 뒤(바깥 누름 감지는 열린 다음 틱부터 돈다)
+        await expect(menu.getByRole("menuitemradio", { name: "선택 안 함" })).toBeFocused(); // 첫 항목(프로필 목록 맨 위). 열림이 끝난 뒤(바깥 누름 감지는 열린 다음 틱부터 돈다)
         await page.mouse.click(width < 1024 ? 200 : 700, 80);
         await expect(menu).toHaveCount(0);
       });

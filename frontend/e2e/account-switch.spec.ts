@@ -18,7 +18,7 @@ for (const width of [360, 1280]) {
       await mockChat(page, "found");
       await openApp(page);
       await expect(input(page)).toBeVisible();
-      for (const testId of ["entry-choice", "login-entry", "guest-start", "account-entry", "account-menu", "account-modal", "target-picker"]) {
+      for (const testId of ["entry-choice", "login-entry", "guest-start", "account-entry", "account-menu", "account-modal", "target-picker", "target-chip"]) {
         await expect(page.getByTestId(testId), testId).toHaveCount(0);
       }
       await expect(page.getByRole("button", { name: "로그인/가입" })).toHaveCount(0);
@@ -32,7 +32,7 @@ for (const width of [360, 1280]) {
       }
       await ask(page, QUESTION);
       await expect(page.getByTestId("result-card")).toBeVisible();
-      await expect(page.getByTestId("target-picker")).toHaveCount(0);
+      await expect(page.getByTestId("target-chip")).toHaveCount(0);
       expect(accountCalls).toEqual([]);
     });
 

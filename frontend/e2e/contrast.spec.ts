@@ -63,11 +63,11 @@ for (const width of [360, 320]) {
   test.describe(`색 대비 ${width}px`, () => {
     test.use({ viewport: { width, height: HEIGHT } });
 
-    test("시작 화면: 머리줄 119·예시 칩·119 안내 줄·고지·입력창 안내 글자(외부 AI 고지는 입력창 고지, PRD-17-10 A)", async ({ page }) => {
+    test("시작 화면: 머리줄 119·예시 칩·통합 고지·입력창 안내 글자(FE-17 U-02·U-04: 시작 화면 119 줄 없음)", async ({ page }) => {
       await openApp(page);
       const report = await check(page, `start-${width}`);
       const ids = new Set(report.samples.map((sample) => sample.testId));
-      for (const id of ["emergency-entry", "start-emergency", "input-notice", "legal-footer", "example-chip"]) expect(ids, id).toContain(id);
+      for (const id of ["emergency-entry", "input-combined-notice", "example-chip"]) expect(ids, id).toContain(id);
       expect(report.samples.some((sample) => sample.placeholder)).toBe(true);
     });
 

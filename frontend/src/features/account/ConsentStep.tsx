@@ -25,7 +25,7 @@ import {
   docVersionLine,
 } from "./copy";
 import { Markdown } from "./Markdown";
-import { ConfirmDialog, EmergencyEntrySlot, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
+import { ConfirmDialog, FailureLine, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
 
 type Agreed = ConsentChoices;
 
@@ -167,7 +167,6 @@ export function ConsentStep() {
       >
         {CONSENT_SUBMIT_LABEL}
       </button>
-      <EmergencyEntrySlot />
       <ConfirmDialog
         open={confirmingWithdraw}
         onOpenChange={setConfirmingWithdraw}

@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readUiSetting, removeUiSetting, writeUiSetting } from "@/lib/ui-settings";
 import { SYSTEM_MODE_HINT, THEME_LABELS } from "@/features/settings/copy";
+import type { Profile } from "@/lib/api/account";
 import { AccountMenu } from "./AccountMenu";
 
 // 계정 메뉴 팝오버(2026-11-23): 버튼 하나 → 위로 열리는 메뉴. 화면 모드 3칸(FE-12-03 B)은 메뉴 안에서 바로 고르고 기기 저장소에만 저장한다(FE-12-04 A).
@@ -131,3 +132,43 @@ describe("계정 메뉴의 화면 모드", () => {
     expect(radio("dark")).toHaveAttribute("aria-checked", "true");
   });
 });
+
+describe("계정 메뉴의 대상 프로필(2026-11-23)", () => {
+  const profiles: Profile[] = [
+    { profile_id: "a", relation: "self", label: "나", age_band: null, sex: null, pregnancy_status: null, avatar_color: "yellow", sort_order: 0, medications: [] },
+    { profile_id: "b", relation: "child", label: "첫째", age_band: null, sex: null, pregnancy_status: null, avatar_color: "pink", sort_order: 1, medications: [] },
+  ];
+
+  it("고른 프로필이 있으면 버튼이 그 색의 병아리 + 이름이고, 메뉴 맨 위에 '누가 먹나요' 목록(선택 안 함·본인·가족)이 있어 고르면 닫힌다", async () => {
+    const onChange = vi.fn();
+    const { user, button } = renderMenu({ target: { profiles, value: "b", onChange } });
+    expect(button).toHaveTextContent("첫째");
+    expect(within(button).getByTestId("profile-avatar")).toHaveAttribute("data-color", "pink");
+    await user.click(button);
+    const menu = screen.getByTestId("account-menu");
+    expect(within(menu).getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();
+    const radios = within(menu).getAllByRole("menuitemradio");
+    expect(radios.slice(0, 3).map((item) => item.textContent)).toEqual(["선택 안 함", "나", "첫째"]);
+    expect(within(menu).getByRole("menuitemradio", { name: "첫째" })).toHaveAttribute("aria-checked", "true");
+    await waitFor(() => expect(radios[0]).toHaveFocus()); // 첫 항목(프로필 목록 맨 위)에 초점
+    await user.click(within(menu).getByRole("menuitemradio", { name: "나" }));
+    expect(onChange).toHaveBeenLastCalledWith("a");
+    await waitFor(() => expect(screen.queryByTestId("account-menu")).toBeNull());
+  });
+
+  it("고르지 않았으면 기존 상태 글자 '로그인됨', 게스트·프로필 없음은 목록이 없다", async () => {
+    const { user, button } = renderMenu({ target: { profiles, value: null, onChange: () => {} } });
+    expect(button).toHaveTextContent("로그인됨");
+    expect(within(button).queryByTestId("profile-avatar")).toBeNull();
+    await user.click(button);
+    expect(screen.getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();
+  });
+
+  it("프로필이 없으면 목록을 그리지 않는다(기존 메뉴 그대로)", async () => {
+    const { user, button } = renderMenu({ target: { profiles: [], value: null, onChange: () => {} } });
+    await user.click(button);
+    expect(screen.queryByRole("group", { name: "누가 먹나요" })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "프로필 관리" })).toHaveFocus());
+  });
+});
+

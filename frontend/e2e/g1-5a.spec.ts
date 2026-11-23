@@ -17,6 +17,9 @@ const shot = async (page: Page, name: string) => {
 
 const DISCLAIMER = "공공데이터 기반 정보 제공이며 진단·처방이 아님 · 금기 목록에 없다는 것이 안전하다는 뜻이 아님 · 요양기관의 DUR 점검을 대체하지 않음";
 /** 승인 원문(PRD-17-07 A; 마지막 문장은 원문 승인 2026-11-22, PRD-17-10 후속, RFP-24-01 요소 보강) */
+/** 입력창 아래 통합 고지(FE-17 U-02 초안, 승인 대기) */
+const COMBINED_NOTICE =
+  "공공데이터 기반 정보 제공이며 진단·처방이 아니에요. 금기 목록에 없어도 안전하다는 뜻은 아니고, 요양기관의 DUR 점검을 대체하지 않아요. 질문은 저장하지 않고 탭을 닫으면 사라지지만, 답변을 만들기 위해 질문과 선택한 프로필 값이 외부 AI(OpenAI)로 전송되며 제공자 정책에 따라 일정 기간 보관될 수 있어요.";
 const INPUT_NOTICE = "질문은 이 탭에만 있고 저장하지 않아요. 새로고침하거나 탭을 닫으면 사라져요. 답변을 만들기 위해 질문과 선택한 프로필 값은 외부 AI(OpenAI)로 전송되며, 제공자 정책에 따라 일정 기간 보관될 수 있어요.";
 const NOTICE_API_FAIL = "실시간 확인을 하지 못해 아래 결과는 기준일 자료로 확인한 것이에요.";
 const API_NOTE = "실시간 확인을 하지 못함(이 성분은 실시간 조회에 쓸 코드가 없어요. 파일 기준 결과는 그대로예요)";
@@ -93,7 +96,7 @@ for (const width of [393, 1280]) {
       await expect(radio(page, "일반인")).toBeFocused();
       // 게스트가 토글을 바꾸면 근처에 안내 한 줄(초안 글자, FE-11-14 A). 입력창 고지는 그대로 1회
       await expect(page.getByTestId("pregnancy-hint")).toHaveText(SAVE_HINT);
-      await expect(page.getByTestId("input-notice")).toHaveCount(1);
+      await expect(page.getByTestId("input-combined-notice")).toHaveCount(1);
       await expectNoHorizontalScroll(page);
     });
 
@@ -142,11 +145,14 @@ for (const width of [393, 1280]) {
       expect(await tag.evaluate((el) => el.closest("header") !== null)).toBe(true);
       expect(await countIn(main(page), "실시간 확인")).toBe(0);
       expect(await countIn(main(page), FIXED_NOTICE)).toBe(1);
-      expect(await countIn(main(page), DISCLAIMER)).toBe(1);
-      expect(await countIn(main(page), INPUT_NOTICE)).toBe(1);
+      // 법적 고지·입력창 고지는 입력창 아래 통합 고지 한 단락으로 합쳤다(FE-17 U-02): 통합 고지 1회, 예전 두 줄은 0회
+      expect(await countIn(main(page), COMBINED_NOTICE)).toBe(1);
+      expect(await countIn(main(page), DISCLAIMER)).toBe(0);
+      expect(await countIn(main(page), INPUT_NOTICE)).toBe(0);
       await expect(dock(page).getByTestId("fixed-notice")).toHaveCount(1);
-      await expect(page.getByTestId("input-notice")).toHaveCount(1);
-      await expect(page.getByTestId("legal-footer")).toHaveCount(1);
+      await expect(page.getByTestId("input-combined-notice")).toHaveCount(1);
+      await expect(page.getByTestId("input-notice")).toHaveCount(0);
+      await expect(page.getByTestId("legal-footer")).toHaveCount(0);
       await expectInFirstScreen(page, tag, { underUserLayer: desktop });
       // 근거 상세: 넓은 폭은 패널이 자동으로 열려 있고, 좁은 폭은 진입 버튼으로 시트를 연다
       if (!desktop) await page.getByTestId("evidence-entry").click();

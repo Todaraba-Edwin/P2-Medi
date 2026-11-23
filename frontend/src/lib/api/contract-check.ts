@@ -77,6 +77,11 @@ export type ContractChecks = [
   Expect<Extends<NonNullable<Gen["ProfileOut"]["age_band"]>, A.AgeBand>>,
   Expect<Extends<NonNullable<Gen["ProfileOut"]["pregnancy_status"]>, A.PregnancyStatus>>,
   // 성별(FE-11-09 C): 값 목록이 양쪽 같고, 요청 모델 두 개에도 같은 칸이 있다
+  // 병아리 배경색(FE-17 U-01): 값 목록이 양쪽 같고, 요청 두 모델에도 같은 칸이 있다
+  Expect<Extends<Gen["ProfileOut"]["avatar_color"], A.AvatarColor>>,
+  Expect<Extends<A.AvatarColor, Gen["ProfileOut"]["avatar_color"]>>,
+  Expect<Extends<A.AvatarColor, Gen["ProfileCreate"]["avatar_color"]>>,
+  Expect<Extends<A.AvatarColor, NonNullable<Gen["ProfileUpdate"]["avatar_color"]>>>,
   Expect<Extends<NonNullable<Gen["ProfileOut"]["sex"]>, A.Sex>>,
   Expect<Extends<A.Sex, NonNullable<Gen["ProfileOut"]["sex"]>>>,
   Expect<Extends<A.Sex | null, Gen["ProfileCreate"]["sex"]>>,

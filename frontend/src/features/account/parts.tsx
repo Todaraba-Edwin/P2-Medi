@@ -37,15 +37,14 @@ import {
   HEALTH_CONSENT_REQUIRED_FALLBACK,
 } from "./copy";
 
-/** 모달 안 부품이 함께 쓰는 값: 스토어, 층을 그릴 자리, 마스코트를 숨길지, 119 진입점 */
+/** 모달 안 부품이 함께 쓰는 값: 스토어, 층을 그릴 자리, 마스코트를 숨길지(119 진입점은 층 안에 두지 않는다, FE-17 U-04) */
 export interface AccountModalContextValue {
   store: AccountStore;
   container: HTMLElement | null;
   hideMascot: boolean;
-  emergencyEntry: React.ReactNode;
 }
 
-export const AccountModalContext = createContext<AccountModalContextValue>({ store: accountStore, container: null, hideMascot: false, emergencyEntry: null });
+export const AccountModalContext = createContext<AccountModalContextValue>({ store: accountStore, container: null, hideMascot: false });
 export const useAccountModal = () => useContext(AccountModalContext);
 
 /** 단계 제목. 모달이 열리거나 단계가 바뀌면 초점이 여기로 온다(PRD-13 §4.5: 입력창이 아니라 제목) */
@@ -64,12 +63,6 @@ export function StepBody({ children, className, ...props }: React.ComponentProps
       {children}
     </div>
   );
-}
-
-/** 모달이 머리줄의 119 진입점을 덮는 동안의 진입점 자리(조립이 넘긴 것을 그대로 둔다. 배너가 떠 있으면 비어 있다) */
-export function EmergencyEntrySlot({ className }: { className?: string }) {
-  const { emergencyEntry } = useAccountModal();
-  return emergencyEntry ? <div className={cn("flex", className)}>{emergencyEntry}</div> : null;
 }
 
 /**

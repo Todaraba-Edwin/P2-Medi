@@ -139,6 +139,15 @@ export const MedicationSchema = z.strictObject({
 });
 export type Medication = z.infer<typeof MedicationSchema>;
 
+/**
+ * 프로필 병아리 배경색 8개(백엔드 `account_repo.AVATAR_COLORS` 순서 그대로, 2026-11-23 FE-17 U-01). 건강 정보가 아니다.
+ * 응답 `ProfileOut.avatar_color`(늘 포함, 기본 `yellow`), 요청 `ProfileCreate`(기본 yellow)·`ProfileUpdate`(선택, null 거부)
+ */
+export const AVATAR_COLORS = ["yellow", "coral", "pink", "purple", "blue", "teal", "green", "gray"] as const;
+export const AvatarColorSchema = z.enum(AVATAR_COLORS);
+export type AvatarColor = z.infer<typeof AvatarColorSchema>;
+export const DEFAULT_AVATAR_COLOR: AvatarColor = "yellow";
+
 export const ProfileSchema = z.strictObject({
   profile_id: z.string().min(1),
   relation: RelationSchema,
@@ -148,6 +157,8 @@ export const ProfileSchema = z.strictObject({
   sex: SexSchema.nullable(),
   /** 건강 정보. 저장한 적이 없으면 null */
   pregnancy_status: PregnancyStatusSchema.nullable(),
+  /** 병아리 배경색. 칸이 없거나(배포 순서 차이) 모르는 값이면 기본색으로 읽는다(화면이 깨지지 않게) */
+  avatar_color: AvatarColorSchema.catch(DEFAULT_AVATAR_COLOR),
   sort_order: z.number().int(),
   medications: z.array(MedicationSchema),
 });
@@ -202,10 +213,12 @@ export interface ProfileDraft {
   age_band: AgeBand | null;
   sex: Sex | null;
   health: { pregnancy_status: PregnancyStatus | null; medications: MedicationInput[] } | null;
+  /** 병아리 배경색(건강 정보 아님, 동의와 상관없이 늘 싣는다) */
+  avatar_color: AvatarColor;
 }
 
 function profileBody(draft: ProfileDraft): ProfileCreateBody & ProfileUpdateBody {
-  const base = { relation: draft.relation, label: draft.label, age_band: draft.age_band, sex: draft.sex };
+  const base = { relation: draft.relation, label: draft.label, age_band: draft.age_band, sex: draft.sex, avatar_color: draft.avatar_color };
   return draft.health ? { ...base, pregnancy_status: draft.health.pregnancy_status, medications: draft.health.medications } : base;
 }
 

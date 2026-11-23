@@ -57,8 +57,8 @@ afterAll(() => server.close());
 const ALL: ConsentChoices = { terms: true, privacy_consent: true, sensitive_consent: true, age_14: true };
 const REQUIRED_ONLY: ConsentChoices = { terms: true, privacy_consent: true, sensitive_consent: false, age_14: true };
 const NO_HEALTH = { pregnancy_status: null, medications: [] };
-const family = (label: string, extra: Partial<ProfileDraft> = {}): ProfileDraft => ({ relation: "child", label, age_band: "y6_11", sex: null, health: null, ...extra });
-const selfDraft = (extra: Partial<ProfileDraft> = {}): ProfileDraft => ({ relation: "self", label: "나", age_band: "y19_64", sex: null, health: null, ...extra });
+const family = (label: string, extra: Partial<ProfileDraft> = {}): ProfileDraft => ({ relation: "child", label, age_band: "y6_11", sex: null, health: null, avatar_color: "blue", ...extra });
+const selfDraft = (extra: Partial<ProfileDraft> = {}): ProfileDraft => ({ relation: "self", label: "나", age_band: "y19_64", sex: null, health: null, avatar_color: "yellow", ...extra });
 const med = (text: string) => ({ input_text: text, item_seq: null });
 const consentOf = (me: Me | null, docType: string) => me?.consents.find((consent) => consent.doc_type === docType);
 
@@ -421,6 +421,7 @@ describe("프로필: 본인 1 + 가족 최대 3", () => {
       age_band: "y19_64",
       sex: null,
       pregnancy_status: "not_pregnant",
+      avatar_color: "yellow", // 병아리 배경색(2026-11-23): 첫 프로필은 기본색
       sort_order: 0,
       medications: [{ medication_id: expect.any(String), input_text: "가나다정", item_seq: null, confirmed_at: null }],
     });
@@ -539,20 +540,20 @@ describe("프로필: 본인 1 + 가족 최대 3", () => {
     await expect(createProfile(family("첫째"))).rejects.toMatchObject({ status: 403, code: "CONSENT_REQUIRED", fields: ["age_14"] });
   });
 
-  it("요청 본문은 ProfileCreate 칸만 싣는다(건강 정보 동의가 없으면 건강 칸이 아예 없다. 성별은 늘 싣고 null = 미입력)", async () => {
+  it("요청 본문은 ProfileCreate 칸만 싣는다(건강 정보 동의가 없으면 건강 칸이 아예 없다. 성별·병아리 배경색은 늘 싣고 성별 null = 미입력)", async () => {
     const bodies: unknown[] = [];
     server.use(
       http.post("*/api/profiles", async ({ request }) => {
         bodies.push(await request.json());
-        const profile: Profile = { profile_id: "00000000-0000-4000-8000-000000000001", relation: "child", label: "첫째", age_band: null, sex: null, pregnancy_status: null, sort_order: 0, medications: [] };
+        const profile: Profile = { profile_id: "00000000-0000-4000-8000-000000000001", relation: "child", label: "첫째", age_band: null, sex: null, pregnancy_status: null, avatar_color: "yellow", sort_order: 0, medications: [] };
         return HttpResponse.json(profile, { status: 201 });
       }),
     );
     await createProfile(family("첫째"));
     await createProfile(family("첫째", { sex: "female", health: { pregnancy_status: "unknown", medications: [med("가나다정")] } }));
     expect(bodies).toEqual([
-      { relation: "child", label: "첫째", age_band: "y6_11", sex: null },
-      { relation: "child", label: "첫째", age_band: "y6_11", sex: "female", pregnancy_status: "unknown", medications: [{ input_text: "가나다정", item_seq: null }] },
+      { relation: "child", label: "첫째", age_band: "y6_11", sex: null, avatar_color: "blue" },
+      { relation: "child", label: "첫째", age_band: "y6_11", sex: "female", avatar_color: "blue", pregnancy_status: "unknown", medications: [{ input_text: "가나다정", item_seq: null }] },
     ]);
   });
 
@@ -699,7 +700,7 @@ describe("대상 선택 → 요청 context", () => {
   });
 
   it("연령대·임신 여부 변환: 고르지 않음·모름·null은 null, 건강 정보 동의가 없으면 임신 여부를 보내지 않는다", () => {
-    const profile: Profile = { profile_id: "p", relation: "child", label: "첫째", age_band: "m6_11", sex: null, pregnancy_status: "pregnant", sort_order: 0, medications: [] };
+    const profile: Profile = { profile_id: "p", relation: "child", label: "첫째", age_band: "m6_11", sex: null, pregnancy_status: "pregnant", avatar_color: "yellow", sort_order: 0, medications: [] };
     expect(profileToContext(null, true)).toEqual({ age: null, pregnant: null });
     expect(profileToContext(profile, true)).toEqual({ age: AGE_BAND_RANGE.m6_11, pregnant: true });
     expect(profileToContext(profile, false)).toEqual({ age: { lower: 6, upper: 11, unit: "개월" }, pregnant: null });
@@ -725,7 +726,7 @@ describe("대상 선택 → 요청 context", () => {
   });
 
   it("임신 여부 토글 숨김(FE-11-09 C, GROUP-03 3단계): 대상 프로필이 남성일 때만 true, 여성·미입력·대상 없음(게스트)은 false", () => {
-    const profile: Profile = { profile_id: "p", relation: "self", label: "나", age_band: "y19_64", sex: "male", pregnancy_status: null, sort_order: 0, medications: [] };
+    const profile: Profile = { profile_id: "p", relation: "self", label: "나", age_band: "y19_64", sex: "male", pregnancy_status: null, avatar_color: "yellow", sort_order: 0, medications: [] };
     expect(hidesPregnancyToggle(profile)).toBe(true);
     expect(hidesPregnancyToggle({ ...profile, pregnancy_status: "pregnant" })).toBe(true); // 저장 값이 어긋나 있어도 성별이 남성이면 숨긴다
     expect(hidesPregnancyToggle({ ...profile, sex: "female" })).toBe(false);

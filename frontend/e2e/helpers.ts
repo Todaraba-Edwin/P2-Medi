@@ -109,6 +109,29 @@ export async function openAccountMenu(page: Page) {
   return menu;
 }
 
+/**
+ * 입력창 안 대상 프로필 칩(2026-11-23, 본문 "누가 먹나요" 선택 줄 대신)을 눌러 위로 열린 목록에서 대상을 고른다. 고르면 목록이 닫힌다.
+ * 같은 값을 계정 버튼 메뉴 맨 위 목록도 쓴다(`openAccountMenu`)
+ */
+export async function pickTarget(page: Page, name: string) {
+  await page.getByTestId("target-chip").click();
+  const menu = page.getByTestId("target-menu");
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitemradio", { name, exact: true }).click();
+  await expect(menu).toHaveCount(0);
+}
+
+/** 대상 프로필 목록(입력창 칩을 눌러 연다)의 항목 글자. 열어 읽고 Esc로 닫는다 */
+export async function targetOptionTexts(page: Page): Promise<string[]> {
+  await page.getByTestId("target-chip").click();
+  const menu = page.getByTestId("target-menu");
+  await expect(menu).toBeVisible();
+  const texts = await menu.getByTestId("target-option").allTextContents();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  return texts;
+}
+
 /** 계정 메뉴의 `프로필 관리`(게스트: `로그인/가입`)로 계정 모달을 연다 */
 export async function openAccountEntry(page: Page) {
   const menu = await openAccountMenu(page);
@@ -244,5 +267,8 @@ export const tel = (page: Page) => page.locator('a[href="tel:119"]');
 /** 배너의 전화 링크 */
 export const bannerTel = (page: Page) => page.getByTestId("emergency-banner").locator('a[href="tel:119"]');
 /** 머리줄을 덮는 층(드로어·사이드바 오버레이·근거 상세 시트) 안의 119 진입점 */
+/** 옛 층 안 119 진입점(FE-17 U-04로 제거). 없어졌는지 확인할 때만 쓴다 */
 export const layerTel = (page: Page) => page.getByTestId("layer-emergency-entry");
+/** 입력창 아래 통합 고지 한 단락(FE-17 U-02: 법적 고지 + 저장 안 함·외부 AI 전송 고지) */
+export const notice = (page: Page) => page.getByTestId("input-combined-notice");
 

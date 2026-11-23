@@ -58,8 +58,6 @@ export interface AccountModalProps {
   container?: HTMLElement | null;
   /** 119 안내가 떠 있으면 마스코트를 그리지 않는다(PRD-06-02) */
   hasEmergency?: boolean;
-  /** 모달이 머리줄의 119 진입점을 덮는 동안 누를 수 있게 모달 안에 둘 진입점(배너가 있으면 넘기지 않는다) */
-  emergencyEntry?: React.ReactNode;
 }
 
 /**
@@ -70,7 +68,7 @@ export interface AccountModalProps {
  * - 본문만 모달 안에서 스크롤하고 코너 버튼은 상자에 고정된다(§4.7). Tab은 모달 안에서만 돈다(Radix)
  * - 탭 순서는 화면 순서와 같게 `<` → `닫기`로 둔다(§4.5·§11의 WCAG 2.4.3 점검에서 고른 값)
  */
-export function AccountModal({ store = accountStore, container = null, hasEmergency = false, emergencyEntry = null }: AccountModalProps) {
+export function AccountModal({ store = accountStore, container = null, hasEmergency = false }: AccountModalProps) {
   const flow = useAccountStore((state) => state.flow, store);
   const step = flow[flow.length - 1];
   const content = useRef<HTMLDivElement>(null);
@@ -115,7 +113,7 @@ export function AccountModal({ store = accountStore, container = null, hasEmerge
             {CLOSE_LABEL}
           </Dialog.Close>
           <div ref={body} data-testid="account-body" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-            <AccountModalContext.Provider value={{ store, container, hideMascot: hasEmergency, emergencyEntry }}>
+            <AccountModalContext.Provider value={{ store, container, hideMascot: hasEmergency }}>
               {(step === "login" || step === "signup") && <LoginStep key={step} mode={step} />}
               {step === "consent" && <ConsentStep />}
               {step === "profiles" && <ProfileList />}

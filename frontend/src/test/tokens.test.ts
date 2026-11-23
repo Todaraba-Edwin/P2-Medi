@@ -51,8 +51,8 @@ const NON_TEXT_PAIRS: [string, string][] = [["capsule-line", "bg"]];
 const DARK_ONLY_NON_TEXT_PAIRS: [string, string][] = [["fixed-edge", "fixed"]];
 
 describe("디자인 토큰", () => {
-  it("색 토큰 32개와 --font-sans가 @theme에 있다(FE-12: 짙은 바탕 글자·스크림·고지 띠 테두리 4개를 더했다)", () => {
-    expect(Object.keys(light)).toHaveLength(32);
+  it("색 토큰 40개와 --font-sans가 @theme에 있다(FE-12: 짙은 바탕 글자·스크림·고지 띠 테두리 4개, 2026-11-23: 프로필 병아리 배경 8색)", () => {
+    expect(Object.keys(light)).toHaveLength(40);
     expect(light["--color-capsule-line"]).toBe("#4e3a2c");
     expect(light["--color-capsule-blue"]).toBe("#c9daec");
     expect(light["--color-capsule-blue-ink"]).toBe("#1f3a5f");
@@ -103,6 +103,22 @@ describe("디자인 토큰", () => {
 
   it("다크: 안전 고지 띠 테두리가 바탕과 구분된다(3:1 이상)", () => {
     const failed = DARK_ONLY_NON_TEXT_PAIRS.filter(([fg, bg]) => contrast(darkAttr[`--color-${fg}`], darkAttr[`--color-${bg}`]) < 3).map(([fg, bg]) => `${fg}/${bg}`);
+    expect(failed).toEqual([]);
+  });
+
+  // 프로필 병아리 배경 8색(2026-11-23): 병아리가 바탕 위에서 보여야 한다(비글자 3:1). 라이트는 갈색 윤곽, 다크는 노랑 몸통이 기준이다
+  // (그림 `public/brand/face.png`에서 뽑은 색: 윤곽 #412519, 몸통 #FEE26E). 8색은 서로 다른 값이다(색으로 사람을 구분한다)
+  const AVATAR_KEYS = ["yellow", "coral", "pink", "purple", "blue", "teal", "green", "gray"];
+  const CHICK_OUTLINE = "#412519";
+  const CHICK_FILL = "#fee26e";
+  it.each([
+    ["라이트", light, CHICK_OUTLINE],
+    ["다크", darkAttr, CHICK_FILL],
+  ])("%s: 프로필 배경 8색 위에서 병아리가 3:1 이상으로 보이고 8색이 모두 다르다", (_, vars, chick) => {
+    const colors = AVATAR_KEYS.map((key) => vars[`--color-avatar-${key}`]);
+    expect(colors.every((color) => typeof color === "string")).toBe(true);
+    expect(new Set(colors).size).toBe(8);
+    const failed = AVATAR_KEYS.filter((key) => contrast(chick, vars[`--color-avatar-${key}`]) < 3);
     expect(failed).toEqual([]);
   });
 });

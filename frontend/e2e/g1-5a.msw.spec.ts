@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, expectNoHorizontalScroll, openAccountEntry, openApp } from "./helpers";
+import { HEIGHT, ask, expectNoHorizontalScroll, openAccountEntry, openApp, pickTarget } from "./helpers";
 
 // GROUP-01 5a(FE-11, 2026-11-20) 로그인 흐름 e2e(Playwright 프로젝트 `msw-worker`, 브라우저 워커의 목. 실제 백엔드·원격 호출 0):
 // - FE-11-13: 건강 정보 동의 + 대상 프로필이면 토글 변경이 그 프로필 `pregnancy_status`를 PATCH(양방향)하고 프로필 화면에 바뀐 값이 보인다.
@@ -20,7 +20,6 @@ const modal = (page: Page) => page.getByTestId("account-modal");
 const toggle = (page: Page) => page.getByRole("radiogroup", { name: "임신 여부" });
 const radio = (page: Page, name: "일반인" | "임산부") => toggle(page).getByRole("radio", { name });
 /** 대상 고르기의 한 칸(라디오 입력은 sr-only라 글자(label)를 누른다, account.msw.spec과 같은 방식) */
-const target = (page: Page, name: string) => page.getByTestId("target-picker").getByText(name, { exact: true });
 
 function watch(page: Page) {
   const chats: { question: string; context: { pregnant: boolean | null } }[] = [];
@@ -71,7 +70,7 @@ for (const width of [393, 1280]) {
       const { chats, patches } = watch(page);
       await loginAndSaveSelf(page, { healthConsent: true, pregnancy: "아니오" });
       await expect(radio(page, "일반인")).toHaveAttribute("aria-checked", "true"); // 대상을 고르기 전
-      await target(page, "나").click();
+      await pickTarget(page, "나");
       await expect(radio(page, "일반인")).toHaveAttribute("aria-checked", "true"); // 프로필 "아니오"
       await radio(page, "임산부").click();
       await expect(radio(page, "임산부")).toHaveAttribute("aria-checked", "true");
@@ -100,19 +99,21 @@ for (const width of [393, 1280]) {
       // 다시 임산부로 저장해 두고 대상을 바꿨다 돌아오면 임산부로 시작한다(§7.1 규칙 ①·②). 대상 변경은 저장하지 않는다
       await radio(page, "임산부").click();
       await expect.poll(() => patches.length).toBe(3);
-      await target(page, "선택 안 함").click();
+      await pickTarget(page, "선택 안 함");
       await expect(radio(page, "일반인")).toHaveAttribute("aria-checked", "true");
-      await target(page, "나").click();
+      await pickTarget(page, "나");
       await expect(radio(page, "임산부")).toHaveAttribute("aria-checked", "true");
       expect(patches).toHaveLength(3);
-      await expect(page.getByTestId("mascot")).toHaveCount(0);
+      // 병아리는 입력창 프로필 칩의 아바타(보조 자리, FE-17 U-01)에만 있고 그 밖(토글·고지·결과)에는 없다
+      await expect(page.locator('[data-testid="mascot"]:not([data-testid="profile-avatar"] *)')).toHaveCount(0);
+      await expect(page.getByTestId("dock").getByTestId("input-combined-notice").getByTestId("mascot")).toHaveCount(0);
       await expectNoHorizontalScroll(page);
     });
 
     test("건강 정보 동의가 없으면 PATCH 없이 이 대화에만 적용하고 토글 근처 안내 한 줄이 보인다. 프로필에는 임신 여부가 남지 않는다", async ({ page }) => {
       const { chats, patches } = watch(page);
       await loginAndSaveSelf(page, { healthConsent: false });
-      await target(page, "나").click();
+      await pickTarget(page, "나");
       await radio(page, "임산부").click();
       await expect(radio(page, "임산부")).toHaveAttribute("aria-checked", "true");
       const hint = page.getByTestId("pregnancy-hint");

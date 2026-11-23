@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, MIN_TOUCH, ask, expectNoHorizontalScroll, expectTouchTarget, openApp } from "./helpers";
+import { HEIGHT, MIN_TOUCH, ask, expectNoHorizontalScroll, expectTouchTarget, openApp, pickTarget } from "./helpers";
 
 // GROUP-03 2단계 F1(FE-04, 2026-11-20): 프로필 성별(선택) 입력 + 첫 로그인 동의 화면의 "만 14세 이상입니다." 별도 필수 체크.
 // Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다. 실제 백엔드·원격 호출 0.
@@ -94,7 +94,7 @@ for (const width of [393, 1280]) {
       const sex = modal(page).getByLabel("성별");
       await expect(sex).toBeEnabled(); // 건강 정보 동의가 없어도 고를 수 있다
       // 건강 정보 묶음은 비활성이다(fieldset은 Playwright가 disabled 판정을 하지 않으므로 안의 라디오·약 입력으로 본다)
-      for (const radio of await modal(page).getByRole("radio").all()) await expect(radio).toBeDisabled();
+      for (const radio of await modal(page).getByTestId("health-fields").getByRole("radio").all()) await expect(radio).toBeDisabled(); // 프로필 색(건강 정보 아님)은 묶음 밖
       await expect(modal(page).getByLabel("복용 중인 약(선택)")).toBeDisabled();
       await expect(sex).toHaveValue("");
       await expect(sex.getByRole("option")).toHaveText(["선택 안 함", "여성", "남성"]);
@@ -132,7 +132,7 @@ for (const width of [393, 1280]) {
       await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
       await expect(modal(page).getByTestId("profile-item").nth(1)).toContainText("자녀 · 남성");
       expect(profileBodies.map((body) => body.sex)).toEqual(["female", null, "male"]);
-      for (const body of profileBodies) expect(Object.keys(body)).toEqual(["relation", "label", "age_band", "sex"]); // 건강 칸은 없다
+      for (const body of profileBodies) expect(Object.keys(body)).toEqual(["relation", "label", "age_band", "sex", "avatar_color"]); // 건강 칸은 없다(병아리 배경색은 건강 정보가 아니라 늘 실린다, FE-17 U-01)
       // 다시 성별을 넣고 질문: `/chat` 본문에는 성별이 없다
       await modal(page).getByRole("button", { name: "나 수정" }).click();
       await modal(page).getByLabel("성별").selectOption("female");
@@ -140,7 +140,7 @@ for (const width of [393, 1280]) {
       await expect(modal(page)).toHaveAttribute("data-step", "profiles");
       await modal(page).getByRole("button", { name: "닫기" }).click();
       await expect(modal(page)).toHaveCount(0);
-      await page.getByTestId("target-picker").getByText("나", { exact: true }).click();
+      await pickTarget(page, "나");
       await ask(page, "합성 질문");
       await expect(page.getByTestId("result-card")).toBeVisible();
       // 건강 동의 없이 저장한 프로필은 pregnancy_status가 null이라 입력창 토글 기본값 "일반인"(FE-11-12 A, g1-5a)이 실려 pregnant=false다

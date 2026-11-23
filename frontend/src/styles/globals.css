@@ -47,6 +47,16 @@
   --color-scrim: #000000;
   /* 안전 고지 띠의 테두리: 라이트에서는 바탕과 같은 색이라 안 보이고, 다크에서만 테두리가 보인다(글자 "!"와 함께 구분) */
   --color-fixed-edge: #fff8d6;
+  /* 프로필 병아리 배경 8색(2026-11-23, 서버 `avatar_color` 키와 같은 이름). 사람을 구분하는 색이며 판정 색이 아니다.
+     라이트는 옅은 바탕(병아리 갈색 윤곽 #412519와 3:1 이상), 다크는 짙은 바탕(병아리 노랑 #FEE26E와 3:1 이상). tokens.test.ts가 본다 */
+  --color-avatar-yellow: #fff1b8;
+  --color-avatar-coral: #ffd5c8;
+  --color-avatar-pink: #ffd6e5;
+  --color-avatar-purple: #e7dcf7;
+  --color-avatar-blue: #d3e5fa;
+  --color-avatar-teal: #c6ece5;
+  --color-avatar-green: #d7efc9;
+  --color-avatar-gray: #e6e1d6;
   --font-sans: -apple-system, "SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
 }
 
@@ -85,6 +95,14 @@
     --color-on-yellow: #17150f;
     --color-scrim: #000000;
     --color-fixed-edge: #8a7838;
+    --color-avatar-yellow: #5a4810;
+    --color-avatar-coral: #6e2f22;
+    --color-avatar-pink: #6b2546;
+    --color-avatar-purple: #47326e;
+    --color-avatar-blue: #1e3d6b;
+    --color-avatar-teal: #154c47;
+    --color-avatar-green: #2a4d22;
+    --color-avatar-gray: #46423a;
     color-scheme: dark;
   }
 }
@@ -122,6 +140,14 @@
   --color-on-yellow: #17150f;
   --color-scrim: #000000;
   --color-fixed-edge: #8a7838;
+  --color-avatar-yellow: #5a4810;
+  --color-avatar-coral: #6e2f22;
+  --color-avatar-pink: #6b2546;
+  --color-avatar-purple: #47326e;
+  --color-avatar-blue: #1e3d6b;
+  --color-avatar-teal: #154c47;
+  --color-avatar-green: #2a4d22;
+  --color-avatar-gray: #46423a;
   color-scheme: dark;
 }
 

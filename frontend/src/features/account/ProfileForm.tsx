@@ -1,14 +1,17 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { CameraIcon, XIcon } from "lucide-react";
+import { CameraIcon, CheckIcon, XIcon } from "lucide-react";
 import { PhotoModal } from "@/features/photo/PhotoModal";
-import { AGE_BANDS, MEDICATIONS_MAX, PROFILE_LABEL_MAX_CHARS, RELATIONS, SEXES, sameMedication } from "@/lib/api/account";
-import type { AgeBand, MedicationInput, PregnancyStatus, ProfileDraft, Relation, Sex } from "@/lib/api/account";
+import { AGE_BANDS, AVATAR_COLORS, DEFAULT_AVATAR_COLOR, MEDICATIONS_MAX, PROFILE_LABEL_MAX_CHARS, RELATIONS, SEXES, sameMedication } from "@/lib/api/account";
+import type { AgeBand, AvatarColor, MedicationInput, PregnancyStatus, Profile, ProfileDraft, Relation, Sex } from "@/lib/api/account";
+import { cn } from "@/lib/utils";
 import { hasHealthConsent, useAccountStore } from "@/stores/account";
 import {
   AGE_BAND_LABEL,
   AGE_BAND_LABELS,
+  AVATAR_COLOR_LABEL,
+  AVATAR_COLOR_LABELS,
   CANCEL_LABEL,
   DRUG_DATA_SCOPE_NOTICE,
   ERROR_NAME_EMPTY,
@@ -30,8 +33,9 @@ import {
   removeMedicationLabel,
 } from "./copy";
 import { MedicationPicker } from "./MedicationPicker";
-import { EmergencyEntrySlot, FIELD_CLASS, FailureLine, ICON_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
+import { FIELD_CLASS, FailureLine, ICON_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON, StepBody, StepTitle, useAccountModal } from "./parts";
 import { PregnancySelect } from "./PregnancySelect";
+import { ProfileAvatar } from "./ProfileAvatar";
 import { useHealthConsentNotice } from "./ProfileList";
 
 const FAMILY_RELATIONS = RELATIONS.filter((relation) => relation !== "self");
@@ -48,6 +52,45 @@ export function mergeMedications(current: readonly MedicationInput[], added: rea
     if (!next.some((other) => sameMedication(other, item))) next.push(item);
   }
   return next;
+}
+
+/**
+ * 새 프로필의 기본 색(2026-11-23 "가족추가에서 병아리에 배경색"): 이미 저장된 프로필이 쓰지 않은 첫 색(8색 순서). 모두 쓰였으면 기본색(노랑).
+ * 본인 프로필을 처음 만들 때는 저장된 프로필이 없어 노랑이다. 순수 함수라 시험에서 바로 본다
+ */
+export function suggestAvatarColor(profiles: readonly Pick<Profile, "avatar_color">[]): AvatarColor {
+  return AVATAR_COLORS.find((color) => !profiles.some((profile) => profile.avatar_color === color)) ?? DEFAULT_AVATAR_COLOR;
+}
+
+/**
+ * 프로필 색 고르기 8칸(라디오 묶음). 칸은 색 원만 보이고(고른 칸은 체크 표시 + 굵은 테두리: 색만으로 구분하지 않는다) 접근 가능한 이름은 색 이름이다.
+ * 누르는 영역 44px, ←/→로 옮기며 고른다(브라우저 기본 라디오). 옆에 고른 색의 병아리 아바타 미리보기
+ */
+function AvatarColorPicker({ id, value, onChange, face }: { id: string; value: AvatarColor; onChange: (color: AvatarColor) => void; face: boolean }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span id={`${id}-avatar`} className={LABEL_CLASS}>
+        {AVATAR_COLOR_LABEL}
+      </span>
+      <div className="flex items-center gap-2">
+        <ProfileAvatar color={value} size={44} face={face} />
+        <div role="radiogroup" aria-labelledby={`${id}-avatar`} data-testid="avatar-color-picker" className="flex min-w-0 flex-wrap items-center">
+          {AVATAR_COLORS.map((color) => {
+            const checked = color === value;
+            return (
+              <label key={color} data-testid="avatar-color-option" data-color={color} data-checked={checked} className="grid size-11 cursor-pointer place-items-center rounded-full has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-[-4px] has-[:focus-visible]:outline-ink-2">
+                <input type="radio" name={`${id}-avatar-color`} value={color} checked={checked} onChange={() => onChange(color)} aria-label={AVATAR_COLOR_LABELS[color]} className="sr-only" />
+                <span className={cn("grid size-8 place-items-center rounded-full border", checked ? "border-2 border-ink" : "border-line-2")}>
+                  <ProfileAvatar color={color} size={checked ? 28 : 30} face={false} />
+                  {checked && <CheckIcon className="absolute size-4 text-ink" strokeWidth={3} aria-hidden="true" />}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** 임신 여부 칸을 그리는가(사용자 지시 2026-11-22): 성별이 **여성일 때만**. 남성·미입력(기본 "선택 안 함")은 숨긴다 */
@@ -86,9 +129,10 @@ export const pregnancyToSave = (sex: Sex | "", pregnancy: PregnancyStatus): Preg
  * 채팅 입력창의 사진 흐름(`AppShell`, 채팅 목적지)과는 별개의 모달 인스턴스다. 모달을 닫으면(`닫기`·Esc·`글자로 입력`) 폼의 입력 상태는 그대로다
  */
 export function ProfileForm() {
-  const { store, container, hideMascot, emergencyEntry } = useAccountModal();
+  const { store, container, hideMascot } = useAccountModal();
   const target = useAccountStore((state) => state.form, store);
   const existing = useAccountStore((state) => state.profiles.find((profile) => profile.profile_id === state.form?.profileId) ?? null, store);
+  const profiles = useAccountStore((state) => state.profiles, store);
   const me = useAccountStore((state) => state.me, store);
   const pending = useAccountStore((state) => state.pending, store);
   const failure = useAccountStore((state) => state.failure, store);
@@ -103,6 +147,8 @@ export function ProfileForm() {
   const label = typed ?? existing?.label ?? target?.labelDefault ?? "";
   const [relation, setRelation] = useState<Relation>(existing?.relation ?? (self ? "self" : "child"));
   const [ageBand, setAgeBand] = useState<AgeBand | "">(existing?.age_band ?? "");
+  // 병아리 배경색: 고치면 저장된 색, 새 프로필(가족 추가 등)은 아직 안 쓴 색을 제안한다
+  const [avatarColor, setAvatarColor] = useState<AvatarColor>(() => existing?.avatar_color ?? suggestAvatarColor(profiles));
   // 성별: 저장된 값만 채운다(새 프로필은 늘 미선택. 로그인 공급자 정보는 읽지 않는다)
   const [sex, setSex] = useState<Sex | "">(existing?.sex ?? "");
   // 임신 여부(칸의 값): 여성 프로필의 저장 값만 채운다. 여성이 아니면 칸이 숨겨지고 다시 여성을 고르면 모름(`unknown`)에서 시작한다(고르기 전에는 아니오로 두지 않는다, 2026-11-22 확정).
@@ -147,6 +193,7 @@ export function ProfileForm() {
       label: name,
       age_band: ageBand === "" ? null : ageBand,
       sex: sex === "" ? null : sex,
+      avatar_color: avatarColor,
       // 건강 정보 동의가 없으면 건강 정보 칸을 보내지 않는다. 여성이 아니면 임신 여부는 모름으로 정리해 보낸다(숨겨진 값은 저장하지 않는다)
       health: healthConsent ? { pregnancy_status: pregnancyToSave(sex, pregnancy), medications } : null,
     };
@@ -182,6 +229,9 @@ export function ProfileForm() {
         <p id={`${id}-name-hint`} role={nameMissing ? "alert" : undefined} className={nameMissing ? "m-0 text-sm font-semibold text-red-ink" : "m-0 text-xs text-mute"}>
           {nameMissing ? ERROR_NAME_EMPTY : PROFILE_NAME_HINT}
         </p>
+
+        {/* 프로필 색(건강 정보 아님): 이름 바로 아래. 계정 버튼·입력창 칩·목록에서 사람을 구분하는 병아리 배경색 */}
+        <AvatarColorPicker id={id} value={avatarColor} onChange={setAvatarColor} face={!hideMascot} />
 
         <label htmlFor={`${id}-relation`} className={LABEL_CLASS}>
           {RELATION_LABEL}
@@ -305,7 +355,6 @@ export function ProfileForm() {
           </button>
         </div>
       </form>
-      <EmergencyEntrySlot />
       {/* 사진 등록 모달(프로필 목적지): 계정 모달과 같은 자리(119 배너 아래)에 한 층 위로 겹친다. 확인한 이름만 이 폼의 목록에 들어가고 채팅 전송은 부르지 않는다 */}
       <PhotoModal
         open={photoOpen}
@@ -317,7 +366,6 @@ export function ProfileForm() {
         onCloseAutoFocus={photoClosed}
         container={container}
         hasEmergency={hideMascot}
-        emergencyEntry={emergencyEntry}
         stacked
       />
     </StepBody>

@@ -28,8 +28,8 @@ for (const width of [393, 1280]) {
       await expect(social.getByRole("button")).toHaveText(["Google로 계속하기", "카카오 로그인"]);
       await expect(modal(page)).not.toContainText("다른 방법으로 로그인");
       // 게스트 입력창 고지는 모달 뒤 화면에 그대로 있다(모달 안에는 없다)
-      await expect(modal(page).getByTestId("input-notice")).toHaveCount(0);
-      await expect(page.getByTestId("input-notice")).toHaveCount(1);
+      await expect(modal(page).getByTestId("input-combined-notice")).toHaveCount(0);
+      await expect(page.getByTestId("input-combined-notice")).toHaveCount(1);
       await expectNoHorizontalScroll(page);
       await shot(page, "login-title");
     });

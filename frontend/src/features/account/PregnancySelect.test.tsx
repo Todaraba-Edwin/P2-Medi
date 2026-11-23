@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { AVATAR_COLORS } from "@/lib/api/account";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { createAccountStore } from "@/stores/account";
 import { AccountModal } from "./AccountModal";
@@ -249,6 +250,10 @@ describe("프로필 폼의 임신 여부 칸(여성일 때만)", () => {
     await waitFor(() => expect(step()).toBe("profiles"));
     server.events.removeAllListeners();
     expect(bodies).toHaveLength(2);
-    for (const body of bodies) expect(Object.keys(body)).toEqual(["relation", "label", "age_band", "sex"]);
+    // 건강 정보 칸은 없다. 병아리 배경색(`avatar_color`, 건강 정보 아님, FE-17 U-01)은 늘 실린다
+    for (const body of bodies) {
+      expect(Object.keys(body)).toEqual(["relation", "label", "age_band", "sex", "avatar_color"]);
+      expect(AVATAR_COLORS).toContain(body.avatar_color);
+    }
   });
 });
