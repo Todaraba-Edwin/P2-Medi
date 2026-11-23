@@ -24,8 +24,9 @@ def default_env_files() -> tuple[str, ...]:
     return (str(REPO_ROOT / ".env"), ".env")
 
 
-# 사용자 결정 2026-11-22 "현재는 Upstage로 반영"(구현은 둘 다 전환 가능, OpenAI 코드 유지). OpenAI로 돌아가려면 `MEDIAGENT_VISION_PROVIDER=openai`.
-DEFAULT_VISION_PROVIDER: Literal["upstage", "openai"] = "upstage"
+# 사용자 최종 결정 2026-11-23: only OpenAI(gpt-6-luna 비전). Upstage 코드는 삭제하지 않고 `MEDIAGENT_VISION_PROVIDER=upstage`로만 켠다.
+# Upstage를 서비스에 켜려면 처리방침(사진 수탁자 Upstage)·사진 고지·요금제 조건을 먼저 맞출 것.
+DEFAULT_VISION_PROVIDER: Literal["upstage", "openai"] = "openai"
 
 
 class Settings(BaseSettings):
@@ -50,7 +51,7 @@ class Settings(BaseSettings):
     mediagent_warmup: bool = True
 
     # 사진 약 이름 판독 제공자(BE-14, 비밀 아님, 환경변수 `MEDIAGENT_VISION_PROVIDER`). `upstage`는 OCR + solar-pro4, `openai`는 gpt-6-luna 비전.
-    # 사용자 결정 2026-11-22 "현재는 Upstage로 반영": 기본값 upstage, openai는 `MEDIAGENT_VISION_PROVIDER=openai`로 복귀.
+    # 사용자 최종 결정 2026-11-23: 기본값 openai, Upstage는 `MEDIAGENT_VISION_PROVIDER=upstage`로만 켠다(켜기 전 처리방침·고지·요금제 조건 확인).
     # 처방전·약봉투 사진 고지: 처리방침 v4·사진 고지 승인은 별도 대기(PRD-17-19·20, FE-05-03) — 외부 사용자에게 열기 전 필수.
     mediagent_vision_provider: Literal["upstage", "openai"] = DEFAULT_VISION_PROVIDER
     # Upstage 사진 판독 엔드포인트·모델(비밀 아님, 선택). 비면 글로벌 `https://api.upstage.ai/v1`·`solar-pro4`. 한국 리전(`kr.api.upstage.ai`,
