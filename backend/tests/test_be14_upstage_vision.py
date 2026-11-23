@@ -311,11 +311,11 @@ class TestEndpointModelSettings:
 
 
 class TestProviderSelection:
-    def test_settings_default_follows_constant_and_is_upstage_now(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_settings_default_follows_constant_and_is_openai(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MEDIAGENT_VISION_PROVIDER", raising=False)
         from app.config import DEFAULT_VISION_PROVIDER
 
-        assert DEFAULT_VISION_PROVIDER == "upstage"  # 사용자 결정 2026-11-22 "현재는 Upstage로 반영". OpenAI 복귀는 환경변수
+        assert DEFAULT_VISION_PROVIDER == "openai"  # 사용자 최종 결정 2026-11-23: only OpenAI. Upstage는 환경변수로만
         assert Settings(_env_file=None).mediagent_vision_provider == DEFAULT_VISION_PROVIDER
         assert Settings(_env_file=None, mediagent_vision_provider="upstage").mediagent_vision_provider == "upstage"
         assert Settings(_env_file=None, mediagent_vision_provider="openai").mediagent_vision_provider == "openai"

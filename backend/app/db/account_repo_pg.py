@@ -48,7 +48,8 @@ SEED_FILE = DB_DIR / "seed_legal_v1.sql"
 SEED_V2_FILE = DB_DIR / "seed_legal_v2.sql"  # PRD-17-05 A: v2 행 추가(v1 유지)
 SEED_V3_FILE = DB_DIR / "seed_legal_v3.sql"  # PRD-17-18 A: terms·privacy_policy v3(보호책임자 연락처 줄 구분)
 SEED_V4_FILE = DB_DIR / "seed_legal_v4.sql"  # PRD-17 처리방침 v4(사진 판독 제공자 Upstage 전환 고지, BE-14-09 A). privacy_policy 한 행만
-SEED_FILES = {1: SEED_FILE, 2: SEED_V2_FILE, 3: SEED_V3_FILE, 4: SEED_V4_FILE}
+SEED_V5_FILE = DB_DIR / "seed_legal_v5.sql"  # PRD-17 처리방침 v5(사진 판독 OpenAI만·쿠키 7일·카카오 필수 표기·이름 기본값). privacy_policy 한 행만
+SEED_FILES = {1: SEED_FILE, 2: SEED_V2_FILE, 3: SEED_V3_FILE, 4: SEED_V4_FILE, 5: SEED_V5_FILE}
 SEED_AGE14_FILE = DB_DIR / "seed_legal_age14.sql"  # PRD-17-12 A: 만 14세 확인 문서 v1. 스키마를 커밋한 뒤 따로 실행
 _EFFECTIVE_PLACEHOLDER = "{{EFFECTIVE_AT}}"
 # 값이 아직 없는 자리표시({{PRIVACY_CONTACT}}는 render_privacy_contact가 원격 적용 직전에 채운다). 승인 원문 머리의 안내 문구 `{{…}}`(말줄임표 한 글자)는
@@ -65,7 +66,7 @@ def schema_sql() -> str:
 
 
 def seed_sql(effective_at: datetime, version: int = 1) -> str:
-    """약관 시드 SQL(`version` = 1·2·3·4). 시행 시각은 시간대가 있는 datetime만 받는다(자리표시자에 임의 문자열을 끼우지 않는다).
+    """약관 시드 SQL(`version` = 1·2·3·4·5). 시행 시각은 시간대가 있는 datetime만 받는다(자리표시자에 임의 문자열을 끼우지 않는다).
 
     `{{EFFECTIVE_AT}}`만 채운다. 그 밖의 자리표시는 그대로 남으므로 원격 게시 전에는 `assert_publishable()`을 거친다.
     """
@@ -386,5 +387,5 @@ class PostgresAccountRepo:
         return await self._run("authenticated", user_id, q)
 
 
-__all__ = ["SCHEMA_FILE", "SEED_AGE14_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "SEED_V3_FILE", "SEED_V4_FILE", "PostgresAccountRepo", "assert_publishable",
+__all__ = ["SCHEMA_FILE", "SEED_AGE14_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "SEED_V3_FILE", "SEED_V4_FILE", "SEED_V5_FILE", "PostgresAccountRepo", "assert_publishable",
            "schema_sql", "seed_age14_sql", "seed_sql", "unfilled_placeholders"]

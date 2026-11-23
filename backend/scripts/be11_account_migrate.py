@@ -4,13 +4,13 @@
                        시드별 남은 자리표시를 출력한다. 쓰기 0.
   apply --yes --effective-at <ISO8601+시간대>
                        쓰기. `--yes`와 승인 파일 `data/mock/review/be11-account.flag`(메인이 실행 직전에 만들고 직후 지운다)가
-                       **둘 다** 있어야 하고, 시드 다섯 개(v1·v2·age_14·v3·v4)가 모두 `assert_publishable`을 통과해야 한다(연결 전에 확인).
-                       단계마다 별도 트랜잭션: ① schema_account.sql → 커밋 → ② seed v1 → ③ seed v2 → ④ seed age_14 → ⑤ seed v3(PRD-17-18 A: terms·privacy_policy v3, 연락처 줄 구분) → ⑥ seed v4(처리방침 v4, 사진 판독 Upstage 전환 고지, BE-14-09 A).
+                       **둘 다** 있어야 하고, 시드 여섯 개(v1·v2·age_14·v3·v4·v5)가 모두 `assert_publishable`을 통과해야 한다(연결 전에 확인).
+                       단계마다 별도 트랜잭션: ① schema_account.sql → 커밋 → ② seed v1 → ③ seed v2 → ④ seed age_14 → ⑤ seed v3(PRD-17-18 A: terms·privacy_policy v3, 연락처 줄 구분) → ⑥ seed v4(처리방침 v4, 사진 판독 Upstage 전환 고지, BE-14-09 A) → ⑦ seed v5(처리방침 v5, OpenAI만·쿠키 7일·카카오 필수 표기·이름 기본값).
                        (`ALTER TYPE … ADD VALUE 'age_14'`는 같은 트랜잭션에서 쓸 수 없으므로 ④는 ① 커밋 뒤 따로 돈다.)
                        단계 사후 확인이 기대와 다르면 그 단계를 롤백하고 중단한다(다음 단계로 넘어가지 않음).
                        시드의 `{{PRIVACY_CONTACT}}`는 env `PRIVACY_OFFICER_NAME`·`PRIVACY_OFFICER_EMAIL`(Settings)로 채운다
                        (PRD-17 ⑫). 값이 없으면 자리표시가 남아 게시 거부. plan·로그·예외에는 값을 싣지 않는다(`<설정됨>`).
-  verify               읽기 전용. age_14 enum·`profiles.sex` 열·표 6개 RLS·시드 행(v1·v2·age_14·v3·v4)·`legal_current`의 age_14 v1·terms v3·privacy_policy v4를 확인한다.
+  verify               읽기 전용. age_14 enum·`profiles.sex` 열·표 6개 RLS·시드 행(v1·v2·age_14·v3·v4·v5)·`legal_current`의 age_14 v1·terms v3·privacy_policy v5를 확인한다.
 
   --local-dsn <DSN>    로컬 Postgres 시험용(호스트가 localhost·127.0.0.1·::1·소켓일 때만). 이때는 승인 파일 없이 돈다
                        (`--yes`·자리표시 검사는 그대로). 원격 접속 문자열을 넣으면 거부한다.
@@ -112,7 +112,8 @@ def build_steps(effective_at: datetime, contact: PrivacyContact | None = None) -
              ("3 seed v2", SEED_FILES[2], seed_sql(effective_at, 2)),
              ("4 seed age_14", SEED_AGE14_FILE, seed_age14_sql(effective_at)),
              ("5 seed v3", SEED_FILES[3], seed_sql(effective_at, 3)),
-             ("6 seed v4", SEED_FILES[4], seed_sql(effective_at, 4))]  # PRD-17-18 A: terms·privacy_policy v3(연락처 줄 구분). age_14 뒤에 둬 기존 단계 번호 유지. v4는 v3 뒤(처리방침 v4, BE-14-09 A)
+             ("6 seed v4", SEED_FILES[4], seed_sql(effective_at, 4)),
+             ("7 seed v5", SEED_FILES[5], seed_sql(effective_at, 5))]  # PRD-17-18 A: terms·privacy_policy v3(연락처 줄 구분). age_14 뒤에 둬 기존 단계 번호 유지. v4는 v3 뒤(처리방침 v4, BE-14-09 A)
     masked: tuple[str, ...] = ()
     if contact_set(contact):
         name, email = (contact[0] or "").strip(), (contact[1] or "").strip()  # type: ignore[index]
@@ -356,10 +357,10 @@ def do_verify(conn: Any, steps: list[Step], log: Callable[[str], None] = print) 
         "schema_problems": schema_ok(st),
         "seed_rows_missing": missing,
         "age_14_current": ["age_14", 1] in st["legal_current"],
-        "terms_v3_privacy_v4_current": ["terms", 3] in st["legal_current"] and ["privacy_policy", 4] in st["legal_current"],
+        "terms_v3_privacy_v5_current": ["terms", 3] in st["legal_current"] and ["privacy_policy", 5] in st["legal_current"],
     }
     ok = (checks["auth_ready"] and not checks["schema_problems"] and not missing and checks["age_14_current"]
-          and checks["terms_v3_privacy_v4_current"])
+          and checks["terms_v3_privacy_v5_current"])
     out = {"ok": ok, "checks": checks, "state": st}
     log(json.dumps(out, ensure_ascii=False, indent=1, default=str))
     return out
