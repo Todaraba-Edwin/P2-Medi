@@ -104,6 +104,29 @@ BEGIN
             CHECK (avatar_color IN ('yellow', 'coral', 'pink', 'purple', 'blue', 'teal', 'green', 'gray'));
     END IF;
 END $$;
+-- 기본 프로필(대상) 영속화(2026-11-23 FE-17 U-08): 마지막으로 고른 대상을 새 세션의 기본값으로 저장한다. 미설정 = (null, false) → 클라이언트가 본인을 고른다.
+--   프로필 삭제 시 default_profile_id는 자동 null(미설정). 둘이 동시에 설정되지 않는다(CHECK). 건강 정보가 아니라 프로필 선택 상태다(CLAUDE.md 1장 최소 항목).
+--   새 DB와 이미 적용된 DB 모두 재실행 안전(별도 파일 migrate_app_users_default_target.sql과 같은 문장).
+ALTER TABLE account.app_users ADD COLUMN IF NOT EXISTS default_profile_id uuid;
+ALTER TABLE account.app_users ADD COLUMN IF NOT EXISTS default_guest boolean NOT NULL DEFAULT false;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'account.app_users'::regclass AND conname = 'app_users_default_profile_fk') THEN
+        ALTER TABLE account.app_users ADD CONSTRAINT app_users_default_profile_fk
+            FOREIGN KEY (default_profile_id) REFERENCES account.profiles (profile_id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'account.app_users'::regclass AND conname = 'app_users_default_target_check') THEN
+        ALTER TABLE account.app_users ADD CONSTRAINT app_users_default_target_check
+            CHECK (NOT default_guest OR default_profile_id IS NULL);
+    END IF;
+END $$;
+-- 본인 행의 이 두 칸만 authenticated가 고친다(app_users_update 정책이 행을 본인으로 제한). 역할이 있는 환경에서만
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        GRANT UPDATE (default_profile_id, default_guest) ON account.app_users TO authenticated;
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_profiles_user ON account.profiles (user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_profiles_self ON account.profiles (user_id) WHERE relation = 'self';
 

@@ -28,13 +28,14 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from app.api.chat import ErrorBody
 from app.api.schemas import _Strict
 from app.db.account_repo import (
     CONSENT_DOC_TYPES,
     FAMILY_LIMIT,
+    GUEST_TARGET,
     HEALTH_CONSENT_CODE,
     HEALTH_DOC,
     MEDICATION_LIMIT,
@@ -226,6 +227,32 @@ class MeResponse(BaseModel):
     consents: list[ConsentState]
     health_consent_active: bool  # 건강 정보를 지금 저장할 수 있는가(동의 + 재동의 대기 아님)
     profile_limit: int = PROFILE_LIMIT
+    # 기본 대상(FE-17 U-08): `"guest"`·프로필 UUID 문자열·null(미설정 → 클라이언트가 본인 선택). 프로필 선택 상태이지 건강 정보가 아니다
+    default_target: str | None = None
+
+
+class DefaultTargetBody(_Strict):
+    """`PUT /me/default-target` 본문. `target`은 필수 칸(null = 미설정으로 되돌리기)이고 `"guest"` 또는 프로필 UUID 문자열만 받는다."""
+
+    target: str | None
+
+    @field_validator("target")
+    @classmethod
+    def _guest_or_uuid(cls, v: str | None) -> str | None:
+        if v is None or v == GUEST_TARGET:
+            return v
+        try:
+            if str(uuid.UUID(v)) != v.lower():  # 하이픈 없는 32자리·중괄호 등 다른 표기는 거부(저장 형식 하나)
+                raise ValueError
+        except ValueError:
+            raise ValueError("target 형식 오류") from None  # 받은 값은 메시지에 싣지 않는다
+        return v.lower()
+
+
+class DefaultTargetOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: str | None
 
 
 # --------------------------------------------------------------------------- 의존성·공통
@@ -352,7 +379,7 @@ async def build_me(repo: AccountRepo, user: AppUser) -> MeResponse:
     user = await sync_onboarding(repo, user, states)
     return MeResponse(
         user_id=user.user_id, onboarding_step=user.onboarding_step, onboarding_completed_at=user.onboarding_completed_at,
-        consents=states, health_consent_active=health_writable(states),
+        consents=states, health_consent_active=health_writable(states), default_target=user.default_target,
     )
 
 
@@ -522,6 +549,20 @@ async def delete_profile(profile_id: uuid.UUID, principal: UserDep, repo: RepoDe
     return Response(status_code=204, headers={"Cache-Control": NO_STORE})
 
 
+@router.put("/me/default-target", response_model=DefaultTargetOut, summary="기본 프로필(대상) 저장: 마지막으로 고른 대상(게스트로 이용 포함)",
+            responses=_responses((404, "없는 프로필(남의 것 포함, 소유 여부 비노출).")))
+async def put_default_target(body: DefaultTargetBody, principal: UserDep, repo: RepoDep, response: Response) -> DefaultTargetOut:
+    """고를 때마다 저장한다. 값은 `"guest"`·본인 프로필 UUID·null(미설정 → 새 세션에서 클라이언트가 본인 선택). 게스트 토큰은 401.
+
+    받은 값은 로그·오류에 남기지 않는다. 질문·대화는 저장하지 않으며 건강 정보가 아닌 프로필 선택 상태다(CLAUDE.md 1장 최소 항목).
+    """
+    response.headers["Cache-Control"] = NO_STORE
+    uid = user_id_of(principal)
+    await require_account(repo, uid)
+    user = await repo.set_default_target(uid, body.target)
+    return DefaultTargetOut(target=user.default_target)
+
+
 # --------------------------------------------------------------------------- 오류 처리기
 _REPO_ERRORS: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "PROFILE_LIMIT": (422, CODE_PROFILE_LIMIT, ("relation",)),
@@ -556,7 +597,7 @@ async def account_error_handler(_: Request, exc: Exception) -> JSONResponse:
 # 요청 형식 오류: 계정 경로는 계정 요청 모델의 칸 이름만 `fields`에 싣는다(사용자가 보낸 임의 키·값은 싣지 않는다)
 ACCOUNT_PATH_PREFIXES = ("/me", "/legal", "/consents", "/profiles", "/drugs")  # `/drugs`: 프로필 약 사전 검색(`app.api.drugs`)
 _ACCOUNT_FIELDS = frozenset(
-    {name for m in (ConsentRequest, ConsentItem, ProfileCreate, ProfileUpdate, MedicationIn) for name in m.model_fields}
+    {name for m in (ConsentRequest, ConsentItem, ProfileCreate, ProfileUpdate, MedicationIn, DefaultTargetBody) for name in m.model_fields}
     | {"profile_id", "doc_type", "version", "q"}
 )
 

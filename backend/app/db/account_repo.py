@@ -85,6 +85,7 @@ MEDICATION_LIMIT_CODE: Final = "MEDICATION_LIMIT"
 HEALTH_CONSENT_CODE: Final = "CONSENT_REQUIRED:sensitive_consent"
 USE_ACCOUNT_DELETE_CODE: Final = "USE_ACCOUNT_DELETE"
 NOT_FOUND_CODE: Final = "NOT_FOUND"
+GUEST_TARGET: Final = "guest"  # 기본 대상 값: 게스트로 이용
 NO_ACCOUNT_CODE: Final = "NO_ACCOUNT"
 
 
@@ -123,6 +124,15 @@ class AppUser:
     user_id: str
     onboarding_step: OnboardingStep
     onboarding_completed_at: datetime | None
+    # 기본 프로필(대상, 2026-11-23 FE-17 U-08): 마지막으로 고른 대상을 새 세션의 기본값으로 저장한다. 미설정 = (None, False).
+    # 프로필 선택 상태이지 건강 정보가 아니며 프로필 저장 동의가 있는 계정 경로의 최소 항목이다(CLAUDE.md 1장). 둘은 동시에 설정되지 않는다.
+    default_profile_id: str | None = None
+    default_guest: bool = False
+
+    @property
+    def default_target(self) -> str | None:
+        """API 값: `"guest"`, 프로필 UUID 문자열, 미설정이면 None."""
+        return GUEST_TARGET if self.default_guest else self.default_profile_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +243,10 @@ class AccountRepo(Protocol):
     async def get_user(self, user_id: str) -> AppUser | None: ...
 
     async def set_onboarding(self, user_id: str, step: OnboardingStep, completed_at: datetime | None) -> AppUser: ...
+
+    async def set_default_target(self, user_id: str, target: str | None) -> AppUser:
+        """기본 대상 저장(`"guest"`·본인 프로필 UUID 문자열·None=미설정). 본인 소유가 아니거나 없는 프로필이면 `NOT_FOUND`(소유 여부 비노출)."""
+        ...
 
     async def latest_consents(self, user_id: str) -> dict[str, ConsentRecord]:
         """문서 종류별 가장 최근 기록."""
@@ -345,6 +359,15 @@ class InMemoryAccountRepo:
         data.user = replace(data.user, onboarding_step=step, onboarding_completed_at=completed_at)
         return data.user
 
+    async def set_default_target(self, user_id: str, target: str | None) -> AppUser:
+        self.calls += 1
+        data = self._data(user_id)
+        if target is not None and target != GUEST_TARGET and target not in data.profiles:
+            raise AccountRepoError(NOT_FOUND_CODE)
+        data.user = replace(data.user, default_guest=target == GUEST_TARGET,
+                            default_profile_id=target if target not in (None, GUEST_TARGET) else None)
+        return data.user
+
     # ---- 동의
     def _latest(self, data: _UserData) -> dict[str, ConsentRecord]:
         out: dict[str, ConsentRecord] = {}
@@ -447,7 +470,11 @@ class InMemoryAccountRepo:
 
     async def delete_profile(self, user_id: str, profile_id: str) -> bool:
         self.calls += 1
-        return self._data(user_id).profiles.pop(profile_id, None) is not None
+        data = self._data(user_id)
+        removed = data.profiles.pop(profile_id, None) is not None
+        if removed and data.user.default_profile_id == profile_id:  # PG의 FK ON DELETE SET NULL 흉내: 미설정으로 복귀
+            data.user = replace(data.user, default_profile_id=None)
+        return removed
 
     # ---- 탈퇴
     async def delete_account(self, user_id: str) -> DeletionSummary:
@@ -472,6 +499,6 @@ class InMemoryAccountRepo:
 __all__ = [
     "AGE_14_DOC", "AGE_BANDS", "CONSENT_DOC_TYPES", "DOC_TYPES", "FAMILY_LIMIT", "HEALTH_DOC", "MEDICATION_LIMIT", "PROFILE_DOC",
     "PROFILE_LIMIT", "REQUIRED_CONSENT_DOCS", "SEXES", "TERMS_DOC", "WITHDRAW_BLOCKED_DOCS", "UNSET", "AccountRepo", "AccountRepoError", "AppUser", "ConsentInput", "ConsentRecord", "DeletionLogRow",
-    "DeletionSummary", "InMemoryAccountRepo", "LegalDoc", "Medication", "MedicationInput", "Profile", "ProfileInput", "ProfilePatch",
+    "DeletionSummary", "GUEST_TARGET", "InMemoryAccountRepo", "LegalDoc", "Medication", "MedicationInput", "Profile", "ProfileInput", "ProfilePatch",
     "RepoUnavailable", "body_sha256", "utcnow",
 ]
