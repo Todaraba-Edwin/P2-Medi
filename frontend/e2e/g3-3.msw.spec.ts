@@ -83,9 +83,9 @@ for (const width of [393, 1280]) {
         await expect(toggle(page)).toHaveCount(0); // 로그인 직후 기본 대상은 본인(남성): 숨김(FE-17 U-06)
         await pickTarget(page, "게스트로 이용");
         await expect(toggle(page)).toBeVisible(); // 게스트로 이용: 보인다
-        // 로그인 + 프로필이면 입력창에 "사진 → 토글 · 프로필 칩" 줄이 생긴다(2026-11-23, FE-17 U-07 좌하단). 토글이 빠져도 높이가 그대로인지는 이 틀을 기준으로 본다
+        // 로그인 + 프로필이면 입력창 아래 줄이 "사진 → 토글 · 프로필 칩"(FE-17 U-07 좌하단), 게스트도 같은 두 줄 배치다(FE-17 U-09, 칩만 없다). 토글이 빠져도 높이가 그대로인지는 이 틀을 기준으로 본다
         const memberFormBox = (await inputForm(page).boundingBox())!;
-        expect(memberFormBox.height).toBeGreaterThan(guestFormBox.height); // 게스트는 예전 한 줄 모양
+        expect(Math.abs(memberFormBox.height - guestFormBox.height)).toBeLessThanOrEqual(1); // 게스트와 같은 높이(같은 배치)
 
         // ---- 남성(나): 토글이 없다. 입력창 틀 높이는 게스트 때와 같다(흔들림 없음)
         await pickTarget(page, "나");

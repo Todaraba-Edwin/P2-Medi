@@ -164,7 +164,7 @@ describe("F2 임신 여부 토글(게스트, FE-11-12 A·14 A·FE-11-03 A)", () 
   it("게스트는 일반인으로 시작해 context.pregnant=false를 보내고, 결과 아래 '임산부를 고르면 확인' 한 줄이 있다. 임산부로 바꾸면 true를 보내고 한 줄은 없다", async () => {
     const { user } = setup({ width: 393 });
     expect(checkedLabel()).toBe("일반인");
-    expect(screen.queryByTestId("target-chip")).toBeNull(); // 게스트는 입력창이 예전 모양(프로필 칩 없음)
+    expect(screen.queryByTestId("target-chip")).toBeNull(); // 게스트는 프로필 칩이 없다(배치는 로그인과 같다, FE-17 U-09)
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[0].context).toMatchObject({ pregnant: false, age: null });
     const hint = screen.getByTestId("pregnancy-pick-hint");
@@ -312,6 +312,50 @@ describe("대상 프로필 한 값(2026-11-23): 계정 버튼·입력창 칩·�
     expect(button).not.toHaveTextContent("계정");
     await ask(user, "가나다정 먹어도 돼요");
     expect(chatBodies[1].context).toMatchObject({ age: null });
+  });
+});
+
+describe("시작 화면 기본 대상 안내·기본 대상 저장(FE-17 U-08)", () => {
+  it("로그인 + 프로필이면 병아리 이미지 아래에 지금 대상과 `게스트로 이용`이 보이고, 누르면 대상·서버 기본 대상이 바뀌며 초점은 질문 칸이다. 대화가 시작되면 안내는 없다", async () => {
+    const { user, account, state } = setup({ session: onboardedSession(true), width: 393 });
+    const notice = await screen.findByTestId("start-target");
+    const home = screen.getByTestId("home");
+    expect(home.contains(notice)).toBe(true);
+    // 시작 화면 병아리(HomeHero) 뒤에 있다
+    const hero = within(home).getByRole("heading", { level: 1 });
+    expect(hero.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(notice).getByTestId("start-target-heading")).toHaveTextContent("나 프로필로 확인해요");
+    expect(within(notice).getByTestId("start-target-lead")).toHaveTextContent("연령대·임신 여부가 답변에 쓰여요");
+    expect(notice.textContent).not.toMatch(/안전/);
+    expect(notice).toHaveAccessibleName("나 프로필로 확인해요");
+    await user.click(within(notice).getByRole("button", { name: "게스트로 이용" }));
+    expect(account.getState()).toMatchObject({ targetProfileId: null, targetChosen: true });
+    expect(within(notice).getByTestId("start-target-heading")).toHaveTextContent("게스트로 이용 중이에요");
+    expect(within(notice).queryByRole("button")).toBeNull();
+    expect(screen.getByTestId("target-chip")).toHaveAccessibleName("누가 먹나요 게스트로 이용");
+    expect(document.activeElement).toBe(screen.getByRole("textbox"));
+    await waitFor(() => expect(state.session?.defaultTarget).toBe("guest"));
+    // 칩에서 다시 고르면 안내도 같은 값
+    await pickTarget(user, "첫째");
+    expect(within(screen.getByTestId("start-target")).getByTestId("start-target-heading")).toHaveTextContent("첫째 프로필로 확인해요");
+    await waitFor(() => expect(state.session?.defaultTarget).toBe(CHILD_ID));
+    // 안내를 무시하고 질문하면 고른 대상 그대로(요청 계약 불변). 대화가 시작되면 안내는 그리지 않는다
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(chatBodies[0].context).toMatchObject({ age: { lower: 6, upper: 11, unit: "세" } });
+    expect(JSON.stringify(chatBodies[0])).not.toMatch(/default_target|guest/);
+    expect(screen.queryByTestId("start-target")).toBeNull();
+  });
+
+  it("새 세션은 서버 저장값으로 시작한다(`guest` → 게스트로 이용 안내). 게스트(비로그인)에는 안내가 없다", async () => {
+    const session = { ...onboardedSession(true), defaultTarget: "guest" };
+    setup({ session, width: 1280 });
+    const notice = await screen.findByTestId("start-target");
+    expect(notice).toHaveAttribute("data-target", "guest");
+    expect(screen.getByTestId("target-chip")).toHaveAccessibleName("누가 먹나요 게스트로 이용");
+    cleanup();
+    setup({ session: null, width: 1280 });
+    await screen.findByTestId("entry-choice");
+    expect(screen.queryByTestId("start-target")).toBeNull();
   });
 });
 

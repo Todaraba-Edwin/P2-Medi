@@ -148,12 +148,20 @@ describe("ChatInput", () => {
     expect(DISCLAIMER).toBe("공공데이터 기반 정보 제공이며 진단·처방이 아님 · 금기 목록에 없다는 것이 안전하다는 뜻이 아님 · 요양기관의 DUR 점검을 대체하지 않음");
   });
 
-  it("대상 프로필 칩을 주면 질문 칸 아래 줄 왼쪽이 '사진 → 토글 · 칩' 한 묶음이고(FE-17 U-07 좌하단) 보내기는 그 뒤, 주지 않으면(게스트) 예전 한 줄 모양이다", () => {
+  it("질문 칸 아래 줄 왼쪽이 '사진 → 토글 · 칩' 한 묶음이고(FE-17 U-07 좌하단) 보내기는 그 뒤다. 칩을 주지 않아도(게스트·프로필 없음) 같은 배치에서 칩과 점만 빠진다(FE-17 U-09)", () => {
     const pregnancy = { value: false, onChange: () => {} };
     const { rerender } = render(<ChatInput onSend={() => {}} pregnancy={pregnancy} onPhoto={() => {}} />);
-    expect(screen.queryByTestId("input-target-row")).toBeNull();
-    // 게스트: 토글 → 질문 칸 → 사진 → 보내기(예전 그대로)
-    expect(screen.getByRole("textbox").compareDocumentPosition(screen.getByTestId("photo-entry")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 게스트: 질문 칸(첫 줄 전체) → 아래 줄 [사진 → 토글] → 보내기. 예전 한 줄(토글 → 질문 칸 → 사진)은 없다
+    const guestRow = screen.getByTestId("input-target-row");
+    expect(guestRow.getAttribute("data-target")).toBe("none");
+    const guestPhoto = within(guestRow).getByTestId("photo-entry");
+    const guestToggle = within(guestRow).getByTestId("pregnancy-toggle");
+    expect(guestPhoto.compareDocumentPosition(guestToggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("textbox").compareDocumentPosition(guestRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(guestRow.compareDocumentPosition(screen.getByRole("button", { name: "보내기" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("textbox").className).toContain("basis-full");
+    expect(screen.getAllByTestId("photo-entry")).toHaveLength(1);
+    expect(guestRow.textContent).not.toContain("·"); // 칩이 없으면 구분 점도 없다
     rerender(<ChatInput onSend={() => {}} pregnancy={pregnancy} onPhoto={() => {}} target={<button type="button">칩</button>} />);
     const row = screen.getByTestId("input-target-row");
     const photo = within(row).getByTestId("photo-entry");

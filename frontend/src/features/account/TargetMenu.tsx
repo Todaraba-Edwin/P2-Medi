@@ -62,7 +62,7 @@ export function TargetChoiceItems({ profiles, value, onChange, nested = false }:
 /**
  * 입력창 안의 대상 프로필 칩(2026-11-23 사용자 요구 "본문 INPUT에 (일반인|임산부) 누가 먹는지(이름)"): `[병아리 아바타] 이름 ⌃`.
  * 본문의 "누가 먹나요" 선택 줄을 대신한다. 호버·포커스(Enter·Space·↓)·탭으로 **위로** 프로필 목록이 열리고, 고르면 계정 버튼 표시도 같이 바뀐다
- * (값은 계정 스토어의 `targetProfileId` 하나다). 로그인하고 프로필이 있을 때만 조립하는 쪽이 그린다(게스트는 입력창이 예전 모양).
+ * (값은 계정 스토어의 `targetProfileId` 하나다). 로그인하고 프로필이 있을 때만 조립하는 쪽이 그린다(게스트는 칩 없이 같은 입력창 배치, FE-17 U-09).
  * 접근 가능한 이름은 "누가 먹나요 + 이름"(`aria-label`, 보이는 글자는 이름뿐)이고 `aria-haspopup`·`aria-expanded`는 Radix가 단다
  */
 export function TargetChip({ profiles, value, onChange, container = null }: TargetChoiceProps & { container?: HTMLElement | null }) {

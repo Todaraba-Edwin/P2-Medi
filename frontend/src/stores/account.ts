@@ -5,8 +5,8 @@
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
-import { AccountApiError, FAMILY_PROFILE_MAX, SELF_PROFILE_MAX, accountApi, isConsentDocType } from "@/lib/api/account";
-import type { AccountApi, AccountErrorKind, ConsentChannel, ConsentDocType, ConsentItem, LegalDoc, Me, PregnancyStatus, Profile, ProfileDraft, SocialProvider } from "@/lib/api/account";
+import { AccountApiError, DEFAULT_TARGET_GUEST, FAMILY_PROFILE_MAX, SELF_PROFILE_MAX, accountApi, isConsentDocType } from "@/lib/api/account";
+import type { AccountApi, AccountErrorKind, ConsentChannel, ConsentDocType, ConsentItem, DefaultTarget, LegalDoc, Me, PregnancyStatus, Profile, ProfileDraft, SocialProvider } from "@/lib/api/account";
 
 /** 계정 모달의 화면(단계). `flow`의 마지막이 지금 화면이다 */
 export type AccountStep = "login" | "signup" | "consent" | "profiles" | "profile-form";
@@ -55,10 +55,11 @@ export interface AccountState {
   legalDocsStatus: LegalDocsStatus;
   /**
    * 질문할 때 고른 대상("누가 먹나요"). null = `게스트로 이용`(프로필 값 없이 일반으로 묻기, FE-17 U-06).
-   * 사용자가 아직 고르지 않았으면 로그인 직후·프로필이 바뀔 때 **본인 프로필이 기본**이다(`resolveTarget`)
+   * 사용자가 이 세션에서 아직 고르지 않았으면 로그인 직후·프로필이 바뀔 때 **서버에 저장된 기본 대상**(`me.default_target`, FE-17 U-08),
+   * 저장값이 없거나 그 프로필이 없으면 **본인 프로필**이 기본이다(`resolveTarget`). 이 값은 메모리에만 있고 브라우저 저장소에 두지 않는다(서버가 저장한다)
    */
   targetProfileId: string | null;
-  /** 사용자가 대상을 직접 골랐는가(`setTarget`). 고른 뒤에는 본인 기본 선택으로 덮지 않는다(`게스트로 이용`을 고른 것도 지킨다). 로그아웃·탈퇴하면 false */
+  /** 사용자가 이 세션에서 대상을 직접 골랐는가(`setTarget`). 고른 뒤에는 저장값·본인 기본 선택으로 덮지 않는다(`게스트로 이용`을 고른 것도 지킨다). 로그아웃·탈퇴하면 false */
   targetChosen: boolean;
   /** 계정 모달의 단계 이력. 비어 있으면 닫혀 있다. 길이가 2 이상일 때만 `<`(뒤로)가 있다(PRD-13-02 A) */
   flow: AccountStep[];
@@ -104,6 +105,10 @@ export interface AccountState {
   removeProfile: (id: string) => Promise<boolean>;
   /** 탈퇴 */
   withdraw: () => Promise<boolean>;
+  /**
+   * 대상을 고른다(계정 버튼 목록·입력창 칩·시작 화면 안내, FE-17 U-08). 화면은 바로 바뀌고, 로그인 상태면 고른 값을 서버 기본 대상으로 저장한다
+   * (`PUT /me/default-target`, null → `"guest"`). 저장은 기다리지 않고 실패해도 선택·질문을 막지 않으며 다시 시도하지 않는다(다음 선택 때 다시 보낸다)
+   */
   setTarget: (id: string | null) => void;
 }
 
@@ -112,12 +117,18 @@ export type AccountStore = StoreApi<AccountState>;
 const guest = { status: "guest", me: null, profiles: [] as Profile[], targetProfileId: null, targetChosen: false, form: null } as const;
 
 /**
- * 프로필 목록이 바뀐 뒤의 대상(FE-17 U-06, 2026-11-23 "기존 '로그인됨' -> 선택된 프로필 확인"): 지금 대상이 목록에 있으면 그대로,
- * 없으면 사용자가 아직 고르지 않았을 때만 본인 프로필(없으면 null = `게스트로 이용`). 사용자가 고른 값(null 포함)은 덮지 않는다. 순수 함수라 시험에서 바로 본다
+ * 프로필 목록이 바뀐 뒤의 대상(FE-17 U-06 "기존 '로그인됨' -> 선택된 프로필 확인", U-08 "새롭게 세션을 시작할 때마다 해당 내용이 기본값").
+ * - 사용자가 이 세션에서 골랐으면(`chosen`) 그 값을 지킨다: 지금 대상이 목록에 있으면 그대로, 지워졌으면 null(`게스트로 이용`)
+ * - 아직 고르지 않았으면 서버 저장값(`saved`)이 기본이다: `"guest"`면 null, 목록에 있는 프로필 id면 그 프로필
+ * - 저장값이 없거나(미설정·모르는 값·지워진 프로필) 아직 모르면: 지금 대상이 목록에 있으면 그대로, 아니면 본인 프로필(없으면 null)
+ * 순수 함수라 시험에서 바로 본다
  */
-export function resolveTarget(profiles: readonly Profile[], current: string | null, chosen: boolean): string | null {
-  if (current !== null && profiles.some((profile) => profile.profile_id === current)) return current;
-  if (chosen) return null;
+export function resolveTarget(profiles: readonly Profile[], current: string | null, chosen: boolean, saved: DefaultTarget | undefined = undefined): string | null {
+  const listed = (id: string | null) => id !== null && profiles.some((profile) => profile.profile_id === id);
+  if (chosen) return listed(current) ? current : null;
+  if (saved === DEFAULT_TARGET_GUEST) return null;
+  if (listed(saved ?? null)) return saved ?? null;
+  if (listed(current)) return current;
   return profiles.find((profile) => profile.relation === "self")?.profile_id ?? null;
 }
 
@@ -232,7 +243,7 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
         status: "member",
         me,
         profiles,
-        targetProfileId: resolveTarget(profiles, state.targetProfileId, state.targetChosen),
+        targetProfileId: resolveTarget(profiles, state.targetProfileId, state.targetChosen, me.default_target),
       }));
       return true;
     };
@@ -241,6 +252,35 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
     let bootstrapping: Promise<void> | null = null;
     /** 진행 중인 `loadLegalDocs()`(같은 이유로 나눠 쓴다) */
     let legalLoading: Promise<void> | null = null;
+
+    /**
+     * 기본 대상 저장(FE-17 U-08): 한 번에 하나만 보낸다. 보내는 중에 또 고르면 마지막 값 하나만 남겨 두었다가 앞 요청이 끝난 뒤 한 번 보낸다
+     * (빠르게 여러 번 골라도 요청이 쌓이지 않고 서버에는 마지막 값이 남는다). 실패는 조용히 버리고 다시 시도하지 않는다
+     */
+    let savingTarget = false;
+    let queuedTarget: { value: DefaultTarget } | null = null;
+    const persistTarget = (value: DefaultTarget) => {
+      if (savingTarget) {
+        queuedTarget = { value };
+        return;
+      }
+      savingTarget = true;
+      void api
+        .saveDefaultTarget(value)
+        .then(
+          (saved) => {
+            // 그 사이 로그아웃했으면 반영하지 않는다. 저장된 값만 `me`에 적어 둔다(이 세션의 선택은 `targetChosen`이 지킨다)
+            if (get().status === "member" && get().me) set((state) => ({ me: state.me ? { ...state.me, default_target: saved } : state.me }));
+          },
+          () => undefined,
+        )
+        .finally(() => {
+          savingTarget = false;
+          const next = queuedTarget;
+          queuedTarget = null;
+          if (next && get().status === "member" && get().me) persistTarget(next.value);
+        });
+    };
 
     const run = async (task: () => Promise<void>): Promise<boolean> => {
       if (get().pending) return false;
@@ -392,7 +432,7 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
           const me = await api.postConsents(items, consentChannel(get().me, items));
           // 철회는 서버가 즉시 지운다(건강 동의 → 임신 여부·복용 약, 개인정보 동의 → 프로필): 프로필을 다시 읽어 화면에 남기지 않는다
           const profiles = await api.fetchProfiles();
-          set((state) => ({ me, profiles, targetProfileId: resolveTarget(profiles, state.targetProfileId, state.targetChosen) }));
+          set((state) => ({ me, profiles, targetProfileId: resolveTarget(profiles, state.targetProfileId, state.targetChosen, me.default_target) }));
         });
         // 그 사이 문서가 바뀌었으면(409) 새 본문을 다시 받아 보여 준다
         if (!ok && get().failure?.code === "VERSION_MISMATCH") void get().loadLegalDocs(true);
@@ -411,7 +451,7 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
               ? state.profiles.map((profile) => (profile.profile_id === saved.profile_id ? saved : profile))
               : [...state.profiles, saved];
             // 온보딩에서 본인 프로필을 처음 만들면(아직 고르지 않았을 때) 그 프로필이 대상이 된다
-            return { profiles, targetProfileId: resolveTarget(profiles, state.targetProfileId, state.targetChosen) };
+            return { profiles, targetProfileId: resolveTarget(profiles, state.targetProfileId, state.targetChosen, state.me?.default_target) };
           });
         });
         // 저장이 끝나면 목록으로 돌아가며 완료 안내를 켠다(FE-04-15 A). 실패하면 폼에 남고 `failure`가 보인다
@@ -438,6 +478,7 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
               state.profiles.filter((profile) => profile.profile_id !== id),
               state.targetProfileId === id ? null : state.targetProfileId,
               state.targetChosen,
+              state.me?.default_target === id ? undefined : state.me?.default_target,
             ),
           }));
         }),
@@ -448,7 +489,12 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
         return ok;
       },
 
-      setTarget: (id) => set({ targetProfileId: id, targetChosen: true }),
+      setTarget: (id) => {
+        set({ targetProfileId: id, targetChosen: true });
+        // 로그인하고 계정 서버가 답한 상태에서만 저장한다(게스트·서버 준비 전은 메모리 선택만)
+        const { status, me } = get();
+        if (status === "member" && me) persistTarget(id ?? DEFAULT_TARGET_GUEST);
+      },
     };
   });
 }

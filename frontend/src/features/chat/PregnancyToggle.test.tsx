@@ -70,7 +70,7 @@ describe("PregnancyToggle", () => {
 });
 
 describe("ChatInput의 임신 여부 선택", () => {
-  it("pregnancy를 주면 입력창 안 왼쪽(텍스트 영역 앞)에 토글이 있고, 주지 않으면 없다. 폼 제출을 일으키지 않는다", async () => {
+  it("pregnancy를 주면 입력창 안 질문 칸 아래 줄 왼쪽 묶음(FE-17 U-09: 게스트도 같은 배치)에 토글이 있고, 주지 않으면 없다. 폼 제출을 일으키지 않는다", async () => {
     const onSend = vi.fn();
     const user = userEvent.setup();
     const { rerender } = render(<ChatInput onSend={onSend} />);
@@ -79,7 +79,9 @@ describe("ChatInput의 임신 여부 선택", () => {
     const form = screen.getByRole("textbox").closest("form")!;
     const group = screen.getByRole("radiogroup", { name: "임신 여부" });
     expect(form.contains(group)).toBe(true);
-    expect(group.compareDocumentPosition(screen.getByRole("textbox")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 질문 칸(첫 줄) 뒤, 아래 줄 묶음 안이다(예전 "텍스트 영역 앞"은 FE-17 U-09로 아래 줄 왼쪽으로 옮겼다)
+    expect(screen.getByRole("textbox").compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId("input-target-row").contains(group)).toBe(true);
     for (const radio of within(group).getAllByRole("radio")) expect(radio.getAttribute("type")).toBe("button");
     await user.click(within(group).getByRole("radio", { name: "임산부" }));
     expect(onSend).not.toHaveBeenCalled();
