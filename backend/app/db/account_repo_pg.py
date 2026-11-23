@@ -56,6 +56,7 @@ SEED_FILES = {1: SEED_FILE, 2: SEED_V2_FILE, 3: SEED_V3_FILE, 4: SEED_V4_FILE, 5
 MIGRATE_AVATAR_COLOR_FILE = DB_DIR / "migrate_profiles_avatar_color.sql"  # 2026-11-23: profiles.avatar_color(8색) 이미 적용된 DB용
 MIGRATE_GUEST_ENUM_FILE = DB_DIR / "migrate_doc_type_terms_guest.sql"  # PRD-17-22 A: doc_type 열거형에 terms_guest(별도 트랜잭션·커밋 뒤에 시드)
 SEED_GUEST_FILE = DB_DIR / "seed_legal_guest_v1.sql"  # PRD-17-22 A: 게스트판 이용약관 terms_guest v1(동의 대상 아님)
+SEED_FINAL_FILE = DB_DIR / "seed_legal_final.sql"  # 2026-11-23 최종안 반영: terms v4·privacy_policy v7·privacy_consent v3·sensitive_consent v3·terms_guest v2(초안·검토 전 문구 제거, 재동의 없음)
 SEED_AGE14_FILE = DB_DIR / "seed_legal_age14.sql"  # PRD-17-12 A: 만 14세 확인 문서 v1. 스키마를 커밋한 뒤 따로 실행
 _EFFECTIVE_PLACEHOLDER = "{{EFFECTIVE_AT}}"
 # 값이 아직 없는 자리표시({{PRIVACY_CONTACT}}는 render_privacy_contact가 원격 적용 직전에 채운다). 승인 원문 머리의 안내 문구 `{{…}}`(말줄임표 한 글자)는
@@ -108,6 +109,16 @@ def seed_guest_sql(effective_at: datetime) -> str:
     if effective_at.tzinfo is None:
         raise ValueError("effective_at에는 시간대가 있어야 한다")
     return SEED_GUEST_FILE.read_text(encoding="utf-8").replace(_EFFECTIVE_PLACEHOLDER, effective_at.isoformat())
+
+
+def seed_final_sql(effective_at: datetime) -> str:
+    """최종안 반영 시드(terms v4·privacy_policy v7·privacy_consent v3·sensitive_consent v3·terms_guest v2). `{{EFFECTIVE_AT}}`만 채운다.
+
+    `terms_guest` 열거형 값이 커밋된 뒤 실행한다. `{{PRIVACY_CONTACT}}`는 `render_privacy_contact`로 채운다.
+    """
+    if effective_at.tzinfo is None:
+        raise ValueError("effective_at에는 시간대가 있어야 한다")
+    return SEED_FINAL_FILE.read_text(encoding="utf-8").replace(_EFFECTIVE_PLACEHOLDER, effective_at.isoformat())
 
 
 def unfilled_placeholders(sql: str) -> list[str]:
@@ -446,5 +457,5 @@ class PostgresAccountRepo:
         return await self._run("authenticated", user_id, q)
 
 
-__all__ = ["SCHEMA_FILE", "SEED_AGE14_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "SEED_V3_FILE", "SEED_V4_FILE", "SEED_V5_FILE", "SEED_V6_FILE", "SEED_GUEST_FILE", "MIGRATE_GUEST_ENUM_FILE", "migrate_guest_enum_sql", "MIGRATE_AVATAR_COLOR_FILE", "migrate_avatar_color_sql", "seed_guest_sql", "PostgresAccountRepo", "assert_publishable",
+__all__ = ["SCHEMA_FILE", "SEED_AGE14_FILE", "SEED_FILE", "SEED_FILES", "SEED_V2_FILE", "SEED_V3_FILE", "SEED_V4_FILE", "SEED_V5_FILE", "SEED_V6_FILE", "SEED_GUEST_FILE", "SEED_FINAL_FILE", "seed_final_sql", "MIGRATE_GUEST_ENUM_FILE", "migrate_guest_enum_sql", "MIGRATE_AVATAR_COLOR_FILE", "migrate_avatar_color_sql", "seed_guest_sql", "PostgresAccountRepo", "assert_publishable",
            "schema_sql", "seed_age14_sql", "seed_sql", "unfilled_placeholders"]
