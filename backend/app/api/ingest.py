@@ -19,20 +19,22 @@ H19(〔D7〕 A): 이 모듈과 `app.api.vision`은 `app.agent.tools`·`app.agent
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from collections import deque
 from collections.abc import Callable
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from app.agent import fixed_phrases as fp
 from app.agent.guardrail import detect_emergency  # guardrail_in과 같은 함수(키워드 목록을 이 모듈에 두지 않는다)
 from app.api import vision
 from app.api.chat import ErrorBody
-from app.api.drugs import PROVIDER_STATE_KEY, DictProvider, DrugCandidateOut, to_out
+from app.api.drugs import CODE_DICT_UNAVAILABLE, PROVIDER_STATE_KEY, QUERY_MAX_LEN, DictProvider, DrugCandidateOut, DrugSearchOut, to_out
 from app.api.schemas import Emergency, _Strict
 from app.llm.ledger import CostLedger
 
@@ -176,6 +178,55 @@ async def ingest_image(body: IngestImageIn, request: Request) -> JSONResponse:
                 res.status, res.reason or "-", len(drugs), res.attempts, int((time.monotonic() - t0) * 1000), res.in_tokens,
                 res.out_tokens, res.usd, emergency is not None)
     return JSONResponse(content=out.model_dump(mode="json"), headers={"Cache-Control": NO_STORE})
+
+
+# --- 게스트 허용 약 이름 검색(사진 확인 카드 `+ 약 추가` 행, 2026-11-23 아스피린 A) ---
+SEARCH_MIN_LEN = 2
+SEARCH_RATE_MAX = 120  # 창당 요청 수(서버 전체 합산)
+SEARCH_RATE_WINDOW_S = 60.0
+CODE_RATE_LIMITED = "RATE_LIMITED"
+_rate_lock = threading.Lock()
+_rate_hits: deque[float] = deque()
+
+
+def _rate_ok() -> bool:
+    """서버 전체 슬라이딩 창 제한. IP·사용자 식별을 저장하지 않는다(시각 값만)."""
+    now = time.monotonic()
+    with _rate_lock:
+        while _rate_hits and now - _rate_hits[0] > SEARCH_RATE_WINDOW_S:
+            _rate_hits.popleft()
+        if len(_rate_hits) >= SEARCH_RATE_MAX:
+            return False
+        _rate_hits.append(now)
+        return True
+
+
+class IngestDrugSearchIn(_Strict):
+    """`/drugs/search`의 `DrugSearchIn`과 같은 모양, 최소 2자."""
+
+    q: Annotated[str, StringConstraints(strip_whitespace=True, min_length=SEARCH_MIN_LEN, max_length=QUERY_MAX_LEN)]
+
+
+@router.post("/ingest/drugs/search", response_model=DrugSearchOut,
+             summary="게스트 허용 약 이름 사전 검색(`/drugs/search`와 같은 형식, 토큰 안 읽음, 2~100자, 호출 제한, LLM 0)",
+             responses={422: {"model": ErrorBody, "description": "INVALID_REQUEST(fields=[\"q\"])."},
+                        429: {"model": ErrorBody, "description": "RATE_LIMITED(서버 전체 분당 제한)."},
+                        501: {"model": ErrorBody, "description": "사전 공급자 미설정."},
+                        503: {"model": ErrorBody, "description": "DICT_UNAVAILABLE."}})
+async def ingest_drug_search(body: IngestDrugSearchIn, request: Request) -> JSONResponse:
+    headers = {"Cache-Control": NO_STORE}
+    if not _rate_ok():
+        return JSONResponse(status_code=429, content=ErrorBody(code=CODE_RATE_LIMITED, fields=[]).model_dump(), headers=headers)
+    provider: DictProvider | None = getattr(request.app.state, PROVIDER_STATE_KEY, None)
+    if provider is None:
+        return JSONResponse(status_code=501, content=ErrorBody(code="NOT_IMPLEMENTED", fields=[]).model_dump(), headers=headers)
+    try:
+        dd = await run_in_threadpool(provider)
+    except Exception as exc:  # noqa: BLE001 - 종류 이름만(질문 없음)
+        logger.warning("ingest drug search dictionary unavailable: %s", type(exc).__name__)
+        return JSONResponse(status_code=503, content=ErrorBody(code=CODE_DICT_UNAVAILABLE, fields=[]).model_dump(), headers=headers)
+    out = await run_in_threadpool(to_out, dd, body.q)
+    return JSONResponse(content=out.model_dump(mode="json"), headers=headers)
 
 
 def register(app: FastAPI) -> None:

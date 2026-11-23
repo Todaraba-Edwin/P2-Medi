@@ -430,7 +430,7 @@ def test_runner_does_not_leak_after_fixture_and_openapi_is_unchanged(wired):
 
 ACCOUNT_PATHS = {"/me", "/legal/{doc_type}", "/consents", "/profiles", "/profiles/{profile_id}",  # BE-11 계정 API(2026-11-18)
                  "/drugs/search"}  # FE-04-13 A 프로필 약 사전 검색(2026-11-20)
-INGEST_PATHS = {"/ingest/image"}  # BE-14 사진 약 이름 추출(2026-11-22, 게스트 허용)
+INGEST_PATHS = {"/ingest/image", "/ingest/drugs/search"}  # BE-14 사진 약 이름 추출(2026-11-22, 게스트 허용)
 
 
 def test_openapi_matches_committed_export_shape():
