@@ -143,6 +143,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 /**
  * 프로필 색 고르기 8칸(라디오 묶음). 칸은 색 원만 보이고(고른 칸은 원 한가운데 체크 표시 + 굵은 테두리: 색만으로 구분하지 않는다) 접근 가능한 이름은 색 이름이다.
  * 누르는 영역 44px, ←/→로 옮기며 고른다(브라우저 기본 라디오). 고른 색의 병아리 미리보기는 폼 머리(제목 옆)에 있다.
+ * 폼의 첫 번째 입력이다(FE-17 U-15: 제목 바로 아래, 관계·이름·연령대·성별보다 앞). 고르면 머리의 병아리 배경색이 바로 같이 바뀐다.
  * 체크 위치(FE-17 U-07, ISSUE-026): 원과 체크를 같은 격자 칸(`[grid-area:1/1]`)에 겹쳐 원 안 가운데에 둔다(예전에는 기준 상자가 없어 원 밖 아래로 떨어졌다)
  */
 function AvatarColorPicker({ id, value, onChange }: { id: string; value: AvatarColor; onChange: (color: AvatarColor) => void }) {
@@ -155,7 +156,9 @@ function AvatarColorPicker({ id, value, onChange }: { id: string; value: AvatarC
         {AVATAR_COLORS.map((color) => {
           const checked = color === value;
           return (
-            <label key={color} data-testid="avatar-color-option" data-color={color} data-checked={checked} className="grid size-11 cursor-pointer place-items-center rounded-full has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-[-4px] has-[:focus-visible]:outline-ink-2">
+            // `relative`: 화면에서 숨긴 라디오(`sr-only` = position absolute)의 기준 상자를 이 칸으로 둔다(FE-17 U-14, ISSUE-031).
+            // 기준 상자가 없으면 라디오가 모달 상자(스크롤 영역 밖) 기준으로 놓여, 칸을 눌러 라디오가 초점을 받을 때 브라우저가 모달 상자 자체를 스크롤해 내용이 위로 밀렸다
+            <label key={color} data-testid="avatar-color-option" data-color={color} data-checked={checked} className="relative grid size-11 cursor-pointer place-items-center rounded-full has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-[-4px] has-[:focus-visible]:outline-ink-2">
               <input type="radio" name={`${id}-avatar-color`} value={color} checked={checked} onChange={() => onChange(color)} aria-label={AVATAR_COLOR_LABELS[color]} className="sr-only" />
               <span data-testid="avatar-color-swatch" className={cn("grid size-8 place-items-center rounded-full border", checked ? "border-2 border-ink" : "border-line-2")}>
                 <ProfileAvatar color={color} size={checked ? 28 : 30} face={false} className="[grid-area:1/1]" />
@@ -293,8 +296,9 @@ export function ProfileForm() {
 
   return (
     <StepBody data-testid="profile-form">
-      {/* 머리(FE-17 U-07, 와이어프레임 Profile-Basic): 고른 색의 병아리 + 제목·보조 문구. 수정 화면은 기존 제목이다. 119 안내 중에는 병아리 없이 색 원만 */}
-      <div className="flex items-center gap-3.5">
+      {/* 머리(FE-17 U-07, 와이어프레임 Profile-Basic): 고른 색의 병아리 + 제목·보조 문구. 수정 화면은 기존 제목이다. 119 안내 중에는 병아리 없이 색 원만.
+          병아리 배경은 폼 첫 칸 `프로필 색`의 값(`avatarColor`)을 그대로 쓰므로 색을 고르면 즉시 같이 바뀐다(FE-17 U-15) */}
+      <div data-testid="profile-form-head" className="flex items-center gap-3.5">
         <ProfileAvatar color={avatarColor} size={56} face={!hideMascot} />
         <div className="flex min-w-0 flex-col gap-0.5">
           <StepTitle>{existing ? PROFILE_FORM_EDIT_TITLE : PROFILE_FORM_NEW_TITLE}</StepTitle>
@@ -311,6 +315,10 @@ export function ProfileForm() {
           save();
         }}
       >
+        {/* 프로필 색(선택, 건강 정보 아님): 폼의 첫 번째 입력(FE-17 U-15, 2026-11-23 사용자 지시 "프로필 색상을 첫번째로"). 계정 버튼·입력창 칩·목록에서 사람을 구분하는 병아리 배경색.
+            진행바는 사용자 확정 사양(필수 4칸 → 선택 2칸, 색은 맨 뒤)을 그대로 두어 폼 순서와 진행바 순서가 다르다(보고에 적음) */}
+        <AvatarColorPicker id={id} value={avatarColor} onChange={setAvatarColor} />
+
         {/* 관계(필수): 5칸 세그먼트(본인|자녀|부모|배우자|기타). 본인 프로필은 `본인` 고정(다른 칸 비활성), 가족은 `본인`을 고를 수 없다 */}
         <FieldLabel>
           <span id={`${id}-relation`}>{RELATION_LABEL}</span>
@@ -446,9 +454,6 @@ export function ProfileForm() {
             </>
           )}
         </fieldset>
-
-        {/* 프로필 색(선택, 건강 정보 아님): 진행바 순서대로 맨 뒤. 계정 버튼·입력창 칩·목록에서 사람을 구분하는 병아리 배경색 */}
-        <AvatarColorPicker id={id} value={avatarColor} onChange={setAvatarColor} />
 
         <FailureLine failure={failure} />
         {/* 필수 4칸을 다 채우기 전에는 `저장`이 비활성이고 이유 한 줄을 버튼 설명으로 잇는다 */}

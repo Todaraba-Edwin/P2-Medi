@@ -33,7 +33,12 @@ export type ShellAction =
   /** 근거 상세 열기. `width`는 여는 순간의 화면 폭이다 */
   | { type: "openEvidence"; turnId: string; width: number }
   | { type: "closeEvidence" }
-  | { type: "newChat" };
+  | { type: "newChat" }
+  /**
+   * 창 크기가 사이드바 기준선(`DESKTOP_MIN_WIDTH`)을 가로질렀다(FE-17 U-18). 좁아지면(`desktop: false`) 사이드바·드로어를 닫고,
+   * 넓어지면(`desktop: true`) 사이드바를 펼치고 드로어 상태를 지운다. 같은 구간 안의 크기 변화에는 보내지 않는다(사용자 토글을 덮지 않는다)
+   */
+  | { type: "viewportCrossed"; desktop: boolean };
 
 export const isDesktopWidth = (width: number) => width >= DESKTOP_MIN_WIDTH;
 
@@ -67,6 +72,8 @@ export function shellReducer(state: ShellState, action: ShellAction): ShellState
       return { ...state, evidenceTurnId: null }; // 사이드바 상태는 건드리지 않는다
     case "newChat":
       return { ...state, drawerOpen: false, evidenceTurnId: null };
+    case "viewportCrossed":
+      return { ...state, sidebarExpanded: action.desktop, drawerOpen: false };
   }
 }
 

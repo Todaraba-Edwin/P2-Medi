@@ -134,6 +134,18 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const evidenceTurn = turns.find((turn) => turn.id === shell.evidenceTurnId);
   const evidenceResponse = evidenceTurn?.stream.response ?? null;
   const layout = width === null ? null : computeLayout(shell, width);
+  const desktop = width === null ? null : isDesktopWidth(width);
+
+  // 창 크기 자동 열고 닫기(FE-17 U-18): 폭이 사이드바 기준선(1024px)을 **가로지를 때만** 좁아지면 닫고 넓어지면 펼친다.
+  // 값이 바뀔 때만 도는 효과라 리사이즈 중 매 픽셀 반응하지 않고, 같은 구간 안에서 사용자가 접거나 편 상태는 그대로 둔다. 첫 그리기(폭을 처음 알 때)는 건너뛴다.
+  // 상태만 바꾸므로 대화·입력 중 글자는 그대로다(다시 마운트하지 않는다). 닫히는 층의 초점은 각 층이 토글 버튼으로 돌려준다(`Sidebar` `returnFocus`)
+  const lastDesktop = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (desktop === null) return;
+    const previous = lastDesktop.current;
+    lastDesktop.current = desktop;
+    if (previous !== null && previous !== desktop) dispatch({ type: "viewportCrossed", desktop });
+  }, [desktop]);
 
   const closeEvidence = () => {
     const turnId = shell.evidenceTurnId;

@@ -33,7 +33,7 @@ for (const width of [393, 1280]) {
         await expect(notice).toBeVisible();
         await expect(notice.getByTestId("start-target-heading")).toHaveText("나 프로필로 확인해요");
         await expect(notice.getByTestId("start-target-lead")).toContainText("프로필 없이도 확인할 수 있어요");
-        await expect(notice.getByTestId("profile-avatar")).toHaveAttribute("data-color", "yellow");
+        await expect(notice.getByTestId("profile-avatar")).toHaveCount(0); // FE-17 U-11: 아바타 없는 한 단락 문장
         // 시작 화면 병아리 이미지(HomeHero) 아래, 입력창 위에 있다
         const heroBox = await box(page.getByTestId("home").locator("img").first());
         // 시작 화면이 길어져도 병아리 위쪽이 잘리지 않는다(넘치면 위에서부터 스크롤)
@@ -42,7 +42,8 @@ for (const width of [393, 1280]) {
         expect(noticeBox.y).toBeGreaterThanOrEqual(heroBox.y + heroBox.height - 0.5);
         expect(noticeBox.y + noticeBox.height).toBeLessThanOrEqual((await box(input(page))).y);
         const guestButton = notice.getByRole("button", { name: "게스트로 이용" });
-        await expectTouchTarget(guestButton, { widthToo: false });
+        // FE-17 U-11: 문장 안 링크 모양이라 보이는 높이는 줄 높이다. 누르는 영역(투명 확장 포함) 44px은 ux-batch4가 가운데 ±21px 누름으로 확인한다
+        await expect(guestButton).toBeVisible();
         await expect(notice).not.toContainText("안전");
         await expectNoHorizontalScroll(page);
         await shot(page, base);

@@ -453,7 +453,7 @@ describe("프로필 화면", () => {
     expect(store.getState().profiles).toEqual([expect.objectContaining({ label: "첫째", relation: "child", age_band: "y6_11", sex: "male", pregnancy_status: null, medications: [] })]);
   });
 
-  it("프로필 색(2026-11-23): 8색 라디오(이름은 색 이름, 건강 정보 묶음 밖, 폼 맨 뒤), 새 프로필은 늘 노랑이 골라져 있고(FE-17 U-07) 고른 색이 저장돼 목록 아바타가 그 색이다. 체크 표시는 고른 원 안에 있다", async () => {
+  it("프로필 색(2026-11-23): 8색 라디오(이름은 색 이름, 건강 정보 묶음 밖, 폼 첫 번째 입력 FE-17 U-15), 새 프로필은 늘 노랑이 골라져 있고(FE-17 U-07) 고른 색이 저장돼 목록 아바타가 그 색이다. 체크 표시는 고른 원 안에 있다", async () => {
     const { user, store } = setup();
     await login(user);
     await consent(user, { health: false });
@@ -469,8 +469,25 @@ describe("프로필 화면", () => {
     expect(check.parentElement).toBe(within(group).getByRole("radio", { name: "노랑" }).closest("label")!.querySelector('[data-testid="avatar-color-swatch"]'));
     expect(check.getAttribute("class")).toContain("[grid-area:1/1]");
     expect(within(check.parentElement!).getByTestId("profile-avatar").className).toContain("[grid-area:1/1]");
-    // 진행바 순서대로 맨 뒤: 건강 정보 묶음 다음
-    expect(screen.getByTestId("health-fields").compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 폼의 첫 번째 입력(FE-17 U-15): 관계·이름·연령대·성별·건강 정보 묶음보다 앞. 진행바 사양(색은 맨 뒤 선택 칸)은 그대로
+    const form = screen.getByTestId("profile-form").querySelector("form")!;
+    expect(form.querySelector('[role="radiogroup"], input:not([type="radio"])')).toBe(group);
+    for (const later of [choiceGroup("관계"), screen.getByLabelText("이름(별명)"), choiceGroup("연령대"), choiceGroup("성별"), screen.getByTestId("health-fields")]) expect(group.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByTestId("profile-step").map((item) => item.getAttribute("data-step"))).toEqual(["relation", "name", "age", "sex", "medications", "color"]);
+    // 색을 바꾸면 제목 왼쪽 병아리 배경이 바로 같이 바뀐다(FE-17 U-15)
+    const head = screen.getByTestId("profile-form-head");
+    expect(within(head).getByTestId("profile-avatar")).toHaveAttribute("data-color", "yellow");
+    await user.click(within(group).getByRole("radio", { name: "분홍" }));
+    expect(within(head).getByTestId("profile-avatar")).toHaveAttribute("data-color", "pink");
+    await user.keyboard("{ArrowRight}");
+    expect(within(group).getByRole("radio", { name: "보라" })).toBeChecked();
+    expect(within(head).getByTestId("profile-avatar")).toHaveAttribute("data-color", "purple");
+    // 숨긴 라디오의 기준 상자는 그 칸(label)이다(FE-17 U-14: 모달 상자가 스크롤되지 않게), 모달 상자는 스크롤되지 않는 clip
+    for (const option of within(group).getAllByTestId("avatar-color-option")) expect(option.className.split(" ")).toContain("relative");
+    expect(modal().className.split(" ")).toContain("overflow-clip");
+    expect(modal().className.split(" ")).not.toContain("overflow-hidden");
+    await user.click(within(group).getByRole("radio", { name: "노랑" })); // 노랑으로 되돌려 저장(아래 단언은 본인 노랑 기준)
+    expect(within(head).getByTestId("profile-avatar")).toHaveAttribute("data-color", "yellow");
     await user.type(screen.getByLabelText("이름(별명)"), "나");
     await completeRequired(user);
     await user.click(screen.getByTestId("profile-save"));
@@ -715,9 +732,29 @@ describe("프로필 화면", () => {
     expect(screen.getByTestId("account-unavailable")).toHaveTextContent(copy.ERROR_NOT_IMPLEMENTED);
     for (const testId of ["add-self", "add-family", "withdraw", "health-consent-notice", "account-error"]) expect(screen.queryByTestId(testId), testId).toBeNull();
     expect(screen.queryByRole("button", { name: "동의 내용 보기" })).toBeNull();
+    expect(screen.getByTestId("profile-list-actions")).toContainElement(screen.getByRole("button", { name: "로그아웃" })); // 바닥 줄(FE-17 U-16)
     await user.click(screen.getByRole("button", { name: "로그아웃" }));
     await waitFor(() => expect(store.getState().status).toBe("guest"));
     await waitFor(() => expect(screen.queryByTestId("account-modal")).toBeNull());
+  });
+
+  it("프로필 관리 화면은 grid 1fr auto: 위는 목록 영역(넘치면 그 안에서만 스크롤), 아래 줄에 동의 내용 보기·로그아웃·탈퇴(FE-17 U-16)", async () => {
+    const { user } = setup();
+    await login(user);
+    await consent(user, { health: false });
+    const list = screen.getByTestId("profile-list");
+    expect(list.className.split(" ")).toEqual(expect.arrayContaining(["grid", "h-full", "grid-rows-[1fr_auto]"]));
+    const [scroller, actions] = Array.from(list.children) as HTMLElement[];
+    expect(scroller).toHaveAttribute("data-testid", "profile-list-scroll");
+    expect(scroller.className.split(" ")).toEqual(expect.arrayContaining(["min-h-0", "overflow-y-auto"]));
+    expect(actions).toHaveAttribute("data-testid", "profile-list-actions");
+    expect(within(actions).getAllByRole("button").map((button) => button.textContent)).toEqual(["동의 내용 보기", "로그아웃", "탈퇴"]);
+    for (const testId of ["add-self", "add-family"]) expect(scroller).toContainElement(screen.getByTestId(testId));
+    expect(within(scroller).getByRole("heading")).toHaveTextContent(copy.PROFILES_TITLE);
+    // 탈퇴는 위험 글자 버튼이고 다른 동작과 떨어져 있다
+    expect(within(actions).getByTestId("withdraw").className).toContain("text-red-ink");
+    expect(within(actions).getByTestId("withdraw").className.split(" ")).toContain("ml-auto");
+    expect(within(actions).getByRole("button", { name: "로그아웃" }).className).not.toContain("text-red-ink");
   });
 
   it("탈퇴는 확인 모달을 거치고, 끝나면 게스트로 돌아가 모달이 닫힌다", async () => {
@@ -903,6 +940,9 @@ describe("대상 선택 '누가 먹나요'(입력창 프로필 칩, 2026-11-23)"
     expect(chip()).toHaveAttribute("aria-expanded", "false");
     // `게스트로 이용`의 병아리는 색 없는 원(어느 프로필 색과도 겹치지 않는다)
     expect(within(chip()).getByTestId("profile-avatar")).toHaveAttribute("data-color", "none");
+    // 보이는 칩은 `일반인|임산부` 토글 틀과 같은 28px(h-7)·12px 글자·완전히 둥근 모양(FE-17 U-10), 누르는 영역은 버튼 44px(h-11)
+    expect(within(chip()).getByTestId("target-chip-face").className.split(" ")).toEqual(expect.arrayContaining(["h-7", "text-xs", "rounded-full", "border", "border-line-2", "bg-bg-soft"]));
+    expect(chip().className.split(" ")).toContain("h-11");
     await user.click(chip());
     expect(chip()).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("group", { name: "누가 먹나요" })).toBeInTheDocument();

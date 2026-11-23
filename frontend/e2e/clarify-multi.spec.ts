@@ -103,15 +103,16 @@ for (const width of [393, 1280]) {
           took_today: null,
         },
       });
-      // 말풍선: 다시 물은 차례는 표시용 글자, 처음 차례는 원 질문(FE-09-04 A)
+      // 말풍선: 처음 차례는 원 질문, 다시 물은 차례는 말풍선 없이 지난 답의 고른 줄 요약 다음에 바로 답이 이어진다(FE-17 U-17이 FE-09-04 A의 표시용 말풍선을 대체)
       await expect(bubble(page, 1)).toHaveText(QUESTION);
-      await expect(bubble(page, 2)).toHaveText("고른 약: 가나다정 100밀리그램, 가나다시럽 키즈로 다시 확인");
+      await expect(bubble(page, 2)).toHaveCount(0);
+      await expect(page.getByText(/고른 약: /)).toHaveCount(0);
       await expect(page.locator("[data-turn]")).toHaveCount(2);
-      // 지난 되묻기(FE-17 U-05): 고른 줄 요약(A 입력 → 고른 제품 · 바꾸기)은 남고 고를 수 없으며, 안내 줄·확인 줄은 숨는다
+      // 지난 되묻기(FE-17 U-05·U-17): 고른 줄 요약(A 입력 → 고른 제품)은 남고 고를 수 없으며 `바꾸기`는 숨고, 안내 줄·확인 줄도 숨는다
       const turn1 = page.locator('[data-turn="turn-1"]');
       await expect(turn1.getByTestId("candidate-card")).toHaveAttribute("data-readonly", "true");
-      await expect(turn1.getByTestId("candidate-picked")).toHaveText([/가나다\s*→\s*가나다정 100밀리그램\s*바꾸기/, /가나다시럽\s*→\s*가나다시럽 키즈\s*바꾸기/]);
-      for (const change of await turn1.getByTestId("candidate-change").all()) await expect(change).toBeDisabled();
+      await expect(turn1.getByTestId("candidate-picked")).toHaveText([/^\s*A?\s*가나다\s*→\s*가나다정 100밀리그램\s*$/, /^\s*B?\s*가나다시럽\s*→\s*가나다시럽 키즈\s*$/]);
+      await expect(turn1.getByTestId("candidate-change")).toHaveCount(0);
       await expect(turn1.getByTestId("candidate")).toHaveCount(0); // 지난 되묻기의 후보는 더 고를 수 없다
       await expect(turn1.getByTestId("candidates-line")).toHaveCount(0);
       await expect(turn1.getByTestId("resend-pick")).toHaveCount(0);
@@ -194,7 +195,8 @@ test.describe("단일 묶음 되묻기 회귀(FE-09)", () => {
       question: QUESTION,
       context: { age: null, pregnant: false, confirmed_drugs: [{ name: "가나다시럽", item_seq: "200000003", input_name: "가나다" }], prior_drugs: [], took_today: null },
     });
-    await expect(bubble(page, 2)).toHaveText("고른 약: 가나다시럽으로 다시 확인");
+    await expect(bubble(page, 2)).toHaveCount(0); // 다시 물은 차례는 말풍선이 없다(FE-17 U-17)
+    await expect(page.getByText(/고른 약: /)).toHaveCount(0);
   });
 
   test("같은 이름을 다시 되물으면 이번에 고른 약만 confirmed_drugs로 가고, 앞서 고른 약은 prior_drugs로 따로 간다(AG-21-02 A; input_name당 하나, FE-09-05 A)", async ({ page }) => {

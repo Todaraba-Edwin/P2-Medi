@@ -38,9 +38,9 @@ for (const width of [393, 1280]) {
         const menu = page.getByTestId("account-menu");
         await expect(menu).toBeVisible();
         await expect(trigger).toHaveAttribute("aria-expanded", "true");
-        // 맨 위는 프로필 관리, 그 바로 아래(하위)가 대상 프로필 목록(FE-17 U-06: 게스트로 이용·본인·가족), 그 아래 기존 계정 메뉴
+        // 맨 위는 프로필 관리, 구분선 아래 `누가 먹나요` 독립 섹션(FE-17 U-12: 게스트로 이용·본인·가족), 구분선 아래 기존 계정 메뉴
         expect(await itemNames(page)).toEqual(["프로필 관리", "게스트로 이용", "나", "첫째", "밝은 모드", "다크 모드", "시스템기기 설정을 따라요", "약관·정책", "로그아웃"]);
-        await expect(menu.getByRole("separator")).toHaveCount(2);
+        await expect(menu.getByRole("separator")).toHaveCount(3);
         await expect(menu.getByRole("menuitem", { name: "프로필 관리" })).toBeFocused();
         for (const item of await menu.locator('[role="menuitem"], [role="menuitemradio"]').all()) await expectTouchTarget(item, { widthToo: false });
         // 메뉴는 버튼 위로 열리고 화면을 벗어나지 않는다

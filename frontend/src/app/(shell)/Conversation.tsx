@@ -236,8 +236,9 @@ export function Conversation({ turns, ...rest }: ConversationProps) {
         const next = turns[index + 1];
         return (
           <div key={turn.id} data-turn={turn.id} data-status={turn.stream.status} className="flex flex-col gap-2.5">
-            {/* 고른 약으로 다시 물은 차례는 표시용 글자를 보인다(FE-09-04 A). 서버로 간 것은 원 질문이다. 답을 기다리는 동안은 기존 진행 표시가 이어진다 */}
-            <MessageBubble side="me">{turn.display ?? turn.question}</MessageBubble>
+            {/* 고른 약으로 다시 물은 차례(`display`가 있음)는 말풍선을 그리지 않는다(FE-17 U-17: 지난 답의 고른 줄 요약 바로 다음에 진행 표시·새 답이 이어진다).
+                서버로 간 것은 예전처럼 원 질문 + 고른 약이고(요청 계약 불변), `display`는 차례 표시(지난 답 읽기 전용 판정 `resent`)에만 쓴다 */}
+            {turn.display == null && <MessageBubble side="me">{turn.question}</MessageBubble>}
             <TurnAnswer turn={turn} isLast={turn === last} resent={next !== undefined && next.display !== undefined && next.display !== null && next.question === turn.question} {...rest} />
           </div>
         );

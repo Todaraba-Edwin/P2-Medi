@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
@@ -327,7 +327,17 @@ describe("시작 화면 기본 대상 안내·기본 대상 저장(FE-17 U-08)",
     expect(within(notice).getByTestId("start-target-heading")).toHaveTextContent("나 프로필로 확인해요");
     expect(within(notice).getByTestId("start-target-lead")).toHaveTextContent("연령대·임신 여부가 답변에 쓰여요");
     expect(notice.textContent).not.toMatch(/안전/);
-    expect(notice).toHaveAccessibleName("나 프로필로 확인해요");
+    // FE-17 U-11: 카드·아바타·버튼 모양 없이 `<p>` 한 단락 문장(통합 고지와 같은 글자 모양), `게스트로 이용`은 문장 끝 밑줄 링크 모양의 버튼
+    expect(notice.tagName).toBe("P");
+    expect(notice).toHaveTextContent("나 프로필로 확인해요. 이 프로필의 연령대·임신 여부가 답변에 쓰여요. 프로필 없이도 확인할 수 있어요. 게스트로 이용");
+    expect(within(notice).queryByTestId("profile-avatar")).toBeNull();
+    const combined = screen.getByTestId("input-combined-notice");
+    for (const token of ["text-xs", "leading-[17px]", "text-mute"]) expect(notice.className.split(" "), token).toContain(token);
+    for (const token of ["text-xs", "leading-[17px]", "text-mute"]) expect(combined.className.split(" "), token).toContain(token);
+    const link = within(notice).getByRole("button", { name: "게스트로 이용" });
+    expect(link.className).toContain("underline");
+    expect(link.className).not.toMatch(/(^| )(border|bg-|min-h-11)/);
+    expect(notice.lastElementChild).toBe(link); // 문장 끝에 이어 붙는다
     await user.click(within(notice).getByRole("button", { name: "게스트로 이용" }));
     expect(account.getState()).toMatchObject({ targetProfileId: null, targetChosen: true });
     expect(within(notice).getByTestId("start-target-heading")).toHaveTextContent("게스트로 이용 중이에요");
@@ -569,5 +579,40 @@ describe("합성 데이터 데모 표시(BE-13-07 A)", () => {
     setup({ width: 393 });
     expect(screen.queryByTestId("demo-notice")).toBeNull();
     expect(document.body.textContent).not.toContain("합성 데이터 데모");
+  });
+});
+
+describe("창 크기 자동 열고 닫기(FE-17 U-18)", () => {
+  const resize = (width: number) =>
+    act(() => {
+      setWidth(width);
+      window.dispatchEvent(new Event("resize"));
+    });
+
+  it("1280 → 393이면 사이드바가 닫히고(☰), 393 → 1280이면 펼쳐진다. 같은 구간 안의 수동 접기는 폭만 바뀌면 그대로이며 입력 중 글자는 남는다", async () => {
+    const { user } = setup({ width: 1280 });
+    await screen.findByTestId("sidebar");
+    await user.type(screen.getByRole("textbox"), "입력 중");
+    // 같은 구간(넓은 폭)에서 사용자가 접는다 → 폭만 바꾸면(1280 → 1100) 그대로 접힘
+    await user.click(screen.getByTestId("sidebar-toggle"));
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
+    resize(1100);
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar")).toBeNull();
+    // 기준선 아래로: 사이드바 칸이 없고 ☰
+    resize(393);
+    expect(screen.queryByTestId("sidebar-rail")).toBeNull();
+    expect(screen.getByTestId("menu-button")).toBeInTheDocument();
+    // 드로어를 열어 둔 채 다시 넓히면 드로어는 닫히고 사이드바가 펼쳐진다(접어 두었던 것과 상관없이)
+    await user.click(screen.getByTestId("menu-button"));
+    expect(await screen.findByTestId("menu-drawer")).toBeInTheDocument();
+    resize(1280);
+    await waitFor(() => expect(screen.queryByTestId("menu-drawer")).toBeNull());
+    expect(screen.getByTestId("sidebar")).toHaveAttribute("data-presentation", "push");
+    expect(screen.getByRole("textbox")).toHaveValue("입력 중"); // 다시 마운트하지 않는다
+    // 같은 구간 안의 크기 변화(1280 → 1500)에는 반응하지 않는다: 다시 접은 뒤 넓혀도 접힘
+    await user.click(screen.getByTestId("sidebar-toggle"));
+    resize(1500);
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
   });
 });

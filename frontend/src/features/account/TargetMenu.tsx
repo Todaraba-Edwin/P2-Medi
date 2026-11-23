@@ -26,10 +26,11 @@ export interface TargetChoiceProps {
 /**
  * 대상 프로필("누가 먹나요") 고르기 항목: 메뉴 안의 라디오 묶음(`menuitemradio`). 입력창 프로필 칩과 계정 버튼 메뉴가 같은 부품을 쓴다.
  * 순서는 예전 본문 선택 줄과 같다: `게스트로 이용`(FE-17 U-06, 예전 `선택 안 함`: 프로필 값 없이 일반으로 묻는 길, 요청 의미는 그대로) → 본인 → 가족.
- * 고른 항목은 체크 + 굵게(색만으로 구분하지 않는다). `게스트로 이용`의 병아리는 색 없는 점선 원이다(프로필 색과 헷갈리지 않게)
+ * 고른 항목은 체크 + 굵게(색만으로 구분하지 않는다). `게스트로 이용`의 병아리는 색 없는 점선 원이다(프로필 색과 헷갈리지 않게).
+ * 계정 메뉴에서도 `화면 모드`와 같은 독립 섹션(작은 섹션 제목 + 메뉴 폭 전체 항목)이다: 예전 `프로필 관리` 아래 들여쓴 하위 묶음(세로 선)은 없앴다(FE-17 U-12)
  */
-export function TargetChoiceItems({ profiles, value, onChange, nested = false }: TargetChoiceProps & { nested?: boolean }) {
-  const items = (
+export function TargetChoiceItems({ profiles, value, onChange }: TargetChoiceProps) {
+  return (
     <>
       <DropdownMenu.Label className="px-2.5 pt-2 pb-1 text-xs font-bold text-mute">{TARGET_LABEL}</DropdownMenu.Label>
       <DropdownMenu.RadioGroup value={value ?? NONE} onValueChange={(next) => onChange(next === NONE ? null : next)} data-testid="target-picker" aria-label={TARGET_LABEL}>
@@ -48,14 +49,6 @@ export function TargetChoiceItems({ profiles, value, onChange, nested = false }:
         })}
       </DropdownMenu.RadioGroup>
     </>
-  );
-  // `nested`: 계정 메뉴의 `프로필 관리` 아래 하위 묶음(FE-17 U-06). 왼쪽 들여쓰기 + 세로 선으로 하위임을 보인다(글자·순서로도 바로 아래에 있다)
-  return nested ? (
-    <div data-testid="target-choice-nested" className="ml-4 flex flex-col gap-0.5 border-l-2 border-line pl-1.5">
-      {items}
-    </div>
-  ) : (
-    items
   );
 }
 
@@ -79,17 +72,19 @@ export function TargetChip({ profiles, value, onChange, container = null }: Targ
           // 접근 가능한 이름 = 묶음 이름 + 보이는 이름(보이는 글자가 이름 안에 그대로 있다, WCAG 2.5.3)
           aria-label={`${TARGET_LABEL} ${shownName}`}
           {...triggerProps}
-          // 누르는 영역 44px(버튼), 보이는 칩은 32px(안쪽). 좁은 폭(393)에서는 이름이 줄어든다(말줄임)
+          // 누르는 영역 44px(버튼), 보이는 칩은 옆 `일반인|임산부` 토글 틀과 같은 28px·같은 글자 크기(12px)·완전히 둥근 모양(FE-17 U-10: 토글 기준으로 통일).
+          // 좁은 폭(393)에서는 이름이 줄어든다(말줄임)
           className="group flex h-11 max-w-[11rem] min-w-0 shrink items-center rounded-full focus-visible:outline-none"
         >
           <span
+            data-testid="target-chip-face"
             className={cn(
-              "flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line-2 bg-bg-soft py-0 pr-2 pl-1 text-xs font-bold text-ink",
+              "flex h-7 min-w-0 items-center gap-1 rounded-full border border-line-2 bg-bg-soft py-0 pr-2 pl-[3px] text-xs leading-none font-bold text-ink",
               "group-focus-visible:outline-3 group-focus-visible:outline-offset-2 group-focus-visible:outline-ink-2",
               HOVER_ROW,
             )}
           >
-            <ProfileAvatar color={target?.avatar_color ?? null} size={24} />
+            <ProfileAvatar color={target?.avatar_color ?? null} size={20} />
             <span className="min-w-0 truncate">{shownName}</span>
             <ChevronUpIcon className="size-3.5 flex-none text-mute" aria-hidden="true" />
           </span>
