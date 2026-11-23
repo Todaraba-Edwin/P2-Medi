@@ -6,7 +6,7 @@ import type { LegalMenuDoc } from "@/lib/api/account";
  * 상태별로 **어떤 문서 종류를 보일지만** 여기 둔다. 제목·본문·버전은 서버 `GET /legal/{doc_type}` 값을 그대로 그린다(프런트에 문구를 두지 않는다).
  * - `audience`: `guest`(게스트에게만) · `member`(로그인 사용자에게만) · `all`(둘 다)
  * - 서버가 그 종류를 모르거나(422) 게시본이 없으면(404) 그 항목은 **아예 그리지 않는다**(`fetchLegalDocIfPublished`가 null).
- *   게스트용 종류(`terms_guest`)는 백엔드 `DocType` enum에 아직 없다(2026-11-23 기준). 서버가 추가하면 목록 변경 없이 보인다.
+ *   게스트용 종류(`terms_guest`)는 백엔드 `DocType`에 2026-11-23 추가됐다(열람 전용, 동의 대상 아님). 게시본이 없으면(404) 숨긴다.
  *   처리방침은 게스트용을 따로 두지 않고 공통 `privacy_policy`를 게스트·회원이 함께 본다(PRD-17-23 A, 2026-11-23)
  * - 순서는 이 배열 순서다. 회원 목록은 동의 화면과 같은 순서(`LEGAL_DOC_TYPES`)
  */

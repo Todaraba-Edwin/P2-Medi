@@ -195,7 +195,8 @@ describe("F2 임신 여부 토글(로그인, FE-11-13·14 A)", () => {
     expect(state.session?.profiles.find((profile) => profile.profile_id === SELF_ID)?.pregnancy_status).toBe("pregnant");
     expect(screen.queryByTestId("pregnancy-hint")).toBeNull();
     expect(screen.queryByTestId("pregnancy-save-error")).toBeNull();
-    // 프로필 화면(계정 모달)에서 바뀐 값이 보인다
+    // 프로필 화면(계정 모달)에서 바뀐 값이 보인다: 계정 메뉴(버튼 → 팝오버)의 `프로필 관리`
+    await user.click(screen.getByTestId("account-menu-button"));
     await user.click(screen.getByTestId("account-entry"));
     const modal = await screen.findByTestId("account-modal");
     expect(within(modal).getAllByTestId("profile-item")[0].textContent).toContain("임신 여부 예");
@@ -410,8 +411,9 @@ describe("로그인 콜백 복귀(?auth_resume=1, 2026-11-22 사용자 보고): 
     await waitFor(() => expect(screen.queryByTestId("account-modal")).toBeNull());
     await account.getState().bootstrap(); // 상태를 다시 읽어도 열리지 않는다
     expect(screen.queryByTestId("account-modal")).toBeNull();
-    // 사이드바 `프로필 관리`에서 이어 간다: 동의가 남았으니 동의 화면
-    await user.click(screen.getByRole("button", { name: "프로필 관리" }));
+    // 사이드바 계정 메뉴의 `프로필 관리`에서 이어 간다: 동의가 남았으니 동의 화면
+    await user.click(screen.getByTestId("account-menu-button"));
+    await user.click(screen.getByRole("menuitem", { name: "프로필 관리" }));
     expect(await screen.findByTestId("account-modal")).toHaveAttribute("data-step", "consent");
   });
 

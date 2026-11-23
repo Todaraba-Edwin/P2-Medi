@@ -22,7 +22,7 @@ import {
   SOCIAL_PROVIDERS,
   SexSchema,
 } from "@/lib/api/account";
-import type { ConsentDocType, ConsentState, Me, Medication, OnboardingStep, Profile, SocialProvider } from "@/lib/api/account";
+import type { ConsentDocType, ConsentState, LegalDoc, Me, Medication, OnboardingStep, Profile, SocialProvider } from "@/lib/api/account";
 import {
   MOCK_DRUG_ITEM_SEQS,
   MOCK_DRUG_SEARCH_ERRORS,
@@ -204,14 +204,15 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
   };
 
   return [
-    // 약관·동의 문서 현재본(게스트 허용). 게스트용 목 문서(`MOCK_GUEST_LEGAL_DOCS`, enum 밖)도 낸다. 모르는 종류는 실서버처럼 422
+    // 약관·동의 문서 현재본(게스트 허용). 동의 화면 5종은 `MOCK_LEGAL_DOCS`, 게스트판(`terms_guest`, 열람 전용)은 `MOCK_GUEST_LEGAL_DOCS`.
+    // enum 밖 종류는 실서버처럼 422, enum 안인데 목에 문서가 없으면 404(게시본 없음)
     http.get("*/api/legal/:docType", ({ params }) => {
       if (typeof params.docType === "string" && state.missingLegal?.includes(params.docType)) return error(404, "NOT_FOUND");
-      const guestDoc = typeof params.docType === "string" ? MOCK_GUEST_LEGAL_DOCS[params.docType] : undefined;
-      if (guestDoc) return HttpResponse.json(guestDoc, { headers: { "Cache-Control": "public, max-age=300" } });
       const docType = LegalDocTypeSchema.safeParse(params.docType);
       if (!docType.success) return error(422, "INVALID_REQUEST", ["doc_type"]);
-      return HttpResponse.json(MOCK_LEGAL_DOCS[docType.data], { headers: { "Cache-Control": "public, max-age=300" } });
+      const doc = (MOCK_LEGAL_DOCS as Readonly<Record<string, LegalDoc | undefined>>)[docType.data] ?? MOCK_GUEST_LEGAL_DOCS[docType.data];
+      if (!doc) return error(404, "NOT_FOUND");
+      return HttpResponse.json(doc, { headers: { "Cache-Control": "public, max-age=300" } });
     }),
 
     http.get("*/api/me", () => (state.session ? HttpResponse.json(me(state.session), { headers: NO_STORE }) : error(401, "AUTH_REQUIRED"))),

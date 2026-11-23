@@ -4,7 +4,7 @@ import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchLegalDocIfPublished } from "@/lib/api/account";
-import { SettingsDialog } from "@/features/settings/SettingsDialog";
+import { LegalDialog } from "./LegalDialog";
 import { createAccountHandlers } from "@/mocks/account-handlers";
 import { MOCK_GUEST_LEGAL_DOCS, MOCK_LEGAL_DOCS } from "@/mocks/fixtures/account";
 import { LegalDocsSection } from "./LegalDocsSection";
@@ -127,17 +127,26 @@ describe("LegalDocsSection", () => {
   });
 });
 
-describe("설정 화면의 약관·정책 묶음", () => {
-  it("게스트 설정 화면에 묶음이 있고, focusSection=legal이면 열릴 때 묶음 제목에 초점이 간다", async () => {
-    render(<SettingsDialog open onOpenChange={() => {}} showLogin={false} onLogin={() => {}} member={false} focusSection="legal" />);
-    const heading = screen.getByRole("heading", { name: "약관·정책" });
-    await waitFor(() => expect(heading).toHaveFocus());
+describe("약관·정책 열람 화면(계정 메뉴 항목에서 연다)", () => {
+  it("게스트: 제목 '약관·정책' 하나(안쪽 제목 중복 없음)에 초점이 가고, 게스트 목록을 보인다. 체크박스·제출 없음", async () => {
+    render(<LegalDialog open onOpenChange={() => {}} member={false} />);
+    const dialog = screen.getByTestId("legal-dialog");
+    const title = within(dialog).getByRole("heading", { name: "약관·정책" });
+    await waitFor(() => expect(title).toHaveFocus());
+    expect(within(dialog).getAllByRole("heading")).toHaveLength(1);
+    expect(within(dialog).getByTestId("legal-menu")).toHaveAttribute("aria-labelledby", title.id);
     await waitFor(() => expect(items()).toEqual(["terms_guest", "terms", "privacy_policy"]));
+    expect(within(dialog).queryAllByRole("checkbox")).toHaveLength(0);
+    expect(consentCalls).not.toHaveBeenCalled();
   });
 
-  it("회원 설정 화면은 회원 목록이고, 기본 초점은 묶음 제목이 아니다", async () => {
-    render(<SettingsDialog open onOpenChange={() => {}} showLogin={false} onLogin={() => {}} member />);
+  it("회원: 회원 목록 5종이고, 닫기 버튼으로 닫힌다", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(<LegalDialog open onOpenChange={onOpenChange} member />);
     await waitFor(() => expect(items()).toEqual(["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"]));
-    expect(screen.getByRole("heading", { name: "약관·정책" })).not.toHaveFocus();
+    expect(screen.getByTestId("legal-menu")).toHaveAttribute("data-audience", "member");
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

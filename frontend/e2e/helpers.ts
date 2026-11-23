@@ -95,6 +95,27 @@ export async function openApp(page: Page, base = "") {
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-ready", "true");
 }
 
+/**
+ * 사이드바 아래 계정 메뉴(버튼 하나 → 위로 열리는 팝오버, 2026-11-23)를 연다. 좁은 폭(1024 미만)은 ☰ 드로어 안 버튼이다.
+ * 열린 메뉴(`account-menu`)를 돌려준다. 항목: `account-entry`(로그인/가입·프로필 관리)·`theme-*`·`legal-entry`·`account-logout`(회원)
+ */
+export async function openAccountMenu(page: Page) {
+  // 좁은 폭: 드로어가 아직 닫혀 있을 때만 ☰을 누른다(로그아웃처럼 드로어를 닫지 않는 항목 뒤에는 열린 채다)
+  if (page.viewportSize()!.width < 1024 && (await page.getByTestId("menu-drawer").count()) === 0) await page.getByTestId("menu-button").click();
+  const button = page.getByTestId("account-menu-button").first();
+  await button.click();
+  const menu = page.getByTestId("account-menu");
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** 계정 메뉴의 `프로필 관리`(게스트: `로그인/가입`)로 계정 모달을 연다 */
+export async function openAccountEntry(page: Page) {
+  const menu = await openAccountMenu(page);
+  await menu.getByTestId("account-entry").click();
+  await expect(page.getByTestId("account-modal")).toBeVisible();
+}
+
 export async function ask(page: Page, question = QUESTION) {
   await page.getByRole("textbox").fill(question);
   await page.getByRole("button", { name: "보내기" }).click();

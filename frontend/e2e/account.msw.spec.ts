@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openApp } from "./helpers";
+import { HEIGHT, MIN_TOUCH, ask, expectClickReaches, expectNoHorizontalScroll, expectOnTop, expectTouchTarget, input, layerTel, openAccountEntry, openApp } from "./helpers";
 
 // 계정 흐름(FE-04) e2e. Playwright 프로젝트 `msw-worker`(파일 이름의 `msw.spec.ts`)가 `NEXT_PUBLIC_API_MOCKING=enabled` 운영 빌드에 붙는다.
 // 서버는 브라우저 워커의 목(src/mocks/account-handlers.ts, BE-11 계약과 같은 모양)이고 실제 백엔드·원격 호출은 0이다.
@@ -403,8 +403,7 @@ test.describe("금기 결과 위에서 여는 계정 모달 360px(ISSUE-006 상�
     await openApp(page);
     await ask(page, "mock:응급 합성 질문");
     await expect(page.getByTestId("result-card")).toBeVisible();
-    await page.getByRole("button", { name: "메뉴 열기" }).click();
-    await page.getByTestId("menu-drawer").getByTestId("account-entry").click();
+    await openAccountEntry(page); // ☰ 드로어 → 계정 메뉴 → 로그인/가입
     await expect(page.getByTestId("menu-drawer")).toHaveCount(0); // 드로어는 닫히고 모달만 남는다
     await expect(modal(page)).toHaveAttribute("data-step", "login");
     // 119 배너는 모달·스크림 밖(위)에 있고 누를 수 있다. 배너가 있으니 모달 안 진입점과 마스코트는 없다
@@ -435,8 +434,7 @@ test.describe("금기 결과 위에서 여는 계정 모달 360px(ISSUE-006 상�
     await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);
     await closeButton(page).click();
     await expect(modal(page)).toHaveCount(0);
-    await page.getByRole("button", { name: "메뉴 열기" }).click();
-    await page.getByTestId("menu-drawer").getByTestId("account-entry").click();
+    await openAccountEntry(page); // ☰ 드로어 → 계정 메뉴 → 프로필 관리
     await expect(modal(page)).toHaveAttribute("data-step", "profiles");
     await expect(backButton(page)).toHaveCount(0);
     await expect(modal(page).getByTestId("profile-item")).toHaveCount(2);

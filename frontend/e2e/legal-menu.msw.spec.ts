@@ -1,9 +1,9 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openApp } from "./helpers";
+import { HEIGHT, expectNoHorizontalScroll, expectTouchTarget, openAccountMenu, openApp } from "./helpers";
 
-// 약관·정책 열람 진입점(2026-11-23 사용자 요구): 게스트·로그인 모두 계정 메뉴의 `약관·정책` 행 → 설정 화면의 `약관·정책` 묶음에서 현재 적용 문서를 읽는다.
+// 약관·정책 열람 진입점(2026-11-23 사용자 요구): 게스트·로그인 모두 계정 메뉴(팝오버)의 `약관·정책` 항목 → 열람 화면(`legal-dialog`)에서 현재 적용 문서를 읽는다.
 // 서버는 브라우저 워커의 목(src/mocks/account-handlers.ts). 게스트 목록은 `terms_guest`(게스트용, 목에 있음)·공통 2종(처리방침은 공통, PRD-17-23 A),
 // 회원 목록은 동의 화면과 같은 5종이다(`src/features/account/legal-menu.ts`). 열람은 읽기 전용이라 `POST /api/consents`가 나가지 않는다.
 // "서버에 없는 종류 숨김"은 `?mock_legal_missing=terms_guest`(목 핸들러가 404)로 본다(실서버에서 `terms_guest`가 게시되기 전 상태와 같다).
@@ -17,18 +17,20 @@ const shot = async (page: Page, name: string) => {
 const GUEST_DOCS = ["terms_guest", "terms", "privacy_policy"];
 const MEMBER_DOCS = ["terms", "privacy_policy", "privacy_consent", "sensitive_consent", "age_14"];
 
-const dialog = (page: Page) => page.getByTestId("settings-dialog");
+const dialog = (page: Page) => page.getByTestId("legal-dialog");
 const menu = (page: Page) => dialog(page).getByTestId("legal-menu");
 const docTypes = (page: Page) => menu(page).getByTestId("legal-menu-item").evaluateAll((items) => items.map((item) => (item as HTMLElement).dataset.docType));
 
-/** 계정 메뉴의 `약관·정책` 행으로 연다(좁은 폭은 드로어 안) */
-async function openLegalMenu(page: Page, width: number, member = false) {
-  if (width < 1024) await page.getByTestId("menu-button").click();
-  // 로그인 상태는 `/me` 부트스트랩이 끝나 계정 메뉴(로그인됨)가 보인 뒤에 연다
-  if (member) await expect(page.getByTestId("account-menu").first()).toBeVisible();
-  const entry = page.getByTestId("legal-entry").first();
+/** 계정 메뉴(팝오버)의 `약관·정책` 항목으로 연다(좁은 폭은 드로어 안 버튼) */
+async function openLegalMenu(page: Page, _width: number, member = false) {
+  const accountMenu = await openAccountMenu(page);
+  // 로그인 상태는 `/me` 부트스트랩이 끝나 메뉴가 회원용이 된 뒤에 연다
+  if (member) await expect(accountMenu).toHaveAttribute("data-audience", "member");
+  const entry = accountMenu.getByTestId("legal-entry");
   await expectTouchTarget(entry, { widthToo: false });
   await entry.click();
+  await expect(accountMenu).toHaveCount(0); // 항목을 고르면 메뉴는 닫힌다
+  await expect(page.getByTestId("menu-drawer")).toHaveCount(0); // 드로어도 닫히고 열람 화면만 남는다
   await expect(dialog(page)).toBeVisible();
   await expect(menu(page)).toBeVisible();
   // 문서 목록이 온 뒤(불러오는 중 글자가 사라진 뒤)
@@ -49,13 +51,14 @@ for (const width of [393, 1280]) {
     test.describe(`약관·정책 열람 · ${scheme} · ${width}px`, () => {
       test.use({ viewport: { width, height: HEIGHT }, colorScheme: scheme });
 
-      test("게스트: 약관·정책 행 → 설정의 묶음에 초점, 게스트 목록(없는 종류는 숨김), 펼쳐 읽기, Esc로 닫힘, 동의 호출 0", async ({ page }) => {
+      test("게스트: 약관·정책 항목 → 열람 화면 제목에 초점, 게스트 목록(없는 종류는 숨김), 펼쳐 읽기, Esc로 닫히면 초점은 계정 버튼, 동의 호출 0", async ({ page }) => {
         const posts = watchConsents(page);
         await openApp(page);
         await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
         await openLegalMenu(page, width);
-        // 행에서 열었으니 초점은 묶음 제목이다
-        await expect(menu(page).getByRole("heading", { name: "약관·정책" })).toBeFocused();
+        // 열리면 초점은 화면 제목이다. 제목은 하나뿐이다(묶음 안에 같은 제목을 두 번 두지 않는다)
+        await expect(dialog(page).getByRole("heading", { name: "약관·정책" })).toBeFocused();
+        await expect(dialog(page).getByRole("heading")).toHaveCount(1);
         expect(await docTypes(page)).toEqual(GUEST_DOCS);
         await expect(menu(page).getByText(/준비 중/)).toHaveCount(0);
         await expect(dialog(page).getByRole("checkbox")).toHaveCount(0);
@@ -88,13 +91,14 @@ for (const width of [393, 1280]) {
         await policy.focus();
         await page.keyboard.press("Tab");
         await expect(policyBody).toBeFocused();
-        // Esc로 닫힌다
+        // Esc로 닫히고 초점은 연 계정 버튼(좁은 폭: 드로어가 닫혔으니 ☰)으로 돌아간다
         await page.keyboard.press("Escape");
         await expect(dialog(page)).toHaveCount(0);
+        await expect(page.getByTestId(width < 1024 ? "menu-button" : "account-menu-button").first()).toBeFocused();
         expect(posts).toEqual([]);
       });
 
-      test("로그인(목): 같은 행에서 회원 목록 5종(동의서·만 14세 포함)을 읽는다", async ({ page }) => {
+      test("로그인(목): 같은 항목에서 회원 목록 5종(동의서·만 14세 포함)을 읽는다", async ({ page }) => {
         const posts = watchConsents(page);
         // 목 세션(브라우저 워커 전용 표시). `openApp`의 base는 앞에 붙는 값이라 뒤에 `/`가 와도 값이 깨지지 않게 다른 키를 하나 더 둔다
         await openApp(page, "?mock_session=onboarded&legal_menu=1");
@@ -122,19 +126,5 @@ test.describe("서버에 없는 문서 종류", () => {
     await expect(menu(page).locator('[data-doc-type="terms_guest"]')).toHaveCount(0);
     await expect(menu(page).getByText(/준비 중/)).toHaveCount(0);
     await expect(menu(page).getByRole("alert")).toHaveCount(0);
-  });
-});
-
-test.describe("설정 버튼으로 연 설정 화면", () => {
-  test.use({ viewport: { width: 1280, height: HEIGHT } });
-  test("약관·정책 묶음은 화면 모드 아래에 있고 초점은 묶음 제목으로 가지 않는다", async ({ page }) => {
-    await openApp(page);
-    await page.getByTestId("settings-entry").first().click();
-    await expect(dialog(page)).toBeVisible();
-    await expect(menu(page).getByTestId("legal-menu-item").first()).toBeVisible();
-    await expect(menu(page).getByRole("heading", { name: "약관·정책" })).not.toBeFocused();
-    const mode = (await dialog(page).getByRole("radiogroup", { name: "화면 모드" }).boundingBox())!;
-    const legal = (await menu(page).boundingBox())!;
-    expect(legal.y).toBeGreaterThan(mode.y);
   });
 });

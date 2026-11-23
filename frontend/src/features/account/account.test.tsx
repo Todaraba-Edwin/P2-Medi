@@ -25,7 +25,8 @@ import { AccountModal, openAccountModal } from "./AccountModal";
 import * as copy from "./copy";
 import { HEALTH_CONSENT_REQUIRED_FALLBACK } from "./copy";
 import { failureMessage } from "./parts";
-import { AccountMenu, EntryChoice } from "./EntryChoice";
+import { AccountMenu } from "./AccountMenu";
+import { EntryChoice } from "./EntryChoice";
 import { Markdown, parseMarkdown } from "./Markdown";
 import { MEDICATION_SEARCH_DEBOUNCE_MS } from "./MedicationPicker";
 import { TargetPicker } from "./TargetPicker";
@@ -248,7 +249,7 @@ describe("약관 동의 화면", () => {
   it("문서 제목·본문은 API 값 그대로이고 필수·선택·안내 표지와 버전·시행일, '초안·법률 검토 전' 표지가 붙는다", async () => {
     const { user } = setup();
     await login(user);
-    const tags = { terms: "필수", privacy_policy: "안내", privacy_consent: "필수", sensitive_consent: "선택" } as const;
+    const tags: Readonly<Record<string, string>> = { terms: "필수", privacy_policy: "안내", privacy_consent: "필수", sensitive_consent: "선택" }; // 동의 화면 카드 4종(게스트판 `terms_guest`는 동의 화면에 없다)
     for (const doc of Object.values(MOCK_LEGAL_DOCS)) {
       if (doc.doc_type === "age_14") continue; // 카드가 아니라 별도 체크(아래)
       const item = docItem(doc.doc_type);
@@ -738,17 +739,31 @@ describe("시작 화면 진입 선택·사이드바 계정 자리", () => {
     expect(onLogin).toHaveBeenCalledTimes(1);
   });
 
-  it("게스트는 '로그인/가입'·'설정'·'약관·정책', 로그인하면 상태 글자·프로필 관리·설정·약관·정책·로그아웃(서버는 이름·이메일을 주지 않는다)", () => {
-    const { rerender } = render(<AccountMenu member={false} accountEnabled onOpen={() => {}} onLogout={() => {}} onSettings={() => {}} onLegal={() => {}} />);
-    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["로그인/가입", "설정", "약관·정책"]);
-    rerender(<AccountMenu member accountEnabled onOpen={() => {}} onLogout={() => {}} onSettings={() => {}} onLegal={() => {}} />);
-    expect(screen.getByTestId("account-name")).toHaveTextContent("로그인됨");
-    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["프로필 관리", "설정", "약관·정책", "로그아웃"]);
+  // 계정 자리는 버튼 하나 + 팝오버 메뉴다(2026-11-23). 항목 순서·초점·키보드는 `account-menu.test.tsx`가 본다
+  const menuItems = () => screen.getAllByRole("menuitem").map((item) => item.textContent);
+
+  it("게스트 버튼은 '계정'이고 메뉴는 '로그인/가입'·화면 모드·'약관·정책', 로그인하면 버튼이 상태 글자이고 메뉴는 프로필 관리·화면 모드·약관·정책·로그아웃(서버는 이름·이메일을 주지 않는다)", async () => {
+    const user = userEvent.setup();
+    const { rerender, unmount } = render(<AccountMenu member={false} accountEnabled onOpen={() => {}} onLogout={() => {}} onLegal={() => {}} />);
+    expect(screen.getByTestId("account-menu-button")).toHaveTextContent("계정");
+    await user.click(screen.getByTestId("account-menu-button"));
+    expect(menuItems()).toEqual(["로그인/가입", "약관·정책"]);
+    expect(screen.getAllByRole("menuitemradio").map((item) => item.textContent)).toEqual(["밝은 모드", "다크 모드", "시스템기기 설정을 따라요"]);
+    await user.keyboard("{Escape}");
+    rerender(<AccountMenu member accountEnabled onOpen={() => {}} onLogout={() => {}} onLegal={() => {}} />);
+    expect(screen.getByTestId("account-menu-button")).toHaveTextContent("로그인됨");
+    await user.click(screen.getByTestId("account-menu-button"));
+    expect(menuItems()).toEqual(["프로필 관리", "약관·정책", "로그아웃"]);
+    expect(screen.getByRole("separator")).toBeInTheDocument(); // 로그아웃 앞 구분선
+    unmount();
   });
 
-  it("계정 기능이 꺼져 있으면 게스트에게 '로그인/가입'을 그리지 않고 '설정'·'약관·정책'만 남는다", () => {
-    render(<AccountMenu member={false} accountEnabled={false} onOpen={() => {}} onLogout={() => {}} onSettings={() => {}} onLegal={() => {}} />);
-    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["설정", "약관·정책"]);
+  it("계정 기능이 꺼져 있으면 게스트 메뉴에 '로그인/가입'을 그리지 않고 화면 모드·'약관·정책'만 남는다", async () => {
+    const user = userEvent.setup();
+    render(<AccountMenu member={false} accountEnabled={false} onOpen={() => {}} onLogout={() => {}} onLegal={() => {}} />);
+    await user.click(screen.getByTestId("account-menu-button"));
+    expect(menuItems()).toEqual(["약관·정책"]);
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
   });
 });
 
