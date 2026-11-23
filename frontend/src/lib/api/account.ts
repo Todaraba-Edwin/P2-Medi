@@ -106,33 +106,27 @@ export const MeSchema = z.strictObject({
   consents: z.array(ConsentStateSchema),
   health_consent_active: z.boolean(),
   profile_limit: z.number().int().default(4),
+  /**
+   * 기본 대상(아래 "기본 대상" 절). 선택 칸이고, 모르는 모양이면 `/me` 전체를 버리지 않고 이 칸만 없는 것으로 읽는다
+   * (저장값이 없으면 본인 자동 선택으로 돌아갈 뿐이다)
+   */
+  default_target: z.string().min(1).nullable().optional().catch(undefined),
 });
-export type MeContract = z.infer<typeof MeSchema>;
+export type Me = z.infer<typeof MeSchema>;
 
-// ---------------------------------------------------------------- 기본 대상 영속화 어댑터(FE-17 U-08, 2026-11-23)
-// **생성 타입(`generated.ts`)에 아직 없는 계약**을 이 블록 한 곳에 수기로 둔다(백엔드 BE-11 "기본 프로필 영속화"가 병렬 구현 중).
-// - `GET /me`(와 같은 모양을 돌려주는 `POST /consents`) 응답에 `default_target`: `"guest"` | 프로필 UUID | `null`(미설정)
-// - `PUT /me/default-target` 본문 `{"target": "guest" | "<프로필 UUID>" | null}` → 200 `{"target": ...}`.
-//   다른 사용자·없는 프로필 404 `NOT_FOUND`, 형식 오류 422 `INVALID_REQUEST`, 비로그인 401
-// `pnpm gen:api`는 `generated.ts`만 다시 쓰므로 이 블록은 덮이지 않는다. 생성 타입에 두 계약이 생기면(병합 뒤 메인):
-// ① `MeSchema`에 `default_target`을 옮기고(`contract-check.ts`의 `SameKeys`가 그때 이 칸을 요구한다) `MeReadSchema`를 지운다,
-// ② `DefaultTargetBody`·`DefaultTargetResultSchema`를 `Gen["..."]`로 바꾸고 `contract-check.ts`에 대조 한 줄을 더한다
+// ---------------------------------------------------------------- 기본 대상(FE-17 U-08·BE-11 기본 프로필 영속화, 2026-11-23)
+// - `GET /me`(와 같은 모양을 돌려주는 `POST /consents`) 응답의 `default_target`: `"guest"` | 프로필 UUID | `null`(미설정). `MeSchema`에 있다
+// - `PUT /me/default-target` 본문 `{"target": "guest" | "<프로필 UUID>" | null}` → 200 `{"target": ...}`(생성 타입 `DefaultTargetBody`·`DefaultTargetOut`).
+//   다른 사용자·없는 프로필 404 `NOT_FOUND`, 형식 오류 422 `INVALID_REQUEST`(대문자·하이픈 없는 UUID 포함), 비로그인 401.
+//   프로필 id는 서버가 준 값(표준 소문자 하이픈 UUID)을 그대로 보낸다. 화면이 id를 만들거나 바꾸지 않는다
 /** 저장된 기본 대상의 `게스트로 이용` 값(프로필 UUID와 겹치지 않는다) */
 export const DEFAULT_TARGET_GUEST = "guest";
 /** 기본 대상: `"guest"` | 프로필 UUID | null(미설정 → 화면은 본인 자동 선택) */
 export type DefaultTarget = string | null;
 const DefaultTargetSchema = z.string().min(1).nullable();
-/**
- * `GET /me`·`POST /consents`를 읽는 모양: 계약 칸(`MeSchema`) + `default_target`. 백엔드가 아직 이 칸을 주지 않아도(배포 순서) 읽히게 선택 칸이고,
- * 모르는 모양이면 `/me` 전체를 버리지 않고 이 칸만 없는 것으로 읽는다(저장값이 없으면 본인 자동 선택으로 돌아갈 뿐이다)
- */
-export const MeReadSchema = MeSchema.extend({ default_target: DefaultTargetSchema.optional().catch(undefined) });
-export type Me = z.infer<typeof MeReadSchema>;
-/** `PUT /me/default-target` 본문(수기) */
-export interface DefaultTargetBody {
-  target: DefaultTarget;
-}
-/** `PUT /me/default-target` 응답(수기): 저장된 값 그대로 */
+/** `PUT /me/default-target` 본문(생성 타입) */
+export type DefaultTargetBody = Gen["DefaultTargetBody"];
+/** `PUT /me/default-target` 응답(`DefaultTargetOut`): 저장된 값 그대로 */
 export const DefaultTargetResultSchema = z.object({ target: DefaultTargetSchema });
 
 export const RELATIONS = ["self", "child", "parent", "spouse", "other"] as const;
@@ -338,7 +332,7 @@ export async function fetchMe(): Promise<Me | null> {
   if (authMode() === "supabase" && !(await hasAuthSession())) return null;
   const response = await call("get", "me");
   if (response.status === 401) return null;
-  return read(response, MeReadSchema);
+  return read(response, MeSchema);
 }
 
 /** 법적 문서 한 건(현재본). 본문은 서버 값 그대로 그린다(프런트에 문구를 두지 않는다) */
@@ -375,7 +369,7 @@ export async function fetchLegalDocIfPublished(docType: string): Promise<LegalMe
 /** 동의·철회를 기록하고 갱신된 `Me`를 받는다. `items`는 1~4건(첫 로그인 4종 한 번에)이고 문서 종류가 겹치면 안 된다(서버 규칙) */
 export async function postConsents(items: ConsentItem[], channel: ConsentChannel): Promise<Me> {
   const body: Gen["ConsentRequest"] = { items, channel };
-  return read(await call("post", "consents", body), MeReadSchema);
+  return read(await call("post", "consents", body), MeSchema);
 }
 
 export async function fetchProfiles(): Promise<Profile[]> {
@@ -424,7 +418,7 @@ export async function searchDrugs(q: string, signal?: AbortSignal): Promise<Drug
 }
 
 /**
- * 기본 대상 저장(FE-17 U-08, 수기 어댑터): 사용자가 대상을 고를 때마다 부른다. 저장된 값을 돌려준다.
+ * 기본 대상 저장(FE-17 U-08, `PUT /me/default-target`): 사용자가 대상을 고를 때마다 부른다. 저장된 값을 돌려준다.
  * 값은 프로필 UUID·`"guest"`뿐이고 이름·건강 정보는 싣지 않는다. 실패는 `AccountApiError`로 던지며 재시도는 부르는 쪽(스토어)이 하지 않는다
  */
 export async function saveDefaultTarget(target: DefaultTarget): Promise<DefaultTarget> {

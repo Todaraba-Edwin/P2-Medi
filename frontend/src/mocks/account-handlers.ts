@@ -68,7 +68,7 @@ const ProfileCreateSchema = z.strictObject({ relation: RelationSchema, ...profil
 // `relation`·`medications`는 보낼 수는 있지만 null일 수 없다(백엔드 `_no_null_required`)
 const ProfileUpdateSchema = z.strictObject({ relation: RelationSchema.optional(), ...profileFields, medications: z.array(MedicationInSchema).max(MEDICATIONS_MAX).optional() });
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** `PUT /me/default-target` 본문(FE-17 U-08 수기 계약): `"guest"` | 프로필 UUID | null. 모르는 칸·다른 모양은 422 */
+/** `PUT /me/default-target` 본문(FE-17 U-08, 생성 타입 `DefaultTargetBody`): `"guest"` | 프로필 UUID | null. 모르는 칸·다른 모양은 422 */
 const DefaultTargetInSchema = z.strictObject({ target: z.union([z.literal(DEFAULT_TARGET_GUEST), z.string().regex(UUID_SHAPE), z.null()]) });
 
 const NOW = "2026-11-18T00:00:00Z";
@@ -238,7 +238,7 @@ export function createAccountHandlers(state: AccountMockState = { session: null 
 
     http.get("*/api/me", () => (state.session ? HttpResponse.json(me(state.session), { headers: NO_STORE }) : error(401, "AUTH_REQUIRED"))),
 
-    // 기본 대상 저장(FE-17 U-08 수기 계약): `"guest"`·내 프로필 id·null. 다른 사용자·없는 프로필 404, 형식 오류 422, 비로그인 401
+    // 기본 대상 저장(FE-17 U-08, 백엔드 `PUT /me/default-target`): `"guest"`·내 프로필 id·null. 다른 사용자·없는 프로필 404, 형식 오류 422, 비로그인 401
     http.put("*/api/me/default-target", async ({ request }) => {
       const session = state.session;
       if (!session) return error(401, "AUTH_REQUIRED");
