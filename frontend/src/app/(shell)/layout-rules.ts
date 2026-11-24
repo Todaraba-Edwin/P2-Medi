@@ -15,7 +15,10 @@ export const DESKTOP_MIN_WIDTH = 1024;
 export const ENTRY_OPEN_LABEL_MIN_WIDTH = 700;
 
 export interface ShellState {
-  /** 사이드바 펼침 여부. 사용자 토글이 원천이다(첫 화면은 펼침). 근거 상세가 새로 열리는 순간의 판정 한 곳만 예외로 접는다 */
+  /**
+   * 사이드바 펼침 여부. 사용자 토글이 원천이다(첫 화면은 펼침). 예외로 접는 곳: 근거 상세가 새로 열리는 순간의 판정,
+   * 근거 상세가 열린 채 창이 줄어 밀 수 없는 폭이 되는 순간(`viewportResized`, U-18 추가 지시 2)
+   */
   sidebarExpanded: boolean;
   /** 좁은 폭의 ☰ 드로어 */
   drawerOpen: boolean;
@@ -40,7 +43,13 @@ export type ShellAction =
    * 근거 상세(FE-17 U-18 추가 지시, 2026-11-24): 좁아질 때만 닫는다(우측 패널이 본문을 덮는 시트로 바뀌지 않게). 넓어질 때는 다시 열지 않고
    * 지금 상태를 그대로 둔다(자동으로 닫힌 것은 닫힌 채, 좁은 폭에서 사용자가 직접 연 것은 열린 채)
    */
-  | { type: "viewportCrossed"; desktop: boolean };
+  | { type: "viewportCrossed"; desktop: boolean }
+  /**
+   * 데스크톱 구간 안에서 창 폭이 바뀌었다(FE-17 U-18 추가 지시 2, 2026-11-24: 1231px에서 사이드바 뒤 dim). 근거 상세가 열리고 사이드바가 펼쳐진 채
+   * **밀 수 있던 폭(`from`)에서 밀 수 없는 폭(`to`)으로** 줄어드는 순간에만 사이드바를 레일로 접는다(오버레이·dim이 생기지 않게).
+   * 넓어질 때는 다시 펼치지 않는다(접힌 채). 사용자가 밀 수 없는 폭에서 직접 펼친 오버레이는 `from`도 밀 수 없으므로 건드리지 않는다
+   */
+  | { type: "viewportResized"; from: number; to: number };
 
 export const isDesktopWidth = (width: number) => width >= DESKTOP_MIN_WIDTH;
 
@@ -76,6 +85,16 @@ export function shellReducer(state: ShellState, action: ShellAction): ShellState
       return { ...state, drawerOpen: false, evidenceTurnId: null };
     case "viewportCrossed":
       return { ...state, sidebarExpanded: action.desktop, drawerOpen: false, evidenceTurnId: action.desktop ? state.evidenceTurnId : null };
+    case "viewportResized": {
+      const shrankIntoOverlay =
+        state.evidenceTurnId !== null &&
+        state.sidebarExpanded &&
+        isDesktopWidth(action.from) &&
+        isDesktopWidth(action.to) &&
+        canPushSidebar(action.from, true) &&
+        !canPushSidebar(action.to, true);
+      return shrankIntoOverlay ? { ...state, sidebarExpanded: false } : state; // 그 밖에는 같은 상태(다시 그리지 않는다)
+    }
   }
 }
 

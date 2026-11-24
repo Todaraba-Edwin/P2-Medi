@@ -73,3 +73,16 @@ export function serializeCookie(name: string, value: string, options: CookieOpti
   }
   return parts.join("; ");
 }
+
+/** `@supabase/ssr`의 세션 쿠키 이름(`sb-<프로젝트>-auth-token`, 길면 `.0`·`.1`로 나뉜다) */
+const AUTH_COOKIE_NAME = /^sb-.+-auth-token(\.\d+)?$/;
+
+/**
+ * 이 브라우저에 로그인 세션 쿠키가 **있는가**(FE-17 U-22 추가, 2026-11-24). 첫 그리기에서 "로그인돼 있을 수 있는지"를 기다리지 않고 알기 위해
+ * 쿠키 **이름만** 본다(값·토큰은 읽어 남기지 않는다). 있다고 로그인이 확정되지는 않는다(만료 등): 확정은 `bootstrap()`이 한다.
+ * 서버 렌더링(문서 없음)에서는 false
+ */
+export function hasAuthCookie(): boolean {
+  if (typeof document === "undefined") return false;
+  return parseDocumentCookies(document.cookie).some(({ name }) => AUTH_COOKIE_NAME.test(name));
+}

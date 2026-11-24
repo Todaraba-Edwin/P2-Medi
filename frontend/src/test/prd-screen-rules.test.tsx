@@ -5,6 +5,7 @@ import { RESULT_SAMPLES } from "@/app/dev/preview/result/samples";
 import { FixedNoticeBox } from "@/features/emergency";
 import { EvidenceDetail, EvidenceEntryButton } from "@/features/evidence";
 import * as evidenceCopy from "@/features/evidence/copy";
+import { groupJudgments } from "@/features/evidence/sections";
 import { ResultView } from "@/features/result";
 import type { ChatResponse } from "@/lib/api";
 import { GRADE_DEF_MISSING_OUT_OF_SCOPE, PHRASES } from "@/mocks/fixtures/phrases";
@@ -185,7 +186,9 @@ describe.each(cases)("%s", (_name, response) => {
     const { q } = draw(response);
     const lookups = response.findings.filter((finding) => finding.input_name !== null);
     const pairs = q('[data-testid="t-detail"] [data-testid="lookup-pairs"]');
-    expect(pairs.length).toBeGreaterThanOrEqual(lookups.length);
+    // 기대값 갱신(2026-11-24, FE-17 U-26-6): 보이는 것이 같은 줄(같은 약 이름·상태·문장)은 근거 상세에서 한 박스로 묶인다. 박스 수는 묶은 뒤의 수다(줄마다 박스가 있는지는 아래에서 그대로 본다)
+    const distinct = groupJudgments(lookups.map((finding) => ({ finding, item: null }))).reduce((sum, group) => sum + group.boxes.length, 0);
+    expect(pairs.length).toBeGreaterThanOrEqual(distinct);
     lookups.forEach((finding) => {
       const box = pairs.find((el) => (el.querySelector("dd")?.textContent ?? "") === finding.input_name);
       expect(box, finding.input_name ?? "").toBeDefined();

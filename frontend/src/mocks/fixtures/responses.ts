@@ -1092,6 +1092,65 @@ export const doseDupResponse = make({
   citations: [{ publisher: PUBLISHER_KIDS, dataset: DATASET_DOSE, dates: [...doseDates], source_kind: "FILE", evidence_ids: doseDupItems.map((item) => item.evidence_id!) }],
 });
 
+/**
+ * FE-17 U-25 사례 모양(합성 값): 용량주의 제형별 항목(약 A 6건 + 다른 글자 1건, 약 B 23건)에 더해 두 약의 병용금기 쌍이 금기 목록에 없음.
+ * 근거 상세 사유 원문은 판정 종류 박스 2개(용량주의 파일 · 병용금기 파일)로 묶인다: 용량주의 안은 사유 원문 → 약 이름 + 제형유형 N건,
+ * 병용금기 안은 약 이름 쌍 → 판정 줄 고정 문구(`NOT_LISTED`)
+ */
+const doseComboPairItem: DetailInput = {
+  evidence_id: "ev-pair-u25",
+  kind: "contra_pair",
+  status: "NOT_LISTED",
+  source_kind: "FILE",
+  dataset_key: "contra_pair",
+  dataset: DATASET_CONTRA_PAIR,
+  publisher: PUBLISHER_KIDS,
+  dates: [{ label: "기준일", value: "2026-07-31" }],
+  rows: [],
+  drugs: [DRUG_A, DRUG_B],
+};
+export const doseComboResponse = make({
+  ...doseDupResponse,
+  findings: [
+    ...doseDupResponse.findings,
+    {
+      target: "pair",
+      bucket: "not_listed",
+      evidence_id: "ev-pair-u25",
+      kind: "contra_pair",
+      drug: `${DRUG_A} · ${DRUG_B}`,
+      drugs: [DRUG_A, DRUG_B],
+      text: PHRASES.NOT_LISTED,
+      source_label: fileLabel(DATASET_CONTRA_PAIR),
+    },
+  ],
+  detail: [...doseDupItems, doseComboPairItem],
+  citations: [
+    ...doseDupResponse.citations,
+    { publisher: PUBLISHER_KIDS, dataset: DATASET_CONTRA_PAIR, dates: [{ label: "기준일", value: "2026-07-31" }], source_kind: "FILE", evidence_ids: ["ev-pair-u25"] },
+  ],
+});
+
+/**
+ * FE-17 U-26-5·6 모양(합성 값, ISSUE-033): 같은 약(가나다정)의 줄이 다른 약 줄 뒤에 한 번 더 오고, 약을 찾지 못한 같은 줄이 두 번 온다.
+ * 근거 상세 판정 구역은 같은 약 묶음(가나다정 2박스) → 라마바캡슐 → 차카타파정(같은 내용 2건) → 쌍으로 보인다
+ */
+export const judgmentDupResponse = make(
+  {
+    ...doseComboResponse,
+    findings: [
+      doseComboResponse.findings[0],
+      doseComboResponse.findings[1],
+      unidentifiedResponse.findings[0],
+      unidentifiedResponse.findings[0],
+      doseComboResponse.findings[2],
+      { ...doseComboResponse.findings[0], sub_line: `${INGR_A.name} · ${INGR_C.name}` },
+    ],
+    pharmacist_advice: [adviceFor(DRUG_UNKNOWN)],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
 /** 거절(복용량 결정 요청) */
 export const refuseResponse = make({
   route: "REFUSE",

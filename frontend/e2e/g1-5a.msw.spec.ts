@@ -101,13 +101,16 @@ for (const width of [393, 1280]) {
       // 다시 임산부로 저장해 두고 대상을 바꿨다 돌아오면 임산부로 시작한다(§7.1 규칙 ①·②). 대상 변경은 저장하지 않는다
       await radio(page, "임산부").click();
       await expect.poll(() => patches.length).toBe(3);
+      // 병아리는 입력창 프로필 칩의 아바타(보조 자리, FE-17 U-01)에만 있고 그 밖(토글·고지·결과)에는 없다
+      await expect(page.locator('[data-testid="mascot"]:not([data-testid="profile-avatar"] *)')).toHaveCount(0);
+      // 기대값 갱신(2026-11-24, FE-17 U-21 추가): 대화 중 다른 대상을 고르면 새 대화(시작 화면)가 열린다. 시작 화면 병아리(HomeHero)는 원래 자리라
+      // 위의 "결과 화면에 병아리 없음" 확인을 대상 변경 앞으로 옮겼다(확인 내용은 같다)
       await pickTarget(page, "게스트로 이용");
+      await expect(page.getByTestId("home")).toBeVisible();
       await expect(radio(page, "일반인")).toHaveAttribute("aria-checked", "true");
       await pickTarget(page, "나");
       await expect(radio(page, "임산부")).toHaveAttribute("aria-checked", "true");
       expect(patches).toHaveLength(3);
-      // 병아리는 입력창 프로필 칩의 아바타(보조 자리, FE-17 U-01)에만 있고 그 밖(토글·고지·결과)에는 없다
-      await expect(page.locator('[data-testid="mascot"]:not([data-testid="profile-avatar"] *)')).toHaveCount(0);
       await expect(page.getByTestId("dock").getByTestId("input-combined-notice").getByTestId("mascot")).toHaveCount(0);
       await expectNoHorizontalScroll(page);
     });

@@ -48,7 +48,7 @@ for (const width of [393, 1280]) {
       });
 
       // GROUP-01 5a에서 들어온 요소: 입력창 "일반인 | 임산부" 토글(고른 칸·안 고른 칸), 결과 카드 머리 "기준일 자료" 표지, FE-11-03 한 줄(pregnancy-pick-hint), 근거 상세의 실시간 확인 실패 배너
-      test("5a 요소(임신 토글 두 상태·기준일 자료 표지·안내 줄·근거 상세 배너)가 토큰대로 그려지고 글자 대비가 기준 이상이다", async ({ page }) => {
+      test("5a 요소(임신 토글 두 상태·안내 줄·근거 상세 배너, 기준일 자료 표지는 U-26-3로 없음)가 토큰대로 그려지고 글자 대비가 기준 이상이다", async ({ page }) => {
         const desktop = width >= 1024;
         await mockChat(page, "apiFail");
         await openApp(page);
@@ -65,7 +65,8 @@ for (const width of [393, 1280]) {
         await ask(page);
         const card = page.getByTestId("result-card").first();
         await expect(card).toBeVisible();
-        await expect(card.getByTestId("basis-file-tag")).toBeVisible();
+        // 기대값 갱신(2026-11-24, FE-17 U-26-3 "'기준일 자료' 제거"): 카드 머리 표지는 없다(대비 검사는 남은 요소 전부를 그대로 잰다)
+        await expect(card.getByTestId("basis-file-tag")).toHaveCount(0);
         await expect(page.locator('[data-turn="turn-1"]').getByTestId("pregnancy-pick-hint")).toBeVisible();
         if (desktop) await expect(panel(page).getByTestId("evidence-api-fail-notice")).toBeVisible();
         await expectNoContrastFailure(page, `${scheme} ${width} 일반인`);

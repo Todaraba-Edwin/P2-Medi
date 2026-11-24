@@ -118,6 +118,19 @@ describe("F3 고지 개수(FE-11-10 A)", () => {
     expect(count("외부 AI", document.body)).toBe(1);
   });
 
+  it("U-26-1(2026-11-24): 고정 안내는 입력창 위(고정 영역)에 없고 답 아래에 있으며, 질문을 두 번 해도 같은 문장은 가장 최근 답 아래 한 번만 남는다(하네스 고정 문구 유지)", async () => {
+    const { user } = setup({ width: 393 });
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(within(screen.getByTestId("dock")).queryByTestId("fixed-notice")).toBeNull();
+    expect(count(FIXED_NOTICE, main())).toBe(1);
+    await ask(user, "라마바캡슐 먹어도 돼요");
+    const [first, second] = [...main().querySelectorAll<HTMLElement>("[data-turn]")];
+    expect(within(first).queryByTestId("fixed-notice")).toBeNull();
+    expect(within(second).getByTestId("fixed-notice").textContent).toContain(FIXED_NOTICE);
+    expect(count(FIXED_NOTICE, main())).toBe(1); // 결과 화면에 적어도(정확히) 한 번
+    expect(within(screen.getByTestId("dock")).queryByTestId("fixed-notice")).toBeNull();
+  });
+
   it("1280: 실시간 확인 실패 응답에서 본문은 '실시간 확인' 0회·안전 고지 1회·법적 고지 1회·입력창 고지 1회이고, 자동으로 열린 근거 상세에만 배너·줄 노트가 있다", async () => {
     const { user } = setup({ width: 1280 });
     await ask(user, "mock:실시간실패 가나다정");
@@ -131,7 +144,9 @@ describe("F3 고지 개수(FE-11-10 A)", () => {
     expect(count(DISCLAIMER, body)).toBe(0);
     expect(within(body).getAllByTestId("input-combined-notice")).toHaveLength(1);
     expect(within(body).queryByTestId("result-notice")).toBeNull();
-    expect(within(body).getByTestId("basis-file-tag").textContent).toBe("기준일 자료");
+    // 기대값 갱신(2026-11-24, FE-17 U-26-3 "'기준일 자료' 제거"): 결과 카드 머리 표지는 없다. 기준일 안내 문장은 아래 근거 상세 맨 위에 그대로다
+    expect(within(body).queryByTestId("basis-file-tag")).toBeNull();
+    expect(count("기준일 자료", body)).toBe(0);
     // 넓은 폭은 판정 줄이 있는 답이 오면 근거 상세 패널이 열린다: 배너 1 + 줄 노트 1
     const panel = await screen.findByTestId("panel-column");
     expect(within(panel).getByTestId("evidence-api-fail-notice").textContent).toBe(PHRASES.NOTICE_API_FAIL);
@@ -684,5 +699,134 @@ describe("창 크기 자동 열고 닫기(FE-17 U-18)", () => {
     expect(screen.getByRole("dialog", { name: "근거 상세" })).toBeInTheDocument();
     resize(1280);
     expect(await screen.findByTestId("panel-column")).toBeInTheDocument();
+  });
+});
+
+describe("로그인 상태 새로고침 깜박임(FE-17 U-22 추가, 2026-11-24)", () => {
+  it("재현·수정: 로그인 세션이 있으면 `/me`가 답하기 전 프레임에도 `게스트로 시작`·`로그인/가입`이 그려지지 않고, 같은 자리에 빈 자리(글자 없음)만 둔다. 확정 뒤 한 번에 그린다", async () => {
+    const { account } = setup({ session: mockSession("onboarded"), width: 1280 });
+    // 첫 그리기 직후(아직 `bootstrap()` 진행 중): 계정 상태는 게스트 초기값이지만 진입 선택은 없다
+    expect(account.getState().status).toBe("guest");
+    expect(screen.queryByTestId("entry-choice")).toBeNull(); // 수정 전에는 여기서 진입 선택이 그려졌다(재현, 보고 ux-batch7 §3)
+    expect(account.getState().sessionChecked).toBe(false);
+    expect(screen.queryByRole("button", { name: "게스트로 시작" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "로그인/가입" })).toBeNull();
+    expect(screen.queryByTestId("start-target")).toBeNull();
+    const pending = screen.getByTestId("start-account-pending");
+    expect(pending).toHaveAttribute("aria-hidden", "true");
+    expect(pending.textContent).toBe(""); // 새 글자 0건
+    // 확정 뒤: 로그인 상태의 시작 안내가 나오고 빈 자리·진입 선택은 없다
+    await waitFor(() => expect(account.getState().status).toBe("member"));
+    expect(await screen.findByTestId("start-target")).toBeInTheDocument();
+    expect(screen.queryByTestId("start-account-pending")).toBeNull();
+    expect(screen.queryByTestId("entry-choice")).toBeNull();
+  });
+
+  it("비로그인(세션 없음)은 확정 뒤 진입 선택이 보이고, 확정 전 빈 자리는 진입 선택과 같은 높이 칸이다", async () => {
+    const { account } = setup({ session: null, width: 393 });
+    // 목 모드는 세션이 워커 메모리에만 있어 `/me` 답 전에는 모른다(실서버 Supabase는 쿠키가 없으면 곧바로 게스트, 스토어·쿠키 시험)
+    expect(screen.getByTestId("start-account-pending")).toHaveClass("h-11");
+    expect(await screen.findByTestId("entry-choice")).toBeInTheDocument();
+    expect(account.getState()).toMatchObject({ status: "guest", sessionChecked: true });
+    expect(screen.queryByTestId("start-account-pending")).toBeNull();
+  });
+
+  it("계정 기능이 꺼져 있으면(목·Supabase 설정 없음) 기다리는 빈 자리 없이 곧바로 시작 화면이다", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_MOCKING", "");
+    setup({ session: null, width: 393 });
+    expect(screen.queryByTestId("start-account-pending")).toBeNull();
+    expect(screen.queryByTestId("entry-choice")).toBeNull(); // 계정 진입점 자체가 없다(기존 동작)
+  });
+});
+
+describe("대상을 바꾸면 새 대화(FE-17 U-21 추가, 2026-11-24)", () => {
+  it("질문이 오간 대화에서 다른 대상을 고르면 이전 대화를 잇지 않고 새 대화(시작 화면)가 되고, 토글은 새 대상 값이다. 같은 대상을 다시 고르면 대화가 그대로다", async () => {
+    const { user, store, account } = setup({ session: onboardedSession(true, "pregnant"), width: 1280 });
+    await screen.findByTestId("target-chip");
+    await pickTarget(user, "첫째");
+    await ask(user, "가나다정 먹어도 돼요");
+    expect(store.getState().turns).toHaveLength(1);
+    // 같은 대상(첫째)을 다시 고른다 → 대화 그대로
+    await pickTarget(user, "첫째");
+    expect(store.getState().turns).toHaveLength(1);
+    expect(screen.queryByTestId("home")).toBeNull();
+    // 다른 대상(나, 임신 중) → 새 대화. 토글은 바뀐 대상의 값(임산부)
+    await pickTarget(user, "나");
+    expect(account.getState().targetProfileId).toBe(SELF_ID);
+    expect(store.getState().turns).toHaveLength(0);
+    expect(await screen.findByTestId("home")).toBeInTheDocument();
+    expect(screen.queryByTestId("panel-column")).toBeNull(); // 근거 상세도 닫힌다(새 대화 버튼과 같다)
+    expect(store.getState().context.pregnant).toBe(true);
+    expect(checkedLabel()).toBe("임산부");
+    expect(store.getState().context.priorDrugs).toEqual([]);
+  });
+
+  it("시작 화면(대화 없음)에서는 대상만 바꾸고 새 대화를 열지 않는다", async () => {
+    const { user, store } = setup({ session: onboardedSession(true), width: 393 });
+    await screen.findByTestId("target-chip");
+    // 새 대화(`reset`)는 대화 묶음을 비운다: 대상 변경이 건드리지 않는 칸(`tookToday`)에 표시를 두고 남는지 본다
+    store.getState().setContext({ tookToday: true });
+    await pickTarget(user, "첫째");
+    await pickTarget(user, "나");
+    expect(store.getState().context.tookToday).toBe(true);
+    expect(screen.getByTestId("home")).toBeInTheDocument();
+  });
+
+  it("답을 받는 중(스트리밍)에 다른 대상을 고르면 진행 응답을 끊고 새 대화를 연다", async () => {
+    const { user, store } = setup({ session: onboardedSession(true), width: 1280 });
+    let aborted = false;
+    server.use(
+      http.post("*/api/chat", ({ request }) => {
+        request.signal.addEventListener("abort", () => {
+          aborted = true;
+        });
+        return new Promise<Response>(() => undefined); // 끝나지 않는 응답(스트리밍 중)
+      }),
+    );
+    await screen.findByTestId("target-chip");
+    await pickTarget(user, "나");
+    await user.type(screen.getByRole("textbox"), "가나다정 먹어도 돼요");
+    await user.click(screen.getByRole("button", { name: "보내기" }));
+    await waitFor(() => expect(store.getState().turns).toHaveLength(1));
+    await pickTarget(user, "첫째");
+    expect(store.getState().turns).toHaveLength(0);
+    await waitFor(() => expect(aborted).toBe(true));
+    expect(await screen.findByTestId("home")).toBeInTheDocument();
+  });
+});
+
+describe("근거 상세가 열린 채 창이 줄면 사이드바를 레일로(FE-17 U-18 추가 지시 2)", () => {
+  const resize = (width: number) =>
+    act(() => {
+      setWidth(width);
+      window.dispatchEvent(new Event("resize"));
+    });
+
+  it("1280에서 근거 상세 + 펼친 사이드바 → 1231로 줄이면 레일로 접히고 dim(사이드바 오버레이)이 없으며 본문을 조작할 수 있다. 1280으로 넓혀도 레일이다", async () => {
+    const { user } = setup({ width: 1280 });
+    await ask(user, "가나다정 먹어도 돼요");
+    await screen.findByTestId("panel-column");
+    expect(screen.getByTestId("sidebar")).toHaveAttribute("data-presentation", "push");
+    resize(1232);
+    expect(screen.getByTestId("sidebar")).toHaveAttribute("data-presentation", "push"); // 1232는 밀 수 있다
+    resize(1231);
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-scrim")).toBeNull();
+    expect(screen.getByTestId("main")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("panel-column")).toBeInTheDocument();
+    resize(1280);
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar")).toBeNull();
+  });
+
+  it("사용자가 1100에서 직접 펼친 사이드바는 오버레이(dim)로 열리고, 폭이 바뀌어도 닫지 않는다(현행 유지)", async () => {
+    const { user } = setup({ width: 1100 });
+    await ask(user, "가나다정 먹어도 돼요");
+    await screen.findByTestId("panel-column");
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument(); // 열리는 순간 접힘(§11 ⑦)
+    await user.click(screen.getByTestId("sidebar-toggle"));
+    await waitFor(() => expect(screen.getByTestId("main")).toHaveAttribute("inert"));
+    resize(1080);
+    expect(screen.getByTestId("main")).toHaveAttribute("inert"); // 오버레이 그대로
   });
 });

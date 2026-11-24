@@ -7,6 +7,7 @@
 import { isApiMockingEnabled } from "@/mocks";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { hasAuthCookie } from "@/lib/supabase/cookies";
 
 export type AuthMode = "mock" | "supabase" | "none";
 
@@ -102,6 +103,16 @@ export async function getSocialIdentity(): Promise<SocialIdentity | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * 지금 바로(기다리지 않고) 로그인돼 있을 **가능성**이 있는가(FE-17 U-22 추가). Supabase는 세션 쿠키 이름이 있을 때만 true,
+ * 목은 세션이 워커 메모리에만 있어 늘 true(서버만 안다), 방식 없음은 false. 확정은 `hasAuthSession`·`GET /api/me`가 한다
+ */
+export function mayHaveAuthSessionNow(): boolean {
+  const mode = authMode();
+  if (mode === "none") return false;
+  return mode === "mock" ? true : hasAuthCookie();
 }
 
 /** Supabase 세션이 있는가(목·미설정은 늘 false: 목의 로그인 여부는 `GET /api/me`만 안다) */

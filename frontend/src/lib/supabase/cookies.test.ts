@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTH_COOKIE_MAX_AGE_S, AUTH_COOKIE_OPTIONS, limitAuthCookieOptions, parseDocumentCookies, serializeCookie } from "./cookies";
+import { AUTH_COOKIE_MAX_AGE_S, AUTH_COOKIE_OPTIONS, hasAuthCookie, limitAuthCookieOptions, parseDocumentCookies, serializeCookie } from "./cookies";
 
 // 로그인 상태 유지 쿠키 수명 7일(2026-11-22 사용자 결정). 값은 모두 합성이다.
 const SSR_DEFAULT_MAX_AGE_S = 400 * 24 * 60 * 60; // `@supabase/ssr` 기본값(`dist/main/utils/constants.js`)
@@ -47,5 +47,27 @@ describe("serializeCookie / parseDocumentCookies", () => {
       { name: "sb-x", value: "hello world" },
     ]);
     expect(parseDocumentCookies("")).toEqual([]);
+  });
+});
+
+describe("hasAuthCookie(FE-17 U-22 추가)", () => {
+  const clear = () => {
+    for (const { name } of parseDocumentCookies(document.cookie)) document.cookie = `${name}=; Max-Age=0; Path=/`;
+  };
+  it("세션 쿠키 이름(`sb-<프로젝트>-auth-token`, 나뉜 `.0`·`.1`)만 보고, 다른 쿠키·비슷한 이름은 세지 않는다", () => {
+    clear();
+    try {
+      expect(hasAuthCookie()).toBe(false);
+      document.cookie = "theme=dark; Path=/";
+      document.cookie = "sb-synthetic-other=1; Path=/";
+      expect(hasAuthCookie()).toBe(false);
+      document.cookie = "sb-synthetic-auth-token=synthetic; Path=/";
+      expect(hasAuthCookie()).toBe(true);
+      clear();
+      document.cookie = "sb-synthetic-auth-token.1=synthetic; Path=/";
+      expect(hasAuthCookie()).toBe(true);
+    } finally {
+      clear();
+    }
   });
 });

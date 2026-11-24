@@ -26,6 +26,7 @@ import {
   fetchProfiles,
   fetchSelfNameDefault,
   isAccountEntryEnabled,
+  mayHaveSessionNow,
   postConsents,
   selfNameFromNickname,
   socialLoginUrl,
@@ -671,6 +672,53 @@ describe("계정 진입점 스위치(FE-04-02 A·FE-04-05 A)", () => {
     expect(store.getState()).toMatchObject({ status: "guest", flow: ["login"], failure: { kind: "http", code: "OAUTH_EMAIL_REQUIRED", fields: [] } });
     store.getState().close();
     expect(store.getState()).toMatchObject({ flow: [], failure: null });
+  });
+});
+
+describe("로그인 확정 표시 sessionChecked(FE-17 U-22 추가, 2026-11-24)", () => {
+  it("처음은 false(초기 guest는 확정이 아니다)이고, 첫 bootstrap이 끝나면 로그인·게스트·서버 장애 모두 true가 되어 다시 false가 되지 않는다", async () => {
+    const guest = createAccountStore();
+    expect(guest.getState()).toMatchObject({ status: "guest", sessionChecked: false });
+    const pending = guest.getState().bootstrap();
+    expect(guest.getState().sessionChecked).toBe(false); // 기다리는 동안
+    await pending;
+    expect(guest.getState()).toMatchObject({ status: "guest", sessionChecked: true });
+
+    await createAccountStore().getState().loginEmail("user@example.com", "pw"); // 목 세션
+    const member = createAccountStore();
+    await member.getState().bootstrap();
+    expect(member.getState()).toMatchObject({ status: "member", sessionChecked: true });
+    await member.getState().logout();
+    expect(member.getState()).toMatchObject({ status: "guest", sessionChecked: true }); // 로그아웃은 확정된 게스트
+
+    server.use(http.get("*/api/me", () => HttpResponse.json({ code: "NOT_IMPLEMENTED", fields: [] }, { status: 501 })));
+    const down = createAccountStore();
+    await down.getState().bootstrap();
+    expect(down.getState().sessionChecked).toBe(true);
+  });
+
+  it("로그인 콜백 실패(failLogin)로 돌아온 경우도 확정으로 본다(bootstrap을 부르지 않는 경로)", () => {
+    const store = createAccountStore();
+    store.getState().failLogin("OAUTH_EMAIL_REQUIRED");
+    expect(store.getState().sessionChecked).toBe(true);
+  });
+
+  it("mayHaveSessionNow: 목 모드는 늘 true(서버만 안다), 방식 없음은 false, Supabase는 세션 쿠키 이름이 있을 때만 true", () => {
+    expect(mayHaveSessionNow()).toBe(true);
+    vi.stubEnv("NEXT_PUBLIC_API_MOCKING", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "");
+    expect(mayHaveSessionNow()).toBe(false);
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:54399"); // 합성 값
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "synthetic-publishable-key");
+    expect(mayHaveSessionNow()).toBe(false); // 쿠키 없음: 비로그인은 기다리지 않고 곧바로 게스트 화면
+    document.cookie = "sb-synthetic-auth-token.0=synthetic; Path=/";
+    try {
+      expect(mayHaveSessionNow()).toBe(true);
+    } finally {
+      document.cookie = "sb-synthetic-auth-token.0=; Max-Age=0; Path=/";
+    }
+    expect(mayHaveSessionNow()).toBe(false);
   });
 });
 

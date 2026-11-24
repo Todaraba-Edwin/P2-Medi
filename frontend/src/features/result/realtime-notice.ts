@@ -15,6 +15,6 @@ export const isApiFlagNote = (note: string): boolean => API_FLAG_NOTES.includes(
 /** 줄의 보조줄에서 실시간 확인 노트를 뺀 나머지(본문용). 받은 순서는 그대로다 */
 export const notesWithoutApiFlag = (finding: Pick<Finding, "notes">): string[] => finding.notes.filter((note) => !isApiFlagNote(note));
 
-/** 이 결과에 실시간 확인을 하지 못한 자료가 있는가(배너 또는 줄 노트). 결과 카드 머리의 "기준일 자료" 표지를 켜는 조건이다 */
+/** 이 결과에 실시간 확인을 하지 못한 자료가 있는가(배너 또는 줄 노트). 예전 결과 카드 머리 "기준일 자료" 표지의 조건(FE-17 U-26-3로 표지 제거, 판정 함수는 남김) */
 export const hasApiFailInfo = (response: Pick<ChatResponse, "notice" | "findings">): boolean =>
   isApiFailNotice(response.notice) || response.findings.some((finding) => finding.notes.some(isApiFlagNote));
