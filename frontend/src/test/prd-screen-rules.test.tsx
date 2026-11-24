@@ -6,7 +6,7 @@ import { FixedNoticeBox } from "@/features/emergency";
 import { EvidenceDetail, EvidenceEntryButton } from "@/features/evidence";
 import * as evidenceCopy from "@/features/evidence/copy";
 import { groupJudgments } from "@/features/evidence/sections";
-import { ResultView } from "@/features/result";
+import { ResultView, mergeSourceBadges, resultRows } from "@/features/result";
 import type { ChatResponse } from "@/lib/api";
 import { GRADE_DEF_MISSING_OUT_OF_SCOPE, PHRASES } from "@/mocks/fixtures/phrases";
 import * as fixtures from "@/mocks/fixtures/responses";
@@ -177,9 +177,28 @@ describe.each(cases)("%s", (_name, response) => {
       expect(badge.querySelector("svg, img")).toBeNull();
     }
     for (const status of q('[data-testid="line-status"]')) expect(status.querySelector('[data-testid="source-tag"]')).toBeNull();
-    // 배지 수·글자·순서는 응답 그대로(재조합·재정렬 없음)
-    const expected = response.findings.flatMap((finding) => finding.badges.map((badge) => badge.text));
-    expect(texts(q('[data-testid="t-result"] [data-testid="status-badge"]'))).toEqual(expected);
+    // 기대값 갱신(2026-11-24, FE-17 U-30 사용자 지시 (a)(b)(c)): 배지 글자는 받은 글자 그대로이되 출처 꼬리만 다른 같은 배지는 하나(`… (파일, 성분 API)`)이고,
+    // 행 순서는 쌍 줄이 맨 위·같은 약 줄은 한 행이다. 그 밖의 재조합·재정렬은 없다(행 안 배지 순서는 받은 순서)
+    const expected = resultRows(response.findings).flatMap(({ main, siblings }) => [
+      ...new Set([main, ...siblings].flatMap(({ finding }) => mergeSourceBadges(finding.badges).map((badge) => badge.text))),
+    ]);
+    const shown = texts(q('[data-testid="t-result"] [data-testid="status-badge"]'));
+    expect(shown).toEqual(expected);
+    // 보이는 배지 글자는 받은 배지 글자이거나, 받은 배지들의 꼬리 앞 글자 + 받은 꼬리들을 이은 것이다(새 낱말 없음)
+    const received = new Set(response.findings.flatMap((finding) => finding.badges.map((badge) => badge.text)));
+    for (const label of shown) {
+      if (received.has(label)) continue;
+      const match = /^(.*\S) \(([^()]+)\)$/.exec(label);
+      expect(match, label).not.toBeNull();
+      for (const tail of match![2].split(", ")) expect(received.has(`${match![1]} (${tail})`), label).toBe(true);
+    }
+    // 받은 배지는 하나도 빠지지 않는다(합친 배지 안에 들었거나 그대로 보인다)
+    const covered = q('[data-testid="t-result"] [data-testid="status-badge"]').flatMap((badge) => {
+      const label = badge.textContent ?? "";
+      const match = /^(.*\S) \(([^()]+)\)$/.exec(label);
+      return [label, ...(match ? match[2].split(", ").map((tail) => `${match[1]} (${tail})`) : [])];
+    });
+    for (const label of received) expect(covered, label).toContain(label);
   });
 
   it("약을 찾지 못한 줄: 약 이름 박스에 입력한 이름이 있고 '금기 없음·안전' 암시가 없다(PRD-14 §6 ①②⑧)", () => {

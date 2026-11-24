@@ -67,7 +67,29 @@ describe("생성한 고정 문구는 fixed_phrases.py 원문과 같다", () => {
     for (const text of [generated.NOTICE_API_FAIL, ...generated.API_FLAG_NOTES]) expect(text).toMatch(/^실시간 확인/);
   });
 
-  it("생성 파일에는 이 다섯 상수만 있다", () => {
-    expect(Object.keys(generated).sort()).toEqual(["API_FLAG_NOTES", "DISCLAIMER", "FIXED_NOTICE", "NOTICE_API_FAIL", "START_EMERGENCY_119"]);
+  it("결과 화면 표시 가공의 판별용 원문(FE-17 U-30)은 provenance.FLAG_NOTES·fixed_phrases.NOT_LISTED·CAUTION_LABELS 원문 그대로다", () => {
+    expect(dictValue(prov, "FLAG_NOTES", '"API_SAME"')).toBeTruthy();
+    expect(generated.API_SAME_NOTE).toBe(dictValue(prov, "FLAG_NOTES", '"API_SAME"'));
+    expect(constant("NOT_LISTED")).toBeTruthy();
+    expect(generated.NOT_LISTED).toBe(constant("NOT_LISTED"));
+    const dose = /^CAUTION_LABELS\s*=\s*\{[^\n}]*"dose":\s*"((?:[^"\\]|\\.)*)"/m.exec(py)?.[1];
+    expect(dose).toBeTruthy();
+    expect(generated.CAUTION_DOSE_LABEL).toBe(dose);
+    // 괄호 안내를 떼는 규칙은 "목록에 없음(…)" 꼴일 때만 의미가 있다(떼고 남는 글자가 비지 않는다)
+    expect(generated.NOT_LISTED).toMatch(/^[^(]+\([^()]+\)$/);
+  });
+
+  // 기대값 갱신(2026-11-24, FE-17 U-30): 표시 가공 판별용 3개(API_SAME_NOTE·NOT_LISTED·CAUTION_DOSE_LABEL)를 더했다. 그 밖의 상수는 여전히 더하지 않는다
+  it("생성 파일에는 이 여덟 상수만 있다", () => {
+    expect(Object.keys(generated).sort()).toEqual([
+      "API_FLAG_NOTES",
+      "API_SAME_NOTE",
+      "CAUTION_DOSE_LABEL",
+      "DISCLAIMER",
+      "FIXED_NOTICE",
+      "NOTICE_API_FAIL",
+      "NOT_LISTED",
+      "START_EMERGENCY_119",
+    ]);
   });
 });

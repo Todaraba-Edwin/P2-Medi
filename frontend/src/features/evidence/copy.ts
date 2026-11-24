@@ -19,6 +19,11 @@ export const ENTRY_HINT_LOOKUP = "찾아본 곳";
 
 /** 구역 소제목(tickets/doc/PRD-11.md §4.1 판정 → 사유 원문 → 허가사항 → 출처. PRD-10-03: 13자 이내 짧은 명사형) */
 export const SECTION_TITLES = { judgment: "판정", reason: "사유 원문", label: "허가사항", sources: "출처" } as const;
+/**
+ * 판정·사유 원문 통합 구역의 소제목(FE-17 U-30 (h), 2026-11-24 사용자 "판정과 사유 원문이 하나로 묶이기를"). 새 낱말 없이 기존 두 소제목을 ` · `로 잇는다
+ * (구역 순서: 판정·사유 원문 → 허가사항 → 출처, PRD-11-01 A의 판정 → 사유 원문을 한 구역으로)
+ */
+export const VERDICT_SECTION_TITLE = `${SECTION_TITLES.judgment} · ${SECTION_TITLES.reason}`;
 
 /** 미식별 박스의 칸 이름(FE-02 완료 조건 PRD-14-01: 입력한 이름·찾아본 곳(건수)·못 찾은 이유·다음에 해 보세요) */
 export const LOOKUP_LABELS = { input: "입력한 이름", searched: "찾아본 곳", why: "못 찾은 이유", next: "다음에 해 보세요" } as const;

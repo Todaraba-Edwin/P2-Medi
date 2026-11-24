@@ -155,6 +155,14 @@ export const CODE_NOT_LINKED = "금기 목록에서 확인하지 못했지만, �
  */
 export const API_FAIL_NOTE = "실시간 확인을 하지 못함(파일 기준 결과는 그대로예요)";
 export const API_NO_CODE_NOTE = "실시간 확인을 하지 못함(이 성분은 실시간 조회에 쓸 코드가 없어요. 파일 기준 결과는 그대로예요)";
+/** provenance.FLAG_NOTES["API_SAME"]: 파일과 실시간 조회가 같을 때 줄·근거에 붙는 노트. 화면은 그리지 않는다(FE-17 U-30 (f)) */
+export const API_SAME_NOTE = "파일과 실시간 조회 결과가 같아요";
+/**
+ * 등급 불일치 안내의 **새 문구**(2026-11-24 사용자 제공, FE-17 U-30 (j)). 서버 고정 문구(`fixed_phrases.GRADE_MISMATCH_NOTE`) 변경은 BE 몫이라
+ * 아직 백엔드 원문이 아니다: `PHRASES`(백엔드 상수와 글자 단위로 맞추는 표)에 넣지 않고 u30 합성 응답에만 쓴다. BE가 반영하면 `PHRASES.GRADE_MISMATCH_NOTE`를
+ * 이 글자로 바꾸고(fixtures.test가 원문 대조) 이 상수를 지운다
+ */
+export const GRADE_MISMATCH_NOTE_NEXT = "파일과 실시간 조회 결과 모두 보여드려요. 자료 고시 시점에 따라서 등급이 다르게 보일 수 있어요.";
 /** schemas.DOSE_SECTION: 이 항목의 원문 인용 아래에만 인용 고지(`quote_notice`)가 온다 */
 export const DOSE_SECTION = "용법용량";
 

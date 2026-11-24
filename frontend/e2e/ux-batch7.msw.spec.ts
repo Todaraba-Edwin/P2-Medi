@@ -109,16 +109,24 @@ for (const width of [393, 1280]) {
         if (mobile) await page.getByTestId("evidence-entry").click();
         const detail = page.getByTestId("evidence-detail");
         await expect(detail).toBeVisible();
+        // 기대값 갱신(2026-11-24, FE-17 U-30 (h)·(c)·(e)): 판정과 사유 원문이 판정 종류 카드 하나에 함께 있고 병용 카드가 맨 위다. 병용금기 쌍의 "금기 목록에 없음"은
+        // 같은 카드의 판정 줄(`금기 목록에 없음`, 괄호 안내 뗌)이 보이므로 사유 원문 칸(약 이름 쌍 + 고정 문구)은 따로 없다. 용량주의 칸의 구조·글자는 그대로다
+        const pairCard = detail.locator('[data-testid="verdict-group"][data-kind="contra_pair"]');
+        await expect(pairCard.getByTestId("line-title")).toHaveText("가나다정 · 라마바캡슐");
+        await expect(pairCard.getByTestId("line-text")).toHaveText("금기 목록에 없음");
+        await expect(pairCard.getByTestId("source-tag")).toHaveText("공식 파일 · 병용금기 파일");
         const boxes = detail.getByTestId("reason-box");
-        await expect(boxes).toHaveCount(2);
-        await expect(boxes.getByTestId("source-tag")).toHaveText(["공식 파일 · 용량주의 파일", "공식 파일 · 병용금기 파일"]);
+        await expect(boxes).toHaveCount(1);
+        await expect(boxes.getByTestId("source-tag")).toHaveText(["공식 파일 · 용량주의 파일"]);
         const dose = boxes.nth(0).getByTestId("reason-group");
         await expect(dose.getByTestId("reason-text")).toHaveText(["가나성분으로 4,000mg", "가나성분으로써 4000mg", "라마성분 3,200mg"]);
         await expect(dose.getByTestId("reason-drug")).toHaveText(["가나다정 - 제형유형 6건", "가나다정 - 제형유형 1건", "라마바캡슐 - 제형유형 23건"]);
-        await expect(boxes.nth(1).getByTestId("reason-drug")).toHaveText("가나다정 · 라마바캡슐");
-        await expect(boxes.nth(1).getByTestId("reason-not-listed")).toHaveText("금기 목록에 없음(안전하다는 뜻이 아님)");
-        // 근거 ID 31개 보존
-        const ids = (await boxes.evaluateAll((els) => els.flatMap((el) => (el.getAttribute("data-evidence-ids") ?? "").split(" ")))).filter(Boolean);
+        await expect(detail.getByTestId("reason-not-listed")).toHaveCount(0);
+        // 근거 ID 31개 보존(용량주의 30은 사유 원문 칸, 쌍 1은 병용 판정 칸)
+        const ids = [
+          ...(await boxes.evaluateAll((els) => els.flatMap((el) => (el.getAttribute("data-evidence-ids") ?? "").split(" ")))),
+          ...(await pairCard.getByTestId("judgment-box").evaluateAll((els) => els.flatMap((el) => (el.getAttribute("data-evidence-ids") ?? "").split(" ")))),
+        ].filter(Boolean);
         expect(new Set(ids).size).toBe(31);
         // 스타일 통일: 사유 원문·약 이름·고정 문구 줄이 모두 13px / 19px
         const metrics = await detail.locator('[data-testid="reason-box"] p').evaluateAll((els) => els.map((el) => `${getComputedStyle(el).fontSize}/${getComputedStyle(el).lineHeight}`));
@@ -133,9 +141,9 @@ for (const width of [393, 1280]) {
           }
         }
         await expectNoHorizontalScroll(page);
-        await detail.locator('[data-section="reason"]').scrollIntoViewIfNeeded();
+        await boxes.first().scrollIntoViewIfNeeded();
         await shot(page, `${base}-u25-reason`);
-        await shot(page, `${base}-u25-reason-close`, detail.locator('[data-section="reason"]'));
+        await shot(page, `${base}-u25-reason-close`, detail.locator('[data-section="judgment"]'));
       });
 
       test("U-21 추가: 질문이 오간 대화에서 다른 대상을 고르면 새 대화가 열리고, 같은 대상은 대화가 그대로다", async ({ page }) => {
@@ -193,8 +201,11 @@ for (const width of [393, 1280]) {
         const last = page.locator('[data-turn="turn-2"]').getByTestId("fixed-notice");
         await expect(last.locator("p")).toHaveText(["확인하지 못한 항목이 있어요. 복용 전에 꼭 약국·약사에게 확인하세요.", FIXED_NOTICE_TEXT]);
         await expect(page.locator('[data-turn="turn-1"]').getByTestId("fixed-notice")).toHaveCount(0);
-        // 판정 줄·쌍 칸의 "안전하다는 뜻이 아니에요" 계열 문구는 그대로다(받은 글자)
-        await expect(page.locator('[data-turn="turn-2"]').getByTestId("result-card")).toContainText("금기 목록에 없음(안전하다는 뜻이 아님)");
+        // 기대값 갱신(2026-11-24, FE-17 U-30 (e)): 쌍 줄은 괄호 안내를 뗀 `금기 목록에 없음`이고 받은 전체 글자는 속성에 남는다. 안전 안내는 위 고정 안내가 정확히 한 번 보인다
+        const turn2 = page.locator('[data-turn="turn-2"]').getByTestId("result-card");
+        await expect(turn2).toContainText("금기 목록에 없음");
+        await expect(turn2).not.toContainText("(안전하다는 뜻이 아님)");
+        await expect(turn2.locator('[data-full-text="금기 목록에 없음(안전하다는 뜻이 아님)"]')).toHaveCount(1);
         await last.evaluate((el) => el.scrollIntoView({ block: "nearest" }));
         await expect(last).toBeVisible();
         await expectNoHorizontalScroll(page);
@@ -225,14 +236,16 @@ for (const width of [393, 1280]) {
         const detail = page.getByTestId("evidence-detail");
         const groups = detail.getByTestId("judgment-drug-group");
         await expect(groups).toHaveCount(4);
-        expect(await groups.evaluateAll((els) => els.map((el) => el.getAttribute("data-count")))).toEqual(["2", "1", "1", "1"]);
-        await expect(groups.nth(0).getByTestId("line-title")).toHaveText(["가나다정", "가나다정"]);
+        // 기대값 갱신(2026-11-24, FE-17 U-30 (c)): 병용(쌍) 묶음이 맨 위로 온다(같은 약 묶음·같은 내용 박스 수는 그대로)
+        expect(await groups.evaluateAll((els) => els.map((el) => el.getAttribute("data-count")))).toEqual(["1", "2", "1", "1"]);
+        await expect(groups.nth(0).getByTestId("product-line")).toHaveAttribute("data-target", "pair");
+        await expect(groups.nth(1).getByTestId("line-title")).toHaveText(["가나다정", "가나다정"]);
         // 묶음 안 박스는 테두리를 이어 한 카드처럼(사이 간격 없음)
-        const [top, bottom] = await groups.nth(0).getByTestId("judgment-box").all();
+        const [top, bottom] = await groups.nth(1).getByTestId("judgment-box").all();
         const topBox = (await top.boundingBox())!;
         const bottomBox = (await bottom.boundingBox())!;
         expect(Math.abs(bottomBox.y - (topBox.y + topBox.height))).toBeLessThanOrEqual(1.5);
-        const dup = groups.nth(2).getByTestId("judgment-box");
+        const dup = groups.nth(3).getByTestId("judgment-box");
         await expect(dup).toHaveCount(1);
         await expect(dup.getByTestId("judgment-same-count")).toHaveText("같은 내용 2건");
         await expect(detail.getByTestId("judgment-box")).toHaveCount(5);

@@ -24,15 +24,23 @@ const tagKind = (tag: Element) => tag.querySelector("[data-slot='source-kind-lab
 const CLOSED = "details:not([open]), [hidden], [aria-hidden='true'], [data-state='closed']";
 
 describe("EvidenceDetail", () => {
-  it("구역 순서는 판정 → 사유 원문 → 허가사항 → 출처이고 구역마다 소제목이 하나다", () => {
+  // 기대값 갱신(2026-11-24, FE-17 U-30 (h) 사용자 "판정과 사유 원문을 사용자가 각각 보지 않고 하나에서 볼 수 있도록"): 판정 → 사유 원문 두 구역이
+  // 한 구역(`판정 · 사유 원문`, 기존 두 소제목을 이은 글자)이 되어 구역 순서는 판정·사유 원문 → 허가사항 → 출처다. 구역마다 소제목 하나는 그대로다
+  it("구역 순서는 판정·사유 원문 → 허가사항 → 출처이고 구역마다 소제목이 하나다", () => {
     render(<EvidenceDetail response={sample("permit")} />);
-    expect(sections()).toEqual(["judgment", "reason", "label", "sources"]);
+    expect(sections()).toEqual(["judgment", "label", "sources"]);
     for (const section of screen.getAllByTestId("evidence-section")) expect(within(section).getAllByRole("heading")).toHaveLength(1);
-    expect(texts(screen.getAllByRole("heading", { level: 3 }))).toEqual(Object.values(copy.SECTION_TITLES));
+    expect(texts(screen.getAllByRole("heading", { level: 3 }))).toEqual([copy.VERDICT_SECTION_TITLE, copy.SECTION_TITLES.label, copy.SECTION_TITLES.sources]);
+    expect(copy.VERDICT_SECTION_TITLE).toBe(`${copy.SECTION_TITLES.judgment} · ${copy.SECTION_TITLES.reason}`); // 새 낱말 없음
+    // 판정 줄과 그 사유 원문이 같은 카드(판정 종류 묶음) 안에 있다
+    const reasonBox = screen.getAllByTestId("reason-box")[0];
+    const card = reasonBox.closest('[data-testid="verdict-group"]') as HTMLElement | null;
+    expect(card).not.toBeNull();
+    expect(within(card!).getAllByTestId("judgment-box").length).toBeGreaterThan(0);
   });
 
   it("소제목은 13자 이내의 짧은 명사형이다(PRD-10-03)", () => {
-    for (const title of [...Object.values(copy.SECTION_TITLES), copy.EVIDENCE_TITLE]) {
+    for (const title of [...Object.values(copy.SECTION_TITLES), copy.VERDICT_SECTION_TITLE, copy.EVIDENCE_TITLE]) {
       expect(title.length).toBeLessThanOrEqual(13);
       expect(title).not.toMatch(/[.?!]|요$|다$/);
     }
@@ -111,43 +119,48 @@ describe("EvidenceDetail", () => {
     expect(groups3.map((group) => within(group).getByTestId("reason-form-count").textContent)).toEqual(["제형유형 6건", "제형유형 1건", "제형유형 23건"]);
     groups3.forEach((group, index) => expect(group.getAttribute("data-evidence-ids")!.split(" ")).toEqual(groups[index].evidenceIds));
     expect(screen.queryByTestId("reason-same-count")).toBeNull(); // 용량주의는 "같은 내용 N건" 대신 "제형유형 N건"
-    // 구역 순서·출처 표는 그대로(출처 표는 묶지 않는다)
-    expect(sections()).toEqual(["judgment", "reason", "sources"]);
+    // 출처 표는 그대로(묶지 않는다). 기대값 갱신(2026-11-24, FE-17 U-30 (h)): 사유 원문은 판정과 한 구역(`judgment`)이다
+    expect(sections()).toEqual(["judgment", "sources"]);
   });
 
   describe("U-25 판정 종류 → 사유 원문 → 약 이름 + 제형유형 N건(2026-11-24)", () => {
     const LINE = ["m-0", "text-[13px]", "leading-[19px]", "break-words", "whitespace-pre-wrap"];
 
-    it("최상위는 판정 종류 박스(용량주의 파일 · 병용금기 파일, 표지 = 지금 문구)이고, 용량주의 안은 사유 원문 → 약 이름 - 제형유형 N건, 병용금기 안은 약 이름 쌍 → 고정 문구다", () => {
+    // 기대값 갱신(2026-11-24, FE-17 U-30 (h)·(c)·(e)): 판정과 사유 원문이 판정 종류 묶음(카드) 하나에 함께 있다. 병용금기 쌍의 "금기 목록에 없음"은 같은 카드의
+    // 판정 줄(괄호 안내를 뗀 `금기 목록에 없음`)이 보이므로 사유 원문 칸에 약 이름 쌍 + 고정 문구를 다시 두지 않는다. 병용 카드가 맨 위다.
+    // 용량주의 칸의 구조(사유 원문 → 약 이름 - 제형유형 N건)와 표지 글자는 그대로다
+    it("판정 종류 묶음(카드): 병용 카드(쌍 판정 줄, 금기 목록에 없음)가 맨 위, 용량주의 칸은 사유 원문 → 약 이름 - 제형유형 N건이다", () => {
       const response = fixtures.doseComboResponse;
       render(<EvidenceDetail response={response} />);
+      const cards = screen.getAllByTestId("verdict-group");
+      expect(cards.map((card) => card.getAttribute("data-kind"))).toEqual(["contra_pair", "identify", "dose"]);
+      const pairLine = within(cards[0]).getByTestId("product-line");
+      expect(pairLine).toHaveAttribute("data-target", "pair");
+      expect(within(pairLine).getByTestId("line-text").textContent).toBe("금기 목록에 없음");
+      expect(within(cards[0]).getByTestId("source-tag").textContent).toBe("공식 파일 · 병용금기 파일");
+      expect(screen.queryByTestId("reason-not-listed")).toBeNull();
       const boxes = screen.getAllByTestId("reason-box");
-      expect(boxes.map((box) => box.getAttribute("data-kind"))).toEqual(["dose", "contra_pair"]);
-      expect(boxes.map((box) => tagDataset(within(box).getByTestId("source-tag")))).toEqual(["용량주의 파일", "병용금기 파일"]);
-      expect(boxes.map((box) => within(box).getByTestId("source-tag").textContent)).toEqual(["공식 파일 · 용량주의 파일", "공식 파일 · 병용금기 파일"]);
+      expect(boxes.map((box) => box.getAttribute("data-kind"))).toEqual(["dose"]);
+      expect(boxes.map((box) => tagDataset(within(box).getByTestId("source-tag")))).toEqual(["용량주의 파일"]);
+      expect(boxes.map((box) => within(box).getByTestId("source-tag").textContent)).toEqual(["공식 파일 · 용량주의 파일"]);
       // 용량주의: 사유 원문 문장별 묶음, 그 아래 그 문장을 가진 약만
       const dose = within(boxes[0]).getAllByTestId("reason-group");
       expect(dose.map((group) => texts(within(group).getAllByTestId("reason-text")))).toEqual([["가나성분으로 4,000mg"], ["가나성분으로써 4000mg"], ["라마성분 3,200mg"]]);
       expect(dose.map((group) => texts(within(group).getAllByTestId("reason-drug")))).toEqual([["가나다정 - 제형유형 6건"], ["가나다정 - 제형유형 1건"], ["라마바캡슐 - 제형유형 23건"]]);
-      // 병용금기: 약 이름 쌍 + 판정 줄의 고정 문구(받은 글자 그대로)
-      const pair = within(boxes[1]).getByTestId("reason-group");
-      expect(pair).toHaveAttribute("data-type", "not-listed");
-      expect(within(pair).getByTestId("reason-drug").textContent).toBe("가나다정 · 라마바캡슐");
-      expect(within(pair).getByTestId("reason-not-listed").textContent).toBe("금기 목록에 없음(안전하다는 뜻이 아님)");
-      expect(within(pair).getByTestId("reason-not-listed").textContent).toBe(PHRASES.NOT_LISTED);
-      expect(pair).toHaveAttribute("data-evidence-ids", "ev-pair-u25");
-      // 근거 ID는 하나도 빠지지 않는다(31개 = 용량주의 30 + 쌍 1)
-      const ids = boxes.flatMap((box) => box.getAttribute("data-evidence-ids")!.split(" "));
+      // 병용금기 쌍의 근거 ID는 쌍 판정 칸에 남는다. 근거 ID는 하나도 빠지지 않는다(31개 = 용량주의 30 + 쌍 1)
+      expect(within(cards[0]).getByTestId("judgment-box")).toHaveAttribute("data-evidence-ids", "ev-pair-u25");
+      const ids = [...boxes.flatMap((box) => box.getAttribute("data-evidence-ids")!.split(" ")), "ev-pair-u25"];
       expect(new Set(ids)).toEqual(new Set(response.detail.map((item) => item.evidence_id)));
       expect(ids).toHaveLength(31);
       expect(copy.formTypeCount(3)).toBe("제형유형 3건"); // 사용자 문구 그대로(공백 없음)
-      expect(sections()).toEqual(["judgment", "reason", "sources"]);
+      expect(sections()).toEqual(["judgment", "sources"]);
     });
 
     it("스타일 통일: 사유 원문·약 이름·고정 문구·덧붙임 줄·건수 줄이 모두 13px / 19px 줄 간격이고, 12px(text-xs) 줄이 남지 않는다", () => {
       const notes = { ...fixtures.doseComboResponse, detail: fixtures.doseComboResponse.detail.map((item, i) => (i === 0 ? { ...item, notes: ["덧붙임 한 줄"] } : item)) };
       render(<EvidenceDetail response={notes} />);
-      const section = screen.getAllByTestId("evidence-section").find((el) => el.getAttribute("data-section") === "reason")!;
+      // 기대값 갱신(2026-11-24, FE-17 U-30 (h)): 사유 원문 칸은 판정·사유 원문 구역(`judgment`) 안에 있다. 13px/19px 규칙은 사유 원문 칸 안 줄 전부에 그대로다
+      const section = screen.getAllByTestId("evidence-section").find((el) => el.getAttribute("data-section") === "judgment")!;
       const lines = [...section.querySelectorAll('[data-testid="reason-box"] p')];
       expect(lines.length).toBeGreaterThan(6);
       for (const line of lines) expect(line).toHaveClass(...LINE);
@@ -186,8 +199,11 @@ describe("EvidenceDetail", () => {
       expect(screen.getAllByTestId("reason-box").map((box) => box.getAttribute("data-kind"))).toEqual(["dose"]);
       expect(screen.queryByTestId("reason-not-listed")).toBeNull();
       cleanupRender();
+      // 기대값 갱신(2026-11-24, FE-17 U-30 (h)): 사유 원문 구역이 따로 없다. 원문이 없는 임부금기 금기 목록에 없음은 판정 칸에만 있고 사유 원문 칸이 없다
       render(<EvidenceDetail response={fixtures.notListedResponse} />);
       expect(sections()).not.toContain("reason");
+      expect(screen.queryByTestId("reason-box")).toBeNull();
+      expect(screen.getAllByTestId("judgment-box")).toHaveLength(1);
     });
   });
 
@@ -213,10 +229,12 @@ describe("EvidenceDetail", () => {
     it("같은 약 이름의 박스는 처음 나온 자리에 붙어 한 묶음(테두리를 이은 카드)이 되고, 묶음 안은 받은 순서다. 글자가 다른 줄은 묶지 않는다", () => {
       render(<EvidenceDetail response={response} />);
       const groups = screen.getAllByTestId("judgment-drug-group");
-      // 가나다정(2박스: 식별 줄 + 보조줄이 다른 식별 줄) → 라마바캡슐 → 차카타파정(같은 내용 2건) → 가나다정·라마바캡슐 쌍
-      expect(groups.map((group) => group.getAttribute("data-count"))).toEqual(["2", "1", "1", "1"]);
-      expect(within(groups[0]).getAllByTestId("line-title").map((el) => el.textContent)).toEqual(["가나다정", "가나다정"]);
-      expect(groups[0].className).toContain("[&>*:not(:first-child)]:rounded-t-none");
+      // 기대값 갱신(2026-11-24, FE-17 U-30 (c)·(h)): 병용(쌍) 묶음이 맨 위로 오고, 같은 약 박스는 판정 종류 카드 안에서 선으로 이은 칸이다(테두리를 이은 카드는 카드가 맡는다).
+      // 가나다정·라마바캡슐 쌍 → 가나다정(2박스: 식별 줄 + 보조줄이 다른 식별 줄) → 라마바캡슐 → 차카타파정(같은 내용 2건)
+      expect(groups.map((group) => group.getAttribute("data-count"))).toEqual(["1", "2", "1", "1"]);
+      expect(within(groups[1]).getAllByTestId("line-title").map((el) => el.textContent)).toEqual(["가나다정", "가나다정"]);
+      expect(groups[1].className).toContain("[&>*+*]:border-t");
+      expect(groups[1].closest('[data-testid="verdict-group"]')).toHaveClass("rounded-xl", "border");
       expect(screen.getAllByTestId("judgment-box")).toHaveLength(5); // 6줄 → 5박스(같은 내용 1쌍만 묶임)
     });
 
@@ -454,7 +472,8 @@ describe("약사 확인 권고의 구역 필터(pharmacist_advice_kinds, AG-08-2
   it("사유 원문 구역의 미확보 묶음에도 missing 줄만 나온다", () => {
     const reasonMissing = { ...fixtures.foundResponse.detail[0], evidence_id: "ev-pair-missing", rows: [], missing_reason: "FETCH_FAIL", missing_text: PHRASES.MISSING_FETCH_FAIL };
     render(<EvidenceDetail response={{ ...response, detail: [...response.detail, reasonMissing] }} />);
-    expect(adviceLines(within(section("reason")).getByTestId("missing-group"))).toEqual([missingLine]);
+    // 기대값 갱신(2026-11-24, FE-17 U-30 (h)): 사유 원문의 미확보 묶음은 판정·사유 원문 구역(`judgment`) 안에 있다
+    expect(adviceLines(within(section("judgment")).getByTestId("missing-group"))).toEqual([missingLine]);
     expect(adviceLines(within(section("label")).getByTestId("missing-group"))).toEqual([missingLine]);
     expect(adviceLines(within(section("judgment")).getByTestId("grade-def-missing"))).toEqual([gradeDefLine]);
   });
@@ -483,12 +502,14 @@ describe("약사 확인 권고의 구역 필터(pharmacist_advice_kinds, AG-08-2
 describe("evidence_id가 없는 제품 줄(BE-06-41 A)", () => {
   const response = fixtures.productRowsResponse;
 
-  it("판정 박스가 줄마다 하나씩 받은 순서로 나오고, React key 경고(같은 key·key 없음)가 없다", () => {
+  // 기대값 갱신(2026-11-24, FE-17 U-30 (c)): 병용(쌍) 줄이 맨 위이고 그 밖은 받은 순서다
+  const shownOrder = [...response.findings.filter((f) => f.target === "pair"), ...response.findings.filter((f) => f.target !== "pair")];
+  it("판정 박스가 줄마다 하나씩 나오고(쌍 줄 먼저, 그 밖은 받은 순서), React key 경고(같은 key·key 없음)가 없다", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     render(<EvidenceDetail response={response} />);
     const boxes = screen.getAllByTestId("judgment-box");
     expect(boxes).toHaveLength(response.findings.length);
-    expect(texts(boxes.map((box) => within(box).getByTestId("line-title")))).toEqual(response.findings.map((f) => f.drug));
+    expect(texts(boxes.map((box) => within(box).getByTestId("line-title")))).toEqual(shownOrder.map((f) => f.drug));
     expect(error.mock.calls.filter((call) => /key/i.test(String(call[0])))).toEqual([]);
     error.mockRestore();
   });
@@ -496,7 +517,7 @@ describe("evidence_id가 없는 제품 줄(BE-06-41 A)", () => {
   it("evidence_id가 없는 줄은 다른 줄의 근거 표지를 빌리지 않고, 배지는 받은 순서 그대로다", () => {
     render(<EvidenceDetail response={response} />);
     const boxes = screen.getAllByTestId("judgment-box");
-    response.findings.forEach((finding, index) => {
+    shownOrder.forEach((finding, index) => {
       expect(texts(within(boxes[index]).getAllByTestId("status-badge"))).toEqual(finding.badges.map((b) => b.text));
       // 박스 표지는 줄의 `evidence_id`가 가리키는 근거 하나의 것이다. 배지가 여러 근거를 가리키는 제품 줄에는 표지를 짓지 않는다
       expect(within(boxes[index]).queryAllByTestId("source-tag")).toHaveLength(finding.evidence_id === null ? 0 : 1);
@@ -505,7 +526,8 @@ describe("evidence_id가 없는 제품 줄(BE-06-41 A)", () => {
 
   it("배지가 가리키는 근거는 사유 원문·출처 구역에 그대로 있다(근거 상세는 응답 단위로 열린다)", () => {
     render(<EvidenceDetail response={response} />);
-    expect(sections()).toEqual(["judgment", "reason", "sources"]);
+    // 기대값 갱신(2026-11-24, FE-17 U-30 (h)): 사유 원문은 판정과 한 구역이다
+    expect(sections()).toEqual(["judgment", "sources"]);
     const ids = new Set(response.findings.flatMap((f) => f.badges.map((b) => b.evidence_id)));
     for (const id of ids) expect(response.detail.some((item) => item.evidence_id === id)).toBe(true);
     expect(screen.getAllByTestId("reason-box")).toHaveLength(response.detail.length);

@@ -98,6 +98,23 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   /** 사이드바 오버레이·드로어를 그릴 자리(119 배너 아래 영역) */
   const [layer, setLayer] = useState<HTMLElement | null>(null);
   const main = useRef<HTMLElement>(null);
+  /**
+   * 입력 영역(`dock`)의 높이와 대화 스크롤 컨테이너의 스크롤바 폭(FE-17 U-27 추가 지시 2). 대화 중에는 입력 영역이 스크롤 영역 하단에 겹쳐 고정되므로
+   * 대화 영역은 아래쪽에 입력 영역 높이만큼 여백을 두고(입력창이 여러 줄로 커지면 따라간다), 입력 영역은 스크롤바 자리를 덮지 않게 그만큼 오른쪽을 비운다
+   */
+  // 입력 영역은 앱이 준비된 뒤에 그려질 수 있어(첫 렌더에 없을 수 있다) 요소를 상태로 받아 붙을 때 관찰을 시작한다
+  const [dockEl, setDockEl] = useState<HTMLDivElement | null>(null);
+  const [dockHeight, setDockHeight] = useState(0);
+  const [threadScrollbar, setThreadScrollbar] = useState(0);
+  useEffect(() => {
+    const el = dockEl;
+    if (!el) return;
+    const update = () => setDockHeight(Math.ceil(el.getBoundingClientRect().height));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [dockEl]);
   /** 사진 입력 모달(FE-05 사진 부분). 사진·읽은 목록은 모달 안 메모리에만 있다 */
   const [photoOpen, setPhotoOpen] = useState(false);
   /** 사진 모달이 닫힌 뒤 초점을 둘 곳: 기본은 사진 버튼, `글자로 입력`이면 입력창 */
@@ -476,8 +493,10 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
           )}
           {/* 스크롤 영역과 내용 폭 분리(FE-17 U-27): 스크롤 컨테이너(`home`·`chat-thread`)는 본문(main) 전체 폭을 차지해 스크롤바가 본문 오른쪽 가장자리
               (근거 상세가 열리면 패널 왼쪽)에 붙고, 휠·터치 스크롤도 본문 어디서나 된다. 내용 폭 제한(넓은 폭 880px·좁은 폭 760px, 좌우 여백 포함)은
-              그 안쪽 래퍼(`column`)와 입력 영역(`dock`)이 같은 값으로 나눠 갖는다 */}
-          <div data-testid="main-body" className="flex min-h-0 w-full flex-1 flex-col gap-2">
+              그 안쪽 래퍼(`column`)와 입력 영역(`dock`)이 같은 값으로 나눠 갖는다.
+              대화 중(U-27 추가 지시 2)에는 `chat-thread`가 이 영역의 전체 높이를 차지하고(스크롤바가 위~아래 끝까지), 입력 영역은 같은 영역 하단에 겹쳐 고정된다
+              (`relative` 기준). 시작 화면(`home`)은 입력창 위치가 지금 그대로다(입력 영역이 흐름 안에 있다) */}
+          <div data-testid="main-body" className="relative flex min-h-0 w-full flex-1 flex-col gap-2">
             {turns.length === 0 ? (
               // 내용이 화면보다 길면(좁은 폭 + 기본 대상 안내, FE-17 U-08) 가운데 정렬이 위쪽을 스크롤 밖으로 잘라내지 않게 `safe` 가운데 정렬이다.
               // 바깥(`home`)이 본문 전체 폭 스크롤이고, 안쪽 래퍼가 남은 높이를 채운 채 가운데 정렬한다(내용이 더 길면 내용 높이만큼 늘어 바깥이 스크롤한다)
@@ -518,10 +537,25 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
                 onOther={focusInput}
                 onResend={resend}
                 columnClassName={column}
+                bottomInset={dockHeight}
+                onScrollbarWidth={setThreadScrollbar}
               />
             )}
-            {/* 접히지 않는 고정 영역: 입력창 → 통합 고지(FE-17 U-02). 고정 안내는 U-26-1로 각 답 아래로 옮겼다 */}
-            <div data-testid="dock" className={cn(column, "flex flex-none flex-col gap-1.5 pb-[max(14px,env(safe-area-inset-bottom,0px))]")}>
+            {/* 접히지 않는 고정 영역: 입력창 → 통합 고지(FE-17 U-02). 고정 안내는 U-26-1로 각 답 아래로 옮겼다.
+                대화 중(FE-17 U-27 추가 지시 2): 대화 스크롤 영역 하단에 겹쳐 고정(`absolute bottom-0`)되고 대화가 그 뒤로 스크롤한다. 단색 배경 + 위쪽 짧은 페이드로
+                입력창 뒤로 지나가는 글자가 어색하게 잘려 보이지 않게 한다. 오른쪽은 스크롤바 폭만큼 비워(스크롤바를 덮지 않음) 내용 열과 같은 가운데에 놓인다.
+                같은 요소를 시작 화면·대화에서 그대로 쓴다(입력창이 다시 만들어지지 않아 입력·초점이 이어진다) */}
+            <div
+              ref={setDockEl}
+              data-testid="dock"
+              data-overlay={turns.length > 0 ? "" : undefined}
+              style={turns.length > 0 ? { right: threadScrollbar } : undefined}
+              className={cn(
+                column,
+                "flex flex-none flex-col gap-1.5 bg-bg pb-[max(14px,env(safe-area-inset-bottom,0px))]",
+                turns.length > 0 && "absolute inset-x-0 bottom-0 z-10",
+              )}
+            >
               {/* 임신 여부 토글은 대상이 남성 프로필이면 그리지 않는다(FE-11-09 C). 안내·오류 줄도 토글과 함께 빠진다.
                   대상 프로필 칩은 로그인하고 프로필이 있을 때만 입력창 안에 둔다. 게스트·프로필 없음도 같은 두 줄 배치다(FE-17 U-09, 칩만 없다).
                   고지는 입력창 아래 통합 고지 한 단락(FE-17 U-02, `ChatInput`)이다. 시작 화면 119 안내 줄은 없다(FE-17 U-04: 119는 머리줄·응급 배너 두 곳) */}
@@ -540,6 +574,8 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
                       }
                 }
               />
+              {/* 입력 영역 위 짧은 페이드(대화 중에만, 보조기기에는 숨김). 위치는 절대 배치라 자식 순서와 무관하고, 입력 폼이 첫 자식으로 남게 맨 뒤에 둔다 */}
+              {turns.length > 0 && <div aria-hidden="true" data-testid="dock-fade" className="pointer-events-none absolute inset-x-0 bottom-full h-4 bg-linear-to-t from-bg to-transparent" />}
             </div>
           </div>
         </main>

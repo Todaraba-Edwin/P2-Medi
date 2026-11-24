@@ -7,6 +7,8 @@
 // - START_EMERGENCY_119: 시작 화면 119 안내(질문을 보내기 전). 외부 AI 고지는 입력창 아래 고지 하나다(PRD-17-10 A)
 // - NOTICE_API_FAIL·API_FLAG_NOTES: 화면에 그리지 않는다. 응답의 `notice`·`findings[].notes[]`가 이 글자이면 본문이 아니라 근거 상세에만
 //   둔다(FE-11-10 A "고지 배치는 화면 몫", `features/result/realtime-notice.ts`). 응답 글자가 바뀌면 이 값도 다시 만든다
+// - API_SAME_NOTE·NOT_LISTED·CAUTION_DOSE_LABEL: 결과 화면 표시 가공의 판별용(FE-17 U-30, `features/result/row-merge.ts`). 새로 그리는 값이 아니다
+//   (원본: provenance.FLAG_NOTES["API_SAME"], fixed_phrases.NOT_LISTED, fixed_phrases.CAUTION_LABELS["dose"])
 export const FIXED_NOTICE = "금기 목록에 없다는 것이 안전하다는 뜻이 아니에요. 근처 약국·약사에게 확인하세요.";
 export const DISCLAIMER = "공공데이터 기반 정보 제공이며 진단·처방이 아님 · 금기 목록에 없다는 것이 안전하다는 뜻이 아님 · 요양기관의 DUR 점검을 대체하지 않음";
 export const START_EMERGENCY_119 = "응급 상황이면 지금 바로 119에 전화하세요.";
@@ -18,3 +20,6 @@ export const API_FLAG_NOTES: readonly string[] = [
   "실시간 확인을 하지 못함(쌍의 한쪽 조회에 실패했어요. 파일 기준 결과는 그대로예요)",
   "실시간 확인을 일부만 함(성분이 많아 일부 성분만 조회했어요. 파일 기준 결과는 그대로예요)"
 ];
+export const API_SAME_NOTE = "파일과 실시간 조회 결과가 같아요";
+export const NOT_LISTED = "금기 목록에 없음(안전하다는 뜻이 아님)";
+export const CAUTION_DOSE_LABEL = "하루 최대량 주의 성분 포함";

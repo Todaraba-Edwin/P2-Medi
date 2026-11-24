@@ -14,6 +14,7 @@ import { CandidateCard } from "./CandidateCard";
 import { PickCapsule } from "./PickCapsule";
 import { groupCandidates, isTakenElsewhere } from "./candidate-groups";
 import { hasApiFailInfo } from "./realtime-notice";
+import { mergeSourceBadges, resultRows, shortStatusText } from "./row-merge";
 import * as copy from "./copy";
 import { IngredientChip, IngredientChips } from "./IngredientChips";
 import { ProductLine } from "./ProductLine";
@@ -82,12 +83,17 @@ describe("ProductLine", () => {
     expect(screen.getByTestId("line-status")).toHaveClass("flex-wrap"); // 배지 줄은 flex-wrap 한 규칙
   });
 
-  it("'목록에 없음' 줄: 응답의 text(안전 아님 문구 포함)를 그대로, 접힘 요소 밖에 항상 보인다", () => {
+  // 기대값 갱신(2026-11-24, FE-17 U-30 (e) 사용자 "행마다 반복되는 '금기 목록에 없음(안전하다는 뜻이 아님)' 정리, 제거"): 줄 글자는 괄호 안내를 뗀
+  // `금기 목록에 없음`이고 받은 전체 글자는 `data-full-text`에 남는다. "안전하다는 뜻이 아니에요" 안내는 결과 화면의 고정 안내가 최소 1회 보인다
+  // (AppShell.test "U-30 안내 1회 이상"·e2e ux-batch10이 본다). 줄이 접히지 않고 항상 보인다는 단언은 그대로다
+  it("'목록에 없음' 줄: 괄호 안내를 뗀 `금기 목록에 없음`(받은 전체 글자는 data-full-text)을 접힘 요소 밖에 항상 보인다", () => {
     const finding = fixtures.notListedResponse.findings[0];
     const { container } = line(finding);
     const text = screen.getByTestId("line-text");
-    expect(text.textContent).toBe(PHRASES.NOT_LISTED);
-    expect(text.textContent).toContain("안전하다는 뜻이 아님");
+    expect(finding.text).toBe(PHRASES.NOT_LISTED);
+    expect(text.textContent).toBe("금기 목록에 없음");
+    expect(PHRASES.NOT_LISTED.startsWith(text.textContent!)).toBe(true); // 새 글자 없음(받은 글자의 앞부분)
+    expect(text).toHaveAttribute("data-full-text", PHRASES.NOT_LISTED);
     expect(text).toBeVisible();
     expect(text.closest("details, [hidden], [aria-hidden='true'], [data-state='closed']")).toBeNull();
     expect(container.querySelector("details")).toBeNull();
@@ -277,13 +283,15 @@ describe("성분 칩의 모름(contra_kinds·dup이 null, BE-06-40 A)", () => {
 describe("evidence_id가 없는 제품 줄(BE-06-41 A)", () => {
   const response = fixtures.productRowsResponse;
 
-  it("결과 카드: null 줄이 여럿이어도 줄이 받은 순서로 모두 나오고 React key 경고가 없다", () => {
+  // 기대값 갱신(2026-11-24, FE-17 U-30 (c)): 쌍 줄이 맨 위이고 그 밖은 받은 순서다(같은 약 줄이 없는 응답이라 줄 수는 그대로)
+  const shownOrder = [...response.findings.filter((f) => f.target === "pair"), ...response.findings.filter((f) => f.target !== "pair")];
+  it("결과 카드: null 줄이 여럿이어도 줄이 모두 나오고(쌍 줄 먼저, 그 밖은 받은 순서) React key 경고가 없다", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     render(<ResultCard response={response} />);
     const lines = screen.getAllByTestId("product-line");
     expect(response.findings.filter((f) => f.evidence_id === null).length).toBeGreaterThan(1);
-    expect(texts(lines.map((el) => within(el).getByTestId("line-title")))).toEqual(response.findings.map((f) => f.drug));
-    expect(lines.map((el) => el.getAttribute("data-target"))).toEqual(response.findings.map((f) => f.target));
+    expect(texts(lines.map((el) => within(el).getByTestId("line-title")))).toEqual(shownOrder.map((f) => f.drug));
+    expect(lines.map((el) => el.getAttribute("data-target"))).toEqual(shownOrder.map((f) => f.target));
     expect(error.mock.calls.filter((call) => /key/i.test(String(call[0])))).toEqual([]);
     error.mockRestore();
   });
@@ -291,7 +299,7 @@ describe("evidence_id가 없는 제품 줄(BE-06-41 A)", () => {
   it("제품 줄의 배지는 받은 순서 그대로이고(병용 → 임부) kind가 없어도 data-kind를 짓지 않는다", () => {
     render(<ResultCard response={response} />);
     const lines = screen.getAllByTestId("product-line");
-    response.findings.forEach((finding, index) => {
+    shownOrder.forEach((finding, index) => {
       expect(texts(within(lines[index]).getAllByTestId("status-badge"))).toEqual(finding.badges.map((b) => b.text));
       if (finding.kind === null) expect(lines[index]).not.toHaveAttribute("data-kind");
     });
@@ -299,15 +307,19 @@ describe("evidence_id가 없는 제품 줄(BE-06-41 A)", () => {
 });
 
 describe("ResultCard·ResultView", () => {
-  it("판정 줄은 응답 배열 순서 그대로다", () => {
+  // 기대값 갱신(2026-11-24, FE-17 U-30 (c) 사용자 "병용에 대해서 물었기에 가장 중요한 정보가 row 3번째"): 쌍(병용) 줄은 받은 자리와 상관없이 맨 위다.
+  // 쌍 줄끼리·나머지 줄끼리는 받은 순서 그대로다(재정렬은 이 하나뿐)
+  it("판정 줄은 쌍(병용) 줄이 맨 위이고 그 밖은 응답 배열 순서 그대로다", () => {
     const response = fixtures.pairAndPregnancyResponse;
     render(<ResultCard response={response} />);
     expect(texts(screen.getAllByTestId("line-title"))).toEqual(response.findings.map((f) => f.drug));
     expect(screen.getAllByTestId("product-line").map((el) => el.getAttribute("data-target"))).toEqual(["pair", "product"]);
     const reversed: ChatResponse = { ...response, findings: [...response.findings].reverse() };
+    expect(reversed.findings.map((f) => f.target)).toEqual(["product", "pair"]);
     render(<ResultCard response={reversed} />);
     const second = screen.getAllByTestId("result-card")[1];
-    expect(texts(within(second).getAllByTestId("line-title"))).toEqual(reversed.findings.map((f) => f.drug));
+    expect(texts(within(second).getAllByTestId("line-title"))).toEqual(response.findings.map((f) => f.drug));
+    expect(within(second).getAllByTestId("product-line").map((el) => el.getAttribute("data-target"))).toEqual(["pair", "product"]);
   });
 
   it.each(RESULT_SAMPLES.map((s) => [s.id, s.response] as const))("%s: 렌더 글자가 응답 값과 같다", (_id, response) => {
@@ -318,13 +330,17 @@ describe("ResultCard·ResultView", () => {
     if (response.name_corrections.length > 0) {
       expect(texts([...screen.getByTestId("name-corrections").querySelectorAll("li")])).toEqual(response.name_corrections.map((c) => c.text));
     } else expect(screen.queryByTestId("name-corrections")).toBeNull();
+    // 기대값 갱신(2026-11-24, FE-17 U-30): 행은 `resultRows`(쌍 줄 맨 위·같은 약 줄 한 행), 배지는 출처 꼬리만 다른 것을 하나로(`mergeSourceBadges`),
+    // 줄 글자는 `금기 목록에 없음(안전하다는 뜻이 아님)`만 괄호 안내를 뗀다(`shortStatusText`). 그 밖의 글자는 받은 그대로다
     const lines = screen.queryAllByTestId("product-line");
-    expect(lines).toHaveLength(response.findings.length);
-    response.findings.forEach((finding, index) => {
+    const rows = resultRows(response.findings);
+    expect(lines).toHaveLength(rows.length);
+    rows.forEach(({ main }, index) => {
+      const finding = main.finding;
       const el = within(lines[index]);
       expect(el.getByTestId("line-title").textContent).toBe(finding.drug);
-      if (finding.badges.length) expect(texts(el.getAllByTestId("status-badge"))).toEqual(finding.badges.map((b) => b.text));
-      else expect(el.getByTestId("line-text").textContent).toBe(finding.text);
+      if (finding.badges.length) expect(texts(el.getAllByTestId("status-badge")).slice(0, mergeSourceBadges(finding.badges).length)).toEqual(mergeSourceBadges(finding.badges).map((b) => b.text));
+      else expect(el.getAllByTestId("line-text")[0].textContent).toBe(shortStatusText(finding.text));
     });
     // 마스코트·이미지·펼침 요소 0개
     expect(screen.queryByTestId("mascot")).toBeNull();
@@ -988,8 +1004,9 @@ describe("새 응답 칸(AG-22·FE-11) 최소 표시", () => {
     expect(screen.getByTestId("pair-only-notice").textContent).toBe(summary.pair_only_notice);
     expect(before(screen.getByTestId("result-summary"), line)).toBe(true);
     expect(line.nextElementSibling).toBe(screen.getByTestId("result-card")); // 카드 바로 위
-    // 판정 줄은 받은 순서 그대로(핵심 → 나머지), 제품 줄에 병용 배지 없음
-    expect(texts(screen.getAllByTestId("line-title"))).toEqual(fixtures.resultSummaryResponse.findings.map((f) => f.drug));
+    // 기대값 갱신(2026-11-24, FE-17 U-30 (c)): 쌍 줄이 맨 위(쌍끼리는 받은 순서: 핵심 → 나머지), 그다음 제품 줄(받은 순서). 제품 줄에 병용 배지 없음
+    const findings = fixtures.resultSummaryResponse.findings;
+    expect(texts(screen.getAllByTestId("line-title"))).toEqual([...findings.filter((f) => f.target === "pair"), ...findings.filter((f) => f.target !== "pair")].map((f) => f.drug));
     expect(screen.getAllByTestId("status-badge")).toHaveLength(1);
     expect(container.textContent).not.toContain(PHRASES.PAIR_REF_LINE.replace("{n}", "1"));
     expect(container.textContent).not.toContain(PHRASES.REST_FOLD_LINE.replace("{n}", "2"));

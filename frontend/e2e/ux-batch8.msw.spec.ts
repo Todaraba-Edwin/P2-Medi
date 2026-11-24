@@ -43,10 +43,17 @@ async function expectSplit(page: Page, scroller: Locator, inner: Locator, width:
   expect(Math.abs(c.width - expected)).toBeLessThanOrEqual(0.5);
   // 가운데 정렬(스크롤바가 자리를 차지하는 브라우저면 그만큼 왼쪽으로 치우친다)
   expect(Math.abs(c.x + c.width / 2 - (s.x + (s.width - scrollbar) / 2))).toBeLessThanOrEqual(0.5);
-  // 입력 영역: 같은 최대 폭·가운데(스크롤하지 않는 고정 영역이라 스크롤바 몫은 없다)
-  expect(Math.abs(d.width - Math.min(columnMax(width), m.width))).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(d.x + d.width / 2 - (m.x + m.width / 2))).toBeLessThanOrEqual(0.5);
-  expect(d.y).toBeGreaterThanOrEqual(s.y + s.height - 0.5); // 스크롤 영역 아래
+  // 입력 영역: 같은 최대 폭·가운데
+  // 기대값 갱신(2026-11-24, FE-17 U-27 추가 지시 2): 대화 중에는 입력 영역이 스크롤 영역 하단에 겹쳐 고정되고 오른쪽을 스크롤바 폭만큼 비운다(내용 열과 같은 가운데).
+  // 시작 화면은 지금처럼 스크롤 영역 아래(겹치지 않음, 스크롤바 몫 없음). headless Chromium은 스크롤바 폭이 0이라 두 경우의 폭·가운데 값은 같다
+  const overlay = (await dock(page).getAttribute("data-overlay")) !== null;
+  const dockSpan = overlay ? m.width - scrollbar : m.width;
+  expect(Math.abs(d.width - Math.min(columnMax(width), dockSpan))).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(d.x + d.width / 2 - (m.x + dockSpan / 2))).toBeLessThanOrEqual(0.5);
+  if (overlay) {
+    expect(Math.abs(d.y + d.height - (s.y + s.height))).toBeLessThanOrEqual(0.5); // 스크롤 영역 하단에 겹쳐 고정
+    expect(d.y).toBeLessThan(s.y + s.height - 1);
+  } else expect(d.y).toBeGreaterThanOrEqual(s.y + s.height - 0.5); // 시작 화면: 스크롤 영역 아래
   return { m, s, c, d, scrollbar };
 }
 

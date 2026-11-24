@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef } from "react";
 import type { Candidate } from "@/lib/api";
 import { BRAND_ASSETS } from "@/components/brand/assets.generated";
 import { PRIMARY_BUTTON } from "@/components/button";
@@ -38,6 +38,13 @@ export interface ConversationProps {
    * 입력 영역과 같은 값을 받는다(앱 셸이 정한다)
    */
   columnClassName?: string;
+  /**
+   * 대화 영역 하단에 겹쳐 고정된 입력 영역의 높이(px, FE-17 U-27 추가 지시 2). 대화 영역은 그만큼(+ 페이드 여유) 아래 여백을 두어 마지막 답이
+   * 입력창에 가려지지 않고, `scroll-padding-bottom`도 같은 값이라 맨 아래 따라가기·`scrollIntoView`가 입력 영역 위에서 멈춘다. 0이면 겹침 없음(기존 여백)
+   */
+  bottomInset?: number;
+  /** 스크롤 컨테이너의 스크롤바 폭이 바뀔 때(입력 영역이 스크롤바를 덮지 않게 앱 셸이 오른쪽을 비운다). 겹치는 스크롤바(macOS 기본·모바일)는 0이다 */
+  onScrollbarWidth?: (width: number) => void;
 }
 
 const NO_PICKS: CandidatePicks = {};
@@ -48,7 +55,7 @@ const SYMBOL = BRAND_ASSETS.symbol;
 const SYMBOL_WIDTH = Math.round((SYMBOL_HEIGHT * SYMBOL.width) / SYMBOL.height);
 const RESEND_DISABLED = "aria-disabled:cursor-not-allowed aria-disabled:bg-line aria-disabled:text-faint aria-disabled:brightness-100!";
 
-interface TurnProps extends Omit<ConversationProps, "turns" | "columnClassName"> {
+interface TurnProps extends Omit<ConversationProps, "turns" | "columnClassName" | "bottomInset" | "onScrollbarWidth"> {
   turn: ChatTurn;
   /** 뒤 차례의 답이 이미 보이는 고정 안내 줄(같은 글자). 이 차례에서는 그 줄을 다시 그리지 않는다(FE-17 U-26-1) */
   noticeShownLater: ReadonlySet<string>;
@@ -191,6 +198,13 @@ function TurnAnswer({ turn, isLast, resent, hasEmergency, noticeShownLater, evid
 
 /** 대화 영역 위 여백(`pt-2`). 답변 블록을 위쪽에 맞출 때 이만큼 띄운다 */
 const THREAD_PADDING_TOP = 8;
+/** 입력 영역이 겹치지 않을 때의 대화 영역 아래 여백(예전 `pb-3`) */
+const THREAD_PADDING_BOTTOM = 12;
+/**
+ * 입력 영역이 겹칠 때 그 위에 더 두는 여유(FE-17 U-27 추가 지시 2): 예전 대화 영역 아래 여백 12px + 입력 영역과의 틈 8px. 입력 영역 위 페이드(16px)보다 커서
+ * 맨 아래까지 내리면 마지막 줄이 페이드에 걸리지 않는다
+ */
+const DOCK_GAP = 20;
 
 /**
  * 대화 스레드: 질문과 그 답(진행 표시 → 결과 또는 오류)을 받은 순서대로 그린다.
@@ -201,7 +215,7 @@ const THREAD_PADDING_TOP = 8;
  *   결과 카드가 영역보다 커서 "삐! 병용금기" 판정 줄·요약이 첫 화면 밖으로 밀린다. 119 배너는 이 영역 밖(위 고정)이라 그대로다.
  * - 이 차례에서 사용자가 직접 스크롤했으면(프로그램이 맞춘 위치와 다르면) 억지로 옮기지 않는다. 다음 차례(또는 다시 시도)에서 푼다.
  */
-export function Conversation({ turns, columnClassName, ...rest }: ConversationProps) {
+export function Conversation({ turns, columnClassName, bottomInset = 0, onScrollbarWidth, ...rest }: ConversationProps) {
   const thread = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   /** 프로그램이 마지막으로 맞춘 위치와 그때의 크기. 크기가 그대로인데 `scrollTop`만 다르면 사용자가 움직인 것이다(크기가 바뀌어 브라우저가 자른 것은 아니다) */
@@ -230,6 +244,45 @@ export function Conversation({ turns, columnClassName, ...rest }: ConversationPr
     placed.current = { top: box.scrollTop, scrollHeight: box.scrollHeight, clientHeight: box.clientHeight };
   }, [turns.length, last?.stream.status, last?.stream.stage, last?.stream.response]);
 
+  // 입력 영역 높이가 바뀌면(입력창이 여러 줄로 커짐·고지 줄바꿈) 아래 여백도 같이 바뀐다(FE-17 U-27 추가 지시 2). 바뀌기 전에 맨 아래에 있었으면
+  // 맨 아래를 지켜 마지막 줄이 커진 입력창 뒤로 숨지 않게 한다. 그 밖의 위치(답의 맨 위 맞춤, 사용자가 둔 위치)는 건드리지 않는다
+  const prevInset = useRef(bottomInset);
+  useLayoutEffect(() => {
+    const box = thread.current;
+    const delta = bottomInset - prevInset.current;
+    prevInset.current = bottomInset;
+    if (!box || delta <= 0) return;
+    const fromBottomBefore = box.scrollHeight - delta - box.scrollTop - box.clientHeight;
+    if (fromBottomBefore > 2) return;
+    box.scrollTop = box.scrollHeight;
+    placed.current = { top: box.scrollTop, scrollHeight: box.scrollHeight, clientHeight: box.clientHeight };
+  }, [bottomInset]);
+
+  // 스크롤바 폭(겹치지 않는 스크롤바가 생기고 없어질 때)을 앱 셸에 알린다: 입력 영역이 스크롤바 자리를 덮지 않게 한다
+  const scrollbarRef = useRef(onScrollbarWidth);
+  useEffect(() => {
+    scrollbarRef.current = onScrollbarWidth;
+  }, [onScrollbarWidth]);
+  useEffect(() => {
+    const box = thread.current;
+    if (!box) return;
+    let last = -1;
+    const measure = () => {
+      const width = Math.max(0, box.offsetWidth - box.clientWidth);
+      if (width === last) return;
+      last = width;
+      scrollbarRef.current?.(width);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    if (box.firstElementChild) observer.observe(box.firstElementChild);
+    return () => {
+      observer.disconnect();
+      scrollbarRef.current?.(0);
+    };
+  }, []);
+
   const onScroll = () => {
     const box = thread.current;
     const mark = placed.current;
@@ -237,10 +290,20 @@ export function Conversation({ turns, columnClassName, ...rest }: ConversationPr
     if (mark.scrollHeight === box.scrollHeight && mark.clientHeight === box.clientHeight && Math.abs(box.scrollTop - mark.top) > 1) userScrolled.current = true;
   };
 
+  const padBottom = bottomInset > 0 ? bottomInset + DOCK_GAP : THREAD_PADDING_BOTTOM;
+
   return (
     // 스크롤 컨테이너는 본문 전체 폭(스크롤바가 본문 오른쪽 가장자리, FE-17 U-27), 내용은 안쪽 열(`chat-column`)이 가운데 정렬·최대 폭으로 잡는다.
-    // 위아래 여백(`pt-2`·`pb-3`)은 스크롤 컨테이너에 둔다(`THREAD_PADDING_TOP` 맞춤의 기준이 이 상자의 위쪽이다)
-    <div ref={thread} data-testid="chat-thread" onScroll={onScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2 pb-3">
+    // 위아래 여백(`pt-2`·아래 여백)은 스크롤 컨테이너에 둔다(`THREAD_PADDING_TOP` 맞춤의 기준이 이 상자의 위쪽이다)
+    // 입력 영역이 겹치면(FE-17 U-27 추가 지시 2) 아래 여백과 `scroll-padding-bottom`이 입력 영역 높이를 따라간다(같은 값이라 맨 아래 따라가기가 입력 영역 위에서 멈춘다)
+    <div
+      ref={thread}
+      data-testid="chat-thread"
+      data-bottom-inset={bottomInset}
+      onScroll={onScroll}
+      style={{ paddingBottom: padBottom, scrollPaddingBottom: padBottom }}
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2"
+    >
       <div data-testid="chat-column" className={cn("flex flex-none flex-col", columnClassName)}>
         <div className="flex flex-col gap-3.5 px-0.5">
           {turns.map((turn, index) => {
