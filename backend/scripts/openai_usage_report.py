@@ -154,28 +154,37 @@ def _short_item(name: str, limit: int = 26) -> str:
     return name if len(name) <= limit else name[: limit - 1] + "…"
 
 
-def build_messages(buckets: list[Bucket], today: date, days: int) -> list[str]:
-    """보고 메시지(각 200자 이하) 목록. 전날·최근 N일·추이·이번 달 누적을 첫 건에, 상위 항목은 둘째 건에 둔다."""
+DAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def build_messages(buckets: list[Bucket], today: date, days: int = 7) -> list[str]:
+    """일일 보고(사용자 지정 형식, 2026-11-24). 어제가 속한 ISO 주의 월요일부터 어제까지 일별 비용과 그 합계를 한 건으로 보낸다.
+
+    ```
+    [접두]
+    YYYY
+    ISO NN/TT(MM/DD~MM/DD) 합계 $0.00
+    Mon(MM.DD) $0.00
+    ```
+    `NN/TT`는 ISO 주 번호/그 해의 ISO 총 주 수(52 또는 53), 괄호는 그 주의 월~일이다. 어제가 월요일이면 그 주는 어제 하루만 담는다.
+    `days`는 옛 인자(호환용)라 쓰지 않는다."""
     yday = today - timedelta(days=1)
+    iso_year, iso_week, _ = yday.isocalendar()
+    monday = yday - timedelta(days=yday.weekday())
+    sunday = monday + timedelta(days=6)
+    total_weeks = date(iso_year, 12, 28).isocalendar().week  # 12/28은 항상 그 해의 마지막 ISO 주에 속한다
     by_day = {b.day: b for b in buckets}
-    window = [yday - timedelta(days=i) for i in range(days - 1, -1, -1)]
-    totals = [by_day[d].total if d in by_day else 0.0 for d in window]
-    month_total = sum(b.total for b in buckets if (b.day.year, b.day.month) == (yday.year, yday.month) and b.day <= yday)
+    span = [monday + timedelta(days=i) for i in range((yday - monday).days + 1)]
+    week_total = sum(by_day[d].total for d in span if d in by_day)
     lines = [
-        f"{PREFIX} OpenAI 비용 {yday:%m/%d} {fmt_usd(by_day[yday].total) if yday in by_day else '집계 없음'}",
-        f"{days}일 합계 {fmt_usd(sum(totals))} ({window[0]:%m/%d}~{window[-1]:%m/%d})",
-        "추이 " + "/".join(f"{v:.2f}" for v in totals),
-        f"{yday:%m}월 누적 {fmt_usd(month_total)}",
+        PREFIX,
+        f"{iso_year}",
+        f"ISO {iso_week}/{total_weeks}({monday:%m/%d}~{sunday:%m/%d}) 합계 {fmt_usd(week_total)}",
     ]
-    messages = [_pack(lines)]
-    agg: dict[str, float] = defaultdict(float)
-    for d in window:
-        for k, v in (by_day[d].items if d in by_day else {}).items():
-            agg[k] += v
-    top = sorted(agg.items(), key=lambda kv: kv[1], reverse=True)[:TOP_N]
-    if top and sum(v for _, v in top) > 0:
-        messages.append(_pack([f"{PREFIX} {days}일 상위 항목"] + [f"{_short_item(k)} {fmt_usd(v)}" for k, v in top]))
-    return messages
+    for d in span:
+        lines.append(f"{DAY_ABBR[d.weekday()]}({d:%m.%d}) {fmt_usd(by_day[d].total) if d in by_day else '$0.00'}")
+    text = "\n".join(lines)
+    return [text if len(text) <= MAX_LEN else text[: MAX_LEN - 1] + "…"]
 
 
 def _parse_date(text: str) -> date:
@@ -294,7 +303,9 @@ def run(argv: list[str] | None = None, *, settings: Any = None, fetch: FetchFn |
         window_start = datetime(first.year, first.month, first.day, tzinfo=KST)
         window_end = max(midnight, datetime(last.year, last.month, last.day, tzinfo=KST))
     else:
-        window_start = min(midnight - timedelta(days=args.days), datetime(today.year, today.month, 1, tzinfo=KST))
+        y = today - timedelta(days=1)
+        wk = y - timedelta(days=y.weekday())
+        window_start = datetime(wk.year, wk.month, wk.day, tzinfo=KST)
         window_end = midnight
     try:
         buckets = parse_buckets(fetch_buckets(admin_key, window_start, window_end, fetch=fetch), now_kst)
