@@ -64,13 +64,20 @@ def _pair_key(it: dict[str, Any]) -> tuple[str, ...] | None:
     return tuple(sorted(str(k) for k in keys)) if len(keys) == 2 else None
 
 
-def _result_summary(buckets: list[tuple[dict[str, Any], int]], n_drugs: int) -> dict[str, Any] | None:
+def _result_summary(buckets: list[tuple[dict[str, Any], int]], n_drugs: int, router_keys: list[str] | None = None) -> dict[str, Any] | None:
     """약 2개 이상 결과의 맨 위 요약(FE-11-04 A, 문구 ④⑤ 2026-11-19 원문 승인). LLM `summary`와 별개의 코드 칸이다.
 
     짝 조회 항목(`contra_pair`·같은 성분 `dup_ingredient`)이 하나도 없으면(판정 도구를 부르지 않음) 만들지 않는다: "짝 없음"을 지어내지 않는다.
-    확인 못 한 짝 = 확인 못 함 묶음의 짝 + 질문 속 약 수로 생기는 짝 중 결과에 없는 짝. 접힘 줄 건수(⑥)는 화면 줄 기준이라 응답 변환이 센다."""
+    확인 못 한 짝 = 확인 못 함 묶음의 짝 + 질문 속 약 수로 생기는 짝 중 결과에 없는 짝. 접힘 줄 건수(⑥)는 화면 줄 기준이라 응답 변환이 센다.
+
+    `router_keys`(AG-13-45 A, U-26 C-3, 2026-11-24): 주면 **Router가 정리한 약(RESOLVED 엔티티의 품목기준코드)끼리의 짝**만 센다. 모델이 넘긴 다른 약과의 짝
+    (사용자가 고르지 않은 후보)은 요약의 조회·발견·미확인 짝에 넣지 않고, Router 짝 중 조회 근거가 없는 짝은 "확인하지 못한 짝"으로 센다
+    (`n_pairs`·`n_drugs` 공식은 그대로). `entries`는 건드리지 않는다. 짝 조회 항목이 하나도 없으면(판정 도구를 부르지 않음) 여전히 만들지 않는다.
+    주지 않으면(None) 지금까지와 같다."""
     if n_drugs < 2:
         return None
+    keyset = set(router_keys) if router_keys is not None else None
+    seen_any = False
     found: dict[tuple[str, ...], dict[str, Any]] = {}
     checked: set[tuple[str, ...]] = set()
     unconfirmed: set[tuple[str, ...]] = set()
@@ -80,6 +87,9 @@ def _result_summary(buckets: list[tuple[dict[str, Any], int]], n_drugs: int) -> 
         pk = _pair_key(it)
         if pk is None:
             continue
+        seen_any = True
+        if keyset is not None and not set(pk) <= keyset:
+            continue  # Router가 정리한 약 밖의 짝(비선택 후보 등)은 요약 줄에 넣지 않는다
         if it.get("kind") == "contra_pair" and b == BUCKET_FOUND:
             names = _names(it)
             f = found.setdefault(pk, {"drugs": names[:2] if len(names) >= 2 else list(pk), "evidence_ids": []})
@@ -89,8 +99,8 @@ def _result_summary(buckets: list[tuple[dict[str, Any], int]], n_drugs: int) -> 
             unconfirmed.add(pk)
         else:
             checked.add(pk)
-    if not checked and not unconfirmed:
-        return None
+    if not seen_any:
+        return None  # 짝 항목이 하나도 없다(= 예전의 `not checked and not unconfirmed`와 같은 조건)
     unconfirmed -= checked | set(found)
     n_pairs = n_drugs * (n_drugs - 1) // 2
     n_unchecked = len(unconfirmed) + max(n_pairs - len(checked | unconfirmed), 0)
@@ -507,6 +517,28 @@ def _line_groups(buckets: list[tuple[dict[str, Any], int]]) -> list[dict[str, An
     return [g for g in groups.values() if len(g["evidence_ids"]) > 1]
 
 
+def _unconfirmed_line_groups(buckets: list[tuple[dict[str, Any], int]], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """같은 약의 "확인 못 함" 줄 묶음(AG-13-46 A (a), U-26 C-5, 2026-11-24). 판정하지 못한 약은 `identify` 항목 하나에 요청한 금기 종류(임부·연령)마다
+    항목이 하나씩 더 생겨(`check_contraindications`) 같은 줄이 여러 번 나온다. `entries`는 평가가 근거 ID로 읽으므로 그대로 두고, 응답 변환이
+    이 묶음으로 화면 줄을 약 키별 1줄로 합친다(`_line_groups`와 같은 경로, 근거 상세는 모두 남는다).
+    - 대상: 확인 못 함 묶음의 **단일 약 항목**(쌍 항목 제외). 약 키(`drug_keys`)가 같고 줄 글자·꼬리 안내·참고 줄이 같으며 "찾지 못한 이유" 같은
+      항목별 설명(`why`·`next`·`sub_line` 등)이 없는 줄만 묶는다(묶으면 사라질 정보가 있으면 묶지 않는다).
+    - 새 문구는 만들지 않는다. 묶음의 첫 줄(판정 종류가 먼저인 줄)이 합친 줄의 글자가 된다."""
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for (it, b), e in zip(buckets, entries, strict=True):
+        eid, kind = it.get("evidence_id"), it.get("kind")
+        if b != BUCKET_UNCONFIRMED or not eid or kind in _PAIR_ITEM_KINDS or any(e.get(k) for k in ("why", "next", "sub_line", "retried_line", "searched")):
+            continue
+        keys = _item_keys(it)
+        if len(keys) != 1:
+            continue
+        gk = (keys[0], e.get("text"), tuple(e.get("notes") or ()), e.get("reference_line"))
+        g = groups.setdefault(gk, {"key": keys[0], "kind": "unconfirmed", "evidence_ids": []})
+        if eid not in g["evidence_ids"]:
+            g["evidence_ids"].append(eid)
+    return [g for g in groups.values() if len(g["evidence_ids"]) > 1]
+
+
 def _first_value(items: list[dict[str, Any]], *keys: str) -> str | None:
     """항목들에서 첫 비어 있지 않은 문자열 값(없으면 None). 값을 지어내지 않는다."""
     for it in items:
@@ -590,6 +622,8 @@ def finalize(
     redose_question: bool = False,
     took_today: bool | None = None,
     n_drugs: int = 0,
+    router_pair_keys: list[str] | None = None,
+    merge_unconfirmed: bool = False,
 ) -> dict[str, Any]:
     """응답 딕셔너리를 만든다. 고정 문구는 인자·모델 출력과 무관하게 항상 들어간다.
 
@@ -612,6 +646,8 @@ def finalize(
     # `result_summary`·`sections`(근거 ID → 구역)와 제품 줄 `section`·`pair_ref`·`caution_desc`를 만든다. **`entries`는 바꾸지 않는다**(평가 원본).
     # `name_corrections`: `[{"input": 질문에 적힌 조각, "name": 보정한 사전 이름}]` 오탈자 보정으로 확정한 약(AG-10). 주면 보정 고지 줄
     # (`TYPO_CORRECTED_LINE`)을 요약 앞에 싣는다. 보정해 놓고 고지 없이 결과만 보이지 않게 하는 자리다. 없으면 응답에 이 키가 없다(기존 출력 불변).
+    # AG-13-45·46(2026-11-24, 모두 표시·요약 정리라 `entries`는 그대로): `router_pair_keys`(Router가 정리한 약의 품목기준코드, 있으면 `result_summary`를 그 약끼리의 짝으로
+    # 한정, `_result_summary`)·`merge_unconfirmed`(같은 약의 확인 못 함 줄을 `line_groups`에 묶음으로 실음, `_unconfirmed_line_groups`). 기본은 이전 동작(None·False)이다.
     items = [it for it in items or [] if isinstance(it, dict)]
     buckets = [(it, _bucket(it)) for it in items]
     buckets.sort(key=lambda p: (p[1], _kind_rank(p[0].get("kind"))))  # 안정 정렬: FOUND 먼저, 같은 묶음은 입력·종류 순서
@@ -701,7 +737,8 @@ def finalize(
         "summary": summary,
         "entries": entries,
         "product_rows": _product_rows(buckets, badges),  # BE-06-12 A: 제품별 줄(배지 여러 개). `entries`는 그대로
-        "line_groups": _line_groups(buckets),  # BE-06-47 A: 같은 약·같은 주의 종류의 반복 근거 묶음(응답 변환이 한 줄로 합침)
+        # BE-06-47 A: 같은 약·같은 주의 종류의 반복 근거 묶음(응답 변환이 한 줄로 합침). AG-13-46 A (a): 켜면 같은 약의 확인 못 함 줄 묶음을 더한다
+        "line_groups": _line_groups(buckets) + (_unconfirmed_line_groups(buckets, entries) if merge_unconfirmed else []),
         "badges": badges,
         "detail": rendered.detail,
         "citations": rendered.citations,
@@ -718,7 +755,7 @@ def finalize(
     }
     # ---------------------------------------------------------------- AG-22·FE-11 결과 칸(`entries`는 위 값 그대로)
     resp["sections"] = {e["evidence_id"]: _section(it, b) for (it, b), e in zip(buckets, entries, strict=True) if e.get("evidence_id")}
-    resp["result_summary"] = None if refuse_keys else _result_summary(buckets, n_drugs)
+    resp["result_summary"] = None if refuse_keys else _result_summary(buckets, n_drugs, router_pair_keys)
     dose = [] if refuse_keys else _dose_found(buckets)
     dose_ids = list(dict.fromkeys(str(it["evidence_id"]) for it in dose if it.get("evidence_id")))
     resp["caution_descs"] = {eid: fp.DOSE_CAUTION_DESC for eid in dose_ids}  # 용량주의 줄 설명(③)

@@ -44,3 +44,7 @@ class ToolContext:
     # 이번 요청에서 조회할 주의 종류(AG-22-04 A, `intake.caution_kinds`). 그래프 `tools` 노드가 상태로 갱신한다(요청마다 새 ToolContext).
     # 비어 있으면 주의 3종을 조회하지 않는다(LLM 인자 `include_cautions`는 없앴다, C-1 A)
     caution_kinds: frozenset[str] = frozenset()
+    # 안전장치·표시 정리 스위치(AG-13-44·AG-13-46 b, 2026-11-24). 그래프 `tools` 노드가 `GraphDeps`의 스위치 값을 호출마다 옮겨 적는다.
+    # 이 dataclass의 기본값은 False(이전 동작)라 `ToolContext`만 만들어 부르는 시험·스크립트는 달라지지 않는다. 켜는 곳은 `GraphDeps`(기본 켬)다
+    identify_arg_check: bool = False   # `identify_drug` 인자가 시각·횟수·수량 표현뿐이면 `ARG_SCHEMA`로 거절(사전 이름과 일치하면 허용)
+    display_name_fix: bool = False     # 판정하지 못한 약의 표시명을 사전 제품명 또는 `원문 → 제품명`으로(코드·제품 단위 식별 표시명 정정)

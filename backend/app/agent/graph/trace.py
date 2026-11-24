@@ -29,6 +29,7 @@ HARNESS_ACTIONS: dict[str, str] = {
     "TOOL_KEY_DROPPED": "block",        # H8 도구가 쓸 수 없는 상태 키
     "ARG_SCHEMA": "block",              # H21 도구 인자 스키마 위반(도구 본문 미실행)
     "UNKNOWN_TOOL": "block",            # H21 등록되지 않은 도구
+    "ARG_CONFINED": "flag",             # H21 도구 인자를 Router 확정 집합에 묶음(AG-13-45, 개수만)
     "VALIDATION_FALLBACK": "block",     # H2 두 번째 검증 실패 → 코드 문구
     "REWIND": "rollback",               # H2 검증 실패 되감기
     "TOOL_ERROR": "warn",               # H21 도구 본문 예외

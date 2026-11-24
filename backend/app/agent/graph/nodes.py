@@ -16,6 +16,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from app.agent import guardrail, open_question
 from app.agent.answer_schema import AnswerDraft, Sentence, parse_draft
+from app.agent.confine import CONFINED_TOOLS, confine_check_args, has_confirmed, resolved_seqs
 from app.agent.finalize import finalize
 from app.agent.grade_defs import GradeDefFn, grade_def_inputs
 from app.agent.graph.metered import unwrap_summary
@@ -105,6 +106,15 @@ class GraphDeps:
     safety_in_self_harm: bool = True     # 입구 `SELF_HARM`
     safety_in_self_judge: bool = True    # 입구 `SELF_JUDGE_APPROVAL`
     safety_out_sensor: bool = True       # 출구 Sensor(`ADVISORY_OR_ENDORSEMENT`)
+    # W3-2 서버 개선 후보 ablation 스위치(AG-13-41·42·44·45·46, 2026-11-24, 사용자 "권장대로" 채택). 모두 기본 켬이고 **끄면 이 후보가 없던 때와 같은 동작**이다.
+    # 한 번에 하나씩 끄고 개발셋으로 재측정한다(9.8절). 환경변수는 만들지 않는다(배선 `build_deps` 인자로만)
+    router_time_noise: bool = True       # AG-13-41 Router 시각·횟수 잡음 규칙 일반화(`nondrug_tokens.TIME_COUNT_RE`)
+    redose_on_clarify: bool = True       # AG-13-42 되묻기로 끝나도 재복용 질문이면 `REDOSE_NOTICE`를 함께 싣는다
+    identify_arg_check: bool = True      # AG-13-44 C-2 `identify_drug` 인자가 시각·횟수·수량 표현뿐이면 `ARG_SCHEMA` 거절
+    confine_confirmed_args: bool = True  # AG-13-45 U-26 C-1 도구 인자를 Router 확정 집합에 묶는다(확정 엔티티가 있을 때만)
+    summary_router_pairs: bool = True    # AG-13-45 U-26 C-3 `result_summary`를 Router 확정 쌍으로 한정(확정 엔티티가 있을 때만)
+    merge_unconfirmed_lines: bool = True  # AG-13-46 U-26 C-5 (a) 같은 약의 확인 못 함 줄을 약 키별 1줄로 묶음(`line_groups`)
+    display_name_fix: bool = True        # AG-13-46 U-26 C-5 (b) 판정 못 한 약의 표시명을 사전 제품명 또는 `원문 → 제품명`으로
 
 
 # --------------------------------------------------------------------------- 보조
@@ -211,7 +221,7 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         prior = state.get("prior_drugs")  # AG-21-02 A: 이전 차례에서 고른 약(입력 전용, 확인 되묻기에만 쓴다. 평가 경로에는 없다)
         res = route_input(_question_of(state), deps.drug_dict, state.get("profile"),
                           emergency=bool(state.get("emergency")), guardrail_route=state.get("route"), confirmed_item_seqs=confirmed,
-                          typo_correct=deps.typo_correct, prior_drugs=prior)
+                          typo_correct=deps.typo_correct, prior_drugs=prior, time_noise=deps.router_time_noise)
         upd = res.state_update()
         ev: dict[str, Any] = {"rule": "H11", "event": "ROUTER", "branch": res.branch_label, "ambiguous": res.ambiguous, "n_entities": len(res.entities)}
         if confirmed:  # 개수만 남긴다(코드·이름 없음)
@@ -251,7 +261,14 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         for tc in getattr(last, "tool_calls", None) or []:
             deps.tool_ctx.remaining_calls = max(deps.max_calls - state.get("call_count", 0), 0)
             deps.tool_ctx.caution_kinds = caution_kinds(state)  # AG-22-04 A: 주의 3종은 코드 규칙(LLM 인자 아님). C1도 이 본문을 쓴다
+            deps.tool_ctx.identify_arg_check = deps.identify_arg_check  # AG-13-44: `ToolContext` 기본은 이전 동작이라 그래프가 호출마다 스위치를 옮겨 적는다
+            deps.tool_ctx.display_name_fix = deps.display_name_fix      # AG-13-46 (b)
             name, args = tc.get("name", ""), tc.get("args") or {}
+            if deps.confine_confirmed_args and name in CONFINED_TOOLS:  # AG-13-45 C-1: 확정 엔티티가 있을 때만 바뀐다(없으면 인자 그대로)
+                conf = confine_check_args(args, state.get("entities"), deps.drug_dict)
+                if conf.changed:
+                    tc = {**tc, "args": conf.args}  # 실행에만 쓴다. span 입력은 모델이 넘긴 원래 인자 그대로 둔다(고른 약 코드를 trace에 옮기지 않는다, AG-05-03 A)
+                    upd["events"].append(conf.event(name))  # 개수만(이름·코드 없음)
             out: dict[str, Any]
             with _tool_span(deps, name, args, state.get("call_count", 0)) as rec:
                 try:
@@ -368,6 +385,11 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         n_drugs = sum(1 for e in state.get("entities") or [] if isinstance(e, dict))
         if n_drugs >= 2:
             extra["n_drugs"] = n_drugs
+        # AG-13-45(U-26 C-3): 확정 엔티티가 있는 차례만 요약을 Router 정리 약끼리의 짝으로 한정한다(평가·첫 질문 경로는 키를 넘기지 않아 그대로)
+        if deps.summary_router_pairs and has_confirmed(state.get("entities")):
+            extra["router_pair_keys"] = resolved_seqs(state.get("entities"))
+        if deps.merge_unconfirmed_lines:  # AG-13-46 (a)
+            extra["merge_unconfirmed"] = True
         if deps.grade_def_fn is not None:  # 함수가 주입되지 않았으면 아무것도 넘기지 않는다(기존 출력 불변)
             defs, missing = grade_def_inputs(items, deps.grade_def_fn)
             if defs:
@@ -387,7 +409,9 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
             resp, why = finalize([], emergency=emergency, refuse_reason=state.get("refuse_reason") or "OUT_OF_SCOPE",
                                  refuse_reasons=state.get("refuse_reasons")), END_REFUSE
         elif state.get("ambiguous") and clar:  # 되묻기 종료: 질문 문장은 라우터가 코드 템플릿으로 만든다
-            resp, why = finalize([], model_summary=clar.get("question"), emergency=emergency), END_CLARIFY
+            # AG-13-42 A: 되묻기로 끝나도 재복용 질문이면 고정 문구 `REDOSE_NOTICE`(기존 문구 그대로)를 함께 싣는다. 판정 항목이 없어 다른 칸은 비어 있다
+            resp, why = finalize([], model_summary=clar.get("question"), emergency=emergency,
+                                 redose_question=bool(deps.redose_on_clarify and state.get("redose_question"))), END_CLARIFY
         elif state.get("open_lookup") is not None:
             # AG-15(축소, 〔D11〕A): 약 이름 없는 열린 질문. 모델·도구 없이 코드 문장(사전 분류 찾음/찾을 수 없음 + 판단 고지)으로 끝낸다.
             # 판정 항목이 없으므로 `finalize_extra`는 넘기지 않는다("임신 여부를 알 수 없어 …" 같은 줄이 붙지 않게). 고정 문구는 `finalize`가 늘 붙인다

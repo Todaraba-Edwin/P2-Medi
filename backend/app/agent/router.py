@@ -34,6 +34,7 @@ from app.agent.fixed_phrases import (
     CLARIFY_PRIOR_PICK,
 )
 from app.agent.intake import is_intake, is_redose
+from app.agent.nondrug_tokens import NUM_UNIT_RE, TIME_RE, UNIT_ONLY_RE, is_time_or_count_token
 from app.agent.open_question import open_lookup as _open_lookup
 from app.tools.drug_dict import (
     MATCH_BM25,
@@ -264,14 +265,11 @@ _CONNECTORS = ("이랑", "하고", "이나", "랑", "과", "와", "및", "나") 
 # 숫자 사이 "/"(5/850밀리그램)는 약 이름의 일부라 나누지 않는다. 질량 단위 뒤 시간당 표기("12μg/h", 2026-11-18)도 나누지 않는다
 _SPLIT_RE = re.compile(r"[,，+·&、;]|(?<=\d)/(?!\d)|(?<=[gG])/(?!\d)(?!hr?(?![A-Za-z]))|(?<![\dgG])/|\s+")
 _PUNCT_RE = re.compile(r"^[\s\"'`(\[{<]+|[\s?!.…~\"'`)\]}>]+$")
-_NUM_UNIT_RE = re.compile(
-    r"^\d+(\.\d+)?\s*(살|세|개월|주|주차|일|시간|번|회|kg|키로|밀리그램|밀리그람|밀리리터|mg|mcg|μg|ug|ml|g|l|알|정|포|캡슐|병|방울|"
-    r"등급|개|가지|명)$", re.IGNORECASE  # 숫자+분류사("3등급", "2개")는 약 이름이 아니다(AG-05 후속 2026-11-12)
-)
-_UNIT_ONLY_RE = re.compile(r"^(밀리그램|밀리그람|밀리리터|mg|mcg|μg|ug|ml|g|l)$", re.IGNORECASE)  # 용량 단위만 떨어져 나온 토큰
+# 숫자+분류사·단위만·시각 표현 정규식은 `nondrug_tokens`로 옮겼다(AG-13-44가 같은 정규식을 도구 인자 검증에 쓴다, 값은 그대로).
 # 시각 표현("15시", "3시반", "30분", "오후3시", "15:30")은 약 이름이 아니다(AG-21 ③, 2026-11-19: "15시에"가 NOT_FOUND 엔티티로 잡힌 사례).
-# 숫자로 시작하거나 오전·오후 같은 때 낱말 + 숫자인 꼴만 본다(숫자로 시작하는 약 이름 조각은 없다. 조사는 `_variants`가 뗀다).
-_TIME_RE = re.compile(r"^(?:오전|오후|새벽|아침|저녁|밤|낮)?\d{1,2}\s*(?:시반|시|분|초)$|^\d{1,2}:\d{2}(?::\d{2})?$")
+_NUM_UNIT_RE = NUM_UNIT_RE
+_UNIT_ONLY_RE = UNIT_ONLY_RE
+_TIME_RE = TIME_RE
 _AGE_YEAR_RE = re.compile(r"(\d{1,3})\s*(?:살|세)")
 _AGE_MONTH_RE = re.compile(r"(\d{1,3})\s*개월")
 _PREG_NEG_RE = re.compile(r"임신\s*(?:은\s*)?(?:하지\s*않|안\s*했|안\s*한|아니|중이\s*아니|가능성\s*없)")
@@ -309,8 +307,12 @@ _VERB_END_RE = re.compile(r"(해서|돼서|되서|네요|어야|아야|여야|�
 _SYMPTOM_END_RE = re.compile(r"(염|통|증|감기|병|질환|장애)$")  # 증상·질환 명사(약 이름이 아님). 사전에 정확히 있으면 제외하지 않는다
 
 
-def _is_noise(tok: str, dd: DrugDict | None = None) -> bool:
+def _is_noise(tok: str, dd: DrugDict | None = None, *, time_noise: bool = True) -> bool:
     vs = _variants(tok)
+    # AG-13-41 A(2026-11-24): 때 낱말(점심·정오·식후 …) + 숫자 + 시·시간·분(+반·뒤·후·간격)과 하루·1일 + 수 + 번·회 꼴(`nondrug_tokens.TIME_COUNT_RE`)은
+    # 약 이름이 아니다. 사전에 이름으로 맞으면(정확·정규화·접두·중간) 버리지 않는 보호는 그대로다. 스위치(`time_noise=False`)를 끄면 이 규칙이 없던 때와 같다
+    if time_noise and any(is_time_or_count_token(v) for v in vs) and (dd is None or not any(_name_match(dd, v) for v in vs)):
+        return True
     if len(tok) < 2 or any(_NUM_UNIT_RE.match(v) or _UNIT_ONLY_RE.match(v) or _TIME_RE.match(v) or v in _STOP_WORDS for v in vs):
         return True
     if re.fullmatch(r"[\d.,%/\-]+", tok):
@@ -622,7 +624,7 @@ def _raw_tokens(text: str) -> list[tuple[str, str]]:
     return [(_clean_token(t), sp) for t, sp in out if _clean_token(t)]
 
 
-def extract_mention_details(text: str, dd: DrugDict) -> list[Mention]:
+def extract_mention_details(text: str, dd: DrugDict, *, time_noise: bool = True) -> list[Mention]:
     """`extract_mentions`와 같은 후보에, 공백·`/`로 바로 뒤따른 함량 조각을 원문 표기(`/` 유지)로 붙여 돌려준다(중복 제거, 등장 순서)."""
     out: list[Mention] = []
     seen: dict[str, int] = {}
@@ -653,12 +655,12 @@ def extract_mention_details(text: str, dd: DrugDict) -> list[Mention]:
             continue
         last_name_at = None
         tok = _strip_copula(tok, dd)
-        if _is_noise(tok, dd):
+        if _is_noise(tok, dd, time_noise=time_noise):
             i += 1
             continue
         for piece in _split_joined(dd, tok):
             piece = _clean_token(piece)
-            if not piece or _is_noise(piece, dd):
+            if not piece or _is_noise(piece, dd, time_noise=time_noise):
                 last_name_at = None
                 continue
             key = re.sub(r"\s+", "", piece).lower()
@@ -670,10 +672,10 @@ def extract_mention_details(text: str, dd: DrugDict) -> list[Mention]:
     return out
 
 
-def extract_mentions(text: str, dd: DrugDict) -> list[str]:
+def extract_mentions(text: str, dd: DrugDict, *, time_noise: bool = True) -> list[str]:
     """질문에서 사전 조회에 쓸 후보 문자열을 등장 순서대로 뽑는다(중복 제거). 조회 결과는 보지 않고 문자열만 정리한다.
     떨어진 함량 조각("500 mg", "/0.5밀리리터", "10/5mg")은 후보가 아니다(`extract_mention_details`가 이름에 붙인다)."""
-    return [m.token for m in extract_mention_details(text, dd)]
+    return [m.token for m in extract_mention_details(text, dd, time_noise=time_noise)]
 
 
 # --------------------------------------------------------------------------- 엔티티
@@ -1026,7 +1028,7 @@ def note_entities(entities: list[Entity] | list[dict[str, Any]] | None) -> list[
 
 def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] | None = None, *,
                 emergency: bool = False, guardrail_route: str | None = None, confirmed_item_seqs: Any = None,
-                typo_correct: bool = False, prior_drugs: Any = None) -> RouterResult:
+                typo_correct: bool = False, prior_drugs: Any = None, time_noise: bool = True) -> RouterResult:
     """질문 하나를 정리한다. `emergency`·`guardrail_route`는 AG-08이 쓴 값을 읽어 그대로 돌려줄 뿐 결과에 영향이 없다.
 
     `typo_correct=True`이면 오탈자 의심 엔티티를 `correct_typo`로 보정해 본다(AG-10). 기본값 False는 지금까지와 같은 결과(되묻기)다.
@@ -1037,10 +1039,13 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
     (평가 경로는 늘 비어 있다). 값은 상태·이벤트·로그에 그대로 옮기지 않는다(확정된 엔티티의 `item_seq`는 일반 확정과 같은 자리에 들어간다).
 
     `prior_drugs`는 같은 대화의 **이전 차례**에서 고른 약(`{"name", "item_seq", "input_name"}` 목록, AG-21-02 A)이다. 확정에 쓰지 않고
-    같은 이름이 다시 나오면 확인 되묻기만 낸다(`apply_prior`). 비어 있으면 지금과 같다(평가 경로는 늘 비어 있다)."""
+    같은 이름이 다시 나오면 확인 되묻기만 낸다(`apply_prior`). 비어 있으면 지금과 같다(평가 경로는 늘 비어 있다).
+
+    `time_noise`(AG-13-41 A, 2026-11-24): 시각·횟수 잡음 규칙 일반화(`nondrug_tokens.TIME_COUNT_RE`) 스위치. 기본 켬이고 `False`면 이 규칙이 없던 때와 같은 결과다
+    (켜는 곳은 `GraphDeps.router_time_noise`)."""
     seqs = confirmed_picks(confirmed_item_seqs)
     priors = prior_picks(prior_drugs)
-    mentions = extract_mention_details(text, dd)
+    mentions = extract_mention_details(text, dd, time_noise=time_noise)
     truncated = len(mentions) > MAX_DRUGS
     mentions = mentions[:MAX_DRUGS]
 

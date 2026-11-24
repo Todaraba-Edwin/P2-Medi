@@ -90,6 +90,13 @@ def build_deps(
     safety_in_self_harm: bool = True,
     safety_in_self_judge: bool = True,
     safety_out_sensor: bool = True,
+    router_time_noise: bool = True,
+    redose_on_clarify: bool = True,
+    identify_arg_check: bool = True,
+    confine_confirmed_args: bool = True,
+    summary_router_pairs: bool = True,
+    merge_unconfirmed_lines: bool = True,
+    display_name_fix: bool = True,
 ) -> GraphDeps:
     """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음).
 
@@ -108,6 +115,10 @@ def build_deps(
     `model_name`(AG-01 `:31`, 모델 객체를 여기서 만들 때만 쓴다): 명시하면 그 이름을 쓴다. 주지 않으면 서비스 경로(`service=True`)는
     설정 `Settings.mediagent_agent_model`(환경변수 `MEDIAGENT_AGENT_MODEL`, 기본 `gpt-6-luna`)을, 평가·개발 경로는 `llm.MODEL`을 쓴다
     (평가 고정: `.env` 값으로 평가 대상 모델이 바뀌지 않게, 결과 meta의 `llm.MODEL`과 어긋나지 않게). 비용 추정 단가는 `gpt-6-luna` 기준이다.
+
+    W3-2 서버 개선 후보 스위치(AG-13-41·42·44·45·46, 2026-11-24): `router_time_noise`(41)·`redose_on_clarify`(42)·`identify_arg_check`(44 C-2)·
+    `confine_confirmed_args`(45 C-1)·`summary_router_pairs`(45 C-3)·`merge_unconfirmed_lines`(46 a)·`display_name_fix`(46 b). 모두 기본 켬이고 각각 독립이다.
+    끄면 그 후보가 없던 때와 같은 동작이라 한 번에 하나씩 ablation할 수 있다(9.8절). 환경변수 스위치는 만들지 않았다.
 
     `layer_check`(AG-07 계층·주장 유형 누락 검사, AG-13 C3 장치): 기본 끔. 비교 조건 C3에서만 켜며, 평가 실행기는 조건으로 그래프를 고를 때
     `pipeline.build.build_for_condition`이 정한다(C3만 켬). 서비스 경로(`service=True`)는 채택 결정 전까지 켤 수 없다(`ValueError`).
@@ -145,7 +156,10 @@ def build_deps(
     return GraphDeps(drug_dict=drug_dict, tool_model=tool_model, summary_model=summary_model, tools=tools, tool_ctx=tool_ctx,
                      system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, grade_def_fn=grade_def_fn,
                      summary_instruction=summary_instruction, typo_correct=_resolve_typo_correct(service, typo_correct), layer_check=bool(layer_check), safety_in_self_harm=bool(safety_in_self_harm),
-                     safety_in_self_judge=bool(safety_in_self_judge), safety_out_sensor=bool(safety_out_sensor), **kwargs)
+                     safety_in_self_judge=bool(safety_in_self_judge), safety_out_sensor=bool(safety_out_sensor),
+                     router_time_noise=bool(router_time_noise), redose_on_clarify=bool(redose_on_clarify), identify_arg_check=bool(identify_arg_check),
+                     confine_confirmed_args=bool(confine_confirmed_args), summary_router_pairs=bool(summary_router_pairs),
+                     merge_unconfirmed_lines=bool(merge_unconfirmed_lines), display_name_fix=bool(display_name_fix), **kwargs)
 
 
 def _resolve_model_name(settings: Any, *, service: bool, model_name: str | None) -> str:

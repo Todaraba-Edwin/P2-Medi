@@ -207,7 +207,8 @@ class TestCopulaEnding:
 # `app.agent.fixed_phrases`: 승인 고정 문구 상수만 읽는다(AG-05-05 A 후보 1개 되묻기 문구, 2026-11-18). 그 모듈은 문자열 상수뿐이다.
 _ALLOWED_IMPORTS = {"__future__", "dataclasses", "re", "typing", "pydantic", "app.tools.drug_dict", "app.tools.name_similarity",
                     "app.agent.fixed_phrases", "app.agent.intake",  # intake(AG-22): 순수 정규식 모듈, import 범위는 test_ag22_intake가 막는다
-                    "app.agent.open_question"}  # open_question(AG-15): 순수 함수 모듈, import·I/O 범위는 test_ag15_open_notice가 막는다
+                    "app.agent.open_question",  # open_question(AG-15): 순수 함수 모듈, import·I/O 범위는 test_ag15_open_notice가 막는다
+                    "app.agent.nondrug_tokens"}  # nondrug_tokens(AG-13-41, 2026-11-24): 정규식만 든 순수 모듈(`re`만 import, I/O 없음), 범위는 test_ag13_w32_server가 막는다
 _IO_CALLS = {"open", "print", "exec", "eval", "__import__"}
 _IO_ATTRS = {"write_text", "write_bytes", "write", "getLogger", "connect", "execute", "dump", "urlopen", "Popen", "system"}
 _AUDIT_PREFIXES = ("open", "os.", "socket.", "sqlite3.", "subprocess.", "shutil.", "urllib.", "http.", "ftplib.", "smtplib.")

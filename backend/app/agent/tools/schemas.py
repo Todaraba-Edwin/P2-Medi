@@ -134,6 +134,11 @@ class GetLabelSectionArgs(BaseModel):
 def arg_schema_error(tool: str, exc: ValidationError, remaining_calls: int) -> dict[str, Any]:
     """`ARG_SCHEMA` 응답. 틀린 값 자체는 되풀이하지 않는다(비밀·제어 문자 반사 방지)."""
     problems = sorted({f"{'.'.join(str(p) for p in e['loc']) or '(전체)'}: {e['type']}" for e in exc.errors()})
+    return arg_schema_response(tool, problems, remaining_calls)
+
+
+def arg_schema_response(tool: str, problems: list[str], remaining_calls: int) -> dict[str, Any]:
+    """`ARG_SCHEMA` 응답 본체(Pydantic 오류가 아닌 코드 검사도 같은 모양으로 막는다, AG-13-44). `problems`에는 값이 아니라 필드 이름과 종류만 쓴다."""
     return {
         "items": [],
         "blocked": True,
