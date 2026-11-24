@@ -70,6 +70,12 @@ export interface AccountState {
   notice: AccountNotice | null;
   /** 시작 화면에서 "게스트로 시작"을 눌렀다(진입 선택을 접는다) */
   entryDismissed: boolean;
+  /**
+   * 화면이 뜬 뒤 로그인 상태를 한 번 확정했는가(FE-17 U-22 추가, 2026-11-24). 첫 `bootstrap()`이 끝나면(로그인·게스트·서버 장애 모두) true이고
+   * 다시 false가 되지 않는다. 그 전의 `status: "guest"`는 초기값일 뿐이라, 로그인 세션이 있을 수 있으면 시작 화면이 게스트용 진입 선택을 그리지 않는다
+   * (새로고침 때 `게스트로 시작`·`로그인/가입`이 잠깐 보였다 사라지던 문제). 로그인 콜백 실패로 돌아온 경우(`failLogin`)도 확정으로 본다
+   */
+  sessionChecked: boolean;
 
   /** 화면이 뜰 때 한 번: 로그인 세션이 있으면 로그인 상태로 만든다. 실패해도 오류를 띄우지 않고 지금 상태를 지킨다 */
   bootstrap: () => Promise<void>;
@@ -329,6 +335,7 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
       failure: null,
       notice: null,
       entryDismissed: false,
+      sessionChecked: false,
 
       bootstrap: () => {
         if (bootstrapping) return bootstrapping;
@@ -341,12 +348,13 @@ export function createAccountStore({ api = accountApi }: { api?: AccountApi } = 
             if (isServiceDown(error)) await keepSignedIn();
           } finally {
             bootstrapping = null;
+            if (!get().sessionChecked) set({ sessionChecked: true });
           }
         })();
         return bootstrapping;
       },
 
-      failLogin: (code) => set({ flow: ["login"], form: null, notice: null, failure: { kind: "http", status: 400, code, fields: [] } }),
+      failLogin: (code) => set({ flow: ["login"], form: null, notice: null, failure: { kind: "http", status: 400, code, fields: [] }, sessionChecked: true }),
 
       startGuest: () => set({ entryDismissed: true }),
 

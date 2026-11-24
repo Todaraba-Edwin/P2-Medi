@@ -23,7 +23,6 @@ function renderTurns(second: ChatTurn["stream"] | null) {
     <Conversation
       turns={turns}
       hasEmergency={false}
-      dockTurnId={second?.response ? "turn-2" : "turn-1"}
       evidenceTurnId={null}
       entryLabelMode="panel"
       picked={{ "turn-1": picks }}

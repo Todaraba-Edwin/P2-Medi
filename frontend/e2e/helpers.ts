@@ -207,6 +207,27 @@ export async function expectInFirstScreen(page: Page, target: Locator, { underUs
   if (!underUserLayer) await expectOnTop(target);
 }
 
+/**
+ * 가장 최근 답 아래의 고정 안내(서버 `fixed_notice`). FE-17 U-26-1(2026-11-24 사용자 "입력시에 INPUT 위에 … 문구 제거")로
+ * 입력창 위 고정 영역(`dock`)에서 각 답 아래(대화 영역)로 옮겼고, 같은 줄은 대화에서 가장 최근 답 한 곳에만 보인다
+ */
+export const fixedNotice = (page: Page) => page.getByTestId("chat-thread").getByTestId("fixed-notice").last();
+
+/**
+ * 고정 안내가 결과 화면(대화 영역) 안 접히지 않는 자리에 있고, 그 자리로 스크롤하면 보이며 다른 것에 덮이지 않는가(FE-17 U-26-1).
+ * 예전 `expectInFirstScreen(dock 고정 안내)`("스크롤 없이 첫 화면")을 대신한다: 입력창 위 상시 표시를 없앤 사용자 지시라 첫 화면 보장은 더 이상 요구가 아니다.
+ * `underUserLayer`: 사용자가 연 오버레이·시트가 있는 동안이다(덮임은 보지 않는다)
+ */
+export async function expectNoticeInResult(page: Page, target: Locator, { underUserLayer = false } = {}) {
+  await expect(target).toBeAttached();
+  await target.evaluate((el) => el.scrollIntoView({ block: "nearest" }));
+  await expect(target).toBeVisible();
+  expect(await target.evaluate((el) => el.closest('[data-testid="chat-thread"]') !== null)).toBe(true);
+  expect(await target.evaluate((el) => el.closest("details:not([open]), [data-state=closed], [role=dialog]") === null)).toBe(true);
+  await expect(target).toContainText(FIXED_NOTICE);
+  if (!underUserLayer) await expectOnTop(target);
+}
+
 export async function expectTouchTarget(target: Locator, { widthToo = true } = {}) {
   const box = (await target.boundingBox())!;
   expect(box.height).toBeGreaterThanOrEqual(MIN_TOUCH);

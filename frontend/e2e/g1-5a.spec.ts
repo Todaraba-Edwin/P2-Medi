@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { FIXED_NOTICE, HEIGHT, ask, dock, expectInFirstScreen, expectNoHorizontalScroll, expectTouchTarget, input, mockChat, openApp, panel, requests, sheet } from "./helpers";
+import { FIXED_NOTICE, HEIGHT, ask, dock, expectInFirstScreen, expectNoHorizontalScroll, fixedNotice, expectTouchTarget, input, mockChat, openApp, panel, requests, sheet } from "./helpers";
 
 // GROUP-01 5a(FE-11, 2026-11-20) 게스트 화면 e2e(Playwright 프로젝트 `app`, 페이지 안 fetch 대역):
 // - F2: 입력창 안 왼쪽 임신 여부 토글 "일반인 | 임산부"(FE-11 §7.1 최종 디자인 `Rdd-Toggle`): 위치·글자·색 토큰·굵기·28px/44px·키보드·요청 `context.pregnant`(FE-11-12 A)
@@ -136,24 +136,27 @@ for (const width of [393, 1280]) {
       await expectNoHorizontalScroll(page);
     });
 
-    test("실시간 확인 실패: 본문은 '실시간 확인' 0회·안전 고지 1회·법적 고지 1회·입력창 고지 1회, 카드 머리 '기준일 자료' 표지, 근거 상세에 배너·줄 노트", async ({ page }) => {
+    test("실시간 확인 실패: 본문은 '실시간 확인' 0회·안전 고지 1회·법적 고지 1회·입력창 고지 1회, 카드 머리 표지 없음(U-26-3), 근거 상세에 배너·줄 노트", async ({ page }) => {
       await mockChat(page, "apiFail", "limit");
       await openApp(page);
       await ask(page);
       const card = page.getByTestId("result-card");
       await expect(card).toBeVisible();
       await expect(page.getByTestId("result-notice")).toHaveCount(0);
-      const tag = card.getByTestId("basis-file-tag");
-      await expect(tag).toHaveText("기준일 자료");
-      await expect(tag).toBeVisible();
-      expect(await tag.evaluate((el) => el.closest("header") !== null)).toBe(true);
+      // 기대값 갱신(2026-11-24, FE-17 U-26-3 "'기준일 자료' 제거"): 카드 머리 표지는 없다. 머리("금기 확인 결과")가 첫 화면에 보이는지는 그대로 본다
+      await expect(card.getByTestId("basis-file-tag")).toHaveCount(0);
+      expect(await countIn(main(page), "기준일 자료")).toBe(0);
+      const tag = card.locator("header");
       expect(await countIn(main(page), "실시간 확인")).toBe(0);
       expect(await countIn(main(page), FIXED_NOTICE)).toBe(1);
       // 법적 고지·입력창 고지는 입력창 아래 통합 고지 한 단락으로 합쳤다(FE-17 U-02): 통합 고지 1회, 예전 두 줄은 0회
       expect(await countIn(main(page), COMBINED_NOTICE)).toBe(1);
       expect(await countIn(main(page), DISCLAIMER)).toBe(0);
       expect(await countIn(main(page), INPUT_NOTICE)).toBe(0);
-      await expect(dock(page).getByTestId("fixed-notice")).toHaveCount(1);
+      // 기대값 갱신(2026-11-24, FE-17 U-26-1): 고정 안내는 입력창 위가 아니라 답 아래에 한 번 있다
+      await expect(dock(page).getByTestId("fixed-notice")).toHaveCount(0);
+      await expect(fixedNotice(page)).toContainText(FIXED_NOTICE);
+      await expect(main(page).getByTestId("fixed-notice")).toHaveCount(1);
       await expect(page.getByTestId("input-combined-notice")).toHaveCount(1);
       await expect(page.getByTestId("input-notice")).toHaveCount(0);
       await expect(page.getByTestId("legal-footer")).toHaveCount(0);

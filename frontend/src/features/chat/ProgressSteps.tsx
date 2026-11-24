@@ -6,6 +6,12 @@ import { PROGRESS_LABEL, STAGE_LABELS } from "./copy";
 
 const ORDER: readonly ProgressStage[] = ["drug_lookup", "contraindication_check", "evidence_search"];
 
+/**
+ * 병아리와 단계 목록 사이 간격(FE-17 U-24 수정, 2026-11-24 "+12px"): 기존 `gap-3`(12px)에 12px를 더한 `gap-6`(24px).
+ * 간격은 이 한 곳에서만 정한다(시험이 이 값을 본다)
+ */
+export const PROGRESS_MASCOT_GAP = "gap-6";
+
 export interface ProgressStepsProps {
   /** 서버가 보낸 `progress` 이벤트의 값. 이벤트가 없으면 null이고 어느 줄도 진행 중으로 그리지 않는다(가짜 진행 없음, S9) */
   stage: ProgressStage | null;
@@ -39,7 +45,7 @@ function WaitingMark() {
 /**
  * 진행 표시(FE-17 U-24, 2026-11-24): 병아리 오른쪽에 세 단계를 세로로 둔다. 바깥 노란 상자는 없다(테두리·바탕 없음).
  * - 완료(done): 기존 표시 그대로(노란 원 + 체크)
- * - 진행 중(now): 굵은 글자 + 줄의 스피너 + 글자 위로 mute 색 띠가 지나가는 쉬머(`.progress-shimmer`, globals.css)
+ * - 진행 중(now): 굵은 글자 + 줄의 스피너 + 글자 위로 밝은 띠가 왼쪽에서 오른쪽으로 계속 지나가는 쉬머(`.progress-shimmer`, globals.css, U-24 수정)
  * - 예정(todo): 줄 전체를 낮은 불투명도(55%)로. 글자 색은 본문색이라 라이트·다크 모두 4.5:1 이상을 지킨다
  * 움직임 줄이기에서는 쉬머·스피너가 멈추고 굵기·표지(원 모양)로 구분한다. 새 글자는 없다
  */
@@ -47,7 +53,7 @@ export function ProgressSteps({ stage, label, hideMascot = false }: ProgressStep
   const current = stage ? ORDER.indexOf(stage) : -1;
   const waiting = stage === null;
   return (
-    <div role="status" aria-label={PROGRESS_LABEL} data-testid="progress-steps" className="flex items-center gap-3">
+    <div role="status" aria-label={PROGRESS_LABEL} data-testid="progress-steps" className={cn("flex items-center", PROGRESS_MASCOT_GAP)}>
       {!hideMascot && <Mascot variant="search" size={72} />}
       <div className="flex min-w-0 flex-col items-start gap-2">
         {waiting && <WaitingMark />}

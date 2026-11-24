@@ -14,6 +14,8 @@ import {
   expect119Reachable,
   expectContained,
   expectInFirstScreen,
+  expectNoticeInResult,
+  fixedNotice,
   expectNoHorizontalScroll,
   expectOnTop,
   expectTouchTarget,
@@ -82,7 +84,7 @@ for (const width of [360, 320]) {
       await expect(result.getByTestId("result-card")).toBeVisible();
       expect((await result.boundingBox())!.y).toBeGreaterThan((await banner(page).boundingBox())!.y);
       await expectInFirstScreen(page, banner(page));
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expectInFirstScreen(page, notice(page));
       await expectInFirstScreen(page, input(page));
       await expect(page.getByText(EMERGENCY_TEXT)).toHaveCount(1);
@@ -103,8 +105,8 @@ for (const width of [360, 320]) {
       await release(page);
       await expect(page.getByTestId("result-summary")).toHaveText("가나다정과 라마바캡슐은 병용금기 목록에 함께 올라 있어요.");
       await expect(page.getByTestId("status-badge")).toHaveText(["삐! 병용금기"]);
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([FIXED_NOTICE]);
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expect(fixedNotice(page).locator("p")).toHaveText([FIXED_NOTICE]);
+      await expectNoticeInResult(page, fixedNotice(page));
       await expectInFirstScreen(page, input(page));
       await expect(sheet(page)).toHaveCount(0); // 좁은 폭에서는 저절로 열리지 않는다
       const entry = page.getByTestId("evidence-entry");
@@ -118,7 +120,7 @@ for (const width of [360, 320]) {
       await sheet(page).getByRole("button", { name: "닫기" }).click();
       await expect(sheet(page)).toHaveCount(0);
       await expect(entry).toBeFocused();
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expectNoHorizontalScroll(page);
     });
   });
@@ -134,10 +136,11 @@ test.describe("흐름 360px", () => {
     await expect(page.getByTestId("result-card")).toHaveCount(1);
     await ask(page, "둘째 질문");
     await expect(page.getByTestId("result-card")).toHaveCount(2);
-    // 지난 답의 고정 안내는 그 답 아래에 남고, 가장 최근 답의 것은 아래 고정 영역에 있다
-    await expect(page.locator('[data-turn="turn-1"]').getByTestId("fixed-notice")).toHaveCount(1);
-    await expect(page.locator('[data-turn="turn-2"]').getByTestId("fixed-notice")).toHaveCount(0);
-    await expect(dock(page).getByTestId("fixed-notice")).toHaveCount(1);
+    // 기대값 갱신(2026-11-24, FE-17 U-26-1): 고정 안내는 입력창 위가 아니라 답 아래에 있고, 같은 줄은 가장 최근 답(turn-2) 한 곳에만 보인다
+    await expect(page.locator('[data-turn="turn-1"]').getByTestId("fixed-notice")).toHaveCount(0);
+    await expect(page.locator('[data-turn="turn-2"]').getByTestId("fixed-notice")).toHaveCount(1);
+    await expect(dock(page).getByTestId("fixed-notice")).toHaveCount(0);
+    await expect(page.getByTestId("main").getByText(FIXED_NOTICE, { exact: true })).toHaveCount(1);
     const firstEntry = page.locator('[data-turn="turn-1"]').getByTestId("evidence-entry");
     await firstEntry.click();
     await expect(sheet(page).getByTestId("status-badge")).toHaveText(["삐! 병용금기"]);
@@ -207,7 +210,7 @@ test.describe("흐름 360px", () => {
     await expect(page.getByTestId("result-view")).toHaveAttribute("data-end-reason", "REFUSE");
     await expect(page.getByTestId("result-card")).toHaveCount(0);
     await expect(page.getByTestId("evidence-entry")).toHaveCount(0);
-    await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+    await expectNoticeInResult(page, fixedNotice(page));
     await expect(page.getByTestId("mascot")).toHaveCount(0);
     await expectNoHorizontalScroll(page);
   });
@@ -359,8 +362,8 @@ for (const width of [360, 320]) {
 
     test("미확보 세 원인: 응답 문구와 약사 확인 권고가 접히지 않고 보인다(Detail-Missing3)", async ({ page }) => {
       await answered(page, "missingCauses");
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]); // 받은 순서: 권고 → 고정
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expect(fixedNotice(page).locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]); // 받은 순서: 권고 → 고정
+      await expectNoticeInResult(page, fixedNotice(page));
       await page.getByTestId("evidence-entry").click();
       await expect(sheet(page).getByTestId("missing-text")).toHaveText([
         "가나다정은 전문의약품이라 공공 자료로는 설명을 확인할 수 없어요",
@@ -427,14 +430,14 @@ for (const width of [360, 320]) {
       await expect(page.getByTestId("result-card")).toHaveCount(0);
       await expect(page.getByTestId("evidence-entry")).toHaveCount(0);
       // 확인하지 못한 줄이 없으면 서버는 권고 줄을 붙이지 않는다(finalize: unresolved일 때만, FE-IMPL-06b fixture 정정)
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([FIXED_NOTICE]);
+      await expect(fixedNotice(page).locator("p")).toHaveText([FIXED_NOTICE]);
       await ask(page, "둘째 질문");
       const second = page.locator('[data-turn="turn-2"]');
       await expect(second.getByTestId("result-summary")).toHaveText(
         "병용금기 파일(기준일 2026-07-31)에서 확인된 내용만 아래에 보여 드려요. 이 서비스가 확인하지 못한 부분은 약국·약사에게 확인하세요.",
       );
       await expect(second.getByTestId("result-card")).toBeVisible();
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expectNoHorizontalScroll(page);
     });
 
@@ -468,7 +471,7 @@ for (const width of [360, 320]) {
 
     test("약을 찾지 못함: 찾아본 내용의 칸 이름이 한 줄이다(F11)", async ({ page }) => {
       await answered(page, "unidentified");
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
+      await expect(fixedNotice(page).locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
       await page.getByTestId("evidence-entry").click();
       const pairs = sheet(page).getByTestId("lookup-pairs");
       await expect(pairs).toBeVisible();
@@ -501,8 +504,8 @@ for (const width of [360, 320]) {
       await expect(card.getByTestId("status-badge")).toHaveCount(0);
       await expect(card).not.toContainText("삐!");
       expect(await card.evaluate((el) => el.querySelector("details") === null)).toBe(true);
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expect(fixedNotice(page).locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
+      await expectNoticeInResult(page, fixedNotice(page));
       await expect(page.getByTestId("mascot")).toHaveCount(0);
       await expectNoHorizontalScroll(page);
     });
@@ -524,8 +527,8 @@ for (const width of [360, 320]) {
       expect(await card.evaluate((el) => el.querySelector("details") === null)).toBe(true);
       await expect(age.locator('[data-slot="age-info"]')).toBeVisible();
       await expectContained(card, '[data-slot="age-info"], [data-slot="age-criteria"], [data-testid="line-text"], [data-testid="ingredient-chip"]');
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expect(fixedNotice(page).locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
+      await expectNoticeInResult(page, fixedNotice(page));
       await expect(page.getByTestId("mascot")).toHaveCount(0);
       await expectNoHorizontalScroll(page);
     });
@@ -589,7 +592,7 @@ for (const width of [360, 320]) {
       await expect(card.getByText(NOTE)).toHaveCount(1);
       await expect(card.getByTestId("status-badge")).toHaveCount(0);
       await expect(card).not.toContainText("금기 목록에 없음");
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
+      await expect(fixedNotice(page).locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
       await expect(page.getByTestId("mascot")).toHaveCount(0);
       await expectNoHorizontalScroll(page);
     });
@@ -603,12 +606,12 @@ for (const width of [360, 320]) {
       await expect(lines.first()).toBeVisible();
       expect(await page.getByTestId("not-checked-lines").evaluate((el) => el.closest("details, [data-state=closed]") === null)).toBe(true);
       await expect(page.getByTestId("status-badge")).toHaveCount(0);
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
+      await expect(fixedNotice(page).locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
       await ask(page, "둘째 질문");
       // 2026-11-20 FE-11-10 A: 옛 기대(본문 `result-notice`)를 근거 상세 기대로 옮겼다. 본문은 "실시간 확인" 0회, 카드 머리 "기준일 자료" 표지만
       const second = page.locator('[data-turn="turn-2"]');
       await expect(second.getByTestId("result-notice")).toHaveCount(0);
-      await expect(second.getByTestId("basis-file-tag")).toHaveText("기준일 자료");
+      await expect(second.getByTestId("basis-file-tag")).toHaveCount(0); // 기대값 갱신(2026-11-24, FE-17 U-26-3): 카드 머리 "기준일 자료" 표지 제거
       await expect(page.getByTestId("main")).not.toContainText("실시간 확인");
       await second.getByTestId("evidence-entry").click();
       const detail = width >= 1024 ? panel(page) : sheet(page);
@@ -721,7 +724,7 @@ for (const width of WIDTHS) {
         await expect(drawer).toHaveCount(0);
         await expect(page.getByRole("button", { name: "메뉴 열기" })).toBeFocused();
       }
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expectInFirstScreen(page, page.getByTestId("emergency-entry"));
       await expectInFirstScreen(page, input(page));
       await expectNoHorizontalScroll(page);
@@ -745,7 +748,7 @@ for (const width of WIDTHS) {
       } else {
         await expect(wide).toBeHidden();
       }
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expectInFirstScreen(page, notice(page));
       expect(await page.getByTestId("app-shell").evaluate((el) => el.firstElementChild?.getAttribute("data-testid"))).toBe("emergency-row");
       await expectNoHorizontalScroll(page);
@@ -781,7 +784,7 @@ async function askAndAutoOpen(page: Page, question = QUESTION) {
  */
 async function expectSafetyVisible(page: Page, { overlayOpen = false } = {}) {
   await expectInFirstScreen(page, input(page), { underUserLayer: overlayOpen });
-  await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: overlayOpen });
+  await expectNoticeInResult(page, fixedNotice(page), { underUserLayer: overlayOpen });
   if (overlayOpen) {
     // 119 진입점은 머리줄·응급 배너 두 곳뿐이다(FE-17 U-04): 오버레이 안에는 없고 머리줄 하나가 오버레이 아래에 있다
     await expect(overlaySidebar(page).locator('a[href="tel:119"]')).toHaveCount(0);
@@ -1001,28 +1004,27 @@ test.describe("사이드바 엣지 1100px", () => {
     await expect(layerTel(page)).toHaveCount(0);
     await expect(tel(page)).toHaveCount(1);
     // 고정 안내·입력창은 사용자가 연 층 동안 흐려질 수 있으나 접히지 않고 첫 화면에 있다
-    await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: true });
+    await expectNoticeInResult(page, fixedNotice(page), { underUserLayer: true });
     await expectInFirstScreen(page, input(page), { underUserLayer: true });
     await expect119Reachable(page, bannerTel(page)); // 실제 클릭이 배너 링크에 닿는다(스크림·오버레이를 지나지 않는다)
     await expect(overlaySidebar(page)).toHaveCount(0); // 바깥 누름이라 오버레이는 닫힌다(Radix)
-    await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+    await expectNoticeInResult(page, fixedNotice(page));
   });
 });
 
 test.describe("사이드바 엣지: 폭 변경", () => {
-  test("E5: 근거 상세가 열린 채 1300 → 1100으로 줄이면 접지 않고 오버레이+스크림이 된다(스크림 클릭으로 사이드바만 닫힘)", async ({ page }) => {
+  // 기대값 갱신(2026-11-24, FE-17 U-18 추가 지시 2 "1231px에서 nav dim 노출 … nav를 접으면 되는 문제"): 근거 상세가 열린 채 밀 수 있던 폭에서
+  // 밀 수 없는 폭으로 줄면 오버레이+스크림 대신 사이드바를 레일로 접는다. 이전 기대(오버레이+스크림 → 스크림 클릭으로 닫힘)가 바로 사용자가 고치라고 한 동작이다
+  test("E5: 근거 상세가 열린 채 1300 → 1100으로 줄이면 사이드바가 레일로 접혀 오버레이·스크림이 생기지 않는다(U-18 추가 지시 2)", async ({ page }) => {
     await page.setViewportSize({ width: 1300, height: HEIGHT });
     await mockChat(page, "found");
     await openApp(page);
     await askAndAutoOpen(page);
     await expect(pushSidebar(page)).toBeVisible();
     await page.setViewportSize({ width: 1100, height: HEIGHT });
-    await expect(overlaySidebar(page)).toBeVisible();
-    await expect(scrim(page)).toBeVisible();
-    await expect(panel(page)).toBeVisible();
-    await page.mouse.click(1100 - 30, HEIGHT / 2);
-    await expect(scrim(page)).toHaveCount(0);
     await expect(rail(page)).toBeVisible();
+    await expect(overlaySidebar(page)).toHaveCount(0);
+    await expect(scrim(page)).toHaveCount(0);
     await expect(panel(page)).toBeVisible();
     // 다시 넓혀도 사용자 상태(접힘)는 그대로다
     await page.setViewportSize({ width: 1300, height: HEIGHT });
@@ -1054,7 +1056,7 @@ test.describe("사이드바 엣지: 폭 변경", () => {
     await ask(page);
     const same = async () => {
       await expectInFirstScreen(page, page.getByTestId("emergency-entry"));
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expectInFirstScreen(page, notice(page));
       await expectInFirstScreen(page, input(page));
       await expect(page.getByTestId("result-card")).toBeVisible();
@@ -1150,10 +1152,10 @@ for (const width of [360, 320]) {
       await expect(tel(page)).toHaveCount(1);
       await expect(sheet(page)).toBeVisible();
       // 시트 동안 고정 안내는 스크림 아래에서 흐려지지만 접히지 않고 첫 화면에 있다
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: true });
+      await expectNoticeInResult(page, fixedNotice(page), { underUserLayer: true });
       await sheet(page).getByRole("button", { name: "닫기" }).click();
       await expect(sheet(page)).toHaveCount(0);
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expect119Reachable(page, page.getByTestId("emergency-entry"));
     });
 
@@ -1171,12 +1173,12 @@ for (const width of [360, 320]) {
       await expect(layerTel(page)).toHaveCount(0); // 배너가 있으면 119는 배너 하나뿐
       await expect(tel(page)).toHaveCount(1);
       await expectInFirstScreen(page, banner(page));
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: true });
+      await expectNoticeInResult(page, fixedNotice(page), { underUserLayer: true });
       await expectNoHorizontalScroll(page);
       await expect119Reachable(page, bannerTel(page));
       // 배너는 시트 바깥이라 누르면 시트가 닫힌다(Radix 바깥 누름). 고정 안내는 다시 덮임 없이 위에 있다
       await expect(sheet(page)).toHaveCount(0);
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expectInFirstScreen(page, banner(page));
     });
 
@@ -1189,10 +1191,10 @@ for (const width of [360, 320]) {
       await expect(drawer(page)).toBeVisible();
       await expectBelowBanner(page, page.getByTestId("drawer-scrim"));
       await expect(layerTel(page)).toHaveCount(0);
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"), { underUserLayer: true });
+      await expectNoticeInResult(page, fixedNotice(page), { underUserLayer: true });
       await expect119Reachable(page, bannerTel(page));
       await expect(drawer(page)).toHaveCount(0);
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
     });
   });
 }
@@ -1214,7 +1216,7 @@ test.describe("119 덮임 1100px(사이드바 오버레이)", () => {
     await page.keyboard.press("Escape");
     await expect(overlaySidebar(page)).toHaveCount(0);
     await expect119Reachable(page, page.getByTestId("emergency-entry"));
-    await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+    await expectNoticeInResult(page, fixedNotice(page));
   });
 });
 
@@ -1227,7 +1229,7 @@ test.describe("119 덮임 1280px(패널)", () => {
       await openApp(page);
       await ask(page);
       await expect(panel(page)).toBeVisible();
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expect119Reachable(page, name === "emergency" ? bannerTel(page) : page.getByTestId("emergency-entry"));
     });
   }
@@ -1248,7 +1250,7 @@ for (const viewport of [
       await expect(page.getByTestId("result-card")).toBeVisible();
       await expect119Reachable(page, bannerTel(page));
       await expectInFirstScreen(page, banner(page));
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expectNoticeInResult(page, fixedNotice(page));
       await expectInFirstScreen(page, notice(page));
       await expectInFirstScreen(page, input(page));
       await expectNoHorizontalScroll(page);
@@ -1301,8 +1303,8 @@ test.describe("단언 보강 360px", () => {
     await openApp(page);
     await ask(page);
     await expect(page.getByTestId("candidate-card")).toBeVisible();
-    await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([FIXED_NOTICE]);
-    await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+    await expect(fixedNotice(page).locator("p")).toHaveText([FIXED_NOTICE]);
+    await expectNoticeInResult(page, fixedNotice(page));
     await expect(notice(page)).toContainText("공공데이터 기반 정보 제공이며 진단·처방이 아니에요"); // 통합 고지(FE-17 U-02)
     await expectInFirstScreen(page, notice(page));
     await expect119Reachable(page, page.getByTestId("emergency-entry"));
@@ -1380,10 +1382,10 @@ for (const viewport of [
       await ask(page);
       await expect(page.getByTestId("result-card")).toBeVisible();
       expect(await requests(page)).toHaveLength(1);
-      // 질문을 보낸 뒤에도 119는 머리줄 하나, 통합 고지는 그대로 1회, 응답의 고정 안내는 입력창 위
+      // 질문을 보낸 뒤에도 119는 머리줄 하나, 통합 고지는 그대로 1회, 응답의 고정 안내는 답 아래(FE-17 U-26-1: 입력창 위에서 옮김)
       await expect(page.getByTestId("external-ai-notice")).toHaveCount(0);
       await expect(page.getByTestId("input-combined-notice")).toHaveCount(1);
-      await expect(dock(page).getByTestId("fixed-notice")).toBeVisible();
+      await expect(fixedNotice(page)).toBeVisible();
       await expect(tel(page)).toHaveCount(1);
     });
   });
@@ -1450,8 +1452,8 @@ for (const width of [360, 320, 1280]) {
       await expect(actions.locator("button")).toHaveCount(1);
       await expect(page.locator("input[type=file]")).toHaveCount(0);
       // 고정 안내·119를 밀어내지 않는다
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
-      await expectInFirstScreen(page, dock(page).getByTestId("fixed-notice"));
+      await expect(fixedNotice(page).locator("p")).toHaveText([ADVICE_FIXED, FIXED_NOTICE]);
+      await expectNoticeInResult(page, fixedNotice(page));
       await expect119Reachable(page, page.getByTestId("emergency-entry"));
       // 동작 줄에 판정·안전 글자·마스코트가 없다
       await expect(actions).not.toContainText(/삐!|금기|안전/);
@@ -1520,7 +1522,7 @@ for (const width of [360, 320]) {
       };
       await noVerdict();
       // 되묻기 화면에도 고정 안내는 접히지 않는 영역에 있다
-      await expect(dock(page).getByTestId("fixed-notice").locator("p")).toHaveText([FIXED_NOTICE]);
+      await expect(fixedNotice(page).locator("p")).toHaveText([FIXED_NOTICE]);
       await page.getByTestId("candidate").nth(2).click();
       await expect(page.getByTestId("picked-name")).toHaveText("가나다시럽");
       await noVerdict(); // 고른 것만으로는 판정이 생기지 않는다

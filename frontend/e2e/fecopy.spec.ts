@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { HEIGHT, ask, dock, expectInFirstScreen, expectNoHorizontalScroll, input, mockChat, openApp, overlaySidebar, pushSidebar } from "./helpers";
+import { HEIGHT, ask, dock, expectInFirstScreen, expectNoHorizontalScroll, fixedNotice, input, mockChat, openApp, overlaySidebar, pushSidebar } from "./helpers";
 
 // 문구·화면 정리(2026-11-20 F1): 입력창 아래 고지(PRD-17-07 A)와 사이드바 저장 안내 삭제(PRD-17-08 A). 로그인 제목은 fecopy.msw.spec.ts.
 // 캡처: `FECOPY_SHOT_DIR`을 주면 그 폴더에 `*-fecopy.png`를 남긴다(로컬 전용 `data/mock/fe-issue-shots`. 주지 않으면 찍지 않는다).
@@ -36,8 +36,9 @@ async function expectNoticeUnderInput(page: Page) {
   const formBox = (await input(page).locator("xpath=ancestor::form").boundingBox())!;
   expect(noticeBox.y).toBeGreaterThanOrEqual(formBox.y + formBox.height - 0.5);
   expect(noticeBox.y - (formBox.y + formBox.height)).toBeLessThanOrEqual(24);
-  const fixed = dock(page).getByTestId("fixed-notice");
-  if (await fixed.count()) expect((await fixed.boundingBox())!.y + (await fixed.boundingBox())!.height).toBeLessThanOrEqual(inputBox.y + 0.5); // 고정 안내는 입력창 위
+  // 기대값 갱신(2026-11-24, FE-17 U-26-1): 고정 안내는 입력창 위 고정 영역에 없다(답 아래 대화 영역으로 옮김)
+  await expect(dock(page).getByTestId("fixed-notice")).toHaveCount(0);
+  expect(inputBox.height).toBeGreaterThan(0);
   // 안내이지 관문이 아니다: 체크·버튼 없음, 접히는 틀 밖, 마스코트 없음, 읽을 수 있는 크기
   await expect(notice(page).locator("button, a, input")).toHaveCount(0);
   expect(await notice(page).evaluate((el) => el.closest("details, [role=dialog], [data-state=closed]") === null)).toBe(true);
@@ -68,9 +69,13 @@ for (const width of [393, 1280]) {
       await ask(page);
       await expect(page.getByTestId("result-card")).toBeVisible();
       await expectNoticeUnderInput(page);
-      const fixed = (await dock(page).getByTestId("fixed-notice").boundingBox())!;
+      // 기대값 갱신(2026-11-24, FE-17 U-26-1): 고정 안내는 입력창 위가 아니라 답 아래 대화 영역에 있다(입력창보다 위쪽·대화 영역 안)
+      const fixed = fixedNotice(page);
+      await fixed.evaluate((el) => el.scrollIntoView({ block: "nearest" }));
+      const fixedBox = (await fixed.boundingBox())!;
       const inputBox = (await input(page).boundingBox())!;
-      expect(fixed.y + fixed.height).toBeLessThanOrEqual(inputBox.y + 0.5);
+      expect(fixedBox.y + fixedBox.height).toBeLessThanOrEqual(inputBox.y + 0.5);
+      expect(await fixed.evaluate((el) => el.closest('[data-testid="chat-thread"]') !== null)).toBe(true);
       if (desktop) {
         // 넓은 폭: 펼친 사이드바(근거 패널이 열리면 오버레이·레일일 수 있다)에 긴 저장 안내가 없다. 머리줄 짧은 안내는 유지
         if ((await pushSidebar(page).count()) === 0 && (await overlaySidebar(page).count()) === 0) await page.getByTestId("sidebar-toggle").click();

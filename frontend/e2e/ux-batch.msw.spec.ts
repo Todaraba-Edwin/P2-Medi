@@ -122,7 +122,9 @@ for (const width of [393, 1280]) {
         await shot(page, `${base}-u05-progress`);
         await expect(turn2.getByTestId("result-card").first()).toBeVisible();
         await expect(turn1.getByTestId("candidate-picked")).toHaveCount(2);
-        await expect(turn1.getByTestId("fixed-notice")).toBeVisible();
+        // 기대값 갱신(2026-11-24, FE-17 U-26-1): 같은 고정 안내 줄은 가장 최근 답(turn-2) 아래 한 곳에만 보인다
+        await expect(turn1.getByTestId("fixed-notice")).toHaveCount(0);
+        await expect(turn2.getByTestId("fixed-notice")).toBeVisible();
         await turn1.scrollIntoViewIfNeeded();
         await shot(page, `${base}-u05-done`);
       });

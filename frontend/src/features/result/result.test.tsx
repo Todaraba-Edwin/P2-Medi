@@ -13,6 +13,7 @@ import { ChatThread } from "../chat/ChatThread";
 import { CandidateCard } from "./CandidateCard";
 import { PickCapsule } from "./PickCapsule";
 import { groupCandidates, isTakenElsewhere } from "./candidate-groups";
+import { hasApiFailInfo } from "./realtime-notice";
 import * as copy from "./copy";
 import { IngredientChip, IngredientChips } from "./IngredientChips";
 import { ProductLine } from "./ProductLine";
@@ -744,10 +745,10 @@ describe("AG-08 새 칸(받은 값 그대로)", () => {
     expect(screen.queryByTestId("result-notice")).toBeNull();
     expect(body.container.textContent).not.toContain("실시간 확인");
     expect(screen.getByTestId("product-line").querySelector("[data-slot='notes']")).toBeNull();
-    const tag = screen.getByTestId("basis-file-tag");
-    expect(tag.textContent).toBe(copy.BASIS_FILE_TAG);
-    expect(tag.textContent).toBe("기준일 자료");
-    expect(screen.getByTestId("result-card").querySelector("header")?.contains(tag)).toBe(true);
+    // 기대값 갱신(2026-11-24, FE-17 U-26-3 "'기준일 자료' 제거"): 결과 카드 머리의 표지가 없다(머리는 "금기 확인 결과"뿐). 문장은 아래 근거 상세에 그대로다
+    expect(screen.queryByTestId("basis-file-tag")).toBeNull();
+    expect(screen.getByTestId("result-card").querySelector("header")?.textContent).toBe(copy.RESULT_HEADING);
+    expect(body.container.textContent).not.toContain("기준일 자료");
     body.unmount();
     // 근거 상세: 배너 글자는 맨 위에 한 번, 줄 노트는 판정 줄 부품에 그대로
     const detail = render(<EvidenceDetail response={response} />);
@@ -758,12 +759,14 @@ describe("AG-08 새 칸(받은 값 그대로)", () => {
     expect((detail.container.textContent?.match(/실시간 확인/g) ?? []).length).toBe(2); // 배너 1 + 줄 노트 1
   });
 
-  it("실시간 확인 노트만 있고 배너는 없는 줄: 본문 줄에서는 빠지고 표지는 켜지며, 다른 노트는 그대로 남는다", () => {
+  it("실시간 확인 노트만 있고 배너는 없는 줄: 본문 줄에서는 빠지고(카드 머리 표지는 U-26-3로 없음), 다른 노트는 그대로 남는다", () => {
     const finding: Finding = { ...fixtures.apiFailResponse.findings[0], notes: ["받은 다른 노트", API_FAIL_NOTE] };
     const response: ChatResponse = { ...fixtures.apiFailResponse, notice: null, findings: [finding] };
     render(<ResultView response={response} />);
     expect(screen.queryByTestId("result-notice")).toBeNull();
-    expect(screen.getByTestId("basis-file-tag")).toBeInTheDocument();
+    // 기대값 갱신(2026-11-24, FE-17 U-26-3 "'기준일 자료' 제거"): 표지가 켜지지 않는다. 실시간 확인 판정 함수는 그대로 참이다
+    expect(screen.queryByTestId("basis-file-tag")).toBeNull();
+    expect(hasApiFailInfo(response)).toBe(true);
     expect(texts([...screen.getByTestId("product-line").querySelectorAll("[data-slot='notes']")])).toEqual(["받은 다른 노트"]);
     // 줄 부품을 바로 쓰면(근거 상세) 두 노트가 받은 순서 그대로다
     const { container } = line(finding);

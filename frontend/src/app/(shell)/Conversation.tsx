@@ -20,8 +20,6 @@ export interface ConversationProps {
   turns: ChatTurn[];
   /** 대화에 119 안내가 떠 있는지(진행 표시·오류의 마스코트를 숨긴다) */
   hasEmergency: boolean;
-  /** 이 차례의 고정 안내는 아래 고정 영역이 보이고 있다(대화 안에 한 번 더 그리지 않는다) */
-  dockTurnId: string | null;
   /** 근거 상세가 열려 있는 차례 */
   evidenceTurnId: string | null;
   /** 진입 버튼 글자 종류(폭으로 정한다) */
@@ -47,12 +45,14 @@ const RESEND_DISABLED = "aria-disabled:cursor-not-allowed aria-disabled:bg-line 
 
 interface TurnProps extends Omit<ConversationProps, "turns"> {
   turn: ChatTurn;
+  /** 뒤 차례의 답이 이미 보이는 고정 안내 줄(같은 글자). 이 차례에서는 그 줄을 다시 그리지 않는다(FE-17 U-26-1) */
+  noticeShownLater: ReadonlySet<string>;
   isLast: boolean;
   /** 다음 차례가 이 차례에서 고른 제품으로 같은 질문을 다시 물은 것인가(FE-17 U-05) */
   resent: boolean;
 }
 
-function TurnAnswer({ turn, isLast, resent, hasEmergency, dockTurnId, evidenceTurnId, entryLabelMode, picked, onOpenEvidence, onRetry, onPick, onOther, onResend }: TurnProps) {
+function TurnAnswer({ turn, isLast, resent, hasEmergency, noticeShownLater, evidenceTurnId, entryLabelMode, picked, onOpenEvidence, onRetry, onPick, onOther, onResend }: TurnProps) {
   const { stream } = turn;
   const statusId = useId();
   // 검증을 통과한 응답이 있으면 어떤 상태로 끝났든 그 결과를 보인다(done 없이 끊겨도 유지)
@@ -170,8 +170,10 @@ function TurnAnswer({ turn, isLast, resent, hasEmergency, dockTurnId, evidenceTu
             </div>
           </NoMascotZone>
         )}
-        {/* 지난 답의 고정 안내는 그 답 아래에 접히지 않게 남긴다(가장 최근 답의 것은 아래 고정 영역에 있다) */}
-        {dockTurnId !== turn.id && <FixedNoticeBox lines={response.fixed_notice} />}
+        {/* 고정 안내(서버 `fixed_notice`, 코드 고정 문구)는 그 답 아래, 근거 상세 틀 밖의 접히지 않는 자리에 둔다(FE-17 U-26-1, 2026-11-24:
+            입력창 위 고정 영역에서 옮김). 같은 글자의 줄이 뒤 차례 답에 또 있으면 여기서는 빼고 가장 최근 답에서 한 번만 보인다.
+            가장 최근 답은 받은 줄을 모두 그리므로 "금기 목록에 없다는 것이 안전하다는 뜻이 아니에요…"는 결과 화면에 늘 한 번 남는다 */}
+        <FixedNoticeBox lines={response.fixed_notice.filter((line) => !noticeShownLater.has(line))} />
       </div>
     );
   }
@@ -234,12 +236,13 @@ export function Conversation({ turns, ...rest }: ConversationProps) {
     <div ref={thread} data-testid="chat-thread" onScroll={onScroll} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-0.5 pt-2 pb-3">
       {turns.map((turn, index) => {
         const next = turns[index + 1];
+        const noticeShownLater = new Set(turns.slice(index + 1).flatMap((later) => later.stream.response?.fixed_notice ?? []));
         return (
           <div key={turn.id} data-turn={turn.id} data-status={turn.stream.status} className="flex flex-col gap-2.5">
             {/* 고른 약으로 다시 물은 차례(`display`가 있음)는 말풍선을 그리지 않는다(FE-17 U-17: 지난 답의 고른 줄 요약 바로 다음에 진행 표시·새 답이 이어진다).
                 서버로 간 것은 예전처럼 원 질문 + 고른 약이고(요청 계약 불변), `display`는 차례 표시(지난 답 읽기 전용 판정 `resent`)에만 쓴다 */}
             {turn.display == null && <MessageBubble side="me">{turn.question}</MessageBubble>}
-            <TurnAnswer turn={turn} isLast={turn === last} resent={next !== undefined && next.display !== undefined && next.display !== null && next.question === turn.question} {...rest} />
+            <TurnAnswer turn={turn} isLast={turn === last} noticeShownLater={noticeShownLater} resent={next !== undefined && next.display !== undefined && next.display !== null && next.question === turn.question} {...rest} />
           </div>
         );
       })}

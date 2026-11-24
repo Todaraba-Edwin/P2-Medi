@@ -11,6 +11,8 @@ import {
   clarifyResponse,
   clarifyTripleResponse,
   codeNotLinkedResponse,
+  doseComboResponse,
+  judgmentDupResponse,
   doseDupResponse,
   emergencyResponse,
   fallbackNoneResponse,
@@ -197,6 +199,8 @@ export const scenarios = {
   // ---- FE-17 U-19 후속
   /** 용량주의 근거가 제형 코드마다 따로 온다: 사유 원문은 같은 내용을 한 박스로 묶어 "같은 내용 N건" */
   doseDup: normal(doseDupResponse),
+  doseCombo: normal(doseComboResponse),
+  judgmentDup: normal(judgmentDupResponse),
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;

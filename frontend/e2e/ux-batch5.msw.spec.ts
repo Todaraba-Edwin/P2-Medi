@@ -59,12 +59,14 @@ for (const width of [393, 1280]) {
         const detail = page.getByTestId("evidence-detail");
         await expect(detail).toBeVisible();
         const boxes = detail.getByTestId("reason-box");
-        // 묶기 전 30박스(6 + 1 + 23) → 3박스
-        await expect(boxes).toHaveCount(3);
-        await expect(boxes.locator("p")).toHaveText(["가나성분으로 4,000mg", "가나성분으로써 4000mg", "라마성분 3,200mg"]);
-        await expect(boxes.nth(0).getByTestId("reason-same-count")).toHaveText("같은 내용 6건");
-        await expect(boxes.nth(1).getByTestId("reason-same-count")).toHaveCount(0);
-        await expect(boxes.nth(2).getByTestId("reason-same-count")).toHaveText("같은 내용 23건");
+        // 묶기 전 30박스(6 + 1 + 23) → 묶음 3개. 기대값 갱신(2026-11-24, FE-17 U-25): 판정 종류(용량주의) 박스 하나 안의 사유 원문 묶음 3개이고
+        // 건수 표기는 "같은 내용 N건" 대신 "제형유형 N건"이다(묶는 규칙·글자·근거 ID 보존은 그대로)
+        await expect(boxes).toHaveCount(1);
+        const groups = detail.getByTestId("reason-group");
+        await expect(groups).toHaveCount(3);
+        await expect(groups.getByTestId("reason-text")).toHaveText(["가나성분으로 4,000mg", "가나성분으로써 4000mg", "라마성분 3,200mg"]);
+        await expect(groups.getByTestId("reason-form-count")).toHaveText(["제형유형 6건", "제형유형 1건", "제형유형 23건"]);
+        await expect(detail.getByTestId("reason-same-count")).toHaveCount(0);
         // 근거 ID는 접어서 보존(30개 모두, 겹치지 않음). 출처 표는 그대로
         const ids = (await boxes.evaluateAll((els) => els.flatMap((el) => (el.getAttribute("data-evidence-ids") ?? "").split(" ")))).filter(Boolean);
         expect(ids).toHaveLength(30);
@@ -73,7 +75,7 @@ for (const width of [393, 1280]) {
         // 박스 안 글자·표지가 박스 밖으로 나가지 않고 가로 스크롤이 없다
         for (const reasonBox of await boxes.all()) {
           const outer = await box(reasonBox);
-          for (const child of await reasonBox.locator('[data-testid="source-tag"], [data-testid="reason-same-count"], p').all()) {
+          for (const child of await reasonBox.locator('[data-testid="source-tag"], [data-testid="reason-form-count"], p').all()) {
             const inner = await box(child);
             expect(inner.x).toBeGreaterThanOrEqual(outer.x - 0.5);
             expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width + 0.5);

@@ -111,15 +111,18 @@ for (const width of [393, 1280]) {
         expect(Math.abs(femaleFormBox.height - memberFormBox.height)).toBeLessThanOrEqual(1);
         await expectNoHorizontalScroll(page);
         await shot(page, "female-shown");
+        // 기대값 갱신(2026-11-24, FE-17 U-21 추가 "프로필을 변경하면 … 새글이 열리도록"): 대상을 바꾸면 새 대화라 이전 결과는 없고 이번 결과 1개다
+        await expect(page.getByTestId("home")).toBeVisible();
         await ask(page, "합성 질문 가나다정 먹어도 돼요");
-        await expect(page.getByTestId("result-card")).toHaveCount(2);
+        await expect(page.getByTestId("result-card")).toHaveCount(1);
         expect(chats[1].context.pregnant).toBe(true);
 
         // ---- 다시 남성(나): 숨김·false. 여성 쪽에서 임산부였어도 남성 대상에는 싣지 않는다
         await pickTarget(page, "나");
         await expect(toggle(page)).toHaveCount(0);
+        await expect(page.getByTestId("home")).toBeVisible(); // 새 대화(U-21 추가)
         await ask(page, "합성 질문 가나다정 먹어도 돼요");
-        await expect(page.getByTestId("result-card")).toHaveCount(3);
+        await expect(page.getByTestId("result-card")).toHaveCount(1);
         expect(chats[2].context.pregnant).toBe(false);
 
         // ---- 게스트로 이용: 다시 보이고 일반인

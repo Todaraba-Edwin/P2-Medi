@@ -34,7 +34,7 @@
 //   (`src/mocks/account-handlers.ts`, 핸들러 메모리의 세션)로 로그인 여부를 흉내 낸다. 이 주소들은 실제 백엔드에 없다
 // - 계정 진입점은 목 모드이거나 Supabase 설정이 있을 때만 보인다(FE-04-02 A·FE-04-05 A, `isAccountEntryEnabled`)
 import { z } from "zod";
-import { AuthError, authMode, getAccessToken, getSocialIdentity, hasAuthSession, signInWithEmail, signInWithProvider, signOut, signUpWithEmail } from "./auth";
+import { AuthError, authMode, getAccessToken, getSocialIdentity, hasAuthSession, mayHaveAuthSessionNow, signInWithEmail, signInWithProvider, signOut, signUpWithEmail } from "./auth";
 import { apiClient, resolveApiBase } from "./client";
 import type { components } from "./generated";
 import { ErrorBodySchema } from "./schemas";
@@ -532,6 +532,14 @@ export async function fetchSelfNameDefault(): Promise<string | null> {
  */
 export function isAccountEntryEnabled(): boolean {
   return authMode() !== "none";
+}
+
+/**
+ * 시작 화면이 로그인 확정(`bootstrap()`)을 기다려야 하는가(FE-17 U-22 추가, 2026-11-24): 로그인돼 있을 가능성이 있을 때만 true다.
+ * Supabase에서 세션 쿠키가 없는 비로그인 사용자는 false라 지금처럼 곧바로 게스트 화면이다(서버 호출·대기 없음)
+ */
+export function mayHaveSessionNow(): boolean {
+  return mayHaveAuthSessionNow();
 }
 
 /** 스토어가 받는 API 묶음(시험에서 바꿔 끼운다) */

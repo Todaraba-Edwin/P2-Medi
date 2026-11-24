@@ -16,7 +16,7 @@ import { EmergencySlot } from "./EmergencySlot";
 import { ErrorState } from "./ErrorState";
 import { ExampleChips } from "./ExampleChips";
 import { HomeHero } from "./HomeHero";
-import { ProgressSteps } from "./ProgressSteps";
+import { PROGRESS_MASCOT_GAP, ProgressSteps } from "./ProgressSteps";
 import { ResultSlot } from "./ResultSlot";
 import { Splash } from "./Splash";
 
@@ -127,6 +127,31 @@ describe("ProgressSteps", () => {
     expect(spinner).toHaveClass("motion-reduce:animate-none");
     const css = readFileSync(path.resolve(__dirname, "../../styles/globals.css"), "utf8");
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.progress-shimmer\s*\{[^}]*animation:\s*none/);
+  });
+
+  it("U-24 수정: 병아리와 단계 목록 사이 간격은 기존 12px + 12px = 24px(gap-6) 한 곳에서 정한다", () => {
+    render(<ProgressSteps stage="drug_lookup" />);
+    const root = screen.getByTestId("progress-steps");
+    expect(PROGRESS_MASCOT_GAP).toBe("gap-6");
+    expect(root).toHaveClass(PROGRESS_MASCOT_GAP);
+    expect(root).not.toHaveClass("gap-3"); // 이전 간격(12px)은 남지 않는다
+  });
+
+  it("U-24 수정: 쉬머는 더 밝은 띠가 왼쪽→오른쪽으로 계속 지나가고(배경 위치 100% → 0%, 무한 반복), 다크는 바탕을 낮춰 띠를 밝히며, 움직임 줄이기에서는 멈춘다", () => {
+    const css = readFileSync(path.resolve(__dirname, "../../styles/globals.css"), "utf8");
+    const rule = css.match(/\.progress-shimmer\s*\{([^}]*)\}/)?.[1] ?? "";
+    // 바탕 → 띠 → 바탕 그라데이션, 글자 모양으로 자른다
+    expect(rule).toMatch(/--shimmer-base:\s*var\(--color-ink\)/);
+    expect(rule).toMatch(/--shimmer-hi:\s*var\(--color-faint\)/); // 라이트: 검정 글자 위 옅은(밝은) 띠
+    expect(rule).toMatch(/linear-gradient\(90deg,[^;]*var\(--shimmer-hi\) 50%/);
+    expect(rule).toMatch(/background-clip:\s*text/);
+    expect(rule).toMatch(/animation:\s*progress-shimmer\s+1\.5s\s+linear\s+infinite/);
+    // 배경이 글자보다 넓을 때 위치 100% → 0%는 띠를 왼쪽 밖에서 오른쪽 밖으로 옮긴다(왼쪽→오른쪽)
+    expect(css).toMatch(/@keyframes progress-shimmer\s*\{\s*from\s*\{\s*background-position:\s*100% 0;\s*\}\s*to\s*\{\s*background-position:\s*0% 0;/);
+    // 다크(수동·시스템 둘 다): 바탕 mute, 띠 ink
+    expect(css).toMatch(/:root\[data-theme="dark"\] \.progress-shimmer\s*\{\s*--shimmer-base:\s*var\(--color-mute\);\s*--shimmer-hi:\s*var\(--color-ink\);/);
+    expect(css).toMatch(/:root:not\(\[data-theme="light"\]\) \.progress-shimmer\s*\{\s*--shimmer-base:\s*var\(--color-mute\);\s*--shimmer-hi:\s*var\(--color-ink\);/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.progress-shimmer\s*\{[^}]*background-image:\s*none/);
   });
 
   it("이벤트에 label이 오면 지금 줄에 그 값을 쓴다", () => {

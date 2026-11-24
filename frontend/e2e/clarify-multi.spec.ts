@@ -116,7 +116,9 @@ for (const width of [393, 1280]) {
       await expect(turn1.getByTestId("candidate")).toHaveCount(0); // 지난 되묻기의 후보는 더 고를 수 없다
       await expect(turn1.getByTestId("candidates-line")).toHaveCount(0);
       await expect(turn1.getByTestId("resend-pick")).toHaveCount(0);
-      await expect(turn1.getByTestId("fixed-notice")).toBeVisible(); // 고정 안내는 그대로(코드 강제)
+      // 기대값 갱신(2026-11-24, FE-17 U-26-1): 고정 안내(코드 강제)는 같은 줄이 다음 답에 있으므로 가장 최근 답 아래 한 곳에만 보인다
+      await expect(turn1.getByTestId("fixed-notice")).toHaveCount(0);
+      await expect(page.locator('[data-turn="turn-2"]').getByTestId("fixed-notice")).toBeVisible();
       await expect(page.getByTestId("candidate-card")).toHaveCount(1);
       await expect(page.getByTestId("resend-pick")).toHaveCount(0);
       // 대화는 저장하지 않는다: 표시용 글자도 브라우저 저장소에 없다

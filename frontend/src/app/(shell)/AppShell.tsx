@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import type { Candidate } from "@/lib/api";
 import { BrandLogo } from "@/components/BrandLogo";
 import { NoMascotZone } from "@/components/NoMascotZone";
-import { AccountMenu, AccountModal, EntryChoice, LegalDialog, StartTargetNotice, TargetChip, isAccountEntryEnabled, openAccountModal } from "@/features/account";
+import { AccountMenu, AccountModal, EntryChoice, LegalDialog, StartTargetNotice, TargetChip, isAccountEntryEnabled, mayHaveSessionNow, openAccountModal } from "@/features/account";
 import { failureMessage } from "@/features/account/parts";
 import { ChatInput, ExampleChips, HomeHero, PREGNANCY_SAVE_CONSENT_HINT } from "@/features/chat";
-import { EmergencyBanner, FixedNoticeBox } from "@/features/emergency";
+import { EmergencyBanner } from "@/features/emergency";
 import { EvidenceDetail, EvidencePanel } from "@/features/evidence";
 import { PhotoModal } from "@/features/photo";
 import type { ChatInputFromPhoto } from "@/features/photo";
@@ -33,7 +33,8 @@ import { useViewportWidth } from "./useViewportWidth";
  *
  * - 119 배너는 한 번 뜨면 내리지 않고, 사이드바 오버레이·드로어·근거 상세 시트의 스크림 밖(위)에 둔다(층은 배너 아래 영역에만 그린다).
  * - 배너가 없을 때 119 진입점은 머리줄 하나다(FE-17 U-04: 층 안에는 두지 않는다. 옛 G-3 "층 안 진입점"을 대체).
- * - 고정 안내는 근거 상세 틀 밖의 접히지 않는 영역(입력창 위)에 응답 값 그대로 둔다.
+ * - 고정 안내는 근거 상세 틀 밖, 각 답 아래의 접히지 않는 자리에 응답 값 그대로 둔다(FE-17 U-26-1, 2026-11-24: 입력창 위 고정 영역에서 옮김.
+ *   같은 줄은 대화에서 가장 최근 답 한 곳에만 보인다, `Conversation`).
  * - 사이드바 상태는 사용자 토글이 원천이다. 근거 상세가 새로 열리는 순간의 판정만 예외다(`layout-rules.ts`).
  * - 계정(FE-04): 시작 화면의 진입 선택(게스트로 시작 / 로그인·가입), 사이드바의 계정 자리, 계정 모달.
  *   대상 프로필("누가 먹나요", 2026-11-23): 본문 선택 줄은 없다. 입력창 안 프로필 칩(`TargetChip`)과 계정 버튼 메뉴의 `프로필 관리` 아래 목록,
@@ -57,6 +58,13 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const profiles = useAccountStore((state) => state.profiles, account);
   const targetProfileId = useAccountStore((state) => state.targetProfileId, account);
   const entryDismissed = useAccountStore((state) => state.entryDismissed, account);
+  /**
+   * 로그인 확정 전(FE-17 U-22 추가, 2026-11-24): 스토어의 `guest`는 첫 `bootstrap()`이 끝나기 전 초기값일 뿐이다. 로그인돼 있을 수 있으면(목 모드·Supabase 세션 쿠키 있음)
+   * 확정될 때까지 시작 화면의 대상·계정 자리(`StartTargetNotice`·`EntryChoice`)를 같은 높이의 빈 자리로만 두고, 확정 뒤 한 번에 그린다.
+   * 세션 쿠키가 없는 비로그인은 false라 지금처럼 곧바로 게스트 화면이다
+   */
+  const sessionChecked = useAccountStore((state) => state.sessionChecked, account);
+  const authPending = accountEnabled && !member && !sessionChecked && mayHaveSessionNow();
   /** 대상 프로필이 남성이면 토글을 숨긴다(FE-11-09 C). 게스트·선택 안 함·여성·미입력은 false */
   const pregnancyHidden = useAccountStore((state) => hidesPregnancyToggle(selectTargetProfile(state)), account);
   /**
@@ -147,7 +155,8 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     evidenceOpenRef.current = shell.evidenceTurnId;
     if (shell.evidenceTurnId === null) panelFocused.current = false;
   });
-  useEffect(() => {
+  // 폭 변화 효과(아래)와 같은 커밋에서 그리기 전에 돈다(layout effect)
+  useLayoutEffect(() => {
     if (desktop === null) return;
     const previous = lastDesktop.current;
     lastDesktop.current = desktop;
@@ -161,6 +170,18 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
       window.setTimeout(() => main.current?.querySelector<HTMLElement>(`[data-turn="${turnId}"] [data-testid="evidence-entry"]`)?.focus(), 0);
     }
   }, [desktop]);
+
+  // 데스크톱 구간 안의 폭 변화(FE-17 U-18 추가 지시 2): 근거 상세 + 펼친 사이드바가 밀 수 있던 폭에서 밀 수 없는 폭(1232 → 1231 이하)으로 줄면
+  // 사이드바를 레일로 접어 dim(스크림)이 나오지 않게 한다. 판정은 reducer가 하고, 해당하지 않으면 같은 상태라 다시 그리지 않는다.
+  // 넓어져도 다시 펼치지 않고(단방향이라 경계에서 깜박이지 않는다), 사용자가 밀 수 없는 폭에서 직접 펼친 오버레이는 그대로 둔다.
+  // 그리기 전에(layout effect) 접어 오버레이·dim이 한 프레임도 칠해지지 않게 한다
+  const lastWidth = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (width === null) return;
+    const from = lastWidth.current;
+    lastWidth.current = width;
+    if (from !== null && from !== width) dispatch({ type: "viewportResized", from, to: width });
+  }, [width]);
 
   const closeEvidence = () => {
     const turnId = shell.evidenceTurnId;
@@ -207,10 +228,18 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     store.getState().setContext({ ...targetContext(), confirmedDrugs: [] });
     void store.getState().send(question);
   };
+  /**
+   * 새 대화(사이드바 `새 대화`, FE-17 U-21 추가의 대상 변경). 진행 중인 응답은 `reset()`이 끊는다.
+   * 새 대화의 토글은 대상 프로필 값으로(게스트는 일반인). 대상을 막 바꾼 경우에는 렌더 시점 값(`profilePregnant`)이 이전 대상의 것이므로
+   * 지금 스토어 상태로 다시 계산한다(`pregnantOf`)
+   */
+  const pregnantOf = (state: ReturnType<AccountStore["getState"]>) => {
+    const target = selectTargetProfile(state);
+    return !hidesPregnancyToggle(target) && profileToContext(target, hasHealthConsent(state.me)).pregnant === true;
+  };
   const newChat = () => {
     store.getState().reset();
-    // 새 대화의 토글은 다시 대상 프로필 값으로(게스트는 일반인)
-    store.getState().setContext({ pregnant: profilePregnant });
+    store.getState().setContext({ pregnant: pregnantOf(account.getState()) });
     setPregnancyNote({ key: "", hint: false, error: null });
     setPicked({});
     dispatch({ type: "newChat" });
@@ -234,10 +263,18 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
       setPregnancyNote(failure.code === "HEALTH_CONSENT_REQUIRED" ? { key, hint: true, error: null } : { key, hint: false, error: failure });
     });
   };
-  // 대상이 바뀌면 이전 선택 힌트를 비운다(AG-21-03 A: 다른 사람의 약을 같은 이름으로 확인하지 않게)
+  /**
+   * 대상 변경(칩·시작 안내·계정 메뉴가 모두 이 함수를 쓴다). 대상이 바뀌면 이전 선택 힌트를 비운다(AG-21-03 A: 다른 사람의 약을 같은 이름으로 확인하지 않게).
+   * FE-17 U-21 추가(2026-11-24): 질문이 한 번이라도 오간 대화에서 **다른** 대상으로 바꾸면 그 대화를 잇지 않고 새 대화를 연다(`새 대화` 버튼과 같은 정리,
+   * 스트리밍 중이면 진행 응답을 끊는다). 같은 대상을 다시 고르거나 시작 화면(대화 없음)이면 대상만 바꾼다
+   */
   const changeTarget = (profileId: string | null) => {
-    if (profileId !== targetProfileId) store.getState().setContext({ priorDrugs: [] });
+    const current = account.getState().targetProfileId;
+    const changed = profileId !== current;
+    const inConversation = store.getState().turns.length > 0;
+    if (changed) store.getState().setContext({ priorDrugs: [] });
     account.getState().setTarget(profileId);
+    if (changed && inConversation) newChat();
   };
   const resend = (turnId: string) => {
     const { setContext, turns: current } = store.getState();
@@ -314,11 +351,6 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const accountMenu = <AccountMenu {...menuProps} />;
 
   const first = turns[0];
-  const last = turns[turns.length - 1];
-  const lastFailed = last !== undefined && !last.stream.response && (last.stream.status === "error" || last.stream.status === "interrupted");
-  // 아래 고정 영역이 보일 고정 안내: 가장 최근에 받은 답의 값. 마지막 차례가 응답 없는 오류면 오류 부품이 고정 안내·고지를 보인다
-  const dockTurn = lastFailed ? undefined : [...turns].reverse().find((turn) => turn.stream.response);
-  const dockResponse = dockTurn?.stream.response ?? null;
   const sidebar = { firstQuestion: first?.question ?? null, onNewChat: newChat, account: accountMenu };
 
   return (
@@ -382,15 +414,19 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
                     container={layer}
                   />
                 )}
-                {/* 진입 선택: 게스트로 시작(주) / 로그인·가입(보조). 누르지 않아도 아래 입력창으로 바로 질문할 수 있다 */}
-                {accountEnabled && !member && !entryDismissed && <EntryChoice onGuest={startGuest} onLogin={openAccount} />}
+                {/* 진입 선택: 게스트로 시작(주) / 로그인·가입(보조). 누르지 않아도 아래 입력창으로 바로 질문할 수 있다.
+                    로그인 확정 전에는 같은 높이(44px 버튼 줄)의 빈 자리만 둔다(U-22 추가: 로그인 사용자에게 게스트용 버튼이 한 순간도 보이지 않게, 글자 없음) */}
+                {authPending ? (
+                  <div aria-hidden="true" data-testid="start-account-pending" className="mx-auto h-11 w-full max-w-[360px] flex-none" />
+                ) : (
+                  accountEnabled && !member && !entryDismissed && <EntryChoice onGuest={startGuest} onLogin={openAccount} />
+                )}
                 <ExampleChips onPick={(question) => send(question)} />
               </div>
             ) : (
               <Conversation
                 turns={turns}
                 hasEmergency={emergency !== null}
-                dockTurnId={dockTurn?.id ?? null}
                 evidenceTurnId={evidenceResponse ? shell.evidenceTurnId : null}
                 entryLabelMode={layout.entryLabelMode}
                 picked={picked}
@@ -401,9 +437,8 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
                 onResend={resend}
               />
             )}
-            {/* 접히지 않는 고정 영역: 고정 안내(응답 값 그대로) → 입력창 → 통합 고지(FE-17 U-02). 근거 상세 틀 밖이다 */}
+            {/* 접히지 않는 고정 영역: 입력창 → 통합 고지(FE-17 U-02). 고정 안내는 U-26-1로 각 답 아래로 옮겼다 */}
             <div data-testid="dock" className="flex flex-none flex-col gap-1.5 pb-[max(14px,env(safe-area-inset-bottom,0px))]">
-              {dockResponse && <FixedNoticeBox lines={dockResponse.fixed_notice} />}
               {/* 임신 여부 토글은 대상이 남성 프로필이면 그리지 않는다(FE-11-09 C). 안내·오류 줄도 토글과 함께 빠진다.
                   대상 프로필 칩은 로그인하고 프로필이 있을 때만 입력창 안에 둔다. 게스트·프로필 없음도 같은 두 줄 배치다(FE-17 U-09, 칩만 없다).
                   고지는 입력창 아래 통합 고지 한 단락(FE-17 U-02, `ChatInput`)이다. 시작 화면 119 안내 줄은 없다(FE-17 U-04: 119는 머리줄·응급 배너 두 곳) */}

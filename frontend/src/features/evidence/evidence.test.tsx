@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup as cleanupRender, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { EVIDENCE_SAMPLES } from "@/app/dev/preview/evidence/samples";
@@ -12,7 +12,7 @@ import { EvidenceEntryButton, EvidencePanel } from "./EvidencePanel";
 import { GradeDefBlock } from "./GradeDefBlock";
 import { MissingBox, MissingGroup } from "./MissingBox";
 import { PermitText } from "./PermitText";
-import { adviceOf, groupByPublisher, groupReasons, rowTexts } from "./sections";
+import { adviceOf, groupByPublisher, groupJudgments, groupReasons, rowTexts } from "./sections";
 import { SourceTable } from "./SourceTable";
 
 const texts = (elements: Element[]) => elements.map((el) => el.textContent);
@@ -78,12 +78,14 @@ describe("EvidenceDetail", () => {
     const item = { ...fixtures.foundResponse.detail[0], rows: [{ reason: "합성 사유 문장" }, { reason: "합성 사유 문장" }, { content: "둘째 합성 문장" }] };
     render(<EvidenceDetail response={{ ...fixtures.foundResponse, detail: [item] }} />);
     const box = screen.getByTestId("reason-box");
-    expect(texts([...box.querySelectorAll("p")])).toEqual(["합성 사유 문장", "둘째 합성 문장"]);
+    // 기대값 갱신(2026-11-24, FE-17 U-25): 박스 안 첫 줄이 약 이름(쌍) 줄이 되어 원문 줄은 `reason-text`로 고른다(원문 글자·순서·중복 한 번은 그대로)
+    expect(texts(within(box).getAllByTestId("reason-text"))).toEqual(["합성 사유 문장", "둘째 합성 문장"]);
+    expect(within(box).getByTestId("reason-drug").textContent).toBe(item.drugs!.join(" · "));
     expect(rowTexts(item)).toEqual(["합성 사유 문장", "둘째 합성 문장"]);
     expect(tagDataset(within(box).getByTestId("source-tag"))).toBe(item.dataset);
   });
 
-  it("같은 내용(종류·제목·표지·원문)의 사유 박스는 하나로 묶고 '같은 내용 N건'을 더한다. 글자가 다른 원문은 묶지 않고, 근거 ID는 받은 순서대로 남는다(FE-17 U-19 후속)", () => {
+  it("같은 내용(종류·제목·표지·원문)의 사유 근거는 하나로 묶는다. 글자가 다른 원문은 묶지 않고, 근거 ID는 받은 순서대로 남는다(FE-17 U-19 후속, 화면 표기는 U-25 '제형유형 N건')", () => {
     const response = fixtures.doseDupResponse;
     const reasonItems = response.detail.filter((item) => item.kind === "dose");
     expect(reasonItems).toHaveLength(30); // 묶기 전: 항목마다 박스 하나였다(6 + 1 + 23)
@@ -94,23 +96,140 @@ describe("EvidenceDetail", () => {
     expect(groups.map((group) => group.evidenceIds)).toEqual([[...ids.slice(0, 3), ...ids.slice(4, 7)], [ids[3]], ids.slice(7)]);
     expect(new Set(groups.flatMap((group) => group.evidenceIds))).toEqual(new Set(reasonItems.map((item) => item.evidence_id)));
 
+    // 기대값 갱신(2026-11-24, FE-17 U-25): 화면은 용량주의 박스 하나 안에서 사유 원문별 묶음 3개(6·1·23)가 되고 건수는 "제형유형 N건"이다.
+    // 묶는 규칙(`groupReasons`, 위 단언)·보이는 글자(받은 값 그대로)·근거 ID 보존은 그대로다
     render(<EvidenceDetail response={response} />);
     const boxes = screen.getAllByTestId("reason-box");
-    expect(boxes).toHaveLength(3);
-    expect(boxes.map((box) => box.getAttribute("data-count"))).toEqual(["6", "1", "23"]);
-    expect(boxes.map((box) => within(box).queryByTestId("reason-same-count")?.textContent ?? null)).toEqual(["같은 내용 6건", null, "같은 내용 23건"]);
-    expect(copy.sameContentCount(6)).toBe("같은 내용 6건");
-    // 보이는 글자는 받은 값 그대로(용량 숫자 원문 포함, 근거 상세에서는 허용: RFP-21-03), 박스마다 원문 문장 한 번
-    boxes.forEach((box, index) => {
-      expect(texts([...box.querySelectorAll("p")])).toEqual(rowTexts(groups[index].item));
-      expect(within(box).getAllByTestId("source-tag")).toHaveLength(1);
-      expect(box.getAttribute("data-evidence-ids")!.split(" ")).toEqual(groups[index].evidenceIds);
-    });
-    expect(texts([...boxes[0].querySelectorAll("p")])).toEqual(["가나성분으로 4,000mg"]);
-    expect(texts([...boxes[1].querySelectorAll("p")])).toEqual(["가나성분으로써 4000mg"]); // 글자가 다르면 따로
-    expect(texts([...boxes[2].querySelectorAll("p")])).toEqual(["라마성분 3,200mg"]);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]).toHaveAttribute("data-kind", "dose");
+    expect(boxes[0].getAttribute("data-count")).toBe("30");
+    expect(within(boxes[0]).getAllByTestId("source-tag")).toHaveLength(1);
+    expect(boxes[0].getAttribute("data-evidence-ids")!.split(" ")).toEqual(ids);
+    const groups3 = within(boxes[0]).getAllByTestId("reason-group");
+    expect(groups3).toHaveLength(3);
+    expect(groups3.map((group) => within(group).getByTestId("reason-text").textContent)).toEqual(["가나성분으로 4,000mg", "가나성분으로써 4000mg", "라마성분 3,200mg"]); // 글자가 다르면 따로
+    expect(groups3.map((group) => within(group).getByTestId("reason-form-count").textContent)).toEqual(["제형유형 6건", "제형유형 1건", "제형유형 23건"]);
+    groups3.forEach((group, index) => expect(group.getAttribute("data-evidence-ids")!.split(" ")).toEqual(groups[index].evidenceIds));
+    expect(screen.queryByTestId("reason-same-count")).toBeNull(); // 용량주의는 "같은 내용 N건" 대신 "제형유형 N건"
     // 구역 순서·출처 표는 그대로(출처 표는 묶지 않는다)
     expect(sections()).toEqual(["judgment", "reason", "sources"]);
+  });
+
+  describe("U-25 판정 종류 → 사유 원문 → 약 이름 + 제형유형 N건(2026-11-24)", () => {
+    const LINE = ["m-0", "text-[13px]", "leading-[19px]", "break-words", "whitespace-pre-wrap"];
+
+    it("최상위는 판정 종류 박스(용량주의 파일 · 병용금기 파일, 표지 = 지금 문구)이고, 용량주의 안은 사유 원문 → 약 이름 - 제형유형 N건, 병용금기 안은 약 이름 쌍 → 고정 문구다", () => {
+      const response = fixtures.doseComboResponse;
+      render(<EvidenceDetail response={response} />);
+      const boxes = screen.getAllByTestId("reason-box");
+      expect(boxes.map((box) => box.getAttribute("data-kind"))).toEqual(["dose", "contra_pair"]);
+      expect(boxes.map((box) => tagDataset(within(box).getByTestId("source-tag")))).toEqual(["용량주의 파일", "병용금기 파일"]);
+      expect(boxes.map((box) => within(box).getByTestId("source-tag").textContent)).toEqual(["공식 파일 · 용량주의 파일", "공식 파일 · 병용금기 파일"]);
+      // 용량주의: 사유 원문 문장별 묶음, 그 아래 그 문장을 가진 약만
+      const dose = within(boxes[0]).getAllByTestId("reason-group");
+      expect(dose.map((group) => texts(within(group).getAllByTestId("reason-text")))).toEqual([["가나성분으로 4,000mg"], ["가나성분으로써 4000mg"], ["라마성분 3,200mg"]]);
+      expect(dose.map((group) => texts(within(group).getAllByTestId("reason-drug")))).toEqual([["가나다정 - 제형유형 6건"], ["가나다정 - 제형유형 1건"], ["라마바캡슐 - 제형유형 23건"]]);
+      // 병용금기: 약 이름 쌍 + 판정 줄의 고정 문구(받은 글자 그대로)
+      const pair = within(boxes[1]).getByTestId("reason-group");
+      expect(pair).toHaveAttribute("data-type", "not-listed");
+      expect(within(pair).getByTestId("reason-drug").textContent).toBe("가나다정 · 라마바캡슐");
+      expect(within(pair).getByTestId("reason-not-listed").textContent).toBe("금기 목록에 없음(안전하다는 뜻이 아님)");
+      expect(within(pair).getByTestId("reason-not-listed").textContent).toBe(PHRASES.NOT_LISTED);
+      expect(pair).toHaveAttribute("data-evidence-ids", "ev-pair-u25");
+      // 근거 ID는 하나도 빠지지 않는다(31개 = 용량주의 30 + 쌍 1)
+      const ids = boxes.flatMap((box) => box.getAttribute("data-evidence-ids")!.split(" "));
+      expect(new Set(ids)).toEqual(new Set(response.detail.map((item) => item.evidence_id)));
+      expect(ids).toHaveLength(31);
+      expect(copy.formTypeCount(3)).toBe("제형유형 3건"); // 사용자 문구 그대로(공백 없음)
+      expect(sections()).toEqual(["judgment", "reason", "sources"]);
+    });
+
+    it("스타일 통일: 사유 원문·약 이름·고정 문구·덧붙임 줄·건수 줄이 모두 13px / 19px 줄 간격이고, 12px(text-xs) 줄이 남지 않는다", () => {
+      const notes = { ...fixtures.doseComboResponse, detail: fixtures.doseComboResponse.detail.map((item, i) => (i === 0 ? { ...item, notes: ["덧붙임 한 줄"] } : item)) };
+      render(<EvidenceDetail response={notes} />);
+      const section = screen.getAllByTestId("evidence-section").find((el) => el.getAttribute("data-section") === "reason")!;
+      const lines = [...section.querySelectorAll('[data-testid="reason-box"] p')];
+      expect(lines.length).toBeGreaterThan(6);
+      for (const line of lines) expect(line).toHaveClass(...LINE);
+      expect(section.querySelector('[data-testid="reason-box"] .text-xs')).toBeNull();
+      expect(within(section).getByText("덧붙임 한 줄")).toHaveAttribute("data-slot", "notes");
+    });
+
+    it("같은 사유 원문을 가진 약이 여럿이면 약 이름 줄을 여러 개 나열하고 줄마다 그 약의 건수다", () => {
+      const base = fixtures.doseDupResponse.detail[0];
+      const items = [
+        base,
+        { ...base, evidence_id: "dose:x02ATB" },
+        { ...base, evidence_id: "dose:y01ATB", drugs: ["다른아세트정"], drug_name: "다른아세트정" },
+        { ...base, evidence_id: "dose:x03ATB" },
+      ];
+      render(<EvidenceDetail response={{ ...fixtures.doseDupResponse, detail: items }} />);
+      const group = screen.getByTestId("reason-group");
+      expect(texts(within(group).getAllByTestId("reason-drug"))).toEqual(["가나다정 - 제형유형 3건", "다른아세트정 - 제형유형 1건"]);
+      expect(within(group).getAllByTestId("reason-drug").map((line) => line.getAttribute("data-evidence-ids"))).toEqual(["dose:100001ATB dose:x02ATB dose:x03ATB", "dose:y01ATB"]);
+    });
+
+    it("병용·임부 등 다른 종류는 현행 구조(약 이름(쌍) → 사유 원문)이고, 같은 내용이 2건 이상이면 기존 '같은 내용 N건'을 약 이름 줄에 둔다", () => {
+      const pair = fixtures.foundResponse.detail[0];
+      render(<EvidenceDetail response={{ ...fixtures.foundResponse, detail: [pair, { ...pair, evidence_id: "ev-pair-copy" }] }} />);
+      const group = screen.getByTestId("reason-group");
+      expect(group).toHaveAttribute("data-type", "pair");
+      expect(within(group).getByTestId("reason-drug").textContent).toBe(`${pair.drugs!.join(" · ")} - 같은 내용 2건`);
+      expect(within(group).getByTestId("reason-same-count").textContent).toBe("같은 내용 2건");
+      expect(texts(within(group).getAllByTestId("reason-text"))).toEqual(rowTexts(pair));
+      expect(screen.queryByTestId("reason-form-count")).toBeNull();
+    });
+
+    it("가리키는 판정 줄이 없는 금기 목록에 없음 근거는 글자를 지을 수 없어 넣지 않고, 다른 종류(임부금기)의 금기 목록에 없음은 지금처럼 판정에만 있다", () => {
+      const orphan = { ...fixtures.doseComboResponse, findings: fixtures.doseComboResponse.findings.filter((finding) => finding.evidence_id !== "ev-pair-u25") };
+      render(<EvidenceDetail response={orphan} />);
+      expect(screen.getAllByTestId("reason-box").map((box) => box.getAttribute("data-kind"))).toEqual(["dose"]);
+      expect(screen.queryByTestId("reason-not-listed")).toBeNull();
+      cleanupRender();
+      render(<EvidenceDetail response={fixtures.notListedResponse} />);
+      expect(sections()).not.toContain("reason");
+    });
+  });
+
+  describe("U-26-5·6 판정 구역: 같은 약 묶음·같은 내용 한 박스(2026-11-24)", () => {
+    const unknown = fixtures.unidentifiedResponse.findings[0];
+    const base = fixtures.doseComboResponse;
+    // 같은 약(가나다정)의 줄이 다른 약 줄 뒤에 한 번 더 오고, 약을 찾지 못한 같은 줄이 두 번 온다(ISSUE-033 "콜드-에스" 모양, 합성 값)
+    const pair = base.findings[2];
+    const response = {
+      ...base,
+      findings: [base.findings[0], base.findings[1], unknown, { ...unknown }, pair, { ...base.findings[0], sub_line: "다른 보조줄" }],
+    };
+
+    it("보이는 것이 같은 줄(같은 약 이름·같은 상태·같은 문장)은 한 박스로 묶고 기존 '같은 내용 N건'을 붙인다(새 글자 없음)", () => {
+      render(<EvidenceDetail response={response} />);
+      const unknownBoxes = screen.getAllByTestId("judgment-box").filter((box) => box.textContent?.includes(unknown.drug));
+      expect(unknownBoxes).toHaveLength(1);
+      expect(unknownBoxes[0]).toHaveAttribute("data-count", "2");
+      expect(within(unknownBoxes[0]).getByTestId("judgment-same-count").textContent).toBe("같은 내용 2건");
+      expect(within(unknownBoxes[0]).getByTestId("judgment-same-count")).toHaveClass("text-[13px]", "leading-[19px]");
+    });
+
+    it("같은 약 이름의 박스는 처음 나온 자리에 붙어 한 묶음(테두리를 이은 카드)이 되고, 묶음 안은 받은 순서다. 글자가 다른 줄은 묶지 않는다", () => {
+      render(<EvidenceDetail response={response} />);
+      const groups = screen.getAllByTestId("judgment-drug-group");
+      // 가나다정(2박스: 식별 줄 + 보조줄이 다른 식별 줄) → 라마바캡슐 → 차카타파정(같은 내용 2건) → 가나다정·라마바캡슐 쌍
+      expect(groups.map((group) => group.getAttribute("data-count"))).toEqual(["2", "1", "1", "1"]);
+      expect(within(groups[0]).getAllByTestId("line-title").map((el) => el.textContent)).toEqual(["가나다정", "가나다정"]);
+      expect(groups[0].className).toContain("[&>*:not(:first-child)]:rounded-t-none");
+      expect(screen.getAllByTestId("judgment-box")).toHaveLength(5); // 6줄 → 5박스(같은 내용 1쌍만 묶임)
+    });
+
+    it("묶기 열쇠는 근거 ID를 보지 않고, 보이는 값이 하나라도 다르면 따로다", () => {
+      const groups = groupJudgments([
+        { finding: unknown, item: null },
+        { finding: { ...unknown, evidence_id: "x" }, item: null },
+        { finding: { ...unknown, why: "다른 이유" }, item: null },
+      ]);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].boxes.map((box) => box.count)).toEqual([2, 1]);
+      expect(groups[0].boxes[0].evidenceIds).toEqual(["x"]);
+    });
   });
 
   it("묶기 열쇠: 약 이름·자료·출처 종류 글자·덧붙임 줄이 하나라도 다르면 따로 박스다", () => {

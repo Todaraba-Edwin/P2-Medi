@@ -126,3 +126,48 @@ describe("창 크기 기준선 가로지르기(FE-17 U-18)", () => {
     for (const width of [1024, 1100, 1280, 1600]) expect(computeLayout(collapsed, width).sidebarColumn).toBe("rail");
   });
 });
+
+describe("근거 상세가 열린 채 창이 줄 때 사이드바 자동 접힘(FE-17 U-18 추가 지시 2)", () => {
+  const resized = (from: number, to: number): ShellAction => ({ type: "viewportResized", from, to });
+  /** 1280에서 근거 상세를 열면 밀어서 펼친 상태다(사이드바 펼침 + 패널) */
+  const wideOpen = () => run(initialShellState, open(1280));
+
+  it("경계: 1232(밀기) → 1231(오버레이)로 줄면 레일로 접혀 dim(오버레이)이 생기지 않는다. 1232까지는 접지 않는다", () => {
+    expect(run(wideOpen(), resized(1280, 1232)).sidebarExpanded).toBe(true);
+    const next = run(wideOpen(), resized(1232, 1231));
+    expect(next).toMatchObject({ sidebarExpanded: false, evidenceTurnId: "turn-1" });
+    expect(computeLayout(next, 1231)).toMatchObject({ sidebarOverlay: false, sidebarColumn: "rail", panelOpen: true });
+    // 한 번에 크게 줄어도(1280 → 1100) 같다
+    expect(run(wideOpen(), resized(1280, 1100)).sidebarExpanded).toBe(false);
+  });
+
+  it("다시 넓어져도(1231 → 1280) 자동으로 펼치지 않는다(접힌 채, 단방향이라 경계를 오가도 깜박이지 않는다)", () => {
+    const folded = run(wideOpen(), resized(1280, 1231));
+    const widened = run(folded, resized(1231, 1280), resized(1280, 1231), resized(1231, 1232));
+    expect(widened.sidebarExpanded).toBe(false);
+    expect(computeLayout(widened, 1280)).toMatchObject({ sidebarColumn: "rail", sidebarOverlay: false });
+  });
+
+  it("사용자가 밀 수 없는 폭에서 직접 펼친 오버레이(+dim)는 그대로 둔다: 폭이 더 바뀌어도 접지 않는다", () => {
+    const manual = run(initialShellState, open(1100), { type: "toggleSidebar" });
+    expect(computeLayout(manual, 1100).sidebarOverlay).toBe(true);
+    expect(run(manual, resized(1100, 1050)).sidebarExpanded).toBe(true);
+    expect(run(manual, resized(1100, 1200)).sidebarExpanded).toBe(true);
+  });
+
+  it("근거 상세가 닫혀 있거나 사이드바가 이미 접혀 있거나 좁은 폭이 끼면 아무것도 바꾸지 않는다(같은 상태 객체)", () => {
+    const closed = run(initialShellState, open(1280), { type: "closeEvidence" });
+    expect(run(closed, resized(1280, 1100))).toBe(closed);
+    const rail = run(initialShellState, { type: "toggleSidebar" }, open(1280));
+    expect(run(rail, resized(1280, 1100))).toBe(rail);
+    const open1280 = wideOpen();
+    expect(run(open1280, resized(1280, 900))).toBe(open1280); // 기준선 아래로는 viewportCrossed가 맡는다
+    expect(run(open1280, resized(1280, 1300))).toBe(open1280);
+  });
+
+  it("넓어지며 기준선을 넘는 순간(좁은 폭에서 직접 연 시트 → 패널)은 이 규칙이 아니라 U-18 그대로 사이드바를 펼친다(§11 E6, 범위 밖·보고)", () => {
+    const manual = run(initialShellState, { type: "viewportCrossed", desktop: false }, open(900));
+    expect(run(manual, { type: "viewportCrossed", desktop: true }).sidebarExpanded).toBe(true);
+    expect(run(manual, resized(900, 1100))).toBe(manual); // 기준선을 넘는 폭 변화는 viewportResized가 판정하지 않는다(같은 상태)
+  });
+});
