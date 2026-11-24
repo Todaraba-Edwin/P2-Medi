@@ -32,6 +32,7 @@ export function EvidenceBox({
   children,
   className,
   testId = "evidence-box",
+  flat = false,
   ...data
 }: {
   title?: React.ReactNode;
@@ -39,11 +40,13 @@ export function EvidenceBox({
   children?: React.ReactNode;
   className?: string;
   testId?: string;
+  /** 카드 안의 칸으로 그릴 때 true: 테두리·둥근 모서리 없이 그리고 칸 사이 선은 감싸는 카드가 긋는다(FE-17 U-30 판정·사유 원문 묶음) */
+  flat?: boolean;
   /** 박스에 붙일 `data-*` 값(예: 묶인 근거 ID). 화면 글자가 아니다 */
   [key: `data-${string}`]: string | number | undefined;
 }) {
   return (
-    <div data-testid={testId} {...data} className={cn("flex flex-col gap-2 rounded-xl border border-line bg-bg px-3.5 py-3", className)}>
+    <div data-testid={testId} {...data} className={cn("flex flex-col gap-2 bg-bg px-3.5 py-3", !flat && "rounded-xl border border-line", className)}>
       {(title || tag) && (
         <div className="flex flex-wrap items-baseline justify-start gap-x-2.5 gap-y-1">
           {title ? <b className="max-w-full flex-none text-sm leading-5 font-semibold [overflow-wrap:break-word] [word-break:keep-all]">{title}</b> : null}

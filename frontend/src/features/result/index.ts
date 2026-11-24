@@ -15,3 +15,5 @@ export { hasApiFailInfo, isApiFailNotice, isApiFlagNote, notesWithoutApiFlag } f
 export { PREGNANCY_PICK_HINT } from "./copy";
 export { hideItemCode, isLabelFinding, isLabelOf, labelLines, mergeLabelFindings, splitItemCode } from "./label-merge";
 export type { MergedFinding } from "./label-merge";
+export { isApiSameNote, mergeSourceBadges, pairDoseLines, resultRows, shortStatusText, withoutApiSame } from "./row-merge";
+export type { DisplayBadge, PairDoseLine, ResultRow } from "./row-merge";

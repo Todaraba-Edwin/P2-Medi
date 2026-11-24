@@ -11,7 +11,7 @@ import { DISCLAIMER, FIXED_NOTICE } from "@/lib/fixed/phrases.generated";
 import { createAccountHandlers, mockSession } from "@/mocks/account-handlers";
 import type { AccountMockState } from "@/mocks/account-handlers";
 import { API_NO_CODE_NOTE, PHRASES } from "@/mocks/fixtures/phrases";
-import { handlers } from "@/mocks/handlers";
+import { createChatHandler, handlers } from "@/mocks/handlers";
 import { createPhotoHandlers } from "@/mocks/photo-handlers";
 import { createAccountStore } from "@/stores/account";
 import { createChatStore } from "@/stores/chat";
@@ -992,5 +992,80 @@ describe("본문 스크롤 영역과 내용 폭 분리(FE-17 U-27)", () => {
     // 차례는 모두 안쪽 열 안에 있다
     for (const turn of thread.querySelectorAll<HTMLElement>("[data-turn]")) expect(column).toContainElement(turn);
     expect(screen.getByTestId("dock")).toHaveClass(maxWidth, padding); // 대화 중에도 입력 영역 폭은 그대로
+  });
+});
+
+// FE-17 U-27 추가 지시 2(2026-11-24): 대화 중에는 스크롤 컨테이너(`chat-thread`)가 `main-body` 전체 높이를 차지하고, 입력 영역(`dock`)은 같은 영역 하단에 겹쳐 고정된다.
+// 대화 영역 아래 여백·`scroll-padding-bottom`은 입력 영역 높이 + 20px을 따른다. 시작 화면(`home`)은 입력창 위치가 지금 그대로다(겹치지 않음).
+// jsdom은 크기를 재지 않으므로 입력 영역 높이를 대역으로 주고 구조·여백 값을 본다. 실제 위치·스크롤은 e2e(ux-batch10)가 잰다
+describe("대화 영역 전체 높이 스크롤 + 입력 영역 하단 겹침(FE-17 U-27 추가 지시 2)", () => {
+  const DOCK_HEIGHT = 132;
+  function fakeDockHeight() {
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid === "dock") return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: DOCK_HEIGHT, width: 0, height: DOCK_HEIGHT, toJSON: () => ({}) } as DOMRect;
+      return original.call(this);
+    });
+  }
+
+  it.each([1280, 393])("%ipx: 시작 화면은 입력 영역이 흐름 안(겹침 없음), 대화가 시작되면 같은 입력 영역이 하단 겹침이 되고 대화 영역 아래 여백이 그 높이를 따른다", async (width) => {
+    const spy = fakeDockHeight();
+    const { user } = setup({ width });
+    await screen.findByTestId("home");
+    const body = screen.getByTestId("main-body");
+    const dock = screen.getByTestId("dock");
+    expect(body).toHaveClass("relative");
+    expect(dock).not.toHaveClass("absolute");
+    expect(dock).not.toHaveAttribute("data-overlay");
+    expect(screen.queryByTestId("dock-fade")).toBeNull();
+    const input = screen.getByRole("textbox");
+
+    await ask(user, "가나다정 먹어도 돼요");
+    // 같은 입력 영역 요소가 그대로다(입력창을 다시 만들지 않아 초점·입력이 이어진다)
+    expect(screen.getByTestId("dock")).toBe(dock);
+    expect(screen.getByRole("textbox")).toBe(input);
+    expect(dock).toHaveClass("absolute", "inset-x-0", "bottom-0", "z-10", "bg-bg");
+    expect(dock).toHaveAttribute("data-overlay");
+    expect(dock.parentElement).toBe(body);
+    // 단색 배경 + 위쪽 짧은 페이드(보조기기에는 숨김)
+    const fade = within(dock).getByTestId("dock-fade");
+    expect(fade).toHaveAttribute("aria-hidden", "true");
+    expect(fade).toHaveClass("pointer-events-none", "bottom-full", "h-4", "from-bg");
+    // 스크롤 컨테이너는 본문 영역 전체 높이(flex-1, 입력 영역이 높이를 빼앗지 않는다)이고 아래 여백이 입력 영역 높이를 따른다
+    const thread = screen.getByTestId("chat-thread");
+    expect(thread.parentElement).toBe(body);
+    expect(thread).toHaveClass("flex-1", "min-h-0", "overflow-y-auto");
+    await waitFor(() => expect(thread).toHaveAttribute("data-bottom-inset", String(DOCK_HEIGHT)));
+    expect(thread.style.paddingBottom).toBe(`${DOCK_HEIGHT + 20}px`);
+    expect(thread.style.scrollPaddingBottom).toBe(`${DOCK_HEIGHT + 20}px`);
+    // 입력 영역은 스크롤 영역보다 뒤(위에 그려진다)이고, 내용 열과 같은 폭 클래스다(U-27 가로 구조 유지)
+    expect(thread.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dock).toHaveClass(width >= 1024 ? "max-w-[880px]" : "max-w-[760px]", "mx-auto", "w-full");
+    // 하단 고지는 지금 문구 그대로(새 글자 없음), 입력창 아래 한 번
+    expect(within(dock).getAllByTestId("input-combined-notice")).toHaveLength(1);
+    expect(within(dock).getByTestId("input-combined-notice").textContent).toBe(INPUT_COMBINED_NOTICE);
+    spy.mockRestore();
+  });
+
+  it("입력 영역 높이가 0이면(겹침 크기 없음) 대화 영역 아래 여백은 예전 값(12px)이다", async () => {
+    const { user } = setup({ width: 1280 });
+    await ask(user, "가나다정 먹어도 돼요");
+    const thread = screen.getByTestId("chat-thread");
+    expect(thread).toHaveAttribute("data-bottom-inset", "0");
+    expect(thread.style.paddingBottom).toBe("12px");
+  });
+});
+
+// FE-17 U-30 불변 조건(하네스 원칙, 2026-11-24): 줄마다 반복되던 `(안전하다는 뜻이 아님)`을 떼도 결과 화면에는 "안전하다는 뜻이 아니에요" 안내가 최소 1회 남는다
+describe("U-30 결과 화면의 '안전하다는 뜻이 아니' 안내 최소 1회", () => {
+  it.each([1280, 393])("%ipx: 두 약 함께 묻기(u30) 결과 화면", async (width) => {
+    const { user } = setup({ width });
+    server.use(createChatHandler({ scenario: "u30" }));
+    await ask(user, "가나다정500 먹고 라마성분도 먹어도 돼요?");
+    const card = screen.getByTestId("result-card");
+    expect(card.textContent).not.toContain("(안전하다는 뜻이 아님)"); // 줄마다 반복되던 괄호 안내는 없다
+    expect(count("안전하다는 뜻이 아니")).toBeGreaterThanOrEqual(1);
+    expect(within(screen.getByTestId("chat-thread")).getByTestId("fixed-notice").textContent).toContain(FIXED_NOTICE);
+    expect(count("파일과 실시간 조회 결과가 같아요")).toBe(0);
   });
 });

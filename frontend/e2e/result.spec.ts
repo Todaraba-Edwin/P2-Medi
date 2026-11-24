@@ -148,12 +148,15 @@ for (const viewport of NARROW) {
       ]);
     });
 
-    test("'목록에 없음' 줄의 안전 아님 문구가 스크롤 없이 접히지 않은 채 보인다", async ({ page }) => {
+    // 기대값 갱신(2026-11-24, FE-17 U-30 (e) 사용자 "행마다 반복되는 '(안전하다는 뜻이 아님)' 정리, 제거"): 줄 글자는 `금기 목록에 없음`(받은 전체 글자는 data-full-text).
+    // "안전하다는 뜻이 아니에요" 안내는 결과 화면의 고정 안내가 보인다(앱 화면 e2e ux-batch10·flows가 최소 1회를 본다). 줄이 접히지 않고 보인다는 단언은 그대로다
+    test("'목록에 없음' 줄이 스크롤 없이 접히지 않은 채 보인다(괄호 안내는 떼고 전체 글자는 속성에)", async ({ page }) => {
       await page.goto("/dev/preview/result");
       const text = sample(page, "not-listed").getByTestId("line-text");
       await text.scrollIntoViewIfNeeded();
       await expect(text).toBeVisible();
-      await expect(text).toHaveText("금기 목록에 없음(안전하다는 뜻이 아님)");
+      await expect(text).toHaveText("금기 목록에 없음");
+      await expect(text).toHaveAttribute("data-full-text", "금기 목록에 없음(안전하다는 뜻이 아님)");
       expect(await sample(page, "not-listed").locator("details").count()).toBe(0);
     });
 

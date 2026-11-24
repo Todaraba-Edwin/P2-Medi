@@ -41,6 +41,7 @@ import {
   typoCorrectedResponse,
   unidentifiedMixedResponse,
   unidentifiedResponse,
+  u30Response,
 } from "./responses";
 
 export type ScenarioEnding =
@@ -205,6 +206,9 @@ export const scenarios = {
   // ---- FE-17 U-28
   /** 같은 약의 허가사항 미확보 줄(`{약} · 주의사항`, 글자 앞 품목 기준 코드)이 판정 줄과 따로 온다(ISSUE-034 모양) */
   labelMerge: normal(labelMergeResponse),
+  // ---- FE-17 U-30
+  /** 두 약 함께 묻기(ISSUE-035 모양): 출처만 다른 배지, 같은 약 두 줄, 쌍 줄 세 번째, 같은 문장 여러 행·행마다 반복 노트 */
+  u30: normal(u30Response),
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;

@@ -407,10 +407,11 @@ for (const width of [360, 320]) {
       page.on("pageerror", (error) => errors.push(error.message));
       await answered(page, "productRows");
       const card = page.getByTestId("result-card");
-      await expect(card.getByTestId("line-title")).toHaveText(["가나다정", "라마바캡슐", "가나다정 · 라마바캡슐"]);
-      await expect(card.getByTestId("status-badge")).toHaveText(["삐! 병용금기", "삐! 병용금기", "삐! 임부금기 2등급", "삐! 병용금기"]);
-      // 복합제 줄(첫 줄): 원인·중복 칸이 없는 칩은 모름이고 상태 글자가 없다
-      const comboChips = card.getByTestId("product-line").first().getByTestId("ingredient-chip");
+      // 기대값 갱신(2026-11-24, FE-17 U-30 (c)): 병용(쌍) 줄이 맨 위이고 그 밖은 받은 순서다(배지 글자·수는 그대로)
+      await expect(card.getByTestId("line-title")).toHaveText(["가나다정 · 라마바캡슐", "가나다정", "라마바캡슐"]);
+      await expect(card.getByTestId("status-badge")).toHaveText(["삐! 병용금기", "삐! 병용금기", "삐! 병용금기", "삐! 임부금기 2등급"]);
+      // 복합제 줄(가나다정): 원인·중복 칸이 없는 칩은 모름이고 상태 글자가 없다
+      const comboChips = card.getByTestId("product-line").nth(1).getByTestId("ingredient-chip");
       await expect(comboChips).toHaveText(["가나성분", "사아성분"]);
       for (const chip of await comboChips.all()) await expect(chip).toHaveAttribute("data-state", "unknown");
       await expectContained(card, '[data-testid="status-badge"], [data-testid="line-title"], [data-testid="ingredient-chip"]');
@@ -493,14 +494,15 @@ for (const width of [360, 320]) {
       const PAIR_NOT_CHECKED = "이 약과 함께 먹어도 되는지는 식약처·한국의약품안전관리원 자료에서 확인하지 못했어요. 안전하다는 뜻이 아니에요.";
       await answered(page, "pairNoEvidence");
       const card = page.getByTestId("result-card");
-      await expect(card.getByTestId("line-title")).toHaveText(["가나다정", "가나다정 · 사아자시럽"]);
-      await expect(card.getByTestId("line-text")).toHaveText(["찾음", PAIR_NOT_CHECKED]);
+      // 기대값 갱신(2026-11-24, FE-17 U-30 (c)): 병용(쌍) 줄이 맨 위다. 줄 글자·보조줄은 그대로다
+      await expect(card.getByTestId("line-title")).toHaveText(["가나다정 · 사아자시럽", "가나다정"]);
+      await expect(card.getByTestId("line-text")).toHaveText([PAIR_NOT_CHECKED, "찾음"]);
       await expect(card.getByText(PAIR_NOT_CHECKED)).toHaveCount(1); // 같은 문장이 두 번 보이지 않는다
       const lines = card.getByTestId("product-line");
-      await expect(lines.nth(0).locator('[data-slot="sub-line"]')).toHaveText("가나성분 · 사아성분");
-      await expect(lines.nth(0).getByTestId("ingredient-chip")).toHaveCount(0);
-      await expect(lines.nth(0)).not.toContainText("금기 목록에 없음");
-      await expect(lines.nth(1).locator('[data-slot="notes"], [data-slot="why"], [data-slot="next"]')).toHaveCount(0);
+      await expect(lines.nth(1).locator('[data-slot="sub-line"]')).toHaveText("가나성분 · 사아성분");
+      await expect(lines.nth(1).getByTestId("ingredient-chip")).toHaveCount(0);
+      await expect(lines.nth(1)).not.toContainText("금기 목록에 없음");
+      await expect(lines.nth(0).locator('[data-slot="notes"], [data-slot="why"], [data-slot="next"]')).toHaveCount(0);
       await expect(card.getByTestId("status-badge")).toHaveCount(0);
       await expect(card).not.toContainText("삐!");
       expect(await card.evaluate((el) => el.querySelector("details") === null)).toBe(true);
@@ -514,7 +516,9 @@ for (const width of [360, 320]) {
       const AGE_INFO_LINE = "나이를 특정할 수 없어 판정하지 않고, 이 약의 나이별 연령금기 기준을 원문 그대로 보여 드려요.";
       await answered(page, "ageInfo");
       const card = page.getByTestId("result-card");
-      const age = card.getByTestId("product-line").nth(0);
+      // 기대값 갱신(2026-11-24, FE-17 U-30 (c)): 병용(쌍) 줄이 맨 위로 와서 나이 줄은 쌍이 아닌 첫 줄(제품 줄)이다
+      const products = card.locator('[data-testid="product-line"][data-target="product"]');
+      const age = products.nth(0);
       await expect(age.getByTestId("line-title")).toHaveText("사아자시럽");
       // 안내 줄(서버 상수) → 나이 기준 값(원문, 한 값에 한 줄). 받은 순서 그대로
       await expect(age.locator('[data-slot="age-info"], [data-slot="age-criteria"]')).toHaveText([AGE_INFO_LINE, "12세 미만", "6개월 미만"]);
@@ -523,7 +527,7 @@ for (const width of [360, 320]) {
       // 성분 칩 상태 글자는 응답 값 그대로
       await expect(age.getByTestId("ingredient-chip")).toHaveText(["사아성분 · 중복"]);
       // 성분 중복 줄(주의 종류)의 글자도 받은 그대로
-      await expect(card.getByTestId("product-line").nth(1).getByTestId("line-text")).toHaveText("성분 중복");
+      await expect(card.locator('[data-testid="product-line"][data-target="pair"]').getByTestId("line-text")).toHaveText("성분 중복");
       expect(await card.evaluate((el) => el.querySelector("details") === null)).toBe(true);
       await expect(age.locator('[data-slot="age-info"]')).toBeVisible();
       await expectContained(card, '[data-slot="age-info"], [data-slot="age-criteria"], [data-testid="line-text"], [data-testid="ingredient-chip"]');
@@ -537,7 +541,8 @@ for (const width of [360, 320]) {
       const AGE_INFO_LINE = "나이를 특정할 수 없어 판정하지 않고, 이 약의 나이별 연령금기 기준을 원문 그대로 보여 드려요.";
       await answered(page, "ageInfo");
       await page.getByTestId("evidence-entry").click();
-      const box = sheet(page).getByTestId("judgment-box").nth(0);
+      // 기대값 갱신(2026-11-24, FE-17 U-30 (c)·(h)): 병용 카드가 맨 위라 나이 판정 칸은 연령금기 카드(`verdict-group[data-kind=age]`)의 첫 칸이다
+      const box = sheet(page).locator('[data-testid="verdict-group"][data-kind="age"]').getByTestId("judgment-box").nth(0);
       await expect(box.locator('[data-slot="age-info"], [data-slot="age-criteria"]')).toHaveText([AGE_INFO_LINE, "12세 미만", "6개월 미만"]);
       await expect(box.getByTestId("source-tag")).toHaveText("공식 파일 · 연령금기 파일"); // 종류 글자 · 자료 이름(받은 값)
       await expect(sheet(page).getByTestId("source-dataset")).toHaveText(["연령금기 파일"]); // 출처 표의 자료 열과 같은 글자
@@ -621,14 +626,18 @@ for (const width of [360, 320]) {
       await expectNoHorizontalScroll(page);
     });
 
-    test("상한 도달·목록에 없음: 안내 줄과 '안전하다는 뜻이 아님'이 접히지 않고 보인다", async ({ page }) => {
+    // 기대값 갱신(2026-11-24, FE-17 U-30 (e) 사용자 "행마다 반복되는 '(안전하다는 뜻이 아님)' 정리, 제거"): 줄은 `금기 목록에 없음`(받은 전체 글자는 data-full-text)이고,
+    // "안전하다는 뜻이 아니에요" 안내는 결과 화면의 고정 안내(접히지 않는 자리)가 보인다(최소 1회 보장)
+    test("상한 도달·목록에 없음: 안내 줄과 '금기 목록에 없음' 줄이 접히지 않고 보이고, '안전하다는 뜻이 아니에요' 안내가 결과 화면에 남는다", async ({ page }) => {
       await mockChat(page, "limit", "notListed");
       await openApp(page);
       await ask(page);
       await expect(page.getByTestId("result-notice")).toContainText("여기까지 확인한 결과만 보여 드려요.");
       await ask(page, "둘째 질문");
       const second = page.locator('[data-turn="turn-2"]');
-      await expect(second.getByTestId("line-text")).toHaveText("금기 목록에 없음(안전하다는 뜻이 아님)");
+      await expect(second.getByTestId("line-text")).toHaveText("금기 목록에 없음");
+      await expect(second.getByTestId("line-text")).toHaveAttribute("data-full-text", "금기 목록에 없음(안전하다는 뜻이 아님)");
+      await expectNoticeInResult(page, fixedNotice(page));
       await expect(second.getByTestId("status-badge")).toHaveCount(0); // "삐!"는 금기 발견에만
       expect(await second.getByTestId("result-card").evaluate((el) => el.querySelector("details") === null)).toBe(true);
       await expectNoHorizontalScroll(page);

@@ -1,7 +1,9 @@
-// 응답을 근거 상세의 구역(판정 → 사유 원문 → 허가사항 → 출처)으로 나눈다. 값을 만들거나 고치지 않고 받은 순서를 지킨다.
+// 응답을 근거 상세의 구역(판정·사유 원문 → 허가사항 → 출처)으로 나눈다. 값을 만들거나 고치지 않고 받은 순서를 지킨다.
 // (종류·상태 키 비교는 이 파일에 둔다: 내부 키 이름이 화면 부품 파일의 글자로 들어가지 않게)
+// FE-17 U-30(2026-11-24 사용자 "판정과 사유 원문을 하나에서 볼 수 있도록"): 판정 구역과 사유 원문 구역을 판정 종류별 묶음(`VerdictGroup`) 하나로 합쳤다.
 import type { ChatResponse, Citation, DetailItem, Finding } from "@/lib/api";
 import { mergeLabelFindings } from "@/features/result/label-merge";
+import { withoutApiSame } from "@/features/result/row-merge";
 
 const KIND_LABEL = "label"; // 허가사항·쉬운 설명 인용
 const KIND_IDENTIFY = "identify"; // 약 식별
@@ -9,8 +11,10 @@ const DATASET_PERMIT = "prmsn"; // 의약품 허가정보(허가사항 원문). 
 const ROW_TEXT_FIELDS = ["reason", "detail", "content", "remark", "text"] as const; // 원문 텍스트 칸(백엔드 quote_check.TEXT_FIELDS)
 const KIND_DOSE = "dose"; // 용량주의(하루 최대량은 성분 속성): 사유 원문 문장별 → 약 이름 + 제형유형 N건(FE-17 U-25)
 const KIND_CONTRA_PAIR = "contra_pair"; // 병용금기 쌍
-const STATUS_NOT_LISTED = "NOT_LISTED"; // 조회는 됐고 금기 목록에 없음(안전하다는 뜻이 아님)
-const BUCKET_NOT_LISTED = "not_listed"; // 판정 줄 묶음 키(같은 뜻)
+const KIND_PREGNANCY = "pregnancy"; // 임부금기(등급 정의 블록이 이 묶음 바로 아래에 온다)
+const TARGET_PAIR = "pair";
+/** 사유 원문 맨 앞의 영문 성분명 접두(`ibuprofen: `). 같은 문장이 이 접두 유무로만 다르게 오는 경우가 있다(ISSUE-035) */
+const EN_INGREDIENT_PREFIX = /^[A-Za-z][A-Za-z0-9 ,.'()/-]*:\s*/;
 
 export interface JudgmentEntry {
   finding: Finding;
@@ -102,14 +106,15 @@ export interface ReasonDrugLine {
   evidenceIds: string[];
 }
 
-/** 사유 원문 구역의 하위 묶음 하나(FE-17 U-25). 종류 묶음(`ReasonKindGroup`) 안에서 받은 순서대로 놓인다 */
+/**
+ * 사유 원문의 하위 묶음 하나(FE-17 U-25). 종류 묶음(`ReasonKindGroup`) 안에서 받은 순서대로 놓인다.
+ * 병용금기 쌍의 "금기 목록에 없음"은 U-30(판정·사유 통합)부터 같은 묶음의 판정 줄이 보이므로 여기 따로 두지 않는다
+ */
 export type ReasonEntry =
   /** 용량주의: 사유 원문 문장(제목처럼) → 그 문장을 가진 약 이름 줄들 */
   | { type: "text"; texts: string[]; notes: string[]; drugs: ReasonDrugLine[]; evidenceIds: string[] }
   /** 그 밖의 종류(병용·임부 등, 현행 구조): 약 이름(쌍) → 사유 원문. 같은 내용은 한 묶음(`groupReasons`, "같은 내용 N건") */
-  | { type: "pair"; group: ReasonGroup }
-  /** 병용금기 쌍이 금기 목록에 없음: 약 이름 쌍 → 판정 줄의 고정 문구(서버 값 그대로, 프런트가 짓지 않는다) */
-  | { type: "notListed"; item: DetailItem; names: string[]; text: string; evidenceIds: string[] };
+  | { type: "pair"; group: ReasonGroup };
 
 /** 사유 원문 구역의 판정 종류 묶음(FE-17 U-25): 종류·자료·출처 종류가 같은 근거를 한 박스로. 표지는 첫 항목의 것 그대로다 */
 export interface ReasonKindGroup {
@@ -120,6 +125,17 @@ export interface ReasonKindGroup {
   count: number;
   /** 이 박스에 든 근거 ID 전부(받은 순서) */
   evidenceIds: string[];
+}
+
+/**
+ * 판정·사유 원문 통합 구역의 묶음 하나(FE-17 U-30 (h)): 판정 종류(줄·근거의 `kind`)가 같은 판정 줄과 사유 원문 박스를 한 카드로 보인다.
+ * 판정 줄은 같은 약 묶음(U-26-5)·같은 내용 박스(U-26-6) 그대로, 사유 원문은 종류·자료·출처 종류 박스(U-25) 그대로다. 값은 만들거나 고치지 않는다
+ */
+export interface VerdictGroup {
+  /** 판정 종류 키(줄·근거의 `kind`). 화면 글자가 아니다 */
+  kind: string | null;
+  judgmentGroups: JudgmentDrugGroup[];
+  reasonKinds: ReasonKindGroup[];
 }
 
 export interface EvidenceSections {
@@ -133,6 +149,11 @@ export interface EvidenceSections {
    * 병용금기 쌍의 "금기 목록에 없음"도 같은 종류 묶음에 든다. 값은 받은 글자 그대로이고 묶기만 한다
    */
   reasonKinds: ReasonKindGroup[];
+  /**
+   * 판정·사유 원문 통합 구역(FE-17 U-30 (h)): 판정 종류 묶음. 병용(쌍 줄이 있는 묶음)이 맨 위(U-30 (c)), 그다음은 판정 줄의 종류가 처음 나온 순서,
+   * 판정 줄 없이 사유 원문만 있는 종류는 그 뒤에 처음 나온 순서다
+   */
+  verdicts: VerdictGroup[];
   /** 판정 근거 중 원문을 확보하지 못한 것 */
   reasonsMissing: DetailItem[];
   /** 허가사항 구역(인용 또는 미확보) */
@@ -159,8 +180,25 @@ export const isPermitItem = (item: DetailItem) => item.dataset_key === DATASET_P
 export const isLookupFinding = (finding: Finding) => finding.kind === KIND_IDENTIFY || finding.input_name !== null;
 
 /**
+ * 사유 원문 문장의 "같은 내용" 비교 글자(FE-17 U-30 (i), 2026-11-24 사용자 "'ibuprofen:'+ 되어 있더라도 내용이 같다면 하나로"):
+ * 맨 앞의 영문 성분명 접두(`ibuprofen: `)를 떼고, 공백을 모두 빼고, 숫자 사이가 아닌 마침표·쉼표를 뺀다(`미확립.임신`과 `미확립. 임신`은 같다).
+ * 숫자 사이의 마침표·쉼표(`1.5`·`4,000`)는 남긴다(값이 다른 문장을 묶지 않게). 낱말이 하나라도 다르면 다른 글자다. 화면 글자는 바꾸지 않는다(비교에만 쓴다)
+ */
+export function reasonTextKey(text: string): string {
+  const compact = text.replace(EN_INGREDIENT_PREFIX, "").replace(/\s+/g, "");
+  let out = "";
+  for (let i = 0; i < compact.length; i += 1) {
+    const char = compact[i];
+    if ((char === "." || char === ",") && !(/\d/.test(compact[i - 1] ?? "") && /\d/.test(compact[i + 1] ?? ""))) continue;
+    out += char;
+  }
+  return out;
+}
+
+/**
  * 사유 박스의 "같은 내용" 열쇠: 박스에 보이는 것 전부(종류, 박스 제목, 표지, 원문 문장, 덧붙임 줄).
- * 하나라도 다르면 다른 박스다(글자가 조금이라도 다른 원문·다른 약·다른 자료는 묶지 않는다)
+ * 하나라도 다르면 다른 박스다(다른 약·다른 자료·다른 덧붙임 줄은 묶지 않는다). 원문 문장은 `reasonTextKey`로 비교해 영문 성분명 접두·공백·문장 부호만 다른 문장은
+ * 같은 내용으로 묶는다(FE-17 U-30 (i)). 덧붙임 줄의 `파일과 실시간 조회 결과가 같아요`는 화면에서 빼므로 비교에서도 뺀다(U-30 (f))
  */
 function reasonKey(item: DetailItem): string {
   return JSON.stringify([
@@ -170,8 +208,8 @@ function reasonKey(item: DetailItem): string {
     item.dataset,
     item.source_kind,
     item.source_kind_label ?? null,
-    rowTexts(item),
-    item.notes,
+    rowTexts(item).map(reasonTextKey),
+    withoutApiSame(item.notes),
   ]);
 }
 
@@ -197,15 +235,15 @@ export const drugNamesOf = (item: DetailItem): string[] => (item.drugs && item.d
 const kindKey = (item: DetailItem) => JSON.stringify([item.kind, item.dataset, item.source_kind, item.source_kind_label ?? null]);
 
 /**
- * 사유 원문 구역을 판정 종류 → 하위 묶음으로 나눈다(FE-17 U-25, U-19 후속 통합). 값을 만들거나 고치지 않는다.
- * - `items`: 원문을 확보한 판정 근거와 금기 목록에 없는 병용금기 쌍(받은 순서). `notListedText`에 있는 항목은 그 판정 줄 글자와 함께 "금기 목록에 없음" 묶음이 된다
+ * 사유 원문을 판정 종류 → 하위 묶음으로 나눈다(FE-17 U-25, U-19 후속 통합). 값을 만들거나 고치지 않는다.
+ * - `items`: 원문을 확보한 판정 근거(받은 순서)
  * - 용량주의는 사유 원문 문장(+ 덧붙임 줄)이 같은 항목을 한 묶음으로, 그 안에서 약 이름이 같은 항목을 한 줄로 모은다(줄의 항목 수 = 제형 코드 수).
- *   글자가 조금이라도 다른 원문(예 "으로 4,000mg"과 "으로써 4000mg")은 다른 묶음이다
- * - 그 밖의 종류는 기존 묶음(`groupReasons`: 약 이름·원문·덧붙임 줄이 같으면 하나)을 하위 묶음으로 둔다
+ *   글자가 조금이라도 다른 원문(예 "으로 4,000mg"과 "으로써 4000mg")은 다른 묶음이다(용량 숫자 문장은 비교 글자를 정규화하지 않는다)
+ * - 그 밖의 종류는 기존 묶음(`groupReasons`: 약 이름·원문(`reasonTextKey`)·덧붙임 줄이 같으면 하나)을 하위 묶음으로 둔다
  * 종류 묶음·하위 묶음·줄의 순서는 모두 처음 나온 순서다
  */
-export function groupReasonKinds(items: readonly DetailItem[], notListedText: ReadonlyMap<DetailItem, string> = new Map()): ReasonKindGroup[] {
-  type Slot = { type: "text"; key: string } | { type: "pair"; key: string } | { type: "notListed"; item: DetailItem; text: string };
+export function groupReasonKinds(items: readonly DetailItem[]): ReasonKindGroup[] {
+  type Slot = { type: "text"; key: string } | { type: "pair"; key: string };
   const kinds = new Map<string, { item: DetailItem; slots: Slot[]; items: DetailItem[] }>();
   const textGroups = new Map<string, { texts: string[]; notes: string[]; lines: Map<string, ReasonDrugLine>; items: DetailItem[] }>();
   const pairItems = new Map<string, DetailItem[]>();
@@ -214,16 +252,12 @@ export function groupReasonKinds(items: readonly DetailItem[], notListedText: Re
     let kind = kinds.get(key);
     if (!kind) kinds.set(key, (kind = { item, slots: [], items: [] }));
     kind.items.push(item);
-    const text = notListedText.get(item);
-    if (text !== undefined) {
-      kind.slots.push({ type: "notListed", item, text });
-      continue;
-    }
     if (item.kind === KIND_DOSE) {
-      const textKey = JSON.stringify([key, rowTexts(item), item.notes]);
+      const notes = withoutApiSame(item.notes);
+      const textKey = JSON.stringify([key, rowTexts(item), notes]);
       let group = textGroups.get(textKey);
       if (!group) {
-        textGroups.set(textKey, (group = { texts: rowTexts(item), notes: item.notes, lines: new Map(), items: [] }));
+        textGroups.set(textKey, (group = { texts: rowTexts(item), notes, lines: new Map(), items: [] }));
         kind.slots.push({ type: "text", key: textKey });
       }
       group.items.push(item);
@@ -252,43 +286,65 @@ export function groupReasonKinds(items: readonly DetailItem[], notListedText: Re
         const drugs = [...group.lines.values()].map((line) => ({ ...line, evidenceIds: idsOf(line.items) }));
         return { type: "text", texts: group.texts, notes: group.notes, drugs, evidenceIds: idsOf(group.items) };
       }
-      if (slot.type === "pair") return { type: "pair", group: groupReasons(pairItems.get(slot.key)!)[0] };
-      return { type: "notListed", item: slot.item, names: drugNamesOf(slot.item), text: slot.text, evidenceIds: idsOf([slot.item]) };
+      return { type: "pair", group: groupReasons(pairItems.get(slot.key)!)[0] };
     }),
   }));
 }
 
 /**
- * 금기 목록에 없는 병용금기 쌍(FE-17 U-25 "병용금기 묶음에 약 이름 쌍 + 고정 문구"): 원문이 없는 `NOT_LISTED` 근거와 그 근거를 가리키는 판정 줄의 글자.
- * 글자는 판정 줄(`findings[].text`, 서버 고정 문구)을 그대로 쓴다. 가리키는 줄이 없으면 글자를 지을 수 없으므로 넣지 않는다
+ * 판정·사유 원문 통합 묶음(FE-17 U-30 (h)·(c)). 판정 줄은 줄의 `kind`, 사유 원문 박스는 근거의 `kind`로 같은 묶음에 든다.
+ * 묶음 순서: 쌍 줄(병용)이 든 묶음 → 판정 줄의 종류가 처음 나온 순서 → 판정 줄 없이 사유 원문만 있는 종류(처음 나온 순서). 묶음 안의 순서는 받은 순서다
  */
-function notListedPairs(response: ChatResponse, judgmentItems: readonly DetailItem[]): Map<DetailItem, string> {
-  const out = new Map<DetailItem, string>();
-  for (const item of judgmentItems) {
-    if (item.kind !== KIND_CONTRA_PAIR || item.status !== STATUS_NOT_LISTED || item.missing_text !== null || rowTexts(item).length > 0 || item.evidence_id === null) continue;
-    const finding = response.findings.find((f) => f.evidence_id === item.evidence_id && f.bucket === BUCKET_NOT_LISTED);
-    if (finding) out.set(item, finding.text);
+export function groupVerdicts(judgments: readonly JudgmentEntry[], reasonKinds: readonly ReasonKindGroup[]): VerdictGroup[] {
+  const order: (string | null)[] = [];
+  const byKind = new Map<string | null, { judgments: JudgmentEntry[]; reasons: ReasonKindGroup[]; pair: boolean }>();
+  const slot = (kind: string | null) => {
+    let entry = byKind.get(kind);
+    if (!entry) {
+      byKind.set(kind, (entry = { judgments: [], reasons: [], pair: false }));
+      order.push(kind);
+    }
+    return entry;
+  };
+  for (const judgment of judgments) {
+    const entry = slot(judgment.finding.kind);
+    entry.judgments.push(judgment);
+    if (judgment.finding.target === TARGET_PAIR) entry.pair = true;
   }
-  return out;
+  for (const reason of reasonKinds) slot(reason.item.kind).reasons.push(reason);
+  const groups = order.map((kind) => ({ kind, ...byKind.get(kind)! }));
+  const isPair = (group: (typeof groups)[number]) => group.pair || (group.judgments.length === 0 && group.kind === KIND_CONTRA_PAIR);
+  return [...groups.filter(isPair), ...groups.filter((group) => !isPair(group))].map(({ kind, judgments: entries, reasons }) => ({
+    kind,
+    judgmentGroups: groupJudgments(entries),
+    reasonKinds: reasons,
+  }));
+}
+
+/** 등급 정의 블록을 바로 아래에 둘 묶음의 자리(임부금기 묶음, 없으면 null = 구역 끝) */
+export function gradeDefAnchor(verdicts: readonly VerdictGroup[]): number | null {
+  const index = verdicts.findIndex((group) => group.kind === KIND_PREGNANCY);
+  return index < 0 ? null : index;
 }
 
 export function buildSections(response: ChatResponse): EvidenceSections {
   const byId = new Map(response.detail.filter((item) => item.evidence_id !== null).map((item) => [item.evidence_id, item]));
   const judgmentItems = response.detail.filter((item) => item.kind !== KIND_LABEL && item.kind !== KIND_IDENTIFY);
   const reasonItems = judgmentItems.filter((item) => item.missing_text === null && rowTexts(item).length > 0);
-  const notListed = notListedPairs(response, judgmentItems);
   // 같은 약의 허가사항 항목 줄은 그 약의 판정 줄 안으로 합친다(FE-17 U-28 (b), 본문 결과 카드와 같은 규칙): 판정 구역에 따로 박스를 두지 않는다
   const judgments = mergeLabelFindings(response.findings).map(({ finding, labels }) => ({
     finding,
     item: (finding.evidence_id && byId.get(finding.evidence_id)) || null,
     labels,
   }));
+  const reasonKinds = groupReasonKinds(reasonItems);
   return {
     judgments,
     judgmentGroups: groupJudgments(judgments),
     reasons: groupReasons(reasonItems),
-    // 받은 순서 그대로: 원문 근거와 금기 목록에 없는 쌍이 detail 안에서 놓인 순서다
-    reasonKinds: groupReasonKinds(judgmentItems.filter((item) => notListed.has(item) || reasonItems.includes(item)), notListed),
+    // 받은 순서 그대로: 원문 근거가 detail 안에서 놓인 순서다
+    reasonKinds,
+    verdicts: groupVerdicts(judgments, reasonKinds),
     reasonsMissing: judgmentItems.filter((item) => item.missing_text !== null),
     labels: response.detail.filter(isLabelItem),
     citations: response.citations,

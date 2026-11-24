@@ -4,6 +4,8 @@ import { ChatResponseSchema } from "@/lib/api/schemas";
 import type { ChatResponse, ChatResponseInput } from "@/lib/api/types";
 import {
   API_NO_CODE_NOTE,
+  API_SAME_NOTE,
+  GRADE_MISMATCH_NOTE_NEXT,
   BADGE_SOURCE_TAIL,
   CAUTION_DOSE,
   CAUTION_DUP_INGREDIENT,
@@ -1221,6 +1223,145 @@ export const labelMergeResponse = make(
   },
   [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
 );
+
+// ---------------------------------------------------------------- FE-17 U-30(ISSUE-035 "타이레놀정500 먹고 이부프로펜도 먹어도 돼요?" 모양, 합성 값)
+/** 함께 묻는 두 약: 식별된 제품(가나성분 단일제)과 성분 이름으로만 확인된 약(라마성분). 실제 제품·성분이 아니다 */
+const U30_TY = "가나다정500밀리그람(가나성분)";
+const U30_IB = "라마성분";
+/** 라마성분 임부금기 파일 사유 원문(합성). 같은 문장이 공백·영문 성분명 접두만 달리 여러 번 온다(ISSUE-035 `같은 내용 13건`·`9건`·`11건` 모양) */
+const U30_PREG_TEXT = "임부에 대한 합성 안전성 미확립.임신 말기 합성 문장.임신 약 20주 이후 합성 문장";
+const U30_PREG_TEXT_PREFIXED = `ramaingr: ${U30_PREG_TEXT}`;
+const U30_PREG_TEXT_SPACED = "임부에 대한 합성 안전성 미확립. 임신 말기 합성 문장. 임신 약 20주 이후 합성 문장";
+/** 완전히 다른 내용(외용)의 사유 원문: 따로 남는다 */
+const U30_PREG_TEXT_TOPICAL = "(외용) 임신 후반기 합성 외용 문장";
+/** 성분 API 원문(합성): 경구·외용 문장이 한 칸에, 비고 칸이 따로 온다(서버 `rows[].content`·`remark`) */
+const U30_API_CONTENT = "(경구, 주사)- 임부에 대한 합성 안전성 미확립.(외용)- 임신 후반기 합성 외용 문장";
+const U30_API_REMARK = "겔제, 첩부제 포함";
+const U30_API_CONTENT_G1 = "(경구, 주사)- 합성 1등급 문장";
+/** 가나성분(라마성분 복합 제형) 용량주의 문장의 글자가 조금 다른 것: 묶지 않는다 */
+const U30_DOSE_TY_VARIANT = "가나성분으로써 4,000mg";
+const U30_PREG_DATES = [{ label: "기준일", value: "2026-07-21" }] as const;
+const U30_API_DATES = [{ label: "조회", value: "2026-11-24" }] as const;
+/** 등급 불일치 안내: 사용자 제공 새 문구(BE 반영 대기, `GRADE_MISMATCH_NOTE_NEXT`). 근거마다 붙어 온다 */
+const U30_NOTES = [API_SAME_NOTE, GRADE_MISMATCH_NOTE_NEXT];
+
+const u30PregFile = (id: string, text: string): DetailInput => ({
+  evidence_id: id,
+  kind: "pregnancy",
+  status: "FOUND",
+  source_kind: "FILE",
+  dataset_key: "pregnancy",
+  dataset: DATASET_PREGNANCY,
+  publisher: PUBLISHER_KIDS,
+  dates: [...U30_PREG_DATES],
+  drug_name: U30_IB,
+  rows: [{ grade: "2", detail: text }],
+  drugs: [U30_IB],
+  notes: [...U30_NOTES],
+});
+const u30PregApi = (id: string, grade: "1" | "2", content: string, remark: string | null): DetailInput => ({
+  evidence_id: id,
+  kind: "pregnancy",
+  status: "FOUND",
+  source_kind: "API_DIRECT",
+  dataset_key: "dur_ingr",
+  dataset: DATASET_DUR_INGR,
+  publisher: PUBLISHER_MFDS,
+  dates: [...U30_API_DATES],
+  drug_name: U30_IB,
+  rows: [{ grade, content, ...(remark ? { remark } : {}) }],
+  drugs: [U30_IB],
+  notes: [...U30_NOTES],
+});
+const ids = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}-${i + 1}`);
+const u30PregFileItems: DetailInput[] = [
+  ...ids("preg-ib-a", 5).map((id) => u30PregFile(id, U30_PREG_TEXT)),
+  ...ids("preg-ib-b", 3).map((id) => u30PregFile(id, U30_PREG_TEXT_PREFIXED)),
+  ...ids("preg-ib-c", 2).map((id) => u30PregFile(id, U30_PREG_TEXT_TOPICAL)),
+  ...ids("preg-ib-d", 3).map((id) => u30PregFile(id, U30_PREG_TEXT_SPACED)),
+];
+const u30PregApiItems: DetailInput[] = [u30PregApi("preg-ib-api-2", "2", U30_API_CONTENT, U30_API_REMARK), u30PregApi("preg-ib-api-1", "1", U30_API_CONTENT_G1, null)];
+const u30DoseItems: DetailInput[] = [
+  ...doseCodes("3000", 6).map((code) => doseDetail(code, U30_TY, DOSE_DUP_A_TEXT)),
+  ...doseCodes("4000", 23).map((code) => doseDetail(code, U30_IB, DOSE_DUP_B_TEXT)),
+  doseDetail("400099ATB", U30_IB, U30_DOSE_TY_VARIANT),
+];
+const u30PairItem: DetailInput = { ...doseComboPairItem, evidence_id: "ev-pair-u30", drugs: [U30_TY, U30_IB] };
+const u30TyPreg: DetailInput = { ...pregDetail("NOT_LISTED", U30_TY), evidence_id: "ev-preg-ty-u30" };
+const u30Badge = (grade: "1" | "2", source: "FILE" | "API_DIRECT", id: string) => ({
+  kind: "pregnancy",
+  grade,
+  source,
+  text: `${pregnancyBadge(grade)} ${BADGE_SOURCE_TAIL[source]}`,
+  evidence_id: id,
+});
+
+/**
+ * FE-17 U-30 사례 모양(합성 값, ISSUE-035): 두 약을 함께 묻는 질문의 결과. 서버가 지금 보내는 줄 순서·모양 그대로다.
+ * ① 라마성분 제품 줄: 임부금기 배지 3개(2등급 파일·2등급 성분 API·1등급 성분 API) + 덧붙임 `파일과 실시간 조회 결과가 같아요`·`하루 최대량 주의 성분 포함`
+ * ② 가나다정 용량주의 줄(배지 없음) ③ 쌍 줄(금기 목록에 없음, 세 번째) ④ 가나다정 임부금기 금기 목록에 없음 줄(같은 약이 두 줄).
+ * 근거 상세: 임부금기 파일 사유 원문이 공백·`ramaingr:` 접두만 다른 같은 문장 11건 + 다른 내용(외용) 2건, 근거마다 같은 덧붙임 줄 2개(행마다 반복),
+ * 성분 API 2건(경구·외용 문장 + 비고), 용량주의 30건(가나다정 6 · 라마성분 23 · 글자가 조금 다른 1)
+ */
+export const u30Response = make({
+  route: "AGENT",
+  end_reason: "NORMAL",
+  summary: `${U30_TY}과 ${U30_IB}은 병용금기 목록에 함께 올라 있지 않아요. 복용 전 약사에게 확인해 주세요.`,
+  findings: [
+    {
+      target: "product",
+      bucket: "found",
+      evidence_id: null,
+      kind: "pregnancy",
+      drug: U30_IB,
+      drugs: [U30_IB],
+      text: `${pregnancyBadge("2")} ${BADGE_SOURCE_TAIL.FILE}`,
+      badges: [u30Badge("2", "FILE", "preg-ib-a-1"), u30Badge("2", "API_DIRECT", "preg-ib-api-2"), u30Badge("1", "API_DIRECT", "preg-ib-api-1")],
+      ingredients: [{ code: "400001ATB", name: U30_IB, contra_kinds: ["pregnancy"], dup: false }],
+      notes: [API_SAME_NOTE, CAUTION_DOSE],
+      grades: ["2", "1"],
+    },
+    {
+      target: "product",
+      bucket: "found",
+      evidence_id: "dose:300001ATB",
+      kind: "dose",
+      drug: U30_TY,
+      drugs: [U30_TY],
+      text: CAUTION_DOSE,
+      source_label: fileLabel(DATASET_DOSE),
+    },
+    {
+      target: "pair",
+      bucket: "not_listed",
+      evidence_id: "ev-pair-u30",
+      kind: "contra_pair",
+      drug: `${U30_TY}${NAME_JOIN}${U30_IB}`,
+      drugs: [U30_TY, U30_IB],
+      text: PHRASES.NOT_LISTED,
+      notes: [API_SAME_NOTE],
+      source_label: fileLabel(DATASET_CONTRA_PAIR),
+    },
+    {
+      target: "product",
+      bucket: "not_listed",
+      evidence_id: "ev-preg-ty-u30",
+      kind: "pregnancy",
+      drug: U30_TY,
+      drugs: [U30_TY],
+      text: PHRASES.NOT_LISTED,
+      notes: [API_SAME_NOTE],
+      source_label: fileLabel(DATASET_PREGNANCY),
+    },
+  ],
+  detail: [...u30PregFileItems, ...u30PregApiItems, ...u30DoseItems, u30PairItem, u30TyPreg],
+  citations: [
+    { publisher: PUBLISHER_KIDS, dataset: DATASET_PREGNANCY, dates: [...U30_PREG_DATES], source_kind: "FILE", evidence_ids: [...u30PregFileItems.map((item) => item.evidence_id!), "ev-preg-ty-u30"] },
+    { publisher: PUBLISHER_MFDS, dataset: DATASET_DUR_INGR, dates: [...U30_API_DATES], source_kind: "API_DIRECT", evidence_ids: u30PregApiItems.map((item) => item.evidence_id!) },
+    { publisher: PUBLISHER_KIDS, dataset: DATASET_DOSE, dates: [...doseDates], source_kind: "FILE", evidence_ids: u30DoseItems.map((item) => item.evidence_id!) },
+    { publisher: PUBLISHER_KIDS, dataset: DATASET_CONTRA_PAIR, dates: [{ label: "기준일", value: "2026-07-31" }], source_kind: "FILE", evidence_ids: ["ev-pair-u30"] },
+  ],
+});
 
 /** 거절(복용량 결정 요청) */
 export const refuseResponse = make({

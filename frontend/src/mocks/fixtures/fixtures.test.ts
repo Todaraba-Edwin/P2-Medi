@@ -61,6 +61,9 @@ describe("fixture 문구는 백엔드 상수 원문과 같다", () => {
     expect(API_FLAG_NOTES).toContain(phrases.API_FAIL_NOTE);
     expect(API_FLAG_NOTES).toContain(phrases.API_NO_CODE_NOTE);
     expect(NOTICE_API_FAIL).toBe(phrases.PHRASES.NOTICE_API_FAIL);
+    // FE-17 U-30: `파일과 실시간 조회 결과가 같아요`(FLAG_NOTES["API_SAME"]) 원문. 등급 불일치 새 문구는 BE 반영 전이라 백엔드 원문과 다르다(반영되면 PHRASES로 옮긴다)
+    expect(provenance).toContain(`"API_SAME": "${phrases.API_SAME_NOTE}"`);
+    expect(phrases.GRADE_MISMATCH_NOTE_NEXT).not.toBe(phrases.PHRASES.GRADE_MISMATCH_NOTE);
   });
 });
 

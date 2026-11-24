@@ -71,7 +71,8 @@ for (const width of [393, 1280]) {
         const ids = (await boxes.evaluateAll((els) => els.flatMap((el) => (el.getAttribute("data-evidence-ids") ?? "").split(" ")))).filter(Boolean);
         expect(ids).toHaveLength(30);
         expect(new Set(ids).size).toBe(30);
-        await expect(detail.getByTestId("evidence-section")).toHaveCount(3);
+        // 기대값 갱신(2026-11-24, FE-17 U-30 (h)): 판정·사유 원문이 한 구역이라 구역은 판정·사유 원문 · 출처 2개다
+        await expect(detail.getByTestId("evidence-section")).toHaveCount(2);
         // 박스 안 글자·표지가 박스 밖으로 나가지 않고 가로 스크롤이 없다
         for (const reasonBox of await boxes.all()) {
           const outer = await box(reasonBox);
@@ -82,7 +83,7 @@ for (const width of [393, 1280]) {
           }
         }
         await expectNoHorizontalScroll(page);
-        await detail.locator('[data-section="reason"]').scrollIntoViewIfNeeded();
+        await boxes.first().scrollIntoViewIfNeeded();
         await shot(page, `${base}-u19-after`);
       });
 

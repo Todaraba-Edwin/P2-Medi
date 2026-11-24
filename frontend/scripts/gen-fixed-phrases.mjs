@@ -6,6 +6,10 @@
 // - NOTICE_API_FAIL·API_FLAG_NOTES: 실시간 확인 실패 배너·줄 노트의 **판별용** 원문(FE-11-10 A, 2026-11-20). 화면에 그리는 값이 아니라
 //   응답의 `notice`·`findings[].notes[]`가 이 글자이면 본문에 두지 않고 근거 상세로 옮기기 위한 비교 기준이다(고지 배치는 화면 몫).
 //   서버 조립: `finalize._notes` → `provenance.api_flag_note` = FLAG_NOTES[API_FAIL·API_PAIR_INCOMPLETE] 또는 API_REASON_NOTES[사유]
+// - API_SAME_NOTE·NOT_LISTED·CAUTION_DOSE_LABEL: 결과 화면 표시 가공의 **판별용** 원문(FE-17 U-30, 2026-11-24). 화면에 새로 그리는 값이 아니다.
+//   API_SAME_NOTE(provenance FLAG_NOTES["API_SAME"] "파일과 실시간 조회 결과가 같아요")는 줄 노트에서 빼고(본문·근거 상세),
+//   NOT_LISTED는 판정 줄 글자가 이 글자와 같을 때만 괄호 안내를 떼어 보이며(결과 화면의 고정 안내가 같은 뜻을 한 번 이상 보인다),
+//   CAUTION_DOSE_LABEL(CAUTION_LABELS["dose"])은 두 약이 모두 하루 최대량 주의 성분을 가졌는지 가려 병용 줄에 같은 글자를 다시 보인다
 // 실행: node scripts/gen-fixed-phrases.mjs
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -70,6 +74,12 @@ const apiFlagNotes = [
   dictValue(prov, "API_REASON_NOTES", "API_REASON_TRUNCATED", "provenance.py"),
 ];
 
+// 결과 화면 표시 가공의 판별용(FE-17 U-30)
+const apiSameNote = dictValue(prov, "FLAG_NOTES", '"API_SAME"', "provenance.py");
+const notListed = constant(py, "NOT_LISTED");
+const cautionDose = /^CAUTION_LABELS\s*=\s*\{[^\n}]*"dose":\s*"((?:[^"\\]|\\.)*)"/m.exec(py)?.[1];
+if (!cautionDose) throw new Error("fixed_phrases.py의 CAUTION_LABELS에서 dose를 찾지 못했다");
+
 const out = `// 생성 파일이다. 손으로 고치지 않는다.
 // 원본: backend/app/agent/fixed_phrases.py (FIXED_NOTICE, DISCLAIMER, START_EMERGENCY_119, NOTICE_API_FAIL),
 //       backend/app/tools/provenance.py (FLAG_NOTES[API_FAIL·API_PAIR_INCOMPLETE], API_REASON_NOTES → API_FLAG_NOTES)
@@ -79,11 +89,16 @@ const out = `// 생성 파일이다. 손으로 고치지 않는다.
 // - START_EMERGENCY_119: 시작 화면 119 안내(질문을 보내기 전). 외부 AI 고지는 입력창 아래 고지 하나다(PRD-17-10 A)
 // - NOTICE_API_FAIL·API_FLAG_NOTES: 화면에 그리지 않는다. 응답의 \`notice\`·\`findings[].notes[]\`가 이 글자이면 본문이 아니라 근거 상세에만
 //   둔다(FE-11-10 A "고지 배치는 화면 몫", \`features/result/realtime-notice.ts\`). 응답 글자가 바뀌면 이 값도 다시 만든다
+// - API_SAME_NOTE·NOT_LISTED·CAUTION_DOSE_LABEL: 결과 화면 표시 가공의 판별용(FE-17 U-30, \`features/result/row-merge.ts\`). 새로 그리는 값이 아니다
+//   (원본: provenance.FLAG_NOTES["API_SAME"], fixed_phrases.NOT_LISTED, fixed_phrases.CAUTION_LABELS["dose"])
 export const FIXED_NOTICE = ${JSON.stringify(fixedNotice)};
 export const DISCLAIMER = ${JSON.stringify(disclaimer)};
 export const START_EMERGENCY_119 = ${JSON.stringify(startEmergency)};
 export const NOTICE_API_FAIL = ${JSON.stringify(noticeApiFail)};
 export const API_FLAG_NOTES: readonly string[] = ${JSON.stringify(apiFlagNotes, null, 2)};
+export const API_SAME_NOTE = ${JSON.stringify(apiSameNote)};
+export const NOT_LISTED = ${JSON.stringify(notListed)};
+export const CAUTION_DOSE_LABEL = ${JSON.stringify(cautionDose)};
 `;
 writeFileSync(TARGET, out);
 process.stdout.write(`wrote ${path.relative(process.cwd(), TARGET)}\n`);

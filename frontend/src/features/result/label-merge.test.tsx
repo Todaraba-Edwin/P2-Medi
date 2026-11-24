@@ -145,9 +145,11 @@ describe("근거 상세: 같은 약 카드 안 한 그룹", () => {
     const extra: Finding = { ...label, drug: `${owner.drug} · 주의사항` };
     render(<EvidenceDetail response={{ ...dup, findings: [...dup.findings, extra], detail: [...dup.detail, response.detail[3]] }} />);
     const groups = screen.getAllByTestId("judgment-drug-group");
-    expect(groups.map((group) => group.getAttribute("data-count"))).toEqual(["2", "1", "1", "1"]);
+    // 기대값 갱신(2026-11-24, FE-17 U-30 (c)): 병용(쌍) 묶음이 맨 위로 온다. 같은 약 묶음(가나다정 2박스)·같은 내용 박스 수는 그대로다
+    expect(groups.map((group) => group.getAttribute("data-count"))).toEqual(["1", "2", "1", "1"]);
+    expect(within(groups[0]).getByTestId("product-line")).toHaveAttribute("data-target", "pair");
     expect(screen.getAllByTestId("judgment-same-count")).toHaveLength(1);
-    const ownerBoxes = within(groups[0]).getAllByTestId("judgment-box");
+    const ownerBoxes = within(groups[1]).getAllByTestId("judgment-box");
     expect(ownerBoxes[0].querySelectorAll('[data-merged="label"]')).toHaveLength(1);
     expect(ownerBoxes[1].querySelectorAll('[data-merged="label"]')).toHaveLength(0);
     expect(screen.queryAllByText(`${owner.drug} · 주의사항`)).toHaveLength(0);
