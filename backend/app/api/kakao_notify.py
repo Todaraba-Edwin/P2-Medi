@@ -4,7 +4,7 @@
   실패는 경고 로그 한 줄에 예외 **종류 이름**만 남긴다(토큰·응답 본문·URL 쿼리는 남기지 않는다).
 - 스위치: `KAKAO_REST_API_KEY`·`KAKAO_REFRESH_TOKEN`이 모두 있고 `MEDIAGENT_NOTIFY`가 꺼짐(0·false·off)이 아닐 때만 켠다. 아니면 `from_settings`가 None.
 - 흐름: refresh token → access token(`kauth.kakao.com/oauth/token`) → 메모 API(`kapi.kakao.com/v2/api/talk/memo/default/send`, 텍스트 템플릿).
-  응답에 새 refresh token이 오면(남은 유효기간 1개월 미만일 때만 옴) 로컬 파일(`data/mock/kakao_refresh_token.local`, `data/`는 .gitignore)에 저장한다.
+  응답에 새 refresh token이 오면(남은 유효기간 1개월 미만일 때만 옴) 로컬 파일(`data/ops/kakao_refresh_token.local`, `data/`는 .gitignore)에 저장한다.
 - 메시지는 단계 이름·초·개수만 담는다(사용자·질문·약명·IP 없음).
 """
 
@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 TOKEN_ENDPOINT = "https://kauth.kakao.com/oauth/token"  # noqa: S105 - 공개 URL
 MEMO_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
 TIMEOUT_SECONDS = 3.0
-TOKEN_FILE = REPO_ROOT / "data" / "mock" / "kakao_refresh_token.local"
+TOKEN_FILE = REPO_ROOT / "data" / "ops" / "kakao_refresh_token.local"
+_DEFAULT_TOKEN_FILE: Any = object()  # 인자 생략 표지(호출 때 `TOKEN_FILE`을 읽어 시험이 경로를 바꿀 수 있게 한다)
 _LINK = "https://developers.kakao.com"  # 텍스트 템플릿의 link 칸용 자리값(알림 클릭 대상 없음)
 
 # 전송 함수: (url, headers, form) -> (HTTP 상태, JSON 본문 dict). 시험은 가짜로 주입한다.
@@ -59,7 +60,9 @@ class KakaoNotifier:
 
     @classmethod
     def from_settings(cls, settings: Any, *, send: SendFn | None = None,
-                      token_file: Path | None = TOKEN_FILE) -> KakaoNotifier | None:
+                      token_file: Path | None = _DEFAULT_TOKEN_FILE) -> KakaoNotifier | None:
+        if token_file is _DEFAULT_TOKEN_FILE:
+            token_file = TOKEN_FILE
         if not notify_enabled(settings):
             return None
         key = reveal(getattr(settings, "kakao_rest_api_key", None))

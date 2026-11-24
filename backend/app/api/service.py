@@ -342,6 +342,15 @@ def start_warmup(runner: ChatRunner | None, settings: Any) -> threading.Thread |
     return runner.start_warmup()
 
 
+def notify_startup(runner: ChatRunner | None, settings: Any) -> threading.Thread | None:
+    """서버 시작 완료 알림(운영자 전용, 사용자 요청 2026-11-24). lifespan 시작 단계가 끝나 `yield` 직전에 부른다(uvicorn의
+    `Application startup complete` 직전). 별도 스레드로 보내므로 시작을 막지 않고, 키가 없거나 스위치가 꺼졌으면 아무것도 하지 않는다."""
+    notifier = getattr(runner, "_notifier", None) or _safe_notifier(settings)
+    if notifier is None:
+        return None
+    return notifier.notify("[MediAgent-Can-I-PPiyak] 서버 시작 완료")
+
+
 def make_service_runner(settings: Any, *, resources_factory: ResourcesFactory | None = None) -> ChatRunner | None:
     """설정이 갖춰졌으면 지연 실행기, 아니면 None. 이 함수는 자원을 만들지 않고 어디에도 접속하지 않는다."""
     missing = missing_settings(settings)
@@ -349,8 +358,9 @@ def make_service_runner(settings: Any, *, resources_factory: ResourcesFactory | 
         logger.info("chat runner not attached (/chat stays 501); missing settings: %s", ", ".join(missing))
         return None
     logger.info("chat runner attached (resources are built once, by the startup warmup or the first request)")
-    return LazyGraphRunner(settings, resources_factory or default_resources)
+    # 알림 전송기는 한 번만 만들어 준비 알림과 시작 알림이 같이 쓴다(액세스 토큰·새 refresh token 갱신이 겹치지 않게)
+    return LazyGraphRunner(settings, resources_factory or default_resources, notifier=_safe_notifier(settings))
 
 
 __all__ = ["BUILD_LABEL", "REQUEST_USAGE", "REQUIRED_ENV", "LazyGraphRunner", "PrimedConnFactory", "RequestUsage", "UsageMeter",
-           "build_step", "default_resources", "make_service_runner", "missing_settings", "request_deps", "start_warmup"]
+           "build_step", "default_resources", "make_service_runner", "missing_settings", "notify_startup", "request_deps", "start_warmup"]

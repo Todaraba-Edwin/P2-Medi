@@ -10,7 +10,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"                       # 시험에서만 덮어쓴다
-LOCAL_TOKEN_FILE="${KAKAO_LOCAL_TOKEN_FILE:-$REPO_ROOT/data/mock/kakao_refresh_token.local}"
+LOCAL_TOKEN_FILE="${KAKAO_LOCAL_TOKEN_FILE:-$REPO_ROOT/data/ops/kakao_refresh_token.local}"
 REDIRECT_URI="${KAKAO_REDIRECT_URI:-http://localhost:3000/kakao-callback}"
 
 [ -f "$ENV_FILE" ] || { echo "오류: .env를 찾을 수 없다($ENV_FILE)" >&2; exit 1; }

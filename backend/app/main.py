@@ -87,6 +87,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     auth.set_verifier(app, auth.build_verifier(settings_now))  # 접속 0. 설정이 모자라면 None → 토큰이 온 /me는 501
     # BE-11-24 A: 탈퇴 때 auth.users 삭제(Admin API). 접속 0. SUPABASE_URL·SUPABASE_SECRET_KEY가 없으면 None → 탈퇴 502
     auth_admin.set_auth_admin(app, auth_admin.build_auth_admin(settings_now))
+    service.notify_startup(runner, settings_now)  # 운영자 알림(키 없으면 무동작, 별도 스레드라 시작을 막지 않는다)
     try:
         yield
     finally:  # 종료: 저장소를 떼고 풀을 닫는다(풀이 없으면 닫을 것 없음. 요청별 연결은 요청 안에서 닫힌다)

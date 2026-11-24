@@ -44,6 +44,14 @@ def _notifier(http, **kw) -> KakaoNotifier:
     return n
 
 
+@pytest.fixture(autouse=True)
+def _isolate_kakao(monkeypatch, tmp_path):
+    """실제 키·토큰 파일이 시험에 섞이지 않게 한다(사용자 환경에 실제 값이 있어도 통과해야 함)."""
+    for name in ("KAKAO_REST_API_KEY", "KAKAO_CLIENT_SECRET", "KAKAO_REFRESH_TOKEN", "MEDIAGENT_NOTIFY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(kakao_notify, "TOKEN_FILE", tmp_path / "kakao_refresh_token.local")
+
+
 def _fake_factory(_settings):
     class _Deps:  # noqa: D401
         pass
@@ -180,3 +188,34 @@ def test_default_transport_encodes_form(monkeypatch):
     status, body = kakao_notify._post_form(MEMO_URL, {"Authorization": "Bearer t"}, {"template_object": "{}"})
     assert (status, body["result_code"], seen["timeout"]) == (200, 0, 3.0)
     assert urllib.parse.parse_qs(seen["body"]) == {"template_object": ["{}"]}
+
+
+def test_startup_notification_uses_shared_notifier_and_prefix():
+    http = FakeHttp()
+    n = _notifier(http)
+    runner = service.LazyGraphRunner(_settings(), _fake_factory, notifier=n)
+    thread = service.notify_startup(runner, _settings())
+    assert thread is not None
+    _join(n)
+    memos = [json.loads(f["template_object"])["text"] for url, _h, f in http.calls if url == MEMO_URL]
+    assert memos == ["[MediAgent-Can-I-PPiyak] 서버 시작 완료"]
+
+
+def test_startup_notification_is_noop_without_keys_or_when_switched_off():
+    assert service.notify_startup(None, _settings(kakao_rest_api_key=None)) is None
+    assert service.notify_startup(None, _settings(mediagent_notify=False)) is None
+
+
+def test_startup_notification_failure_never_raises():
+    http = FakeHttp(raises=OSError("boom"))
+    n = _notifier(http)
+    runner = service.LazyGraphRunner(_settings(), _fake_factory, notifier=n)
+    thread = service.notify_startup(runner, _settings())
+    assert thread is not None
+    _join(n)  # 예외가 스레드 밖으로 나오지 않는다
+
+
+def test_make_service_runner_shares_one_notifier(monkeypatch):
+    monkeypatch.setattr(service, "missing_settings", lambda _s: [])
+    runner = service.make_service_runner(_settings())
+    assert runner is not None and getattr(runner, "_notifier", None) is not None
