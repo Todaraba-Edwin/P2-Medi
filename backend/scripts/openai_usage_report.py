@@ -164,14 +164,14 @@ DAY_ABBR = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 
 
 def _week_block(by_day: dict[date, Bucket], monday: date, last: date, first: date | None = None) -> list[str]:
-    """한 ISO 주의 보고 줄들(접두 제외): `YYYY`, `ISO 현재/전체(월~일) Total $X`, 월요일부터 `last`까지 `DDD(MM/DD) $X`."""
+    """한 ISO 주의 보고 줄들(접두 제외): `YYYY (UTC)`, `ISO 현재/전체(월~일) Total $X`, 월요일부터 `last`까지 `DDD(MM/DD) $X`."""
     iso_year, iso_week, _ = monday.isocalendar()
     sunday = monday + timedelta(days=6)
     total_weeks = date(iso_year, 12, 28).isocalendar().week  # 12/28은 항상 그 해의 마지막 ISO 주에 속한다
     start = first or monday  # 일일 보고는 어제 하루만, `--week-of`는 월요일부터
     span = [start + timedelta(days=i) for i in range((last - start).days + 1)]
     week_total = sum(by_day[d].total for d in span if d in by_day)
-    lines = [f"{iso_year}", f"ISO {iso_week}/{total_weeks}({monday:%m/%d}~{sunday:%m/%d}) Total {fmt_usd(week_total)}"]
+    lines = [f"{iso_year} (UTC)", f"ISO {iso_week}/{total_weeks}({monday:%m/%d}~{sunday:%m/%d}) Total {fmt_usd(week_total)}"]
     for d in span:
         lines.append(f"{DAY_ABBR[d.weekday()]}({d:%m/%d}) {fmt_usd(by_day[d].total) if d in by_day else '$0.00'}")
     return lines
