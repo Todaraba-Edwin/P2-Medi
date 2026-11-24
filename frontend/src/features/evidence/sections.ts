@@ -1,6 +1,7 @@
 // 응답을 근거 상세의 구역(판정 → 사유 원문 → 허가사항 → 출처)으로 나눈다. 값을 만들거나 고치지 않고 받은 순서를 지킨다.
 // (종류·상태 키 비교는 이 파일에 둔다: 내부 키 이름이 화면 부품 파일의 글자로 들어가지 않게)
 import type { ChatResponse, Citation, DetailItem, Finding } from "@/lib/api";
+import { mergeLabelFindings } from "@/features/result/label-merge";
 
 const KIND_LABEL = "label"; // 허가사항·쉬운 설명 인용
 const KIND_IDENTIFY = "identify"; // 약 식별
@@ -15,6 +16,8 @@ export interface JudgmentEntry {
   finding: Finding;
   /** 이 줄의 근거 항목(`evidence_id`가 같은 것). 없으면 null */
   item: DetailItem | null;
+  /** 이 줄 안으로 합친 같은 약의 허가사항 항목 줄(FE-17 U-28, `mergeLabelFindings`). 없으면 빈 목록 */
+  labels?: Finding[];
 }
 
 /**
@@ -36,7 +39,7 @@ export interface JudgmentDrugGroup {
 }
 
 /** 판정 줄이 화면에 보이는 모든 값(근거 ID와 짝 참조 ID는 빼고) + 박스 표지. 하나라도 다르면 다른 박스다 */
-function judgmentKey({ finding, item }: JudgmentEntry): string {
+function judgmentKey({ finding, item, labels = [] }: JudgmentEntry): string {
   // 근거 ID는 화면 글자가 아니므로 비교에서 뺀다(같은 내용이 다른 근거 ID로 두 번 온 경우를 묶는다)
   const visible = { ...finding, evidence_id: null, pair_ref: null, badges: finding.badges.map((badge) => ({ ...badge, evidence_id: null })) };
   const { pair_ref } = finding;
@@ -44,6 +47,8 @@ function judgmentKey({ finding, item }: JudgmentEntry): string {
     visible,
     pair_ref ? { ...pair_ref, evidence_ids: [] } : null,
     item ? [item.dataset, item.source_kind, item.source_kind_label ?? null] : null,
+    // 합친 허가사항 항목 줄(FE-17 U-28)도 박스에 보이는 값이다(근거 ID는 뺀다)
+    labels.map((label) => ({ ...label, evidence_id: null })),
   ]);
 }
 
@@ -55,14 +60,15 @@ export function groupJudgments(entries: readonly JudgmentEntry[]): JudgmentDrugG
   const boxes = new Map<string, JudgmentBox & { drug: string }>();
   for (const entry of entries) {
     const key = judgmentKey(entry);
-    const id = entry.finding.evidence_id;
+    // 줄의 근거 ID 다음에 합친 허가사항 항목 줄의 근거 ID(받은 순서)
+    const ids = [entry.finding.evidence_id, ...(entry.labels ?? []).map((label) => label.evidence_id)].filter((id): id is string => id !== null);
     const box = boxes.get(key);
     if (box) {
       box.count += 1;
-      if (id !== null) box.evidenceIds.push(id);
+      box.evidenceIds.push(...ids);
     } else {
       const drug = entry.finding.drugs.length > 0 ? entry.finding.drugs.join(" · ") : entry.finding.drug;
-      boxes.set(key, { ...entry, drug, count: 1, evidenceIds: id === null ? [] : [id] });
+      boxes.set(key, { ...entry, drug, count: 1, evidenceIds: ids });
     }
   }
   const groups = new Map<string, JudgmentDrugGroup>();
@@ -271,7 +277,12 @@ export function buildSections(response: ChatResponse): EvidenceSections {
   const judgmentItems = response.detail.filter((item) => item.kind !== KIND_LABEL && item.kind !== KIND_IDENTIFY);
   const reasonItems = judgmentItems.filter((item) => item.missing_text === null && rowTexts(item).length > 0);
   const notListed = notListedPairs(response, judgmentItems);
-  const judgments = response.findings.map((finding) => ({ finding, item: (finding.evidence_id && byId.get(finding.evidence_id)) || null }));
+  // 같은 약의 허가사항 항목 줄은 그 약의 판정 줄 안으로 합친다(FE-17 U-28 (b), 본문 결과 카드와 같은 규칙): 판정 구역에 따로 박스를 두지 않는다
+  const judgments = mergeLabelFindings(response.findings).map(({ finding, labels }) => ({
+    finding,
+    item: (finding.evidence_id && byId.get(finding.evidence_id)) || null,
+    labels,
+  }));
   return {
     judgments,
     judgmentGroups: groupJudgments(judgments),

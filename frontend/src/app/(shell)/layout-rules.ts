@@ -38,6 +38,11 @@ export type ShellAction =
   | { type: "closeEvidence" }
   | { type: "newChat" }
   /**
+   * 이번 탭의 다른 대화로 옮겼다(FE-17 U-29). 드로어를 닫고, 그 대화를 떠날 때 열려 있던 근거 상세(`evidenceTurnId`)를 넓은 폭에서만 다시 연다
+   * (여는 규칙은 `openEvidence`와 같다: 새로 열리며 사이드바가 오버레이가 될 폭이면 함께 접는다). 좁은 폭(시트)은 닫힌 채 옮긴다
+   */
+  | { type: "restoreChat"; evidenceTurnId: string | null; width: number }
+  /**
    * 창 크기가 사이드바 기준선(`DESKTOP_MIN_WIDTH`)을 가로질렀다(FE-17 U-18). 좁아지면(`desktop: false`) 사이드바·드로어를 닫고,
    * 넓어지면(`desktop: true`) 사이드바를 펼치고 드로어 상태를 지운다. 같은 구간 안의 크기 변화에는 보내지 않는다(사용자 토글을 덮지 않는다).
    * 근거 상세(FE-17 U-18 추가 지시, 2026-11-24): 좁아질 때만 닫는다(우측 패널이 본문을 덮는 시트로 바뀌지 않게). 넓어질 때는 다시 열지 않고
@@ -83,6 +88,12 @@ export function shellReducer(state: ShellState, action: ShellAction): ShellState
       return { ...state, evidenceTurnId: null }; // 사이드바 상태는 건드리지 않는다
     case "newChat":
       return { ...state, drawerOpen: false, evidenceTurnId: null };
+    case "restoreChat": {
+      const base = { ...state, drawerOpen: false, evidenceTurnId: null };
+      return action.evidenceTurnId !== null && isDesktopWidth(action.width)
+        ? shellReducer(base, { type: "openEvidence", turnId: action.evidenceTurnId, width: action.width })
+        : base;
+    }
     case "viewportCrossed":
       return { ...state, sidebarExpanded: action.desktop, drawerOpen: false, evidenceTurnId: action.desktop ? state.evidenceTurnId : null };
     case "viewportResized": {

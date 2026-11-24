@@ -85,6 +85,11 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const pregnancySaveSeq = useRef(0);
   const turns = useChatStore((state) => state.turns, store);
   const emergency = useChatStore((state) => state.emergency, store);
+  /** 이번 탭의 대화들(FE-17 U-29, 메모리). 사이드바 `지금 대화` 목록이 된다 */
+  const conversations = useChatStore((state) => state.conversations, store);
+  const currentChatId = useChatStore((state) => state.currentId, store);
+  /** 대화를 옮기며 대상을 되살렸을 때, 대상 변경 효과가 되살린 대화의 토글 값을 프로필 값으로 덮지 않게 한 번 건너뛴다 */
+  const skipPregnantSync = useRef(false);
   const [shell, dispatch] = useReducer(shellReducer, initialShellState);
   /** 약관·정책 열람 화면 열림 여부(계정 메뉴의 `약관·정책` 항목, 2026-11-23). 계정과 상관없이 게스트도 연다. 화면 모드는 메뉴 안에서 바로 고른다(FE-12-03 B) */
   const [legalOpen, setLegalOpen] = useState(false);
@@ -118,24 +123,49 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     }
   }, [account, accountEnabled]);
 
-  // 넓은 폭에서는 판정 줄이 있는 답이 도착하면 근거 상세를 연다(디자인 반영본). 여는 동작 안에서 사이드바 판정도 같이 한다
+  // 넓은 폭에서는 판정 줄이 있는 답이 도착하면 근거 상세를 연다(디자인 반영본). 여는 동작 안에서 사이드바 판정도 같이 한다.
+  // 다른 대화의 답이 뒤에서 도착하면(FE-17 U-29, 백그라운드 스트림) 지금 화면은 그대로 두고, 그 대화로 돌아갈 때 열리도록 적어 둔다.
+  // 대화를 옮긴 갱신(`currentId`가 바뀜)은 새 답이 아니므로 건너뛴다(근거 상세는 옮기는 쪽이 되살린다)
   useEffect(
     () =>
       store.subscribe((next, prev) => {
-        if (next.turns === prev.turns) return;
-        for (const turn of next.turns) {
-          const response = turn.stream.response;
-          if (!response || response.findings.length === 0) continue;
-          if (prev.turns.find((before) => before.id === turn.id)?.stream.response) continue; // 이미 받은 답
-          if (isDesktopWidth(window.innerWidth)) dispatch({ type: "openEvidence", turnId: turn.id, width: window.innerWidth });
+        if (next.conversations === prev.conversations || next.currentId !== prev.currentId) return;
+        for (const conversation of next.conversations) {
+          const before = prev.conversations.find((item) => item.id === conversation.id);
+          if (before?.turns === conversation.turns) continue;
+          for (const turn of conversation.turns) {
+            const response = turn.stream.response;
+            if (!response || response.findings.length === 0) continue;
+            if (before?.turns.find((item) => item.id === turn.id)?.stream.response) continue; // 이미 받은 답
+            if (!isDesktopWidth(window.innerWidth)) continue;
+            if (conversation.id === next.currentId) dispatch({ type: "openEvidence", turnId: turn.id, width: window.innerWidth });
+            else store.getState().setScreen(conversation.id, { evidenceTurnId: turn.id });
+          }
         }
       }),
     [store],
   );
 
+  // 로그아웃·탈퇴·계정 전환(FE-17 U-29): 이번 탭에 남겨 둔 다른 대화들을 지운다(다른 계정의 프로필 문맥과 섞이지 않게).
+  // 보고 있던 대화는 예전처럼 그대로 둔다(기존 동작 "로그아웃·탈퇴 뒤에도 대화는 그대로다", 화면·드로어도 그대로). 게스트가 로그인하는 것은 비우지 않는다
+  useEffect(
+    () =>
+      account.subscribe((next, prev) => {
+        const loggedOut = prev.status === "member" && next.status === "guest";
+        const switched = prev.me !== null && next.me !== null && prev.me.user_id !== next.me.user_id;
+        if (loggedOut || switched) store.getState().keepOnlyCurrent();
+      }),
+    [account, store],
+  );
+
   // 대상(또는 그 프로필의 임신 여부)이 바뀌면 토글(대화 묶음)은 그 프로필 값으로 시작한다(§7.1 규칙 ①·②).
-  // 저장에 실패해 프로필이 그대로면 이 값이 바뀌지 않으므로 대화 값(토글)은 유지된다(FE-11-13 "실패 시 대화 값 유지")
+  // 저장에 실패해 프로필이 그대로면 이 값이 바뀌지 않으므로 대화 값(토글)은 유지된다(FE-11-13 "실패 시 대화 값 유지").
+  // 이번 탭의 다른 대화로 옮기며 그 대화의 대상을 되살린 경우(FE-17 U-29)는 그 대화의 토글 값을 그대로 둔다
   useEffect(() => {
+    if (skipPregnantSync.current) {
+      skipPregnantSync.current = false;
+      return;
+    }
     store.getState().setContext({ pregnant: profilePregnant });
   }, [store, targetProfileId, profilePregnant]);
 
@@ -223,13 +253,20 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     const target = selectTargetProfile(state);
     return { age: profileToContext(target, hasHealthConsent(state.me)).age, pregnant: !hidesPregnancyToggle(target) && store.getState().context.pregnant === true };
   };
+  /** 지금 대화로 보내는 순간의 대상을 적어 둔다(FE-17 U-29: 이 대화로 돌아올 때 대상을 되살린다) */
+  const noteTarget = () => {
+    const { currentId, setScreen } = store.getState();
+    setScreen(currentId, { targetProfileId: account.getState().targetProfileId });
+  };
   // 새 질문: 이번 질문의 되묻기 답은 없다(`confirmed_drugs=[]`, AG-21-02 A). 이전 차례의 선택(`priorDrugs`)은 그대로 실린다
   const send = (question: string) => {
     store.getState().setContext({ ...targetContext(), confirmedDrugs: [] });
+    noteTarget();
     void store.getState().send(question);
   };
   /**
-   * 새 대화(사이드바 `새 대화`, FE-17 U-21 추가의 대상 변경). 진행 중인 응답은 `reset()`이 끊는다.
+   * 새 대화(사이드바 `새 질문`, FE-17 U-21 추가의 대상 변경). FE-17 U-29(2026-11-24): 지금 대화는 지우지 않고 이번 탭의 목록에 남긴다.
+   * 진행 중인 응답은 끊지 않고 그 대화에 계속 쌓인다(스토어의 대화별 요청). 떠나는 대화의 근거 상세 열림 상태는 돌아올 때를 위해 적어 둔다.
    * 새 대화의 토글은 대상 프로필 값으로(게스트는 일반인). 대상을 막 바꾼 경우에는 렌더 시점 값(`profilePregnant`)이 이전 대상의 것이므로
    * 지금 스토어 상태로 다시 계산한다(`pregnantOf`)
    */
@@ -237,12 +274,41 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     const target = selectTargetProfile(state);
     return !hidesPregnancyToggle(target) && profileToContext(target, hasHealthConsent(state.me)).pregnant === true;
   };
+  const leaveChat = () => {
+    const { currentId, setScreen } = store.getState();
+    setScreen(currentId, { evidenceTurnId: shell.evidenceTurnId });
+  };
   const newChat = () => {
-    store.getState().reset();
+    leaveChat();
+    store.getState().startNew();
     store.getState().setContext({ pregnant: pregnantOf(account.getState()) });
     setPregnancyNote({ key: "", hint: false, error: null });
-    setPicked({});
     dispatch({ type: "newChat" });
+  };
+  /**
+   * 이번 탭의 다른 대화로 옮긴다(사이드바 `지금 대화` 항목, FE-17 U-29). 질문·답·고른 후보(차례 id별)·묶음은 스토어·화면 상태에 그대로 있어 다시 보이고,
+   * 떠날 때 열려 있던 근거 상세는 넓은 폭에서 다시 연다. 그 대화에서 질문할 때의 대상이 지금 대상과 다르면 그 대상으로 되돌린다
+   * (프로필이 그사이 지워졌으면 지금 대상을 그대로 둔다). 진행 중이던 응답은 끊지 않는다
+   */
+  const selectChat = (id: string) => {
+    const state = store.getState();
+    if (id === state.currentId) {
+      dispatch({ type: "closeDrawer" });
+      return;
+    }
+    const screen = state.conversations.find((conversation) => conversation.id === id)?.screen;
+    if (!screen) return;
+    leaveChat();
+    state.switchTo(id);
+    const target = screen.targetProfileId;
+    const accountState = account.getState();
+    const restorable = target === null || (target !== undefined && accountState.profiles.some((profile) => profile.profile_id === target));
+    if (accountState.status === "member" && restorable && target !== accountState.targetProfileId) {
+      skipPregnantSync.current = true;
+      accountState.setTarget(target ?? null);
+    }
+    setPregnancyNote({ key: "", hint: false, error: null });
+    dispatch({ type: "restoreChat", evidenceTurnId: screen.evidenceTurnId, width });
   };
   /**
    * 임신 여부 토글 변경(FE-11-13·14 A): 대화 값은 바로 바꾼다. 로그인 + 건강 정보 동의 + 대상 프로필이 있으면 그 프로필의 `pregnancy_status`를
@@ -272,7 +338,8 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
     const current = account.getState().targetProfileId;
     const changed = profileId !== current;
     const inConversation = store.getState().turns.length > 0;
-    if (changed) store.getState().setContext({ priorDrugs: [] });
+    // 대화 중이면 새 대화가 빈 묶음으로 시작한다: 떠나는 대화의 이전 선택은 그 대화에 남긴다(FE-17 U-29, 돌아가면 그 대상으로 이어 묻는다)
+    if (changed && !inConversation) store.getState().setContext({ priorDrugs: [] });
     account.getState().setTarget(profileId);
     if (changed && inConversation) newChat();
   };
@@ -293,6 +360,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
       confirmedDrugs: chosen.map((candidate) => ({ name: candidate.name, itemSeq: candidate.item_seq, inputName: candidate.input_name })),
     });
     // 말풍선에는 무엇을 골랐는지 보이고(FE-09-04 A), 서버로는 원 질문을 보낸다
+    noteTarget();
     void store.getState().send(turn.question, resendBubbleText(names));
   };
   const focusInput = () => main.current?.querySelector("textarea")?.focus();
@@ -302,6 +370,7 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
    */
   const sendFromPhoto = (input: ChatInputFromPhoto) => {
     store.getState().setContext({ ...targetContext(), confirmedDrugs: input.confirmedDrugs });
+    noteTarget();
     void store.getState().send(input.question);
   };
   const openPhoto = () => {
@@ -351,7 +420,12 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   const accountMenu = <AccountMenu {...menuProps} />;
 
   const first = turns[0];
-  const sidebar = { firstQuestion: first?.question ?? null, onNewChat: newChat, account: accountMenu };
+  // 사이드바 `지금 대화` 목록(FE-17 U-29): 질문이 있는 대화만, 최근에 만든 대화가 위. 제목은 첫 질문(지금 규칙 그대로), 지금 대화는 강조
+  const chats = conversations
+    .filter((conversation) => conversation.turns.length > 0)
+    .map((conversation) => ({ id: conversation.id, title: conversation.turns[0].question, current: conversation.id === currentChatId }))
+    .reverse();
+  const sidebar = { chats, onNewChat: newChat, onSelectChat: selectChat, account: accountMenu };
   /** 내용 폭 열(FE-17 U-27): 스크롤 영역 안쪽 래퍼와 입력 영역이 같은 폭·좌우 여백을 쓴다. 스크롤 컨테이너 자체는 본문 전체 폭이다 */
   const column = cn("mx-auto w-full", layout.desktop ? "max-w-[880px] px-6" : "max-w-[760px] px-3");
 

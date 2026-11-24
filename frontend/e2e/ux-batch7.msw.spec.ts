@@ -1,12 +1,12 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { FIXED_NOTICE as FIXED_NOTICE_TEXT, HEIGHT, ask, expectNoHorizontalScroll, mockChat, openApp, pickTarget, waitHeld } from "./helpers";
+import { FIXED_NOTICE as FIXED_NOTICE_TEXT, HEIGHT, ask, expectNoHorizontalScroll, mockChat, openApp, pickTarget, release, waitHeld } from "./helpers";
 
 // FE-17 UI/UX 다듬기 7차(2026-11-24 "모아서 진행")를 목(MSW) 워커로 끝까지 본다. 393·1280 × 라이트·다크.
 // - U-24 수정: 병아리 ↔ 단계 목록 간격 +12px(24px), 진행 중 글자 쉬머는 더 밝은 띠가 왼쪽 → 오른쪽으로 계속 지나간다(움직임 줄이기에서 멈춤)
 // - U-18 추가 지시 2: 1280(근거 상세 + 펼친 사이드바) → 1231로 줄이면 사이드바가 레일로 접혀 dim이 없다. 넓혀도 레일. 직접 펼친 오버레이는 그대로
-// - U-21 추가: 질문이 오간 대화에서 다른 대상을 고르면 새 대화, 같은 대상은 그대로, 스트리밍 중이면 끊고 새 대화
+// - U-21 추가: 질문이 오간 대화에서 다른 대상을 고르면 새 대화, 같은 대상은 그대로, 스트리밍 중이면 새 대화(응답은 이전 대화에 남음, U-29로 변경)
 // - U-22 추가: 로그인 상태 새로고침(느린 CPU·네트워크)에서 `게스트로 시작`·`로그인/가입`이 한 프레임도 그려지지 않는다
 // - U-25: 근거 상세 사유 원문이 판정 종류 박스 → (용량주의) 사유 원문 → 약 이름 - 제형유형 N건 / (병용금기) 약 이름 쌍 → 고정 문구, 줄 글자 13px/19px
 // - U-26-1: 입력창 위 고정 안내 제거, 같은 고정 안내 줄은 가장 최근 답 아래 한 번(결과 화면에 반드시 한 번 남음)
@@ -159,7 +159,9 @@ for (const width of [393, 1280]) {
         await shot(page, `${base}-u21-new-chat`);
       });
 
-      test("U-21 추가: 답을 받는 중(스트리밍)에 다른 대상을 고르면 진행 응답을 끊고 새 대화를 연다", async ({ page }) => {
+      // FE-17 U-29(2026-11-24)로 기대를 바꿨다: 예전에는 진행 응답을 끊었지만 이제 이전 대화는 이번 탭의 목록에 남고 응답은 그 대화에 계속 쌓인다.
+      // "새 대화가 열리고 지금 화면에 이전 대화(진행 표시·결과)가 이어지지 않는다"는 의도는 그대로 본다
+      test("U-21 추가: 답을 받는 중(스트리밍)에 다른 대상을 고르면 새 대화를 열고, 진행 응답은 이전 대화에 남는다(U-29)", async ({ page }) => {
         await mockChat(page, { name: "found", holdBefore: "answer" });
         await openApp(page, LOGGED_IN);
         await expect(page.getByTestId("target-chip")).toBeVisible();
@@ -170,6 +172,10 @@ for (const width of [393, 1280]) {
         await expect(page.getByTestId("home")).toBeVisible();
         await expect(progress(page)).toHaveCount(0);
         await expect(page.getByTestId("result-card")).toHaveCount(0);
+        await release(page);
+        if (width < 1024) await page.getByTestId("menu-button").click();
+        await page.getByTestId("chat-session").click();
+        await expect(page.getByTestId("result-card")).toBeVisible();
       });
 
       test("U-26-1: 입력창 위 고정 안내가 없고, `금기 목록에 없다는 것이 안전하다는 뜻이 아니에요…`는 결과 화면(답 아래)에 정확히 한 번 남는다. 두 번째 답 뒤에도 한 번이다", async ({ page }) => {

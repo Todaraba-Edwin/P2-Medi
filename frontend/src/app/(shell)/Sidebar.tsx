@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { Dialog } from "radix-ui";
 import { MenuIcon, PanelLeftIcon, SquarePenIcon, XIcon } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -40,18 +41,34 @@ export function MenuButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+/** 사이드바 `지금 대화` 목록의 항목 하나(FE-17 U-29): 이번 탭의 대화(메모리 값). 제목은 그 대화의 첫 질문이다 */
+export interface ChatListItem {
+  id: string;
+  title: string;
+  /** 지금 보고 있는 대화인가(강조) */
+  current: boolean;
+}
+
 interface SidebarBodyProps {
-  /** 지금 대화의 첫 질문(메모리 값). 없으면 빈 상태 글자 */
-  firstQuestion: string | null;
+  /** 이번 탭의 대화 목록(질문이 있는 대화만, 보일 순서대로). 비어 있으면 빈 상태 글자 */
+  chats: readonly ChatListItem[];
   onNewChat: () => void;
+  /** 목록 항목을 누르면 그 대화로 옮긴다 */
+  onSelectChat: (id: string) => void;
   /** 머리 오른쪽 버튼(접기 또는 닫기) */
   action: React.ReactNode;
   /** 맨 아래 계정 자리(FE-04: 게스트는 로그인/가입, 로그인하면 프로필 관리·로그아웃) */
   account?: React.ReactNode;
 }
 
-/** 사이드바 안쪽. 칸·오버레이·드로어가 같은 내용을 쓴다. 대화는 저장하지 않으므로 지난 대화 목록이 없다 */
-function SidebarBody({ firstQuestion, onNewChat, action, account }: SidebarBodyProps) {
+/**
+ * 사이드바 안쪽. 칸·오버레이·드로어가 같은 내용을 쓴다. 대화는 저장하지 않으므로 지난 대화(다른 탭·새로고침 전) 목록은 없고,
+ * 이번 탭에서 `새 질문`으로 남겨 둔 대화들만 `지금 대화` 아래 항목으로 보인다(FE-17 U-29: 새로고침하면 사라진다).
+ * 항목 제목은 첫 질문 한 줄(넘치면 말줄임, 지금 제목 규칙 그대로)이고 지금 대화는 강조·`aria-current`다
+ */
+function SidebarBody({ chats, onNewChat, onSelectChat, action, account }: SidebarBodyProps) {
+  // 칸·오버레이·드로어가 한 화면에 함께 있을 수 있어 머리글 id는 목록마다 다르다
+  const headingId = useId();
   return (
     <>
       <div className="flex min-h-11 items-center justify-between pb-2 pl-1.5">
@@ -64,16 +81,35 @@ function SidebarBody({ firstQuestion, onNewChat, action, account }: SidebarBodyP
         type="button"
         data-testid="new-chat"
         onClick={onNewChat}
-        className={`flex min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 text-left text-sm font-semibold ${HOVER_ROW}`}
+        className={`flex min-h-11 flex-none items-center gap-2.5 rounded-[10px] px-2.5 text-left text-sm font-semibold ${HOVER_ROW}`}
       >
         <SquarePenIcon className="size-[18px]" aria-hidden="true" />
         {NEW_CHAT_LABEL}
       </button>
-      <p className="mx-2.5 mt-3 mb-0.5 text-xs font-semibold text-mute">{CURRENT_CHAT_HEADING}</p>
-      {firstQuestion ? (
-        <p data-testid="current-chat" className="m-0 truncate rounded-[10px] bg-tint px-2.5 py-2.5 text-sm font-semibold">
-          {firstQuestion}
-        </p>
+      <p id={headingId} className="mx-2.5 mt-3 mb-0.5 flex-none text-xs font-semibold text-mute">
+        {CURRENT_CHAT_HEADING}
+      </p>
+      {chats.length > 0 ? (
+        // 목록이 길면 이 칸만 스크롤한다(계정 자리는 맨 아래 그대로)
+        <ul data-testid="chat-list" aria-labelledby={headingId} className="m-0 flex min-h-0 list-none flex-col gap-0.5 overflow-y-auto p-0">
+          {chats.map((chat) => (
+            <li key={chat.id} className="flex-none">
+              <button
+                type="button"
+                data-testid={chat.current ? "current-chat" : "chat-session"}
+                data-chat-id={chat.id}
+                aria-current={chat.current ? "true" : undefined}
+                onClick={() => onSelectChat(chat.id)}
+                className={cn(
+                  "block min-h-11 w-full truncate rounded-[10px] px-2.5 py-2.5 text-left text-sm",
+                  chat.current ? "bg-tint font-semibold" : cn("font-normal text-ink-2", HOVER_ROW),
+                )}
+              >
+                {chat.title}
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : (
         <span className="px-2.5 text-xs text-mute">{CURRENT_CHAT_EMPTY}</span>
       )}
@@ -86,8 +122,9 @@ function SidebarBody({ firstQuestion, onNewChat, action, account }: SidebarBodyP
 const SIDE_CLASS = "flex h-full w-[272px] flex-none flex-col gap-1 border-r border-line bg-bg-soft p-3";
 
 export interface SidebarProps {
-  firstQuestion: string | null;
+  chats: readonly ChatListItem[];
   onNewChat: () => void;
+  onSelectChat: (id: string) => void;
   onToggle: () => void;
   /** 계정 자리(펼친 칸·오버레이·드로어) */
   account?: React.ReactNode;
@@ -96,7 +133,7 @@ export interface SidebarProps {
 }
 
 /** 넓은 폭의 사이드바 칸: 펼친 모양(272) 또는 접힌 레일(60) */
-export function SidebarColumn({ mode, firstQuestion, onNewChat, onToggle, account, railAccount }: SidebarProps & { mode: "rail" | "expanded" }) {
+export function SidebarColumn({ mode, chats, onNewChat, onSelectChat, onToggle, account, railAccount }: SidebarProps & { mode: "rail" | "expanded" }) {
   if (mode === "rail") {
     return (
       <aside aria-label={RAIL_LABEL} data-testid="sidebar-rail" className="flex h-full w-[60px] flex-none flex-col items-center gap-1.5 border-r border-line bg-bg-soft py-3">
@@ -113,7 +150,8 @@ export function SidebarColumn({ mode, firstQuestion, onNewChat, onToggle, accoun
   return (
     <aside aria-label={SIDEBAR_LABEL} data-testid="sidebar" data-presentation="push" className={SIDE_CLASS}>
       <SidebarBody
-        firstQuestion={firstQuestion}
+        chats={chats}
+        onSelectChat={onSelectChat}
         onNewChat={onNewChat}
         account={account}
         action={
@@ -149,7 +187,7 @@ const SCRIM_CLASS = "absolute inset-0 z-40 bg-scrim/30";
  * 본문 위 오버레이로 펼친 사이드바(지시서 §9): 스크림이 근거 상세 패널까지 덮고, 스크림 클릭·Esc로 사이드바만 닫힌다.
  * Radix Dialog(모달)라 Tab이 뒤 요소에 닿지 않고 닫히면 초점이 누른 버튼으로 돌아간다.
  */
-export function SidebarOverlay({ open, onClose, container, firstQuestion, onNewChat, account }: LayerProps & Omit<SidebarProps, "onToggle">) {
+export function SidebarOverlay({ open, onClose, container, chats, onNewChat, onSelectChat, account }: LayerProps & Omit<SidebarProps, "onToggle">) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Dialog.Portal container={container}>
@@ -164,7 +202,8 @@ export function SidebarOverlay({ open, onClose, container, firstQuestion, onNewC
         >
           <Dialog.Title className="sr-only">{SIDEBAR_LABEL}</Dialog.Title>
           <SidebarBody
-            firstQuestion={firstQuestion}
+            chats={chats}
+            onSelectChat={onSelectChat}
             onNewChat={onNewChat}
             account={account}
             action={
@@ -180,7 +219,7 @@ export function SidebarOverlay({ open, onClose, container, firstQuestion, onNewC
 }
 
 /** 좁은 폭의 ☰ 드로어. 폭은 디자인 반영본 `.drawer{width:min(320px,86%)}` */
-export function MenuDrawer({ open, onClose, container, firstQuestion, onNewChat, account }: LayerProps & Omit<SidebarProps, "onToggle">) {
+export function MenuDrawer({ open, onClose, container, chats, onNewChat, onSelectChat, account }: LayerProps & Omit<SidebarProps, "onToggle">) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Dialog.Portal container={container}>
@@ -193,7 +232,8 @@ export function MenuDrawer({ open, onClose, container, firstQuestion, onNewChat,
         >
           <Dialog.Title className="sr-only">{MENU_LABEL}</Dialog.Title>
           <SidebarBody
-            firstQuestion={firstQuestion}
+            chats={chats}
+            onSelectChat={onSelectChat}
             onNewChat={onNewChat}
             account={account}
             action={

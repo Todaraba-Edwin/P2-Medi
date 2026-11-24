@@ -759,6 +759,10 @@ describe("대상을 바꾸면 새 대화(FE-17 U-21 추가, 2026-11-24)", () => 
     expect(store.getState().context.pregnant).toBe(true);
     expect(checkedLabel()).toBe("임산부");
     expect(store.getState().context.priorDrugs).toEqual([]);
+    // FE-17 U-29(2026-11-24): 이전 대화는 지우지 않고 이번 탭의 목록에 남는다(사이드바 `지금 대화` 항목, 지금은 빈 새 대화라 강조 항목 없음)
+    expect(store.getState().conversations.filter((conversation) => conversation.turns.length > 0)).toHaveLength(1);
+    expect(screen.getByTestId("chat-session")).toHaveTextContent("가나다정 먹어도 돼요");
+    expect(screen.queryByTestId("current-chat")).toBeNull();
   });
 
   it("시작 화면(대화 없음)에서는 대상만 바꾸고 새 대화를 열지 않는다", async () => {
@@ -772,7 +776,9 @@ describe("대상을 바꾸면 새 대화(FE-17 U-21 추가, 2026-11-24)", () => 
     expect(screen.getByTestId("home")).toBeInTheDocument();
   });
 
-  it("답을 받는 중(스트리밍)에 다른 대상을 고르면 진행 응답을 끊고 새 대화를 연다", async () => {
+  // FE-17 U-29(2026-11-24)로 기대를 바꿨다: 예전(U-21 추가)에는 진행 응답을 끊었지만, 이제 이전 대화는 이번 탭의 목록에 남고
+  // 진행 중인 응답은 그 대화에 계속 쌓인다(백그라운드 스트림). "새 대화가 열리고 지금 화면에 이전 대화가 이어지지 않는다"는 의도는 그대로 확인한다
+  it("답을 받는 중(스트리밍)에 다른 대상을 고르면 새 대화를 열고, 진행 응답은 끊지 않고 이전 대화에 남긴다", async () => {
     const { user, store } = setup({ session: onboardedSession(true), width: 1280 });
     let aborted = false;
     server.use(
@@ -788,10 +794,131 @@ describe("대상을 바꾸면 새 대화(FE-17 U-21 추가, 2026-11-24)", () => 
     await user.type(screen.getByRole("textbox"), "가나다정 먹어도 돼요");
     await user.click(screen.getByRole("button", { name: "보내기" }));
     await waitFor(() => expect(store.getState().turns).toHaveLength(1));
+    const previousId = store.getState().currentId;
     await pickTarget(user, "첫째");
     expect(store.getState().turns).toHaveLength(0);
-    await waitFor(() => expect(aborted).toBe(true));
     expect(await screen.findByTestId("home")).toBeInTheDocument();
+    expect(store.getState().currentId).not.toBe(previousId);
+    const previous = store.getState().conversations.find((conversation) => conversation.id === previousId)!;
+    expect(previous.turns).toHaveLength(1);
+    expect(previous.activeTurnId).toBe(previous.turns[0].id); // 아직 받는 중
+    expect(aborted).toBe(false);
+    store.getState().abort(); // 시험 정리: 끝나지 않는 응답을 끊는다
+    await waitFor(() => expect(aborted).toBe(true));
+  });
+});
+
+describe("이번 탭의 대화 보존(FE-17 U-29, 2026-11-24)", () => {
+  const items = () => screen.getAllByTestId(/^(current-chat|chat-session)$/).map((el) => el.textContent);
+
+  it("새 질문을 눌러도 앞 대화가 사이드바에 남고, 항목을 누르면 질문·답·근거 상세가 그대로 돌아온다", async () => {
+    const { user, store } = setup({ width: 1280 });
+    await ask(user, "첫 질문 가나다정");
+    const firstId = store.getState().currentId;
+    expect(await screen.findByTestId("panel-column")).toBeInTheDocument(); // 넓은 폭: 답이 오면 근거 상세가 열린다
+    await user.click(screen.getByTestId("new-chat"));
+    expect(screen.getByTestId("home")).toBeInTheDocument();
+    expect(screen.queryByTestId("panel-column")).toBeNull();
+    expect(items()).toEqual(["첫 질문 가나다정"]);
+    // 빈 새 대화에서 새 질문을 다시 눌러도 빈 대화를 쌓지 않는다
+    await user.click(screen.getByTestId("new-chat"));
+    expect(store.getState().conversations).toHaveLength(2);
+    await ask(user, "둘째 질문 라마바캡슐");
+    expect(items()).toEqual(["둘째 질문 라마바캡슐", "첫 질문 가나다정"]); // 최근 대화가 위, 지금 대화 강조
+    expect(screen.getByTestId("current-chat")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByTestId("current-chat")).toHaveTextContent("둘째 질문 라마바캡슐");
+    // 앞 항목을 누르면 앞 대화로
+    await user.click(screen.getByTestId("chat-session"));
+    expect(store.getState().currentId).toBe(firstId);
+    expect(screen.getByTestId("current-chat")).toHaveTextContent("첫 질문 가나다정");
+    const thread = screen.getByTestId("chat-thread");
+    expect(thread).toHaveTextContent("첫 질문 가나다정");
+    expect(thread).not.toHaveTextContent("둘째 질문 라마바캡슐");
+    expect(within(thread).getAllByTestId("result-card")).toHaveLength(1);
+    expect(screen.getByTestId("panel-column")).toBeInTheDocument(); // 떠날 때 열려 있던 근거 상세가 다시 열린다
+  });
+
+  it("좁은 폭: 드로어에서 항목을 고르면 드로어가 닫히고 그 대화가 보이며, 근거 상세(시트)는 닫힌 채다", async () => {
+    const { user } = setup({ width: 393 });
+    await ask(user, "첫 질문 가나다정");
+    await user.click(screen.getByTestId("menu-button"));
+    await user.click(within(await screen.findByTestId("menu-drawer")).getByTestId("new-chat"));
+    await ask(user, "둘째 질문 라마바캡슐");
+    await user.click(screen.getByTestId("menu-button"));
+    const drawer = await screen.findByTestId("menu-drawer");
+    expect(within(drawer).getAllByTestId(/^(current-chat|chat-session)$/).map((el) => el.textContent)).toEqual(["둘째 질문 라마바캡슐", "첫 질문 가나다정"]);
+    await user.click(within(drawer).getByTestId("chat-session"));
+    await waitFor(() => expect(screen.queryByTestId("menu-drawer")).toBeNull());
+    expect(screen.getByTestId("chat-thread")).toHaveTextContent("첫 질문 가나다정");
+    expect(screen.queryByRole("dialog", { name: "근거 상세" })).toBeNull();
+  });
+
+  it("다른 대화를 보는 사이 뒤에서 온 답은 그 대화에 쌓이고, 돌아가면 보인다(넓은 폭이면 근거 상세도 열린다)", async () => {
+    const { user, store } = setup({ width: 1280 });
+    let release: () => void = () => undefined;
+    let held = true;
+    server.use(
+      http.post("*/api/chat", async () => {
+        if (!held) return; // 두 번째 질문부터는 기본 목 처리(아래 handlers)
+        held = false;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }),
+    );
+    await user.type(screen.getByRole("textbox"), "첫 질문 가나다정");
+    await user.click(screen.getByRole("button", { name: "보내기" }));
+    await waitFor(() => expect(store.getState().activeTurnId).not.toBeNull());
+    const firstId = store.getState().currentId;
+    await user.click(screen.getByTestId("new-chat"));
+    expect(screen.getByTestId("home")).toBeInTheDocument();
+    release();
+    await waitFor(() => expect(store.getState().conversations.find((conversation) => conversation.id === firstId)!.turns[0].stream.response).not.toBeNull());
+    // 지금 화면(빈 새 대화)은 그대로다: 근거 상세가 열리지 않는다
+    expect(screen.getByTestId("home")).toBeInTheDocument();
+    expect(screen.queryByTestId("panel-column")).toBeNull();
+    await user.click(screen.getByTestId("chat-session"));
+    expect(within(screen.getByTestId("chat-thread")).getAllByTestId("result-card")).toHaveLength(1);
+    expect(screen.getByTestId("panel-column")).toBeInTheDocument();
+  });
+
+  it("항목을 고르면 그 대화에서 질문할 때의 대상으로 돌아간다(대상을 바꿔 연 새 대화와 섞이지 않는다)", async () => {
+    const { user, store, account } = setup({ session: onboardedSession(true), width: 1280 });
+    await screen.findByTestId("target-chip");
+    await pickTarget(user, "첫째");
+    await ask(user, "첫째 질문");
+    await pickTarget(user, "나"); // 대화 중 대상 변경 → 새 대화
+    await ask(user, "나의 질문");
+    expect(account.getState().targetProfileId).toBe(SELF_ID);
+    await user.click(screen.getByTestId("chat-session"));
+    expect(screen.getByTestId("chat-thread")).toHaveTextContent("첫째 질문");
+    expect(account.getState().targetProfileId).toBe(CHILD_ID);
+    expect(store.getState().conversations.filter((conversation) => conversation.turns.length > 0)).toHaveLength(2);
+  });
+
+  it("로그아웃하면 남겨 둔 다른 대화를 모두 지우고, 보고 있던 대화는 그대로다(기존 동작)", async () => {
+    const { user, store, account } = setup({ session: onboardedSession(true), width: 1280 });
+    await screen.findByTestId("target-chip");
+    await ask(user, "첫 질문");
+    await user.click(screen.getByTestId("new-chat"));
+    await ask(user, "둘째 질문");
+    expect(items()).toHaveLength(2);
+    await act(async () => {
+      await account.getState().logout();
+    });
+    await waitFor(() => expect(items()).toEqual(["둘째 질문"]));
+    expect(screen.queryByTestId("chat-session")).toBeNull();
+    expect(store.getState().conversations).toHaveLength(1);
+    expect(screen.getByTestId("chat-thread")).toHaveTextContent("둘째 질문");
+  });
+
+  it("게스트가 로그인해도 이번 탭의 대화는 그대로다", async () => {
+    const { user, store, account } = setup({ width: 1280 });
+    await ask(user, "게스트 첫 질문");
+    await user.click(screen.getByTestId("new-chat"));
+    await ask(user, "게스트 둘째 질문");
+    act(() => account.setState({ status: "member" }));
+    expect(store.getState().conversations.filter((conversation) => conversation.turns.length > 0)).toHaveLength(2);
   });
 });
 

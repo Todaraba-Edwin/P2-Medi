@@ -171,3 +171,18 @@ describe("근거 상세가 열린 채 창이 줄 때 사이드바 자동 접힘(
     expect(run(manual, resized(900, 1100))).toBe(manual); // 기준선을 넘는 폭 변화는 viewportResized가 판정하지 않는다(같은 상태)
   });
 });
+
+describe("이번 탭의 다른 대화로 옮기기(FE-17 U-29)", () => {
+  const restore = (evidenceTurnId: string | null, width: number): ShellAction => ({ type: "restoreChat", evidenceTurnId, width });
+
+  it("넓은 폭: 드로어를 닫고 떠날 때의 근거 상세를 다시 연다(여는 규칙은 openEvidence와 같다)", () => {
+    expect(run(initialShellState, open(1400, "turn-2"), restore("turn-1", 1400))).toMatchObject({ evidenceTurnId: "turn-1", sidebarExpanded: true, drawerOpen: false });
+    // 1231 이하는 새로 열리며 오버레이가 될 폭이라 사이드바를 레일로 내린다
+    expect(run(initialShellState, restore("turn-1", 1100))).toMatchObject({ evidenceTurnId: "turn-1", sidebarExpanded: false });
+  });
+
+  it("근거 상세가 없던 대화는 닫힌 채, 좁은 폭(시트)은 늘 닫힌 채 옮긴다", () => {
+    expect(run(initialShellState, open(1400), restore(null, 1400)).evidenceTurnId).toBeNull();
+    expect(run(initialShellState, { type: "openDrawer" }, restore("turn-1", 393))).toMatchObject({ evidenceTurnId: null, drawerOpen: false });
+  });
+});

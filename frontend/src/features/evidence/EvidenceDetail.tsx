@@ -131,7 +131,8 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
         )}
         {(sections.judgments.length > 0 || hasGradeDef) && (
           <Section id="judgment" title={SECTION_TITLES.judgment}>
-            {/* 같은 약의 판정 박스는 붙여서 한 묶음(테두리를 이은 카드)으로, 보이는 것이 같은 박스는 하나로 묶고 "같은 내용 N건"(FE-17 U-26-5·6) */}
+            {/* 같은 약의 판정 박스는 붙여서 한 묶음(테두리를 이은 카드)으로, 보이는 것이 같은 박스는 하나로 묶고 "같은 내용 N건"(FE-17 U-26-5·6).
+                같은 약의 허가사항 항목 줄(`… · 주의사항`)은 따로 박스를 두지 않고 그 약 판정 줄 안의 덧붙임 줄이다(FE-17 U-28, 본문과 같은 규칙) */}
             {sections.judgmentGroups.map((group, groupIndex) => (
               <div
                 key={groupIndex}
@@ -139,7 +140,7 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
                 data-count={group.boxes.length}
                 className="flex flex-col [&>*:not(:first-child)]:-mt-px [&>*:not(:first-child)]:rounded-t-none [&>*:not(:last-child)]:rounded-b-none"
               >
-                {group.boxes.map(({ finding, item, count, evidenceIds }, index) => (
+                {group.boxes.map(({ finding, item, labels, count, evidenceIds }, index) => (
                   <EvidenceBox
                     key={index}
                     testId="judgment-box"
@@ -165,7 +166,7 @@ export function EvidenceDetail({ response }: { response: ChatResponse }) {
                     */}
                     <ul className={cn("m-0 list-none p-0 [&_[data-testid=line-status]]:ml-0 [&>li]:p-0", item?.dataset && "[&_[data-slot=source]]:hidden")}>
                       {/* 약을 찾지 못한 줄은 이유·재검색·다음 행동을 아래 표가 보이므로 줄에서는 한 번 더 그리지 않는다 */}
-                      <ProductLine finding={finding} omitLookupLines={isLookupFinding(finding)} />
+                      <ProductLine finding={finding} labels={labels} omitLookupLines={isLookupFinding(finding)} />
                     </ul>
                     {isLookupFinding(finding) && <LookupPairs finding={finding} />}
                   </EvidenceBox>

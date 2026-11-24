@@ -1,12 +1,15 @@
 import type { DetailItem } from "@/lib/api";
 import { PharmacistAdviceBox } from "@/features/emergency";
+import { splitItemCode } from "@/features/result/label-merge";
 import { EvidenceBox, SourceTag } from "./EvidenceBox";
 
 /**
  * 원문 미확보 항목 하나(약 이름 · 항목 · 미확보 문구). 문구는 **응답이 준 `missing_text`만** 그린다(화면 상수 없음, PRD-11-03).
+ * 문구 맨 앞의 품목 기준 코드(`202106954 · ` 꼴)는 화면 글자에서만 숨기고 `data-item-code`에 남긴다(FE-17 U-28 (c), 서버 문구는 그대로).
  * 약사 확인 권고는 항목마다 되풀이하지 않고 구역의 `MissingGroup`이 한 번만 그린다(FE-02-05 A). 마스코트·"삐!" 표지를 쓰지 않는다.
  */
 export function MissingBox({ item }: { item: DetailItem }) {
+  const missing = item.missing_text === null ? null : splitItemCode(item.missing_text);
   return (
     <EvidenceBox
       testId="missing-box"
@@ -19,9 +22,9 @@ export function MissingBox({ item }: { item: DetailItem }) {
       }
       tag={<SourceTag item={item} />}
     >
-      {item.missing_text !== null && (
-        <p data-testid="missing-text" className="m-0 text-sm leading-[21px] break-words text-ink-2">
-          {item.missing_text}
+      {missing !== null && (
+        <p data-testid="missing-text" data-item-code={missing.code ?? undefined} className="m-0 text-sm leading-[21px] break-words text-ink-2">
+          {missing.text}
         </p>
       )}
     </EvidenceBox>

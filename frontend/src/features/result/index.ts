@@ -13,3 +13,5 @@ export type { ResultViewProps } from "./ResultView";
 export { StatusBadge } from "./StatusBadge";
 export { hasApiFailInfo, isApiFailNotice, isApiFlagNote, notesWithoutApiFlag } from "./realtime-notice";
 export { PREGNANCY_PICK_HINT } from "./copy";
+export { hideItemCode, isLabelFinding, isLabelOf, labelLines, mergeLabelFindings, splitItemCode } from "./label-merge";
+export type { MergedFinding } from "./label-merge";

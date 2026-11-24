@@ -13,6 +13,7 @@ import {
   codeNotLinkedResponse,
   doseComboResponse,
   judgmentDupResponse,
+  labelMergeResponse,
   doseDupResponse,
   emergencyResponse,
   fallbackNoneResponse,
@@ -201,6 +202,9 @@ export const scenarios = {
   doseDup: normal(doseDupResponse),
   doseCombo: normal(doseComboResponse),
   judgmentDup: normal(judgmentDupResponse),
+  // ---- FE-17 U-28
+  /** 같은 약의 허가사항 미확보 줄(`{약} · 주의사항`, 글자 앞 품목 기준 코드)이 판정 줄과 따로 온다(ISSUE-034 모양) */
+  labelMerge: normal(labelMergeResponse),
 } satisfies Record<string, MockScenario>;
 
 export type ScenarioName = keyof typeof scenarios;

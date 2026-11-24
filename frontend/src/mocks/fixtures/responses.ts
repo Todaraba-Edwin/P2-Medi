@@ -5,6 +5,7 @@ import type { ChatResponse, ChatResponseInput } from "@/lib/api/types";
 import {
   API_NO_CODE_NOTE,
   BADGE_SOURCE_TAIL,
+  CAUTION_DOSE,
   CAUTION_DUP_INGREDIENT,
   CLARIFY_TAIL,
   CODE_NOT_LINKED,
@@ -1147,6 +1148,76 @@ export const judgmentDupResponse = make(
       { ...doseComboResponse.findings[0], sub_line: `${INGR_A.name} · ${INGR_C.name}` },
     ],
     pharmacist_advice: [adviceFor(DRUG_UNKNOWN)],
+  },
+  [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
+);
+
+/** 합성 품목 기준 코드(9자리, 실제 품목이 아니다) */
+const ITEM_SEQ_A = "209900001";
+/** 허가사항 항목 이름(서버 `section`, ISSUE-034의 `주의사항`) */
+const LABEL_SECTION = "주의사항";
+/**
+ * 서버가 지금 이 항목의 약 이름 자리에 넣는 글자(ISSUE-034 모양 그대로): 품목 기준 코드 · 항목 이름.
+ * 미확보 문구·권고 줄이 이 글자로 조립된다(서버 조립 문제 후보, FE-17 U-28 (d). 화면은 문장 맨 앞의 코드만 숨긴다)
+ */
+const LABEL_SUBJECT_A = `${ITEM_SEQ_A}${NAME_JOIN}${LABEL_SECTION}`;
+const LABEL_OOS_TEXT_A = PHRASES.MISSING_OUT_OF_SCOPE.replace("{drug}", LABEL_SUBJECT_A);
+
+/**
+ * FE-17 U-28 사례 모양(합성 값, ISSUE-034 "임산부인데 …정 먹어도 되니?"): 한 약의 판정 줄(임부금기 2등급, 실시간 확인 노트 + `하루 최대량 주의 성분 포함`)과
+ * 같은 약의 허가사항 미확보 줄(머리 `{약} · 주의사항`, 글자 `{코드} · 주의사항은 전문의약품이라 …`)이 따로 온다.
+ * 용량주의 근거는 제형 코드 2건이다(근거 상세 사유 원문 `제형유형 2건`). 권고 줄은 서버가 지금 내는 깨진 모양 그대로다(서버 후속)
+ */
+export const labelMergeResponse = make(
+  {
+    route: "AGENT",
+    end_reason: "NORMAL",
+    notice: PHRASES.NOTICE_API_FAIL,
+    summary: `${DRUG_A}은 임부금기 목록에 올라 있어요.`,
+    findings: [
+      {
+        target: "product",
+        bucket: "found",
+        evidence_id: "ev-preg-1",
+        kind: "pregnancy",
+        drug: DRUG_A,
+        drugs: [DRUG_A],
+        text: pregnancyBadge("2"),
+        badges: [{ kind: "pregnancy", grade: "2", text: pregnancyBadge("2"), evidence_id: "ev-preg-1" }],
+        ingredients: [{ ...INGR_A, contra_kinds: ["pregnancy"] }],
+        notes: [API_NO_CODE_NOTE, CAUTION_DOSE],
+        source_label: fileLabel(DATASET_PREGNANCY),
+        grades: ["2"],
+        notice_nos: ["20250002"],
+      },
+      { ...labelFinding("ev-label-u28", `${DRUG_A}${NAME_JOIN}${LABEL_SECTION}`, LABEL_OOS_TEXT_A), drugs: [] },
+    ],
+    detail: [
+      { ...pregDetail("FOUND", DRUG_A), flags: ["API_FAIL"] },
+      doseDetail("100001ATB", DRUG_A, DOSE_DUP_A_VARIANT),
+      doseDetail("100002ATB", DRUG_A, DOSE_DUP_A_VARIANT),
+      {
+        evidence_id: "ev-label-u28",
+        kind: "label",
+        status: "NO_EVIDENCE",
+        source_kind: null,
+        dataset_key: "prmsn",
+        dataset: DATASET_PRMSN,
+        publisher: PUBLISHER_MFDS,
+        dates: [{ label: "날짜 없음", value: null }],
+        drug_name: null,
+        section: LABEL_SECTION,
+        drugs: null,
+        missing_reason: "OUT_OF_SCOPE",
+        missing_text: LABEL_OOS_TEXT_A,
+      },
+    ],
+    citations: [
+      pregCitation("FOUND"),
+      { publisher: PUBLISHER_KIDS, dataset: DATASET_DOSE, dates: [...doseDates], source_kind: "FILE", evidence_ids: ["dose:100001ATB", "dose:100002ATB"] },
+    ],
+    pharmacist_advice: [adviceFor(LABEL_SUBJECT_A)],
+    pharmacist_advice_kinds: ["missing"],
   },
   [PHRASES.PHARMACIST_ADVICE_FIXED, FIXED_NOTICE],
 );
