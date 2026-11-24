@@ -24,7 +24,7 @@ import urllib.request
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -118,6 +118,12 @@ def _get_with_retry(fetch: FetchFn, url: str, headers: dict[str, str]) -> dict[s
         if status < 500 and status != 429:
             break  # 4xx(429 제외)는 재시도해도 같다
     raise ReportError(kind)
+
+
+def _utc_midnight(d: date) -> datetime:
+    """일 버킷은 UTC 00:00에 정렬되어 온다(2026-11-24 실측: 서울 자정으로 요청하면 경계 버킷이 빠지거나 잘린다). 요청 경계는 UTC 자정으로
+    맞추고, 버킷은 시작 시각의 서울 날짜(= UTC 날짜와 같다, 시작이 서울 09:00)로 귀속한다. OpenAI 대시보드의 일자와 같다."""
+    return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
 
 def parse_buckets(raw: list[dict[str, Any]], now: datetime) -> list[Bucket]:
@@ -285,7 +291,7 @@ def run(argv: list[str] | None = None, *, settings: Any = None, fetch: FetchFn |
     today = args.as_of or now_kst.date()
     if args.as_of:  # 과거 재현: 기준일 정오에 돌린 것처럼 본다(그 뒤 버킷은 아직 없는 것으로 취급)
         now_kst = datetime(today.year, today.month, today.day, 12, tzinfo=KST)
-    midnight = datetime(today.year, today.month, today.day, tzinfo=KST)
+    midnight = _utc_midnight(today)
     custom = bool(args.date or args.week_of)
     week_days: list[date] = []
     if custom:
@@ -295,12 +301,12 @@ def run(argv: list[str] | None = None, *, settings: Any = None, fetch: FetchFn |
             week_days = [monday + timedelta(days=i) for i in range(7)]
             needed += week_days
         first, last = min(needed), max(needed) + timedelta(days=1)
-        window_start = datetime(first.year, first.month, first.day, tzinfo=KST)
-        window_end = max(midnight, datetime(last.year, last.month, last.day, tzinfo=KST))
+        window_start = _utc_midnight(first)
+        window_end = max(midnight, _utc_midnight(last))
     else:
         y = today - timedelta(days=1)
         wk = y - timedelta(days=y.weekday())
-        window_start = datetime(wk.year, wk.month, wk.day, tzinfo=KST)
+        window_start = _utc_midnight(wk)
         window_end = midnight
     try:
         buckets = parse_buckets(fetch_buckets(admin_key, window_start, window_end, fetch=fetch), now_kst)

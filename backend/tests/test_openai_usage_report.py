@@ -38,6 +38,11 @@ def kst_day(m: int, d: int) -> datetime:
     return datetime(2026, m, d, tzinfo=KST)
 
 
+def utc_day(m: int, d: int) -> datetime:
+    """UTC 자정. OpenAI 일 버킷의 실제 정렬 시각이자 요청 창 경계(2026-11-24 실측)."""
+    return datetime(2026, m, d, tzinfo=UTC)
+
+
 def sample() -> list[dict]:
     return [
         bucket(kst_day(11, 1), {"gpt-6-luna, input_tokens": 1.0}),
@@ -151,15 +156,58 @@ def test_seoul_boundary_attribution():
     assert datetime.fromtimestamp(start, UTC).date().isoformat() == "2026-11-22"
 
 
-def test_request_window_is_seoul_midnight_and_params():
+def test_request_window_is_utc_midnight_and_params():
     f = FakeFetch([(200, {"data": [], "has_more": False})])
-    code, _, _ = run(["--days", "7"], f)  # 어제 = 월요일 11/23: 창은 그 주 월요일 00:00 ~ 오늘 00:00(서울)
+    code, _, _ = run(["--days", "7"], f)  # 어제 = 월요일 11/23: 창은 그 주 월요일 00:00Z ~ 오늘 00:00Z
     assert code == 0
     url, headers = f.calls[0]
-    end = int(kst_day(11, 24).timestamp())
+    end = int(utc_day(11, 24).timestamp())
     assert f"end_time={end}" in url and "bucket_width=1d" in url and "group_by=line_item" in url and "limit=180" in url
-    assert f"start_time={int(kst_day(11, 23).timestamp())}" in url  # --days는 무시, 월초도 아님
+    assert f"start_time={int(utc_day(11, 23).timestamp())}" in url  # --days는 무시, 월초도 아님
     assert headers["Authorization"] == f"Bearer {ADMIN}"
+
+
+def _utc_bucket(day: datetime, items: dict[str, float]) -> dict:
+    return bucket(day, items)  # day가 UTC 자정이면 실제 API 버킷과 같은 정렬
+
+
+def test_utc_midnight_bucket_is_attributed_to_seoul_date_of_start():
+    # 실제 API 버킷: 시작 00:00Z == 서울 09:00 -> 서울 날짜는 UTC 날짜와 같다
+    raw = [_utc_bucket(utc_day(11, 20), {"a": 1.25}), _utc_bucket(utc_day(11, 23), {"a": 0.5})]
+    assert [(b.day.isoformat(), b.total) for b in rep.parse_buckets(raw, NOW)] == [("2026-11-20", 1.25), ("2026-11-23", 0.5)]
+    today = datetime(2026, 11, 24).date()
+    lines = msgs_for([_utc_bucket(utc_day(11, 20), {"a": 1.25})], today)[0].split("\n")
+    assert lines[2] == "ISO 48/53(11/23~11/29) Total $0.00"  # 11/20은 어제(11/23)가 속한 주가 아니라 제외
+    lines = msgs_for([_utc_bucket(utc_day(11, 20), {"a": 1.25})], datetime(2026, 11, 21).date())[0].split("\n")  # 어제 = 11/20(금)
+    assert "FRI(11/20) $1.25" in lines
+
+
+def test_request_window_bounds_are_integer_utc_midnight_timestamps():
+    import re
+    f = FakeFetch([(200, {"data": [], "has_more": False})])
+    code, _, _ = run([], f)
+    assert code == 0
+    start = int(re.search(r"start_time=(\d+)", f.calls[0][0]).group(1))
+    end = int(re.search(r"end_time=(\d+)", f.calls[0][0]).group(1))
+    assert start % 86400 == 0 and end % 86400 == 0  # UTC 자정이면 에포크 초가 86400의 배수
+    assert datetime.fromtimestamp(start, UTC) == utc_day(11, 23) and datetime.fromtimestamp(end, UTC) == utc_day(11, 24)
+    f = FakeFetch([(200, {"data": [], "has_more": False})])
+    run(["--date", "2026-11-18"], f)
+    start = int(re.search(r"start_time=(\d+)", f.calls[0][0]).group(1))
+    end = int(re.search(r"end_time=(\d+)", f.calls[0][0]).group(1))
+    assert start == int(utc_day(11, 18).timestamp()) and end == int(utc_day(11, 24).timestamp())
+    assert start % 86400 == 0 and end % 86400 == 0
+
+
+def test_yesterday_utc_bucket_is_included_in_report_at_seoul_noon():
+    # 11-24 12:00(서울) 기준: 어제 버킷 [11-23 00:00Z, 11-24 00:00Z)은 끝났으므로 포함, 오늘 버킷 [11-24 00:00Z~)은 진행 중이라 제외
+    raw = [_utc_bucket(utc_day(11, 22), {"x": 40.0}),  # 지난주 일요일
+           _utc_bucket(utc_day(11, 23), {"x": 1.5}),
+           _utc_bucket(utc_day(11, 24), {"x": 9.0})]
+    code, out, _ = run([], FakeFetch([(200, {"data": raw, "has_more": False})]), now=datetime(2026, 11, 24, 12, 0, tzinfo=KST))
+    assert code == 0
+    assert out.split("\n")[:4] == [rep.PREFIX, "2026", "ISO 48/53(11/23~11/29) Total $1.50", "MON(11/23) $1.50"]
+    assert "$9.00" not in out and "$40.00" not in out
 
 
 def test_request_window_starts_at_monday_of_yesterdays_week():
@@ -167,7 +215,7 @@ def test_request_window_starts_at_monday_of_yesterdays_week():
     code, _, _ = run([], f, now=datetime(2026, 11, 30, 9, 0, tzinfo=KST))  # 어제 = 일요일 11/29
     assert code == 0
     url = f.calls[0][0]
-    assert f"start_time={int(kst_day(11, 23).timestamp())}" in url and f"end_time={int(kst_day(11, 30).timestamp())}" in url
+    assert f"start_time={int(utc_day(11, 23).timestamp())}" in url and f"end_time={int(utc_day(11, 30).timestamp())}" in url
 
 
 def test_days_option_is_ignored_for_default_report():
@@ -356,8 +404,8 @@ def test_as_of_changes_reference_and_excludes_later_buckets():
     assert lines[2] == "ISO 47/53(11/16~11/22) Total $3.00"
     assert lines[3:6] == ["MON(11/16) $0.00", "TUE(11/17) $0.00", "WED(11/18) $3.00"]  # 11/23 이후 버킷은 기준일 이후라 제외
     assert "11/23)" not in out and "0.75" not in out
-    assert f"start_time={int(kst_day(11, 16).timestamp())}" in f.calls[0][0]
-    assert f"end_time={int(kst_day(11, 19).timestamp())}" in f.calls[0][0]
+    assert f"start_time={int(utc_day(11, 16).timestamp())}" in f.calls[0][0]
+    assert f"end_time={int(utc_day(11, 19).timestamp())}" in f.calls[0][0]
 
 
 def test_date_option_lines_and_missing():
@@ -367,7 +415,7 @@ def test_date_option_lines_and_missing():
     assert out.index("WED(2026/11/18) $3.00") < out.index("FRI(2026/11/20) 집계 없음") < out.index("MON(2026/11/23) $0.75")
     assert "(수)" not in out and "-11-" not in out  # 한글 요일·하이픈 날짜는 없다
     assert out.startswith(rep.PREFIX + "\n")
-    assert f"start_time={int(kst_day(11, 18).timestamp())}" in f.calls[0][0]
+    assert f"start_time={int(utc_day(11, 18).timestamp())}" in f.calls[0][0]
 
 
 def test_week_of_uses_same_format_as_daily_report():
@@ -377,7 +425,7 @@ def test_week_of_uses_same_format_as_daily_report():
     assert out.split("\n")[:12] == [rep.PREFIX, "2026", "ISO 47/53(11/16~11/22) Total $3.00",
                                     "MON(11/16) $0.00", "TUE(11/17) $0.00", "WED(11/18) $3.00", "THU(11/19) $0.00",
                                     "FRI(11/20) $0.00", "SAT(11/21) $0.00", "SUN(11/22) $0.00", "---", ""]
-    assert f"start_time={int(kst_day(11, 16).timestamp())}" in f.calls[0][0]
+    assert f"start_time={int(utc_day(11, 16).timestamp())}" in f.calls[0][0]
 
 
 def test_week_of_in_progress_week_stops_at_yesterday():
