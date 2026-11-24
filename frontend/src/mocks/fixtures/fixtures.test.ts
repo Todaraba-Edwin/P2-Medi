@@ -151,6 +151,7 @@ describe("AG-08·BE-06-13~17 새 칸의 fixture(서버 규칙과 같은 모양)"
     );
     expect(fixedPhrases).toContain(`"FETCH_FAIL": "${phrases.GRADE_DEF_MISSING_FETCH_FAIL}"`);
     expect(fixedPhrases).toContain(`"dup_ingredient": "${phrases.CAUTION_DUP_INGREDIENT}"`);
+    expect(fixedPhrases).toContain(`"dose": "${phrases.CAUTION_DOSE}"`); // FE-17 U-28 합성(labelMerge)의 덧붙임 줄
     expect(fixedPhrases).not.toContain("같은 성분 중복");
     // provenance.FLAG_NOTES["CODE_NOT_LINKED"] = "금기 목록에서 확인하지 못했지만, " + NOT_SAFE + ". 약사에게 확인하세요"
     expect(provenance).toContain('"CODE_NOT_LINKED": "금기 목록에서 확인하지 못했지만, " + NOT_SAFE + ". 약사에게 확인하세요"');

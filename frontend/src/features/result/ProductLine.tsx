@@ -1,6 +1,7 @@
 import type { Finding } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { IngredientChips } from "./IngredientChips";
+import { isLabelFinding, labelLines, splitItemCode } from "./label-merge";
 import { notesWithoutApiFlag } from "./realtime-notice";
 import { StatusBadge } from "./StatusBadge";
 
@@ -15,9 +16,9 @@ const STATUS_CLASS: Record<Finding["bucket"], string> = {
 // 화면 라벨(사유 줄 머리, PRD-09 §7.4 `· 사유: {금기사유 원문}`). 판정·고정 문구가 아니다
 const REASON_LABEL = "사유: ";
 
-function SubLine({ children, slot }: { children: React.ReactNode; slot: string }) {
+function SubLine({ children, slot, ...data }: { children: React.ReactNode; slot: string; [key: `data-${string}`]: string | undefined }) {
   return (
-    <p data-slot={slot} className="m-0 text-xs leading-[17px] break-words text-mute">
+    <p data-slot={slot} {...data} className="m-0 text-xs leading-[17px] break-words text-mute">
       {children}
     </p>
   );
@@ -35,23 +36,37 @@ export function ProductLine({
   finding,
   omitLookupLines = false,
   omitApiFlagNotes = false,
+  labels = [],
 }: {
   finding: Finding;
   /** 찾아본 내용 표(근거 상세 `LookupPairs`)가 같은 글자를 바로 아래에 보일 때 true: 이유·재검색·다음 행동 줄을 한 번 더 그리지 않는다(PRD-12-04 같은 글자는 박스 안에서 한 번) */
   omitLookupLines?: boolean;
   /** 본문(결과 카드)에서 true: 실시간 확인 노트(`api_flag_note` 문구)를 그리지 않는다(근거 상세에만, FE-11-10 A). 그 밖의 노트는 그대로다 */
   omitApiFlagNotes?: boolean;
+  /**
+   * 이 줄 안으로 합친 같은 약의 허가사항 항목 줄(FE-17 U-28, `mergeLabelFindings`). 받은 글자를 이 줄의 덧붙임 줄(`notes`) 바로 다음에
+   * 같은 모양의 줄로 보인다(줄 하나). 항목 줄의 근거 ID는 `data-evidence-ids`에 남는다
+   */
+  labels?: readonly Finding[];
 }) {
   const hasBadges = finding.badges.length > 0;
   // 배지 덧붙임 글(예: M등급) 중 줄의 `note`와 겹치지 않는 것
   const badgeNotes = [...new Set(finding.badges.map((badge) => badge.note).filter((note): note is string => !!note && note !== finding.note))];
   const notes = omitApiFlagNotes ? notesWithoutApiFlag(finding) : finding.notes;
+  // 허가사항 항목 줄은 문장 맨 앞의 품목 기준 코드를 화면에서만 숨긴다(FE-17 U-28 (c)). 숨긴 코드는 `data-item-code`에 남는다
+  const label = isLabelFinding(finding);
+  const status = label ? splitItemCode(finding.text) : { text: finding.text, code: null };
+  const shownNotes = label ? notes.map(splitItemCode) : notes.map((text) => ({ text, code: null }));
+  const merged = labels.flatMap((item) =>
+    labelLines(item, [...notes, ...(finding.note ? [finding.note] : [])], omitApiFlagNotes ? notesWithoutApiFlag(item) : item.notes).map((line) => ({ ...line, evidenceId: item.evidence_id })),
+  );
   return (
     <li
       data-testid="product-line"
       data-target={finding.target}
       data-bucket={finding.bucket}
       data-kind={finding.kind ?? undefined}
+      data-merged-labels={labels.length > 0 ? labels.length : undefined}
       className="flex flex-col gap-1 border-t border-line px-3.5 py-[11px] first:border-t-0"
     >
       <div className="flex flex-wrap items-start gap-x-2.5 gap-y-1.5 text-[15px] leading-[21px]">
@@ -64,12 +79,13 @@ export function ProductLine({
           ) : (
             <span
               data-testid="line-text"
+              data-item-code={status.code ?? undefined}
               className={cn(
                 "inline-flex max-w-full items-center rounded-xl px-2.5 py-[3px] text-xs leading-[17px] font-bold [overflow-wrap:break-word] [word-break:keep-all]",
                 STATUS_CLASS[finding.bucket],
               )}
             >
-              {finding.text}
+              {status.text}
             </span>
           )}
         </span>
@@ -102,9 +118,15 @@ export function ProductLine({
           {note}
         </SubLine>
       ))}
-      {notes.map((note, index) => (
-        <SubLine key={`notes-${index}`} slot="notes">
-          {note}
+      {shownNotes.map((note, index) => (
+        <SubLine key={`notes-${index}`} slot="notes" data-item-code={note.code ?? undefined}>
+          {note.text}
+        </SubLine>
+      ))}
+      {/* 같은 약의 허가사항 항목 줄(FE-17 U-28): 덧붙임 줄 바로 다음, 같은 모양(받은 글자 그대로, 품목 기준 코드만 숨김) */}
+      {merged.map((line, index) => (
+        <SubLine key={`label-${index}`} slot="notes" data-merged="label" data-evidence-ids={line.evidenceId ?? undefined} data-item-code={line.code ?? undefined}>
+          {line.text}
         </SubLine>
       ))}
       {!omitLookupLines && finding.why && <SubLine slot="why">{finding.why}</SubLine>}
