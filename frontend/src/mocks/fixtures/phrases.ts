@@ -47,7 +47,7 @@ export const PHRASES = {
   // 근거 상세 안내 줄·등급 정의 블록
   GRADE_DEF_TITLE: "임부금기 {grade}등급이란?",
   GRADE_DEF_PHARMACIST_ADVICE: "등급의 뜻이 궁금하면 약국·약사에게 물어보세요.",
-  GRADE_MISMATCH_NOTE: "파일 자료와 실시간 조회의 등급이 달라요. 어느 쪽이 맞는지 정하지 않고 둘 다 출처와 함께 보여 드려요.",
+  GRADE_MISMATCH_NOTE: "파일과 실시간 조회 결과 모두 보여드려요. 자료 고시 시점에 따라서 등급이 다르게 보일 수 있어요.",
   DOSE_QUOTE_NOTICE: "허가사항 원문 인용이며 복용 지시가 아닙니다. 복용량은 약사·의사에게 확인하세요.",
   LABEL_ONE_LINE: "허가사항: 식약처가 의약품을 허가할 때 정한 효능·효과, 용법·용량, 사용상 주의사항이에요.",
   EASY_TEXT_MISSING: "{drug}은 전문의약품이라 쉬운 설명(e약은요)이 없어서 허가사항 원문을 그대로 보여 드려요",
@@ -157,12 +157,6 @@ export const API_FAIL_NOTE = "실시간 확인을 하지 못함(파일 기준 �
 export const API_NO_CODE_NOTE = "실시간 확인을 하지 못함(이 성분은 실시간 조회에 쓸 코드가 없어요. 파일 기준 결과는 그대로예요)";
 /** provenance.FLAG_NOTES["API_SAME"]: 파일과 실시간 조회가 같을 때 줄·근거에 붙는 노트. 화면은 그리지 않는다(FE-17 U-30 (f)) */
 export const API_SAME_NOTE = "파일과 실시간 조회 결과가 같아요";
-/**
- * 등급 불일치 안내의 **새 문구**(2026-11-24 사용자 제공, FE-17 U-30 (j)). 서버 고정 문구(`fixed_phrases.GRADE_MISMATCH_NOTE`) 변경은 BE 몫이라
- * 아직 백엔드 원문이 아니다: `PHRASES`(백엔드 상수와 글자 단위로 맞추는 표)에 넣지 않고 u30 합성 응답에만 쓴다. BE가 반영하면 `PHRASES.GRADE_MISMATCH_NOTE`를
- * 이 글자로 바꾸고(fixtures.test가 원문 대조) 이 상수를 지운다
- */
-export const GRADE_MISMATCH_NOTE_NEXT = "파일과 실시간 조회 결과 모두 보여드려요. 자료 고시 시점에 따라서 등급이 다르게 보일 수 있어요.";
 /** schemas.DOSE_SECTION: 이 항목의 원문 인용 아래에만 인용 고지(`quote_notice`)가 온다 */
 export const DOSE_SECTION = "용법용량";
 

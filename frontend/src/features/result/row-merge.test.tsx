@@ -8,7 +8,7 @@ import { reasonTextKey } from "@/features/evidence/sections";
 import { FixedNoticeBox } from "@/features/emergency";
 import type { Badge, ChatResponse, Finding } from "@/lib/api";
 import { API_SAME_NOTE as GENERATED_API_SAME, CAUTION_DOSE_LABEL, NOT_LISTED } from "@/lib/fixed/phrases.generated";
-import { API_SAME_NOTE, BADGE_SOURCE_TAIL, CAUTION_DOSE, FIXED_NOTICE, GRADE_MISMATCH_NOTE_NEXT, PHRASES } from "@/mocks/fixtures/phrases";
+import { API_SAME_NOTE, BADGE_SOURCE_TAIL, CAUTION_DOSE, FIXED_NOTICE, PHRASES } from "@/mocks/fixtures/phrases";
 import * as fixtures from "@/mocks/fixtures/responses";
 import { ResultView } from "./ResultView";
 import { ResultCard } from "./ResultCard";
@@ -30,7 +30,7 @@ describe("u30 합성 응답은 사용자 사례(ISSUE-035)의 모양이다", () 
     expect(GENERATED_API_SAME).toBe(API_SAME_NOTE);
     expect(CAUTION_DOSE_LABEL).toBe(CAUTION_DOSE);
     // 근거 상세: 임부금기 파일 근거마다 같은 노트 2개(행마다 반복)
-    expect(response.detail.filter((item) => item.notes.includes(GRADE_MISMATCH_NOTE_NEXT)).length).toBeGreaterThan(10);
+    expect(response.detail.filter((item) => item.notes.includes(PHRASES.GRADE_MISMATCH_NOTE)).length).toBeGreaterThan(10);
   });
 });
 
@@ -218,7 +218,7 @@ describe("(g)(h)(i)(j) 근거 상세", () => {
     draw();
     const pregCard = cards()[1];
     const notes = texts([...pregCard.querySelectorAll('[data-testid="reason-box"] [data-slot="notes"]')]);
-    expect(notes).toEqual([GRADE_MISMATCH_NOTE_NEXT]);
+    expect(notes).toEqual([PHRASES.GRADE_MISMATCH_NOTE]);
     expect(pregCard.textContent).not.toContain(API_SAME_NOTE);
   });
 

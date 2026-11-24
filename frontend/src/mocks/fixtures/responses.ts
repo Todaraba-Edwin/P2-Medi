@@ -5,7 +5,6 @@ import type { ChatResponse, ChatResponseInput } from "@/lib/api/types";
 import {
   API_NO_CODE_NOTE,
   API_SAME_NOTE,
-  GRADE_MISMATCH_NOTE_NEXT,
   BADGE_SOURCE_TAIL,
   CAUTION_DOSE,
   CAUTION_DUP_INGREDIENT,
@@ -1242,8 +1241,8 @@ const U30_API_CONTENT_G1 = "(경구, 주사)- 합성 1등급 문장";
 const U30_DOSE_TY_VARIANT = "가나성분으로써 4,000mg";
 const U30_PREG_DATES = [{ label: "기준일", value: "2026-07-21" }] as const;
 const U30_API_DATES = [{ label: "조회", value: "2026-11-24" }] as const;
-/** 등급 불일치 안내: 사용자 제공 새 문구(BE 반영 대기, `GRADE_MISMATCH_NOTE_NEXT`). 근거마다 붙어 온다 */
-const U30_NOTES = [API_SAME_NOTE, GRADE_MISMATCH_NOTE_NEXT];
+/** 등급 불일치 안내: 사용자 제공 새 문구(BE 반영 완료, `PHRASES.GRADE_MISMATCH_NOTE`). 근거마다 붙어 온다 */
+const U30_NOTES = [API_SAME_NOTE, PHRASES.GRADE_MISMATCH_NOTE];
 
 const u30PregFile = (id: string, text: string): DetailInput => ({
   evidence_id: id,
