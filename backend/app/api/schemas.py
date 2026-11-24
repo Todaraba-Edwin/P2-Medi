@@ -40,6 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.agent import fixed_phrases as fp
 from app.agent.finalize import _missing_text as _detail_missing_text  # finalize 항목 문구와 같은 규칙(사유 → 상수 문구)
+from app.agent.josa import eul_reul
 from app.agent.sentence_filter import DOSE_NUMBER, unsafe_reason  # import만(하네스 동결 파일, FE-02-06 A 카드 사유의 용량 숫자 검사)
 from app.tools.provenance import (
     CITATION_DATE_LABELS,
@@ -690,6 +691,24 @@ def _named_head(head: str, names: dict[str, str]) -> str:
     return NAME_JOIN.join(_named(p, names) for p in head.split(NAME_JOIN))
 
 
+# ---- 허가사항(`kind == "label"`) 줄의 이름 자리(AG-13 부수 조사, 2026-11-24): `get_label_section` 항목에는 약 이름 칸이 없어 `finalize`가 줄 머리·미확보 문구의
+# `{drug}` 자리에 `subject`(`[품목기준코드, 절 이름]`)를 `품목기준코드 · 절` 꼴로 넣는다(예: `202106954 · 주의사항은 전문의약품이라 …`). 문구 틀은 그대로 두고
+# 응답 변환에서 **코드 조각만 사전 확정 이름으로** 바꾼다(F3와 같은 방식). `entries`·근거 ID·고정 문구 원문은 건드리지 않는다.
+_LABEL_HEAD_RE = re.compile(rf"^(\d{{9}}){re.escape(NAME_JOIN)}(.+)$")
+
+
+def _label_head(e: dict[str, Any]) -> tuple[str, str] | None:
+    """허가사항 줄 머리 `품목기준코드 · 절`의 (코드, 절 이름). 허가사항 줄이 아니거나 모양이 다르면 None."""
+    m = _LABEL_HEAD_RE.match(e["drug"]) if e.get("kind") == "label" and isinstance(e.get("drug"), str) else None
+    return (m.group(1), m.group(2)) if m else None
+
+
+def _rename_label_head(text: str, seq: str, section: str, names: dict[str, str]) -> str:
+    """문구 속 `코드 · 절`의 코드를 사전 확정 이름으로(이름을 모르면 그대로)."""
+    name = names.get(seq)
+    return text.replace(f"{seq}{NAME_JOIN}{section}", f"{name}{NAME_JOIN}{section}") if name else text
+
+
 def _detail_item(d: dict[str, Any], names: dict[str, str] | None = None) -> DetailItem:
     names = names or {}
     pub, ds = _publisher_and_dataset(d)
@@ -704,11 +723,18 @@ def _detail_item(d: dict[str, Any], names: dict[str, str] | None = None) -> Deta
         drug_name=name, section=d.get("section"),
         flags=flags, notes=[str(x) for x in d.get("notes") or []], rows=[dict(r) for r in d.get("rows") or []],
         drugs=drugs, item_seq=d.get("item_seq"), label_source=d.get("label_source"),
-        missing_reason=reason, missing_text=_detail_missing_text(d) if reason else None,
+        missing_reason=reason, missing_text=_label_missing_text(d, names) if reason else None,
         label_help=fp.LABEL_ONE_LINE if sk and d.get("dataset_key") in LABEL_HELP_DATASETS else None,
         easy_text_missing_line=fp.EASY_TEXT_MISSING.format(drug=name) if name and "EASY_TEXT_MISSING" in flags else None,
         quote_notice=fp.DOSE_QUOTE_NOTICE if d.get("section") == DOSE_SECTION and d.get("rows") else None,
     )
+
+
+def _label_missing_text(d: dict[str, Any], names: dict[str, str]) -> str | None:
+    text = _detail_missing_text(d)
+    if text and d.get("kind") == "label" and isinstance(d.get("item_seq"), str) and isinstance(d.get("section"), str):
+        return _rename_label_head(text, d["item_seq"], d["section"], names)
+    return text
 
 
 def build_citations(detail: list[DetailItem]) -> list[Citation]:
@@ -839,7 +865,8 @@ def _absorbed(row: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[s
     return [e for e in entries if e.get("evidence_id") in ids and e.get("kind") not in PAIR_KINDS and e.get("bucket") in _ABSORB_BUCKETS]
 
 
-def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]], display: dict[str, str] | None = None) -> Finding:
+def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]], display: dict[str, str] | None = None,
+                     extra_notes: list[str] | None = None) -> Finding:
     """`finalize.product_rows` 한 줄 → 제품 줄 `Finding`(BE-06-12 A, PRD-14 식별된 약 한 줄, PRD-09-05 성분 칩).
 
     - `evidence_id`는 None이다(BE-06-41 A): 근거 연결은 배지마다 `evidence_id`. 한 근거를 쌍 줄·두 약의 제품 줄이 함께 가리켜 ID로 줄을 찾으면 겹친다.
@@ -860,6 +887,7 @@ def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]], displa
         if kind == "identify":
             sub_line = sub_line or e.get("sub_line")
     age_criteria = list(dict.fromkeys(age_criteria))
+    notes.extend(extra_notes or [])  # 같은 약의 허가사항 미확보 줄을 합친 한 줄(`_label_notes`, 슬롯 notes)
     # 줄 대표 종류: 첫 배지의 종류(줄 글자 `text` = 첫 배지 글자와 짝, 화면이 색을 고르는 키). 배지가 없으면 흡수한 "찾음" 줄의 `identify`,
     # 그것도 없으면 흡수한 첫 줄의 종류(성분 중복·주의). 근거 ID와 달리 종류는 줄을 가리키는 열쇠가 아니다
     kinds = [b.get("kind") for b in row.get("badges") or []] + sorted((e.get("kind") for e in absorbed), key=lambda k: k != "identify")
@@ -881,8 +909,25 @@ def _product_finding(row: dict[str, Any], absorbed: list[dict[str, Any]], displa
     )
 
 
+def _label_notes(entries: list[dict[str, Any]], row_keys: set[str], display: dict[str, str]) -> tuple[dict[str, list[str]], set[int]]:
+    """제품 줄과 같은 약의 허가사항 미확보 줄(`kind == "label"`·확인 못 함)을 그 제품 줄의 `notes` 한 줄로 합치려고 모은다(AG-13 부수 조사, 2026-11-24).
+    줄 글자는 `finalize`가 만든 문구에서 줄 머리의 `품목기준코드 · ` 조각만 뗀 것이다(`주의사항은 전문의약품이라 …`): 새 문구가 아니다.
+    사전 확정 이름을 알고 그 약의 제품 줄이 있을 때만 합친다. 반환: (품목기준코드 → 줄 글자 목록, 합쳐진 줄 `id()`). `entries`·근거 상세는 그대로다."""
+    notes: dict[str, list[str]] = {}
+    merged: set[int] = set()
+    for e in entries:
+        head = _label_head(e)
+        if head is None or e.get("bucket") != "unconfirmed" or head[0] not in row_keys or head[0] not in display:
+            continue
+        text, drug = e.get("text"), e["drug"]
+        if isinstance(text, str) and text.startswith(drug):
+            notes.setdefault(head[0], []).append(head[1] + text[len(drug):])
+            merged.add(id(e))
+    return notes, merged
+
+
 def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_by_id: dict[str, list[Badge]],
-              display: dict[str, str] | None = None) -> list[Finding]:
+              display: dict[str, str] | None = None, *, merge_label_rows: bool = True) -> list[Finding]:
     """판정 줄 = 제품 줄(`product_rows`, 묶음 found·identified) → 남은 근거 줄(쌍 줄 포함, `entries` 순서).
 
     남은 근거 줄 중 `line_groups`(같은 약 키·같은 주의 종류·같은 출처, BE-06-47 A)에 든 줄은 첫 줄 자리에 한 줄로 합친다.
@@ -893,10 +938,13 @@ def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_
     rows = [r for r in all_rows if r.get("bucket") in _ROW_BUCKETS]
     out: list[Finding] = []
     taken: set[int] = set()
+    # 같은 약의 허가사항 미확보 줄은 제품 줄의 notes 한 줄로 합친다(`merge_label_rows`를 끄면 이전처럼 따로 둔다)
+    label_notes, label_merged = _label_notes(entries, {str(r["key"]) for r in rows}, display or {}) if merge_label_rows else ({}, set())
+    taken.update(label_merged)
     for r in rows:
         absorbed = _absorbed(r, entries)
         taken.update(id(e) for e in absorbed)
-        out.append(_product_finding(r, absorbed, display))
+        out.append(_product_finding(r, absorbed, display, label_notes.get(str(r["key"]))))
     # 따로 남는 "찾음" 줄의 성분 칩(결정 후보 4 B): 그 약에 판정 항목이 없거나(제품 줄 없음) 목록에 없음뿐이면 판정 대상 아님 → 원인 아님(글자 없음).
     # 판정을 시도했지만 확인하지 못한 약(`unconfirmed` 줄)은 칸 없음 = 모름 그대로("원인 확인 못 함", BE-06-42 A).
     # `product_rows`가 없는 이전 출력은 판단할 근거가 없어 그대로 둔다
@@ -925,6 +973,9 @@ def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_
             merged.update(id(m) for m in members)
             out.append(_group_finding(members, detail_by_id, badges_by_id, display, extra=_evidence_extra(members[0].get("evidence_id"), resp)))
             continue
+        head = _label_head(e) if merge_label_rows else None
+        if head is not None and isinstance(e.get("text"), str):  # 합치지 못한 허가사항 줄도 문구 속 코드는 사전 확정 이름으로
+            e = {**e, "text": _rename_label_head(e["text"], head[0], head[1], display or {})}
         out.append(_finding(e, detail_by_id, badges_by_id, chip_default=chip_default(e), display=display,
                             extra=_evidence_extra(e.get("evidence_id"), resp)))
     return _section_sorted(out)
@@ -981,7 +1032,7 @@ def _candidates(clarify: dict[str, Any] | None) -> list[Candidate]:
 
 
 def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, clarify: dict[str, Any] | None = None,
-                     entities: Sequence[Any] | None = None) -> ChatResponse:
+                     entities: Sequence[Any] | None = None, merge_label_rows: bool = True) -> ChatResponse:
     """`finalize()` 출력 딕셔너리 → `ChatResponse`. 값을 지어내지 않고 옮기며, 출처 표·날짜 줄·줄별 배지 배치만 코드로 만든다.
 
     `clarify`(라우터의 되묻기 `{target_raw, options[], groups[]}`)는 `end_reason == CLARIFY`일 때만 `candidates[]`로 옮긴다(묶음별 `input_name`).
@@ -1008,13 +1059,13 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
         not_checked_lines=list(resp.get("not_checked_lines") or []),
         grade_defs=[GradeDef(**g) for g in resp.get("grade_defs") or [] if isinstance(g, dict)],
         summary=resp.get("summary"),
-        findings=_findings(resp, detail_by_id, badges_by_id, display),  # 제품 줄 연결(BE-06-39~41 A)
+        findings=_findings(resp, detail_by_id, badges_by_id, display, merge_label_rows=merge_label_rows),  # 제품 줄 연결(BE-06-39~41 A)
         candidates=_candidates(clarify) if end_reason == "CLARIFY" else [],
         detail=detail,
         citations=build_citations(detail),
         sentence_refs=refs,
         grade_def_missing=list(resp.get("grade_def_missing") or []),
-        pharmacist_advice=list(resp.get("pharmacist_advice") or []),
+        pharmacist_advice=_advice_lines(resp, display) if merge_label_rows else list(resp.get("pharmacist_advice") or []),
         # 걸러 내지 않고 옮긴다: 길이·값이 어긋나면 검증 오류로 드러난다(권고가 엉뚱한 구역에 조용히 들어가지 않게)
         pharmacist_advice_kinds=list(resp.get("pharmacist_advice_kinds") or []),
         fixed_notice=fixed,
@@ -1025,6 +1076,20 @@ def to_chat_response(resp: dict[str, Any], *, end_reason: str | None = None, cla
         dose_notice=resp.get("dose_notice"),
         redose_notice=resp.get("redose_notice"),
     )
+
+
+def _advice_lines(resp: dict[str, Any], display: dict[str, str]) -> list[str]:
+    """약사 확인 권고 줄: 허가사항 미확보 줄이 이름 자리에 쓴 `품목기준코드 · 절`을 그 약의 사전 확정 이름으로 바꾼다(틀의 `{drugs}` 자리에는 약 이름만 오게).
+    이름을 모르면 그대로 둔다. 줄 수·순서·`pharmacist_advice_kinds`는 그대로다."""
+    heads = [h for e in resp.get("entries") or [] if isinstance(e, dict) and (h := _label_head(e)) is not None and h[0] in display]
+    out = []
+    for line in resp.get("pharmacist_advice") or []:
+        for seq, section in heads:
+            head, name = f"{seq}{NAME_JOIN}{section}", display[seq]
+            line = re.sub(re.escape(head) + "[을를]", lambda _m, n=name: n + eul_reul(n), line)  # 고정 문구의 `을(를)` 조사는 이름의 받침으로 다시 고른다(문장은 그대로)
+            line = line.replace(head, name)
+        out.append(line)
+    return out
 
 
 def _result_summary(rs: Any, display: dict[str, str]) -> ResultSummary | None:
