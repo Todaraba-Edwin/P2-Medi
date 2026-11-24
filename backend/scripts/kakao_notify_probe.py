@@ -32,7 +32,7 @@ def main() -> int:
         print("설정 확인됨(키 이름 기준). 실제 전송하려면 --yes")
         return 0
     try:
-        notifier.send_now("[MediAgent] 알림 시험 메시지")
+        notifier.send_now("[MediAgent-Can-I-PPiyak] 알림 시험 메시지")
     except Exception as exc:  # noqa: BLE001
         print(f"전송 실패: {type(exc).__name__}")
         return 1

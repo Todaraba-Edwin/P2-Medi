@@ -67,8 +67,8 @@ def test_two_messages_on_success():
     _join(n)
     memos = [json.loads(f["template_object"])["text"] for u, _h, f in http.calls if u == MEMO_URL]
     assert len(memos) == 2
-    assert memos[0].startswith("[MediAgent] corpus 완료 ") and memos[0].endswith("s (123 chunks)")
-    assert memos[1].startswith("[MediAgent] warmup 완료 ") and memos[1].endswith("s")
+    assert memos[0].startswith("[MediAgent-Can-I-PPiyak] corpus 완료 ") and memos[0].endswith("s (123 chunks)")
+    assert memos[1].startswith("[MediAgent-Can-I-PPiyak] warmup 완료 ") and memos[1].endswith("s")
     token_calls = [f for u, _h, f in http.calls if u == TOKEN_ENDPOINT]
     assert token_calls[0]["grant_type"] == "refresh_token" and token_calls[0]["client_id"] == KEY
     assert "client_secret" not in token_calls[0]
@@ -94,7 +94,7 @@ def test_failure_sends_failure_message_with_type_name_only():
     assert runner.warm() is False
     _join(n)
     texts = [json.loads(f["template_object"])["text"] for u, _h, f in http.calls if u == MEMO_URL]
-    assert len(texts) == 1 and texts[0].startswith("[MediAgent] warmup 실패 ValueError ")
+    assert len(texts) == 1 and texts[0].startswith("[MediAgent-Can-I-PPiyak] warmup 실패 ValueError ")
     assert "민감" not in texts[0]
 
 

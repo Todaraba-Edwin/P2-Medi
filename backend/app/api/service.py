@@ -139,7 +139,7 @@ def build_step(label: str, name: str) -> Iterator[_Step]:
     suffix = f" ({step.detail})" if step.detail else ""
     logger.info("%s: %s done in %.2fs%s", label, name, elapsed, suffix)
     if label == "warmup" and name.startswith("corpus"):
-        _notify(f"[MediAgent] corpus 완료 {elapsed:.1f}s{suffix}")
+        _notify(f"[MediAgent-Can-I-PPiyak] corpus 완료 {elapsed:.1f}s{suffix}")
 
 
 class PrimedConnFactory:
@@ -273,12 +273,12 @@ class LazyGraphRunner:
             elapsed = time.monotonic() - started
             logger.warning("%s failed: %s after %.1fs", label, type(exc).__name__, elapsed)
             if label == "warmup":
-                _notify(f"[MediAgent] warmup 실패 {type(exc).__name__} {elapsed:.1f}s")
+                _notify(f"[MediAgent-Can-I-PPiyak] warmup 실패 {type(exc).__name__} {elapsed:.1f}s")
             raise
         elapsed = time.monotonic() - started
         logger.info("%s done in %.1fs", label, elapsed)
         if label == "warmup":
-            _notify(f"[MediAgent] warmup 완료 {elapsed:.1f}s")
+            _notify(f"[MediAgent-Can-I-PPiyak] warmup 완료 {elapsed:.1f}s")
         return base
 
     @property
