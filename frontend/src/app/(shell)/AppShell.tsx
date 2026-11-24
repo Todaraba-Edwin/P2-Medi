@@ -139,12 +139,27 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
   // 창 크기 자동 열고 닫기(FE-17 U-18): 폭이 사이드바 기준선(1024px)을 **가로지를 때만** 좁아지면 닫고 넓어지면 펼친다.
   // 값이 바뀔 때만 도는 효과라 리사이즈 중 매 픽셀 반응하지 않고, 같은 구간 안에서 사용자가 접거나 편 상태는 그대로 둔다. 첫 그리기(폭을 처음 알 때)는 건너뛴다.
   // 상태만 바꾸므로 대화·입력 중 글자는 그대로다(다시 마운트하지 않는다). 닫히는 층의 초점은 각 층이 토글 버튼으로 돌려준다(`Sidebar` `returnFocus`)
+  // 근거 상세(U-18 추가 지시, 2026-11-24): 좁아지는 순간에만 함께 닫고(reducer), 넓어져도 다시 열지 않는다. 패널 안에 초점이 있었으면 그 결과의 진입 버튼으로 돌려준다
   const lastDesktop = useRef<boolean | null>(null);
+  const evidenceOpenRef = useRef<string | null>(null);
+  const panelFocused = useRef(false);
+  useEffect(() => {
+    evidenceOpenRef.current = shell.evidenceTurnId;
+    if (shell.evidenceTurnId === null) panelFocused.current = false;
+  });
   useEffect(() => {
     if (desktop === null) return;
     const previous = lastDesktop.current;
     lastDesktop.current = desktop;
-    if (previous !== null && previous !== desktop) dispatch({ type: "viewportCrossed", desktop });
+    if (previous === null || previous === desktop) return;
+    const turnId = evidenceOpenRef.current;
+    // 패널은 이 효과 전에 이미 그리지 않으므로(같은 커밋) 초점 위치는 `panelFocused`(패널의 focus/blur)와 지금 초점이 body로 떨어졌는지로 판단한다
+    const active = document.activeElement;
+    const focusInPanel = !desktop && turnId !== null && panelFocused.current && (active === null || active === document.body);
+    dispatch({ type: "viewportCrossed", desktop });
+    if (focusInPanel) {
+      window.setTimeout(() => main.current?.querySelector<HTMLElement>(`[data-turn="${turnId}"] [data-testid="evidence-entry"]`)?.focus(), 0);
+    }
   }, [desktop]);
 
   const closeEvidence = () => {
@@ -411,7 +426,17 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
           </div>
         </main>
         {layout.panelOpen && evidenceResponse && (
-          <div inert={layout.sidebarOverlay} data-testid="panel-column" className="h-full w-[400px] flex-none">
+          <div
+            inert={layout.sidebarOverlay}
+            data-testid="panel-column"
+            className="h-full w-[400px] flex-none"
+            onFocus={() => {
+              panelFocused.current = true;
+            }}
+            onBlur={(event) => {
+              if (event.relatedTarget) panelFocused.current = false;
+            }}
+          >
             <EvidencePanel mode="panel" open onOpenChange={(open) => !open && closeEvidence()}>
               <EvidenceDetail response={evidenceResponse} />
             </EvidencePanel>

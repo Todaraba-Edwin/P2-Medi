@@ -195,3 +195,37 @@ body {
     color: rgb(0 0 0 / 0.85);
   }
 }
+
+/*
+ * 진행 표시의 지금 단계 글자 쉬머(FE-17 U-24, 2026-11-24). 본문색(ink) 글자 위로 mute 띠가 왼쪽→오른쪽으로 지나간다.
+ * 띠 색(mute)도 바탕과 4.5:1 이상이라 어느 순간에도 글자를 읽을 수 있다. 움직임 줄이기에서는 멈추고 본문색 글자 그대로다
+ */
+@layer components {
+  .progress-shimmer {
+    background-image: linear-gradient(90deg, var(--color-ink) 0%, var(--color-ink) 35%, var(--color-mute) 50%, var(--color-ink) 65%, var(--color-ink) 100%);
+    background-size: 250% 100%;
+    background-position: 100% 0;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: progress-shimmer 1.8s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .progress-shimmer {
+      animation: none;
+      background-image: none;
+      color: var(--color-ink);
+      -webkit-text-fill-color: currentColor;
+    }
+  }
+}
+
+@keyframes progress-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}

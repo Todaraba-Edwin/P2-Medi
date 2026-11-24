@@ -95,11 +95,30 @@ describe("폭별 배치", () => {
 });
 
 describe("창 크기 기준선 가로지르기(FE-17 U-18)", () => {
-  it("좁아지면(desktop false) 사이드바·드로어를 닫고, 넓어지면(desktop true) 사이드바를 펼친다. 근거 상세는 그대로", () => {
+  // 기대값 갱신(2026-11-24, FE-17 U-18 추가 지시): 좁아질 때 근거 상세도 닫힌다(이전 기대 "근거 상세는 그대로"를 새 동작으로 바꿈)
+  it("좁아지면(desktop false) 사이드바·드로어·근거 상세를 닫고, 넓어지면(desktop true) 사이드바를 펼친다", () => {
     const opened = run(initialShellState, { type: "openDrawer" }, open(1280));
-    expect(run(opened, { type: "viewportCrossed", desktop: false })).toMatchObject({ sidebarExpanded: false, drawerOpen: false, evidenceTurnId: "turn-1" });
+    expect(run(opened, { type: "viewportCrossed", desktop: false })).toMatchObject({ sidebarExpanded: false, drawerOpen: false, evidenceTurnId: null });
     const collapsed = run(initialShellState, { type: "toggleSidebar" }, { type: "openDrawer" });
     expect(run(collapsed, { type: "viewportCrossed", desktop: true })).toMatchObject({ sidebarExpanded: true, drawerOpen: false });
+  });
+
+  it("근거 상세(U-18 추가): 넓은→좁은 가로지름에서만 닫고, 다시 넓어져도 열지 않으며, 좁은 폭에서 직접 연 것은 넓어져도 유지한다", () => {
+    // 넓은 폭에서 열림 → 좁아짐: 닫힘 → 다시 넓어짐: 닫힌 채
+    const narrowed = run(initialShellState, open(1280), { type: "viewportCrossed", desktop: false });
+    expect(narrowed.evidenceTurnId).toBeNull();
+    expect(run(narrowed, { type: "viewportCrossed", desktop: true }).evidenceTurnId).toBeNull();
+    // 좁은 폭에서 사용자가 직접 연다(시트) → 넓어짐: 열린 채(패널로 바뀜)
+    const manual = run(narrowed, open(900));
+    expect(manual.evidenceTurnId).toBe("turn-1");
+    const widened = run(manual, { type: "viewportCrossed", desktop: true });
+    expect(widened.evidenceTurnId).toBe("turn-1");
+    expect(computeLayout(widened, 1280).panelOpen).toBe(true);
+    // 같은 구간 안의 폭 변화는 액션이 없으므로 상태 그대로(배치만 바뀜)
+    expect(computeLayout(manual, 700).evidenceMode).toBe("sheet");
+    expect(manual.evidenceTurnId).toBe("turn-1");
+    // 닫기는 사용자가 언제든 할 수 있다
+    expect(run(manual, { type: "closeEvidence" }).evidenceTurnId).toBeNull();
   });
 
   it("같은 구간 안의 사용자 토글은 가로지르기가 없으면 그대로다(폭만 바뀌면 배치 표현만 바뀐다)", () => {

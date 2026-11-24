@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -89,6 +91,42 @@ describe("ProgressSteps", () => {
     render(<ProgressSteps stage={null} hideMascot />);
     expect(screen.queryByTestId("mascot")).toBeNull();
     expect(screen.getByTestId("progress-waiting")).toBeInTheDocument();
+  });
+
+  it("U-24: 단계는 마스코트 오른쪽 세로 목록이고 바깥 노란 상자가 없다", () => {
+    render(<ProgressSteps stage="contraindication_check" />);
+    const root = screen.getByRole("status", { name: "진행 상태" });
+    expect(root).toHaveClass("flex", "items-center"); // 가로 배치(마스코트 | 단계)
+    expect(root).not.toHaveClass("flex-col");
+    const mascot = within(root).getByTestId("mascot");
+    const list = screen.getByTestId("progress-step-list");
+    expect(mascot.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // 마스코트 다음(오른쪽)
+    expect(list).toHaveClass("flex-col");
+    for (const cls of ["bg-bg-soft", "rounded-[18px]", "px-4", "py-3"]) expect(list).not.toHaveClass(cls);
+    expect(list.className).not.toMatch(/\b(bg-|border)/);
+  });
+
+  it("U-24: 완료는 체크 표시 그대로, 진행 중은 굵은 글자 + 쉬머, 예정은 낮은 불투명도다", () => {
+    render(<ProgressSteps stage="contraindication_check" />);
+    const [done, now, todo] = screen.getAllByRole("listitem");
+    expect(done).toHaveAttribute("data-state", "done");
+    expect(done.querySelector(".bg-yellow svg")).not.toBeNull(); // 기존 체크 아이콘·색
+    expect(done).not.toHaveClass("opacity-55");
+    expect(within(done).getByTestId("progress-step-text")).not.toHaveClass("progress-shimmer");
+    expect(now).toHaveClass("font-bold");
+    expect(within(now).getByTestId("progress-step-text")).toHaveClass("progress-shimmer");
+    expect(now).not.toHaveClass("opacity-55");
+    expect(todo).toHaveClass("opacity-55");
+    expect(within(todo).getByTestId("progress-step-text")).not.toHaveClass("progress-shimmer");
+    expect(screen.getAllByTestId("progress-step-text").map((el) => el.textContent)).toEqual(["약 찾는 중", "금기 확인 중", "근거 찾는 중"]); // 새 글자 없음
+  });
+
+  it("U-24: 움직임 줄이기에서는 지금 줄 스피너가 멈추고(motion-reduce:animate-none) 쉬머는 CSS가 끈다", () => {
+    render(<ProgressSteps stage="drug_lookup" />);
+    const spinner = screen.getAllByRole("listitem")[0].querySelector(".animate-spin");
+    expect(spinner).toHaveClass("motion-reduce:animate-none");
+    const css = readFileSync(path.resolve(__dirname, "../../styles/globals.css"), "utf8");
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.progress-shimmer\s*\{[^}]*animation:\s*none/);
   });
 
   it("이벤트에 label이 오면 지금 줄에 그 값을 쓴다", () => {
