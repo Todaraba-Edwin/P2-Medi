@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mediagent.openai-usage-report</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@PYTHON@</string>
+    <string>@REPO_ROOT@/backend/scripts/openai_usage_report.py</string>
+    <string>--send</string>
+    <string>--notify-failure</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>@REPO_ROOT@/backend</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>12</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TZ</key>
+    <string>Asia/Seoul</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>@REPO_ROOT@/logs/openai_usage_report.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>@REPO_ROOT@/logs/openai_usage_report.launchd.log</string>
+</dict>
+</plist>
