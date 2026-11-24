@@ -242,7 +242,7 @@ REFUSE_MESSAGES = {
 }
 
 # --------------------------------------------------------------------------- 안전장치 3겹 입구 거절 문구(AG-24-01 A·AG-13-40 A)
-# **원문 승인 2026-11-23(사용자)**: 아래 두 문구는 글자 그대로 승인됐다. 하네스 4.4절 표(`P2-doc/PJ2-Agent-Harness.md`)와 글자가 같아야 하며
+# **원문 승인 2026-11-23(사용자, SELF_HARM·SELF_JUDGE_APPROVAL)·2026-11-24(SUBSTANCE_MISUSE)**: 아래 문구는 글자 그대로 승인됐다. 하네스 4.4절 표(`P2-doc/PJ2-Agent-Harness.md`)와 글자가 같아야 하며
 # `test_ag24_safety_3layer`가 일치를 검사한다. `REFUSE_MESSAGES`와 따로 둔 이유: 그 표는 입구 유형별 건수 시험(`test_ag08_type_counts`)의
 # 키 집합이다. 응급 안내(119)는 `finalize(emergency=True)`가 맨 위에 따로 붙이므로 `SELF_HARM` 문구에는 119를 다시 쓰지 않는다.
 # 범위는 119와 약사·의료기관 안내까지다(AG-24-02 B). 위기 상담 번호·연락처는 쓰지 않는다(RFP-19-01 A).
@@ -250,8 +250,10 @@ REFUSE_MESSAGES = {
 SAFETY_REFUSE_APPROVED = {
     "SELF_HARM": "많이 힘드신 것 같아 걱정돼요. 이 서비스는 약을 위험하게 먹는 방법이나 양, 위험해지는 조합을 알려 드릴 수 없어요. 지금 바로 가까운 의료기관이나 약사에게 도움을 요청하세요.",
     "SELF_JUDGE_APPROVAL": "처방받은 약을 상담 없이 스스로 정하는 일을 괜찮다거나 맞다고 확인해 드릴 수 없어요. 이 서비스는 공공 자료를 찾아 전달할 뿐 복용 여부를 정해 주지 않아요. 처방해 준 병원이나 약사에게 먼저 확인하세요.",
+    # 원문 승인 2026-11-24(사용자, AG-24 시나리오 D): 남용·과량 의도(`guardrail.detect_substance_misuse`). 동반·정서 요구도 이 문구를 쓴다(별도 문구 없음)
+    "SUBSTANCE_MISUSE": "약 사용과 관련해 걱정이 돼요. 이 서비스는 약을 위험하게 쓰는 방법이나 양, 약을 써 본 경험이나 그 효과를 알려 드릴 수 없어요. 몸이 걱정되거나 도움이 필요하면 지금 바로 가까운 의료기관이나 약사에게 도움을 요청하세요.",
 }
-SAFETY_REFUSE_APPROVED_KEYS = tuple(SAFETY_REFUSE_APPROVED)  # 2026-11-23 승인. 거절 순서는 SELF_HARM이 먼저다
+SAFETY_REFUSE_APPROVED_KEYS = tuple(SAFETY_REFUSE_APPROVED)  # 거절 순서는 SELF_HARM이 먼저다(2026-11-23 승인 2건 + 2026-11-24 SUBSTANCE_MISUSE)
 
 
 def all_refuse_messages() -> dict[str, str]:

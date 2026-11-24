@@ -21,6 +21,9 @@ DOSE_NUMBER = "DOSE_NUMBER"            # 요약 문장에 복용량·투여량 �
 DIAGNOSIS_CLAIM = "DIAGNOSIS_CLAIM"    # 진단 단정(진단·처방·복용량 결정은 하지 않는다, CLAUDE.md 1장)
 PRESCRIPTION_OR_DOSE_DECISION = "PRESCRIPTION_OR_DOSE_DECISION"  # 처방·복용 지시·복용 변경 지시
 ADVISORY_OR_ENDORSEMENT = "ADVISORY_OR_ENDORSEMENT"  # 일반 권유·지도("~하는 게 좋아요", "추천합니다")와 사용자 판단에 대한 동조·승인("괜찮아요", "좋은 선택이에요")
+ENGAGEMENT_PROBE = "ENGAGEMENT_PROBE"  # 약물 사용 경험·시도·효과를 캐묻거나 안전하게 경험해 보도록 이끄는 문장(AG-24 시나리오 D)
+MITIGATION_SUGGESTION = "MITIGATION_SUGGESTION"  # 부작용·불편을 달래려고 다른 약을 더 먹으라고 제안하는 문장(AG-24 시나리오 D)
+PRAISE_OR_REASSURANCE = "PRAISE_OR_REASSURANCE"  # 약 사용을 칭찬하거나 정서적으로 동조·동반·안심시키는 문장(AG-24 시나리오 D)
 
 # 안전 이유 판별은 정규식·키워드만 쓴다(LLM 없음). 공백을 모두 지운 문장에 매칭하므로 띄어쓰기 변형에 강하다.
 # 한계: 영어·우회 표현·글자 사이에 기호를 끼운 변형은 잡지 못한다(근거 상세는 검사하지 않는다).
@@ -106,8 +109,62 @@ def advisory_or_endorsement(text: str) -> bool:
     return False
 
 
-def unsafe_reason(text: str, *, advisory: bool = True) -> str | None:
-    """요약 문장의 안전 이유(복용량 숫자·진단 단정·처방/복용 결정·권유/동조). 없으면 None."""
+# --------------------------------------------------------------------------- 출구 Sensor(AG-24 시나리오 D, 2026-11-24): 사용 경험 캐묻기·칭찬·완화 목적 추가 복용 제안
+# 이 에이전트는 약 사용의 경험·시도·효과를 묻지 않고, 약 사용을 칭찬·동조하지 않고, 부작용을 달래려고 다른 약을 더 먹으라고 제안하지 않는다. 근거는 보도된 챗봇 실패 유형(`data/mock/briefs/reports/sam-case-research.md` P2·P3, 로컬 전용·가족 측 주장 포함)과
+# 프로젝트의 안내만 하는 원칙(AG-13-40 A·AG-24-01 A)이다. 문장 단위로 지운다(기존 삭제·되감기·코드 폴백 경로 재사용).
+# 면제: 인용부호 안(원문 인용). `ENGAGEMENT_PROBE`·`MITIGATION_SUGGESTION`은 문장에 확인·상의·문의·약사·병원 안내 어간이 있으면 통과한다
+# ("이상 반응을 느꼈다면 약사에게 알려 주세요"는 안내다). `PRAISE_OR_REASSURANCE`은 뒤 12글자 안에 부정(아니·않·없·못·말)이 있으면 부정문이라 통과한다.
+# 코드가 만든 고정 문구(`dose_check` "오늘 이미 드셨나요?"·119·고정 안내)는 이 필터를 지나지 않는다(모델 문장만 검사).
+_ENGAGE_PATTERNS = [
+    re.compile(r"경험해보(?:고싶|실|시겠|려|자)|경험해볼(?:래|까|생각|마음)"),                                  # 경험해보고 싶어?
+    re.compile(r"안전하게(?:경험|해보|해볼|즐기|취|써보|사용해보|복용해보|먹어보)"),                                 # 안전하게 경험·해보
+    re.compile(r"어떤(?:효과|기분|느낌|반응)(?:을|를|이|가|은|는)?(?:느꼈|느끼셨|느껴|들었|드셨|있었|나타났)"),     # 어떤 효과를 느꼈어?
+    re.compile(r"(?:뭘|무엇을|어떤것을|어떤약을|어떤걸)(?:시도|해봤|해보셨|드셔보|먹어봤|써봤|복용해봤)"),          # 뭘 시도해봤어?
+    re.compile(r"(?:시도|경험)(?:해)?(?:봤|보셨|한적|해본적)"),                                                  # 시도해봤어?
+    re.compile(r"지금까지(?:뭘|무엇|어떤|얼마나)\S{0,8}?(?:시도|해봤|해보셨|먹어|복용|사용)"),                     # 지금까지 뭘 해봤는지
+    re.compile(r"(?:느꼈|느껴|느낌|경험|해봤|써봤|먹어봤|시도)\S{0,10}?(?:알려|말해|들려|공유해?)(?:줘|주세요|주시|주실|달라|줄래|주겠)"),  # 느낀 걸 말해 줘
+]
+# 부작용·불편을 달래려고 다른 약을 더 먹으라고 제안하는 문장(보도된 P3 유형). "속이 안 좋으면 …도 드셔 보세요", "추가로 복용하면 돼요"
+_MITIGATE_PATTERNS = [
+    re.compile(r"(?:속이|위가|속쓰림|메스꺼|구토|두통|통증|부작용|졸음|어지럼|울렁|불편)\S{0,24}?(?:드시|드셔|먹으|먹어|복용|섭취)\S{0,8}?(?:면(?:돼|됩|좋|괜찮)|도(?:돼|됩|좋|괜찮|무방)|보세요|세요)"),
+    re.compile(r"(?:다른약|추가로|따로|하나더|한알더|더)\S{0,8}?(?:드시|드셔|먹으|먹어|복용|섭취)\S{0,6}?(?:면돼|면됩|세요|보세요|도돼|도됩|시면)"),
+]
+# 약 사용을 칭찬하거나 정서적으로 동조·동반하는 문장(보도된 P2 유형), Validator가 못 잡는 안심 꼴("걱정 마세요"). 기존 `_ENDORSE_PATTERNS`("좋은 선택이에요" 등)에 더한다.
+# 위험을 알린 뒤 섞는 상반된 안심 문구("그래도 괜찮아요"·"걱정 마세요"·"문제없어요", P7)는 **Validator의 `SAFE_ASSERTION_PATTERNS`가 이미 막는다**(중복 검사를 두면
+# Validator 상태·규칙 건수가 달라져 기존 동작이 바뀐다. 위 `_NEGATION` 주석과 같은 방침).
+_PRAISE_REASSURE_PATTERNS = [
+    re.compile(r"잘(?:알고계시|아시|알고있|알고계신)(?:네요|는군요|군요|어요|습니다|는)"),
+    re.compile(r"(?:대단하|멋지|훌륭하|똑똑하|현명하)(?:세요|시네요|시군요|십니다|네요|군요)"),
+    re.compile(r"(?:같이|함께|곁에|옆에)있어(?:드릴게|줄게|드리겠|줄께|드릴께)|내편이|제가응원"),                          # 동반·정서 동조
+    re.compile(r"걱정(?:은)?마세요|걱정할필요(?:는|가)?(?:없|전혀)|걱정안하셔도"),                                       # Validator가 못 잡는 꼴("걱정 마세요")만. "걱정하지 마세요"는 Validator 몫
+]
+_ENGAGE_EXEMPT = ("확인", "상의", "상담", "문의", "물어", "여쭤", "약사", "약국", "병원", "의료기관", "진료", "119")
+
+
+def _exempt_consult(t: str) -> bool:
+    return any(stem in t for stem in _ENGAGE_EXEMPT)
+
+
+def engagement_probe(text: str) -> bool:
+    """약물 사용 경험·시도·효과를 캐묻거나 안전하게 경험해 보도록 이끄는 문장이면 True(공백 제거 뒤 정규식, 인용부호 안과 안내 문장은 제외)."""
+    t = _WS.sub("", _QUOTED.sub("", text))
+    return not _exempt_consult(t) and any(p.search(t) for p in _ENGAGE_PATTERNS)
+
+
+def mitigation_suggestion(text: str) -> bool:
+    """부작용·불편을 달래려고 다른 약을 더 먹으라고 제안하는 문장이면 True(인용부호 안과 확인·상의·문의 안내 문장은 제외)."""
+    t = _WS.sub("", _QUOTED.sub("", text))
+    return not _exempt_consult(t) and any(p.search(t) for p in _MITIGATE_PATTERNS)
+
+
+def praise_or_reassurance(text: str) -> bool:
+    """약 사용 칭찬·정서 동조·동반·안심("걱정 마세요") 문구면 True(인용부호 안은 제외, 뒤 12글자 안에 부정이 있으면 부정문이라 통과)."""
+    t = _WS.sub("", _QUOTED.sub("", text))
+    return any(not _NEGATION.search(t[m.end(): m.end() + 12]) for p in _PRAISE_REASSURE_PATTERNS for m in p.finditer(t))
+
+
+def unsafe_reason(text: str, *, advisory: bool = True, engagement: bool = True) -> str | None:
+    """요약 문장의 안전 이유(복용량 숫자·진단 단정·처방/복용 결정·권유/동조·사용 경험 캐묻기). 없으면 None."""
     t = _WS.sub("", text)
     for reason, pats in ((DOSE_NUMBER, _DOSE_PATTERNS), (DIAGNOSIS_CLAIM, _DIAGNOSIS_PATTERNS),
                          (PRESCRIPTION_OR_DOSE_DECISION, _DECISION_PATTERNS)):
@@ -115,6 +172,13 @@ def unsafe_reason(text: str, *, advisory: bool = True) -> str | None:
             return reason
     if advisory and advisory_or_endorsement(text):   # 출구 Sensor(AG-13-40 A): 앞의 세 검사에 걸리지 않은 권유·지도·동조 표현
         return ADVISORY_OR_ENDORSEMENT
+    if engagement:                                   # 출구 Sensor(AG-24 시나리오 D): 사용 경험 캐묻기·완화 목적 추가 복용 제안·칭찬·상반 안심
+        if engagement_probe(text):
+            return ENGAGEMENT_PROBE
+        if mitigation_suggestion(text):
+            return MITIGATION_SUGGESTION
+        if praise_or_reassurance(text):
+            return PRAISE_OR_REASSURANCE
     return None
 
 
@@ -148,7 +212,7 @@ class FilterResult:
         return len(self.dropped)
 
 
-def filter_sentences(draft: AnswerDraft, items: list[dict[str, Any]], *, advisory_sensor: bool = True) -> FilterResult:
+def filter_sentences(draft: AnswerDraft, items: list[dict[str, Any]], *, advisory_sensor: bool = True, engagement_sensor: bool = True) -> FilterResult:
     known = known_evidence_ids(items)
     index = build_text_index(items)
     res = FilterResult()
@@ -161,7 +225,7 @@ def filter_sentences(draft: AnswerDraft, items: list[dict[str, Any]], *, advisor
         elif has_code(s.text):
             reason = CODE_IN_TEXT
         else:
-            reason = unsafe_reason(s.text, advisory=advisory_sensor)   # 근거 ID가 있어도 적용한다(근거 검사 뒤)
+            reason = unsafe_reason(s.text, advisory=advisory_sensor, engagement=engagement_sensor)   # 근거 ID가 있어도 적용한다(근거 검사 뒤)
         if reason:
             res.dropped.append(Dropped(i, reason, s.text))
             continue

@@ -115,6 +115,12 @@ class GraphDeps:
     summary_router_pairs: bool = True    # AG-13-45 U-26 C-3 `result_summary`를 Router 확정 쌍으로 한정(확정 엔티티가 있을 때만)
     merge_unconfirmed_lines: bool = True  # AG-13-46 U-26 C-5 (a) 같은 약의 확인 못 함 줄을 약 키별 1줄로 묶음(`line_groups`)
     display_name_fix: bool = True        # AG-13-46 U-26 C-5 (b) 판정 못 한 약의 표시명을 사전 제품명 또는 `원문 → 제품명`으로
+    # AG-24 시나리오 D(남용·과량 의도, 2026-11-24) 스위치. 모두 기본 켬이고 끄면 이 장치가 없던 때와 같은 동작이다(한 번에 하나씩 ablation, 9.8절). 환경변수 없음
+    safety_in_misuse: bool = True        # 입구 `SUBSTANCE_MISUSE`(119 맨 위 + 조회·답변 차단, 문구는 승인 대기 초안)
+    safety_out_engagement: bool = True   # 출구 Sensor `ENGAGEMENT_PROBE`(사용 경험·효과를 캐묻거나 부추기는 문장 삭제)
+    router_abbrev_alias: bool = True     # Router 영문 약어 별칭(`DXM` → 덱스트로메토르판, 코드 상수 표)
+    router_symptom_noise: bool = True    # Router 증상·상태 낱말(쓰러진·졸음·노딩 …)을 약 이름 후보에서 제외
+    router_paren_split: bool = True      # Router 괄호 토큰 분리("기침약(DXM 성분)" → 기침약·DXM)와 괄호 영문 설명("(nodding)") 제거
 
 
 # --------------------------------------------------------------------------- 보조
@@ -210,9 +216,11 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
     """노드 본문(쓰기 제한·계측 없음). ReAct 그래프는 `make_nodes`로, C1 고정 파이프라인은 이 본문을 자기 노드 안에서 부른다(코드 공유, AG-16)."""
 
     def guardrail_in(state: AgentState) -> dict[str, Any]:
-        g = guardrail.guardrail_in(_question_of(state), self_harm=deps.safety_in_self_harm, self_judge=deps.safety_in_self_judge)
+        g = guardrail.guardrail_in(_question_of(state), self_harm=deps.safety_in_self_harm, self_judge=deps.safety_in_self_judge,
+                                   substance_misuse=deps.safety_in_misuse)
         ev = [{"rule": "H4", "event": "GUARDRAIL_IN", "emergency": g["emergency"], "route": g["route"], "reason": g["refuse_reason"]}]
-        reasons = guardrail.refuse_reasons(_question_of(state), self_harm=deps.safety_in_self_harm, self_judge=deps.safety_in_self_judge) if g["route"] == guardrail.ROUTE_REFUSE else []  # 이유 전부(AG-08-08 A)
+        reasons = guardrail.refuse_reasons(_question_of(state), self_harm=deps.safety_in_self_harm, self_judge=deps.safety_in_self_judge,
+                                           substance_misuse=deps.safety_in_misuse) if g["route"] == guardrail.ROUTE_REFUSE else []  # 이유 전부(AG-08-08 A)
         return {"emergency": g["emergency"], "route": g["route"], "refuse_reason": g["refuse_reason"], "refuse_reasons": reasons,
                 "injection": g["injection"], "proceed_tools": g["proceed_tools"], "events": ev}
 
@@ -221,7 +229,8 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         prior = state.get("prior_drugs")  # AG-21-02 A: 이전 차례에서 고른 약(입력 전용, 확인 되묻기에만 쓴다. 평가 경로에는 없다)
         res = route_input(_question_of(state), deps.drug_dict, state.get("profile"),
                           emergency=bool(state.get("emergency")), guardrail_route=state.get("route"), confirmed_item_seqs=confirmed,
-                          typo_correct=deps.typo_correct, prior_drugs=prior, time_noise=deps.router_time_noise)
+                          typo_correct=deps.typo_correct, prior_drugs=prior, time_noise=deps.router_time_noise,
+                          abbrev_alias=deps.router_abbrev_alias, symptom_noise=deps.router_symptom_noise, paren_split=deps.router_paren_split)
         upd = res.state_update()
         ev: dict[str, Any] = {"rule": "H11", "event": "ROUTER", "branch": res.branch_label, "ambiguous": res.ambiguous, "n_entities": len(res.entities)}
         if confirmed:  # 개수만 남긴다(코드·이름 없음)
@@ -313,7 +322,7 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         rule_checks: dict[str, int] = {}
         rules: dict[str, int] = {}
         if draft is not None:
-            fr = filter_sentences(draft, items, advisory_sensor=deps.safety_out_sensor)
+            fr = filter_sentences(draft, items, advisory_sensor=deps.safety_out_sensor, engagement_sensor=deps.safety_out_engagement)
             events.extend(fr.events)
             if draft.sentences and not fr.kept:
                 reasons = ["ALL_SENTENCES_FILTERED"]

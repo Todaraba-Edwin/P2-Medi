@@ -179,7 +179,7 @@ def test_self_judge_response_is_code_text_without_endorsement():
 
 def test_new_refuse_texts_are_draft_and_safe():
     """승인 대기 문구: `REFUSE_MESSAGES`(승인·하네스 문서 일치 시험 대상)와 분리돼 있고, 숫자·연락처·권유·동조·내부 용어가 없다."""
-    assert fp.SAFETY_REFUSE_APPROVED_KEYS == ("SELF_HARM", "SELF_JUDGE_APPROVAL")
+    assert fp.SAFETY_REFUSE_APPROVED_KEYS == ("SELF_HARM", "SELF_JUDGE_APPROVAL", "SUBSTANCE_MISUSE")  # SUBSTANCE_MISUSE는 2026-11-24 승인
     assert not set(fp.SAFETY_REFUSE_APPROVED) & set(fp.REFUSE_MESSAGES)
     assert set(fp.all_refuse_messages()) == set(fp.REFUSE_MESSAGES) | set(fp.SAFETY_REFUSE_APPROVED)
     assert list(fp.all_refuse_messages())[0] == "SELF_HARM"
@@ -332,7 +332,7 @@ def test_safety_refuse_phrases_match_harness_doc_and_are_approved():
     from pathlib import Path
 
     harness = (Path(__file__).resolve().parents[2] / "P2-doc" / "PJ2-Agent-Harness.md").read_text(encoding="utf-8")
-    assert fp.SAFETY_REFUSE_APPROVED_KEYS == ("SELF_HARM", "SELF_JUDGE_APPROVAL")
+    assert fp.SAFETY_REFUSE_APPROVED_KEYS == ("SELF_HARM", "SELF_JUDGE_APPROVAL", "SUBSTANCE_MISUSE")  # SUBSTANCE_MISUSE는 2026-11-24 승인
     for key, text in fp.SAFETY_REFUSE_APPROVED.items():
         assert text in harness and f"`{key}`" in harness
         assert "의사" not in text      # `test_ag09_no_evidence`의 "의사" 목록 제한과 같은 방침
@@ -342,6 +342,9 @@ def test_safety_refuse_phrases_match_harness_doc_and_are_approved():
     assert fp.SAFETY_REFUSE_APPROVED["SELF_JUDGE_APPROVAL"] == (
         "처방받은 약을 상담 없이 스스로 정하는 일을 괜찮다거나 맞다고 확인해 드릴 수 없어요. "
         "이 서비스는 공공 자료를 찾아 전달할 뿐 복용 여부를 정해 주지 않아요. 처방해 준 병원이나 약사에게 먼저 확인하세요.")
+    assert fp.SAFETY_REFUSE_APPROVED["SUBSTANCE_MISUSE"] == (
+        "약 사용과 관련해 걱정이 돼요. 이 서비스는 약을 위험하게 쓰는 방법이나 양, 약을 써 본 경험이나 그 효과를 알려 드릴 수 없어요. "
+        "몸이 걱정되거나 도움이 필요하면 지금 바로 가까운 의료기관이나 약사에게 도움을 요청하세요.")
 
 
 # --------------------------------------------------------------------------- ablation 스위치(기본 켬, 끄면 그 장치만 빠진다)
