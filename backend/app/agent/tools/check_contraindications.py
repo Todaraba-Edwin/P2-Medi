@@ -26,7 +26,7 @@ from app.agent.tools.schemas import (
 )
 from app.db.loaders import AS_OF_KIDS, SRC_KIDS, age_to_days
 from app.tools import lookup
-from app.tools.drug_dict import MATCHED_BY_INGREDIENT, Candidate
+from app.tools.drug_dict import MATCHED_BY_INGREDIENT, Candidate, normalize_name
 from app.tools.dur import SOURCE_INGR, DurResult, cross_check
 from app.tools.lookup import FOUND, NOT_LISTED, UNIDENTIFIED, Age
 from app.tools.provenance import (
@@ -113,6 +113,26 @@ def _dict_product_name(ctx: ToolContext, item_seq: str | None) -> str | None:
 
 
 def _resolve(ctx: ToolContext, arg: DrugArg) -> Drug:
+    d = _resolve_base(ctx, arg)
+    if ctx.display_name_fix and not d.ok and arg.item_seq:
+        d.label = _fixed_label(ctx, arg, d.label)
+    return d
+
+
+def _fixed_label(ctx: ToolContext, arg: DrugArg, label: str) -> str:
+    """판정하지 못한 약의 표시명 정정(AG-13-46 A (b), U-26 C-5). 사용자가 적은 이름만 표시하면 사전에 있는 제품(예: 선택한 코푸콜드-에스액)이
+    다른 약처럼 보인다. 품목기준코드의 사전 제품명이 있으면 그 이름으로 쓰고, 사용자가 적은 이름이 제품명과 다르면 `원문 → 제품명`으로 둘 다 보인다.
+    사전에 없는 코드는 그대로 둔다(지어내지 않는다). 키(`Drug.key`)·근거 ID는 바꾸지 않는다."""
+    product = _dict_product_name(ctx, arg.item_seq)
+    if product is None:
+        return label
+    typed = (arg.name or "").strip()
+    if not typed or normalize_name(typed) == normalize_name(product):
+        return product
+    return f"{typed} → {product}"
+
+
+def _resolve_base(ctx: ToolContext, arg: DrugArg) -> Drug:
     # 표시명: 사용자가 적은 이름 > 품목기준코드의 사전 제품명 > 코드(AG-10-07 A, 이슈 F3). 이름 없이 코드만 오면(되묻기·보정으로 확정된 약)
     # 표시명 자리(`drugs`·`subject`·쌍 줄 머리·요약 입력 블록)에 코드가 나가지 않게 사전 이름을 쓴다. 근거 ID·`drug_keys`(`key`)는 그대로다.
     label = arg.name or _dict_product_name(ctx, arg.item_seq) or arg.item_seq or arg.ingredient_code or ""

@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from app.agent.nondrug_tokens import is_non_drug_token
 from app.agent.tools.check_contraindications import check_contraindications
 from app.agent.tools.context import ToolContext
 from app.agent.tools.contract import check_items, render_data_block
@@ -23,10 +24,12 @@ from app.agent.tools.schemas import (
     GetLabelSectionArgs,
     IdentifyDrugArgs,
     arg_schema_error,
+    arg_schema_response,
 )
 from app.agent.tools.search_label import SearchLabelArgs, search_label
 from app.agent.tools.search_notice import SearchNoticeArgs, search_notice
 from app.agent.tools.search_reason import SearchReasonArgs, search_reason
+from app.tools.drug_dict import MATCH_EXACT, MATCH_NORMALIZED
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,19 @@ IGNORED_ARGS: dict[str, tuple[str, ...]] = {"check_contraindications": ("include
 EVENT_ARG_IGNORED = "ARG_IGNORED"
 
 
+_EXACT_NAME_TYPES = frozenset({MATCH_EXACT, MATCH_NORMALIZED})
+
+
+def _non_drug_name(value: str, ctx: ToolContext) -> bool:
+    """`identify_drug` 인자가 비약 토큰(시각·횟수·수량 표현뿐)인가. 사전에 이름이 **정확·정규화로 같으면** 약 이름이라 허용한다.
+    Router의 보호(접두·중간 일치까지)보다 좁다: 수량 토큰("500밀리그람")은 제품명 중간에 우연히 들어 있어(`contains`) 넓은 보호가 거절을 무력화한다.
+    제품명 일부로 적은 토큰은 Router가 후보로 남기고(접두 보호) 도구는 사전 이름 그대로를 받는다."""
+    if not is_non_drug_token(value):
+        return False
+    res = ctx.drug_dict.lookup_name(value, top_k=1)
+    return not (not res.empty and res.match_type in _EXACT_NAME_TYPES)
+
+
 def invoke(name: str, raw_args: dict[str, Any], ctx: ToolContext, registry: dict[str, ToolSpec] | None = None) -> dict[str, Any]:
     """도구 호출 1건. 반환: `{"items": [...], ...}`(+ `text` 데이터 블록, `contract_violations`, `writable`)."""
     spec = (registry or REGISTRY).get(name)
@@ -73,6 +89,9 @@ def invoke(name: str, raw_args: dict[str, Any], ctx: ToolContext, registry: dict
         args = spec.args_model.model_validate(raw_args)
     except ValidationError as e:
         return arg_schema_error(name, e, ctx.remaining_calls)  # 본문 실행 없음
+    if name == "identify_drug" and ctx.identify_arg_check and _non_drug_name(args.name, ctx):
+        # AG-13-44 C-2: 약 이름 자리에 시각·횟수·수량 표현뿐인 값이 왔다. 도구 본문(사전 조회)을 실행하지 않고 기존 `ARG_SCHEMA` 응답으로 막는다
+        return arg_schema_response(name, ["name: non_drug_token"], ctx.remaining_calls)
     out = spec.func(args, ctx)
     items = out["items"]
     out["contract_violations"] = check_items(name, items)
