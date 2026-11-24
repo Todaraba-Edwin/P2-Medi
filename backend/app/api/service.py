@@ -32,6 +32,7 @@ from app.agent.graph.metered import usage_of
 from app.agent.graph.nodes import GraphDeps
 from app.agent.tools.context import ToolContext
 from app.agent.tools.langchain_adapter import build_tools
+from app.api.kakao_notify import KakaoNotifier
 from app.api.runner import ChatRunner, ConfirmedInput, GraphRunner, NodeUpdate, PriorInput
 from app.config import reveal
 
@@ -109,6 +110,16 @@ def default_resources(settings: Any) -> GraphDeps:
 BUILD_LABEL: ContextVar[str] = ContextVar("mediagent_build_label", default="resources")
 
 
+# 준비 스레드(`warm`)가 켜 두는 운영자 알림(키가 없으면 None). 요청 경로(`resources`)에서는 알리지 않는다.
+NOTIFIER: ContextVar[KakaoNotifier | None] = ContextVar("mediagent_notifier", default=None)
+
+
+def _notify(text: str) -> None:
+    notifier = NOTIFIER.get()
+    if notifier is not None:
+        notifier.notify(text)  # best-effort: 별도 스레드로 보내고 예외는 안에서 삼킨다
+
+
 class _Step:
     detail: str | None = None
 
@@ -124,8 +135,11 @@ def build_step(label: str, name: str) -> Iterator[_Step]:
     except BaseException as exc:
         logger.warning("%s: %s failed: %s after %.2fs", label, name, type(exc).__name__, time.monotonic() - started)
         raise
+    elapsed = time.monotonic() - started
     suffix = f" ({step.detail})" if step.detail else ""
-    logger.info("%s: %s done in %.2fs%s", label, name, time.monotonic() - started, suffix)
+    logger.info("%s: %s done in %.2fs%s", label, name, elapsed, suffix)
+    if label == "warmup" and name.startswith("corpus"):
+        _notify(f"[MediAgent] corpus 완료 {elapsed:.1f}s{suffix}")
 
 
 class PrimedConnFactory:
@@ -234,8 +248,9 @@ def request_deps(base: GraphDeps, usage: RequestUsage | None = None, *, cost_fn:
 class LazyGraphRunner:
     """첫 요청 때 자원을 한 번 만들고, 요청마다 새 `ToolContext`·새 그래프로 돌리는 실행기."""
 
-    def __init__(self, settings: Any, resources_factory: ResourcesFactory) -> None:
+    def __init__(self, settings: Any, resources_factory: ResourcesFactory, *, notifier: KakaoNotifier | None = None) -> None:
         self._settings = settings
+        self._notifier = notifier
         self._factory = resources_factory
         self._lock = threading.Lock()
         self._base: GraphDeps | None = None
@@ -255,9 +270,15 @@ class LazyGraphRunner:
         try:
             base = self._factory(self._settings)
         except Exception as exc:
-            logger.warning("%s failed: %s after %.1fs", label, type(exc).__name__, time.monotonic() - started)
+            elapsed = time.monotonic() - started
+            logger.warning("%s failed: %s after %.1fs", label, type(exc).__name__, elapsed)
+            if label == "warmup":
+                _notify(f"[MediAgent] warmup 실패 {type(exc).__name__} {elapsed:.1f}s")
             raise
-        logger.info("%s done in %.1fs", label, time.monotonic() - started)
+        elapsed = time.monotonic() - started
+        logger.info("%s done in %.1fs", label, elapsed)
+        if label == "warmup":
+            _notify(f"[MediAgent] warmup 완료 {elapsed:.1f}s")
         return base
 
     @property
@@ -272,11 +293,13 @@ class LazyGraphRunner:
         실패하면 저장하지 않고(→ 다음 요청이 다시 시도) 예외를 삼킨다. 로그에는 예외 **종류 이름**과 소요 초만 남긴다
         (`warmup starting` … `warmup done in N.Ns` / `warmup failed: Type after N.Ns`, `_build`가 남긴다). 이미 만들었으면 줄 없이 True."""
         token = BUILD_LABEL.set("warmup")
+        ntoken = NOTIFIER.set(self._notifier if self._notifier is not None else _safe_notifier(self._settings))
         try:
             self._resources()
         except Exception:  # noqa: BLE001 — 백그라운드 스레드: `_build`가 종류 이름을 남겼다. 다음 요청의 재시도에 맡긴다
             return False
         finally:
+            NOTIFIER.reset(ntoken)
             BUILD_LABEL.reset(token)
         return True
 
@@ -297,6 +320,14 @@ class LazyGraphRunner:
                 prior_drugs: Sequence[PriorInput] = (), took_today: bool | None = None) -> Iterator[NodeUpdate]:
         graph = build_graph(request_deps(self._resources()))
         yield from GraphRunner(lambda: graph).updates(question, profile, confirmed_item_seqs, prior_drugs=prior_drugs, took_today=took_today)
+
+
+def _safe_notifier(settings: Any) -> KakaoNotifier | None:
+    try:
+        return KakaoNotifier.from_settings(settings)
+    except Exception as exc:  # noqa: BLE001 - 알림 설정 문제가 준비를 막지 않게
+        logger.warning("kakao notify disabled: %s", type(exc).__name__)
+        return None
 
 
 def start_warmup(runner: ChatRunner | None, settings: Any) -> threading.Thread | None:

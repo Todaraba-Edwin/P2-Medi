@@ -165,7 +165,7 @@ SECRET_FIELDS = [n for n in Settings.model_fields
 
 def test_s04_secret_fields_are_secretstr_and_hidden():
     # 10 + local_pg_dsn(BE-11-14 A) + next_public_supabase_publishable_key(BE-11-18 A), 2026-11-19
-    assert len(SECRET_FIELDS) == 12
+    assert len(SECRET_FIELDS) == 13  # +kakao_rest_api_key(DevOps 알림, 2026-11-24)
     fakes = {n: f"QQQQ-{n}-QQQQQQQQ" for n in SECRET_FIELDS}
     s = Settings(_env_file=None, **fakes)
     dumped = s.model_dump()
