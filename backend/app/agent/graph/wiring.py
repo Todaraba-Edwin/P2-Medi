@@ -102,6 +102,8 @@ def build_deps(
     router_abbrev_alias: bool = True,
     router_symptom_noise: bool = True,
     router_paren_split: bool = True,
+    summary_dedupe: bool = True,
+    grade_note_single: bool = True,
 ) -> GraphDeps:
     """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음).
 
@@ -127,6 +129,10 @@ def build_deps(
 
     AG-24 시나리오 D 스위치(남용·과량 의도, 2026-11-24): `safety_in_misuse`(입구 `SUBSTANCE_MISUSE`)·`safety_out_engagement`(출구 `ENGAGEMENT_PROBE`)·
     `router_abbrev_alias`(영문 약어 별칭)·`router_symptom_noise`(증상 낱말 제외)·`router_paren_split`(괄호 토큰 분리). 모두 기본 켬, 독립, 끄면 이전 동작과 같다.
+
+    FE-17 U-30 스위치(ISSUE-035, 2026-11-24): `summary_dedupe`(U-30-1, 모델 요약의 같은 뜻 되풀이 문장을 문장 단위로 지움, `summary_dedupe.py`)·
+    `grade_note_single`(U-30-6, 파일·실시간 등급이 다른 근거에는 등급 불일치 안내 하나만 보이게 같은 근거의 `파일과 실시간 조회 결과가 같아요` 줄을 숨김).
+    모두 기본 켬, 독립, 끄면 이전 동작과 같다(환경변수 스위치 없음). 요약 프롬프트의 중복 금지 규칙은 별도 판 `answer_summary@v2`(`prompt_set@v5`, draft)로 켠다.
 
     `layer_check`(AG-07 계층·주장 유형 누락 검사, AG-13 C3 장치): 기본 끔. 비교 조건 C3에서만 켜며, 평가 실행기는 조건으로 그래프를 고를 때
     `pipeline.build.build_for_condition`이 정한다(C3만 켬). 서비스 경로(`service=True`)는 채택 결정 전까지 켤 수 없다(`ValueError`).
@@ -170,7 +176,8 @@ def build_deps(
                      merge_unconfirmed_lines=bool(merge_unconfirmed_lines), display_name_fix=bool(display_name_fix),
                      safety_in_misuse=bool(safety_in_misuse), safety_out_engagement=bool(safety_out_engagement),
                      router_abbrev_alias=bool(router_abbrev_alias), router_symptom_noise=bool(router_symptom_noise),
-                     router_paren_split=bool(router_paren_split), **kwargs)
+                     router_paren_split=bool(router_paren_split), summary_dedupe=bool(summary_dedupe),
+                     grade_note_single=bool(grade_note_single), **kwargs)
 
 
 def _resolve_model_name(settings: Any, *, service: bool, model_name: str | None) -> str:
