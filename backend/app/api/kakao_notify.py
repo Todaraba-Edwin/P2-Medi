@@ -1,9 +1,12 @@
 """운영자 전용 카카오톡 "나에게 보내기" 알림(DevOps, 2026-11-24). 서버 준비(warmup) 단계 완료를 알린다.
 
 - best-effort: 별도 데몬 스레드에서 보내고(타임아웃 3초) **모든 예외를 삼킨다**. 서버 기동·`/health`·요청을 막거나 실패시키지 않는다.
-  실패는 경고 로그 한 줄에 예외 **종류 이름**만 남긴다(토큰·응답 본문·URL 쿼리는 남기지 않는다).
+  실패는 경고 로그 한 줄에 예외 **종류 이름**만 남긴다. HTTP 오류면 상태 코드와 카카오 `error_code`(예 `KOE237`)만 더한다
+  (토큰·응답 본문·URL 쿼리는 남기지 않는다).
 - 스위치: `KAKAO_REST_API_KEY`·`KAKAO_REFRESH_TOKEN`이 모두 있고 `MEDIAGENT_NOTIFY`가 꺼짐(0·false·off)이 아닐 때만 켠다. 아니면 `from_settings`가 None.
 - 흐름: refresh token → access token(`kauth.kakao.com/oauth/token`) → 메모 API(`kapi.kakao.com/v2/api/talk/memo/default/send`, 텍스트 템플릿).
+  access token은 메모리에 캐시한다(`expires_in`에서 300초 여유를 뺀 시각까지). 메모 전송이 401이면 캐시를 비우고 한 번만 재시도한다.
+  토큰 요청이 429(`KOE237` 속도 제한)면 60초 동안 토큰 요청 없이 알림을 건너뛴다(2026-11-24 서버 시작 3건 연속 실패 원인).
   응답에 새 refresh token이 오면(남은 유효기간 1개월 미만일 때만 옴) 로컬 파일(`data/ops/kakao_refresh_token.local`, `data/`는 .gitignore)에 저장한다.
 - 메시지는 접두·브랜치 이름·단계 이름·초·개수만 담는다(사용자·질문·약명·IP·경로 없음). 브랜치는 `branch_label()`(프로세스당 한 번 캐시).
 """
@@ -13,8 +16,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import threading
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
@@ -29,6 +35,10 @@ TOKEN_ENDPOINT = "https://kauth.kakao.com/oauth/token"  # noqa: S105 - 공개 UR
 MEMO_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
 TIMEOUT_SECONDS = 3.0
 TOKEN_FILE = REPO_ROOT / "data" / "ops" / "kakao_refresh_token.local"
+TOKEN_SAFETY_SECONDS = 300.0  # 만료 5분 전부터는 새로 받는다
+DEFAULT_EXPIRES_IN = 3600.0  # 응답에 expires_in이 없을 때
+COOLDOWN_SECONDS = 60.0  # 토큰 요청 429 뒤 토큰 요청을 쉬는 시간
+_ERROR_CODE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,40}$")
 _DEFAULT_TOKEN_FILE: Any = object()  # 인자 생략 표지(호출 때 `TOKEN_FILE`을 읽어 시험이 경로를 바꿀 수 있게 한다)
 _LINK = "https://developers.kakao.com"  # 텍스트 템플릿의 link 칸용 자리값(알림 클릭 대상 없음)
 
@@ -49,6 +59,47 @@ def _post_form(url: str, headers: dict[str, str], form: dict[str, str]) -> tuple
                                  headers={"Content-Type": "application/x-www-form-urlencoded;charset=utf-8", **headers})
     with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:  # noqa: S310 - 고정 https URL
         return resp.status, json.loads(resp.read() or b"{}")
+
+
+class KakaoHttpError(RuntimeError):
+    """카카오가 비정상 HTTP 상태로 거절. 상태 코드와 `error_code`(영숫자·`_.-` 40자 이하일 때만)만 담는다(토큰·본문 없음)."""
+
+    def __init__(self, status: int, error_code: str | None = None, what: str = "request") -> None:
+        super().__init__(f"{what} rejected (HTTP {status})")
+        self.status = status
+        self.error_code = error_code
+
+
+class KakaoCooldown(RuntimeError):
+    """토큰 요청 속도 제한(429) 뒤 쿨다운 중이라 보내지 않고 건너뜀."""
+
+
+def _code_from_body(body: Any) -> str | None:
+    """JSON 본문에서 `error_code`(없으면 `error`)만 꺼낸다. 형식이 맞지 않으면 None."""
+    if not isinstance(body, dict):
+        return None
+    for key in ("error_code", "error"):
+        value = body.get(key)
+        if isinstance(value, str) and _ERROR_CODE_RE.match(value):
+            return value
+    return None
+
+
+def _http_error(exc: urllib.error.HTTPError) -> KakaoHttpError:
+    """`HTTPError`의 응답 본문을 최대 한 번 읽어 `error_code`만 취한다(읽기 실패는 무시)."""
+    code: str | None = None
+    try:
+        code = _code_from_body(json.loads(exc.read() or b"{}"))
+    except Exception:  # noqa: BLE001 - 본문 읽기·파싱 실패는 무시
+        code = None
+    return KakaoHttpError(exc.code, code)
+
+
+def _failure_label(exc: BaseException) -> str:
+    """경고 로그용 한 줄: 예외 종류 이름, HTTP 오류면 `HTTPError <상태> [<error_code>]`."""
+    if isinstance(exc, KakaoHttpError):
+        return " ".join(["HTTPError", str(exc.status), *([exc.error_code] if exc.error_code else [])])
+    return type(exc).__name__
 
 
 def _git(*args: str) -> str:
@@ -93,18 +144,27 @@ def notify_enabled(settings: Any) -> bool:
 
 class KakaoNotifier:
     def __init__(self, rest_api_key: str, refresh_token: str, client_secret: str | None = None, *,
-                 send: SendFn | None = None, token_file: Path | None = None) -> None:
+                 send: SendFn | None = None, token_file: Path | None = None,
+                 clock: Callable[[], float] = time.monotonic) -> None:
         self._key = rest_api_key
         self._secret = client_secret
         self._send = send or _post_form
         self._token_file = token_file
         self._refresh = refresh_token
+        self._clock = clock
         self._lock = threading.Lock()
+        self._access: str | None = None  # 메모리 캐시(값은 로그·repr에 노출하지 않는다)
+        self._access_expiry = 0.0
+        self._cooldown_until = 0.0
         self.threads: list[threading.Thread] = []
+
+    def __repr__(self) -> str:
+        return "KakaoNotifier()"
 
     @classmethod
     def from_settings(cls, settings: Any, *, send: SendFn | None = None,
-                      token_file: Path | None = _DEFAULT_TOKEN_FILE) -> KakaoNotifier | None:
+                      token_file: Path | None = _DEFAULT_TOKEN_FILE,
+                      clock: Callable[[], float] = time.monotonic) -> KakaoNotifier | None:
         if token_file is _DEFAULT_TOKEN_FILE:
             token_file = TOKEN_FILE
         if not notify_enabled(settings):
@@ -114,7 +174,8 @@ class KakaoNotifier:
         if not key or not refresh:
             return None
         saved = _read_saved(token_file)
-        return cls(key, saved or refresh, reveal(getattr(settings, "kakao_client_secret", None)), send=send, token_file=token_file)
+        return cls(key, saved or refresh, reveal(getattr(settings, "kakao_client_secret", None)), send=send, token_file=token_file,
+                   clock=clock)
 
     def notify(self, text: str) -> threading.Thread:
         """백그라운드로 보내고 바로 돌아온다. 예외는 밖으로 나가지 않는다."""
@@ -126,32 +187,75 @@ class KakaoNotifier:
     def _safe_send(self, text: str) -> None:
         try:
             self.send_now(text)
-        except Exception as exc:  # noqa: BLE001 - best-effort. 종류 이름만 남긴다
-            logger.warning("kakao notify failed: %s", type(exc).__name__)
+        except KakaoCooldown:
+            logger.info("kakao notify skipped: token request cooldown")
+        except Exception as exc:  # noqa: BLE001 - best-effort. 종류 이름(HTTP면 상태·error_code)만 남긴다
+            logger.warning("kakao notify failed: %s", _failure_label(exc))
 
     def send_now(self, text: str) -> None:
-        """동기 전송(프로브 스크립트·시험용). 실패하면 예외(메시지에 값 없음)."""
-        with self._lock:
-            access = self._access_token()
+        """동기 전송(프로브 스크립트·시험용). 실패하면 예외(메시지에 값 없음). 메모가 401이면 토큰을 새로 받아 한 번만 재시도."""
         template = json.dumps({"object_type": "text", "text": text[:200], "link": {"web_url": _LINK, "mobile_web_url": _LINK}},
                               ensure_ascii=False)
-        status, body = self._send(MEMO_URL, {"Authorization": f"Bearer {access}"}, {"template_object": template})
-        if status != 200 or body.get("result_code") != 0:
+        access = self._get_access()
+        try:
+            self._send_memo(access, template)
+        except KakaoHttpError as exc:
+            if exc.status != 401:
+                raise
+            self._invalidate(access)
+            self._send_memo(self._get_access(), template)
+
+    def _request(self, url: str, headers: dict[str, str], form: dict[str, str]) -> tuple[int, dict[str, Any]]:
+        try:
+            return self._send(url, headers, form)
+        except urllib.error.HTTPError as exc:
+            raise _http_error(exc) from None  # 값이 섞일 수 있는 원 예외는 잇지 않는다
+
+    def _send_memo(self, access: str, template: str) -> None:
+        status, body = self._request(MEMO_URL, {"Authorization": f"Bearer {access}"}, {"template_object": template})
+        if status != 200:
+            raise KakaoHttpError(status, _code_from_body(body), "memo send")
+        if body.get("result_code") != 0:
             raise RuntimeError(f"memo send rejected (HTTP {status})")
 
-    def _access_token(self) -> str:
+    def _invalidate(self, failed_access: str) -> None:
+        with self._lock:
+            if self._access == failed_access:  # 다른 스레드가 이미 새로 받았다면 그대로 둔다
+                self._access = None
+
+    def _get_access(self) -> str:
+        """캐시가 유효하면 재사용, 아니면 잠금 안에서 한 번만 요청한다(동시 스레드 중복 요청 없음)."""
+        with self._lock:
+            now = self._clock()
+            if self._access is not None and now < self._access_expiry:
+                return self._access
+            if now < self._cooldown_until:
+                raise KakaoCooldown("token request cooldown")
+            try:
+                token, ttl = self._request_token()
+            except KakaoHttpError as exc:
+                if exc.status == 429 or exc.error_code == "KOE237":
+                    self._cooldown_until = self._clock() + COOLDOWN_SECONDS
+                raise
+            self._access, self._access_expiry = token, self._clock() + ttl
+            return token
+
+    def _request_token(self) -> tuple[str, float]:
         form = {"grant_type": "refresh_token", "client_id": self._key, "refresh_token": self._refresh}
         if self._secret:
             form["client_secret"] = self._secret
-        status, body = self._send(TOKEN_ENDPOINT, {}, form)
+        status, body = self._request(TOKEN_ENDPOINT, {}, form)
         token = body.get("access_token")
         if status != 200 or not isinstance(token, str) or not token:
-            raise RuntimeError(f"token refresh rejected (HTTP {status})")
+            raise KakaoHttpError(status, _code_from_body(body), "token refresh")
         new_refresh = body.get("refresh_token")
         if isinstance(new_refresh, str) and new_refresh:
             self._refresh = new_refresh
             _save(self._token_file, new_refresh)
-        return token
+        expires = body.get("expires_in")
+        expires_in = float(expires) if isinstance(expires, (int, float)) and not isinstance(expires, bool) and expires > 0 \
+            else DEFAULT_EXPIRES_IN
+        return token, max(expires_in - TOKEN_SAFETY_SECONDS, 0.0)
 
 
 def _read_saved(path: Path | None) -> str | None:
@@ -173,4 +277,4 @@ def _save(path: Path | None, token: str) -> None:
         logger.warning("kakao refresh token save failed: %s", type(exc).__name__)
 
 
-__all__ = ["MEMO_URL", "PREFIX", "TOKEN_ENDPOINT", "KakaoNotifier", "branch_label", "compose_message", "notify_enabled"]
+__all__ = ["MEMO_URL", "PREFIX", "TOKEN_ENDPOINT", "KakaoCooldown", "KakaoHttpError", "KakaoNotifier", "branch_label", "compose_message", "notify_enabled"]

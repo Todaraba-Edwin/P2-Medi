@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import subprocess
+import threading
+import urllib.error
 import urllib.parse
 
 import pytest
@@ -317,3 +320,189 @@ def test_message_has_no_path_or_user_info(monkeypatch):
     text = kakao_notify.compose_message("서버 시작 완료")
     assert text == "[MediAgent-Can-I-PPiyak] [develop] 서버 시작 완료"
     assert str(kakao_notify.REPO_ROOT) not in text and "/Users" not in text and "@" not in text
+
+
+# --------------------------------------------------------------------------- access token 캐시·쿨다운(2026-11-24, KOE237 429 재현)
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class SeqHttp:
+    """토큰·메모 응답을 순서대로 준다(값은 (상태, 본문) 또는 던질 예외). 비면 정상 응답."""
+
+    def __init__(self, tokens=(), memos=()):
+        self.tokens, self.memos = list(tokens), list(memos)
+        self.calls: list[tuple[str, dict, dict]] = []
+        self._lock = threading.Lock()
+
+    def __call__(self, url, headers, form):
+        with self._lock:
+            self.calls.append((url, headers, form))
+            queue = self.tokens if url == TOKEN_ENDPOINT else self.memos
+            item = queue.pop(0) if queue else None
+        if isinstance(item, Exception):
+            raise item
+        if item is not None:
+            return item
+        return (200, {"access_token": ACCESS, "expires_in": 21599}) if url == TOKEN_ENDPOINT else (200, {"result_code": 0})
+
+    def count(self, url):
+        return sum(1 for u, _h, _f in self.calls if u == url)
+
+
+def _http_429() -> urllib.error.HTTPError:
+    body = json.dumps({"error": "temporarily_unavailable", "error_code": "KOE237",
+                       "error_description": f"token request rate limit exceeded {REFRESH} {ACCESS}"}).encode()
+    return urllib.error.HTTPError(TOKEN_ENDPOINT, 429, "Too Many Requests", {}, io.BytesIO(body))  # type: ignore[arg-type]
+
+
+def _cached(http, clock) -> KakaoNotifier:
+    n = KakaoNotifier.from_settings(_settings(), send=http, token_file=None, clock=clock)
+    assert n is not None
+    return n
+
+
+def test_three_sends_request_token_once():
+    http, clock = SeqHttp(), Clock()
+    n = _cached(http, clock)
+    for i in range(3):
+        n.send_now(f"m{i}")
+    assert http.count(TOKEN_ENDPOINT) == 1 and http.count(MEMO_URL) == 3
+
+
+def test_token_requested_again_after_expiry_minus_safety_margin():
+    http, clock = SeqHttp(tokens=[(200, {"access_token": ACCESS, "expires_in": 1000})]), Clock()
+    n = _cached(http, clock)
+    n.send_now("a")
+    clock.now += 699  # 1000 - 300 = 700초 안은 캐시
+    n.send_now("b")
+    assert http.count(TOKEN_ENDPOINT) == 1
+    clock.now += 2
+    n.send_now("c")
+    assert http.count(TOKEN_ENDPOINT) == 2
+
+
+def test_missing_expires_in_defaults_to_one_hour():
+    http, clock = SeqHttp(tokens=[(200, {"access_token": ACCESS})]), Clock()
+    n = _cached(http, clock)
+    n.send_now("a")
+    clock.now += 3299
+    n.send_now("b")
+    assert http.count(TOKEN_ENDPOINT) == 1
+    clock.now += 2
+    n.send_now("c")
+    assert http.count(TOKEN_ENDPOINT) == 2
+
+
+def test_memo_401_clears_cache_and_retries_once_then_succeeds():
+    http, clock = SeqHttp(memos=[(401, {"msg": "this access token does not exist", "code": -401})]), Clock()
+    n = _cached(http, clock)
+    n.send_now("a")
+    assert http.count(TOKEN_ENDPOINT) == 2 and http.count(MEMO_URL) == 2
+
+
+def test_memo_401_twice_retries_only_once():
+    http, clock = SeqHttp(memos=[(401, {}), (401, {})]), Clock()
+    n = _cached(http, clock)
+    with pytest.raises(kakao_notify.KakaoHttpError):
+        n.send_now("a")
+    assert http.count(TOKEN_ENDPOINT) == 2 and http.count(MEMO_URL) == 2
+
+
+@pytest.mark.parametrize("status", [429, 403, 500])
+def test_memo_non_401_is_not_retried(status):
+    http, clock = SeqHttp(memos=[(status, {})]), Clock()
+    n = _cached(http, clock)
+    with pytest.raises(kakao_notify.KakaoHttpError):
+        n.send_now("a")
+    assert http.count(TOKEN_ENDPOINT) == 1 and http.count(MEMO_URL) == 1
+
+
+def test_token_429_starts_cooldown_skips_sends_and_warm_completes(caplog):
+    http, clock = SeqHttp(tokens=[_http_429()]), Clock()
+    n = _cached(http, clock)
+    runner = service.LazyGraphRunner(_settings(), _fake_factory, notifier=n)
+    with caplog.at_level(logging.INFO):
+        assert runner.warm() is True  # 알림이 실패·건너뛰어도 준비는 정상 완료
+        _join(n)
+    assert http.count(MEMO_URL) == 0
+    assert http.count(TOKEN_ENDPOINT) == 1  # 첫 429 뒤 쿨다운 동안 토큰 요청 0회
+    with pytest.raises(kakao_notify.KakaoCooldown):
+        n.send_now("again")
+    assert http.count(TOKEN_ENDPOINT) == 1
+    assert "kakao notify failed: HTTPError 429 KOE237" in caplog.text
+    # 쿨다운이 지나면 다시 시도한다
+    clock.now += kakao_notify.COOLDOWN_SECONDS + 1
+    n.send_now("later")
+    assert http.count(TOKEN_ENDPOINT) == 2 and http.count(MEMO_URL) == 1
+
+
+def test_token_429_as_status_tuple_also_cools_down():
+    http, clock = SeqHttp(tokens=[(429, {"error_code": "KOE237"})]), Clock()
+    n = _cached(http, clock)
+    with pytest.raises(kakao_notify.KakaoHttpError) as ei:
+        n.send_now("a")
+    assert (ei.value.status, ei.value.error_code) == (429, "KOE237")
+    with pytest.raises(kakao_notify.KakaoCooldown):
+        n.send_now("b")
+    assert http.count(TOKEN_ENDPOINT) == 1
+
+
+def test_warning_log_has_status_and_error_code_only(caplog):
+    http = SeqHttp(tokens=[_http_429()])
+    n = _cached(http, Clock())
+    with caplog.at_level(logging.DEBUG):
+        n.notify("x")
+        _join(n)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings == ["kakao notify failed: HTTPError 429 KOE237"]
+    assert not any(t in caplog.text for t in TOKENS) and "rate limit" not in caplog.text
+
+
+def test_unreadable_or_hostile_error_body_is_ignored(caplog):
+    class BadBody(io.BytesIO):
+        def read(self, *a):
+            raise OSError("boom")
+
+    err = urllib.error.HTTPError(TOKEN_ENDPOINT, 400, "Bad", {}, BadBody())  # type: ignore[arg-type]
+    n = _cached(SeqHttp(tokens=[err]), Clock())
+    with caplog.at_level(logging.WARNING):
+        n.notify("x")
+        _join(n)
+    assert "kakao notify failed: HTTPError 400" in caplog.text and "boom" not in caplog.text
+    hostile = json.dumps({"error_code": f"{REFRESH} secret value with spaces"}).encode()
+    err2 = urllib.error.HTTPError(TOKEN_ENDPOINT, 400, "Bad", {}, io.BytesIO(hostile))  # type: ignore[arg-type]
+    caplog.clear()
+    n2 = _cached(SeqHttp(tokens=[err2]), Clock())
+    with caplog.at_level(logging.WARNING):
+        n2.notify("x")
+        _join(n2)
+    assert caplog.messages == ["kakao notify failed: HTTPError 400"]
+
+
+def test_concurrent_threads_request_token_once():
+    http, clock = SeqHttp(), Clock()
+    n = _cached(http, clock)
+    gate = threading.Barrier(3)
+
+    def run():
+        gate.wait()
+        n.send_now("x")
+
+    threads = [threading.Thread(target=run) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert http.count(TOKEN_ENDPOINT) == 1 and http.count(MEMO_URL) == 3
+
+
+def test_repr_hides_cached_token():
+    http = SeqHttp()
+    n = _cached(http, Clock())
+    n.send_now("x")
+    assert not any(t in repr(n) for t in TOKENS)
