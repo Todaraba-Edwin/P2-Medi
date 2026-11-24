@@ -115,6 +115,13 @@ class Settings(BaseSettings):
     # `get_settings()`가 실패한다. 원문 비노출로 SecretStr
     openai_admin_key: SecretStr | None = None
 
+    # 운영자 카카오톡 "나에게 보내기" 알림(DevOps, 2026-11-24). 키가 없으면 완전 비활성. 값은 로그·응답에 남기지 않는다(SecretStr).
+    # `MEDIAGENT_NOTIFY=0`(false·off)이면 키가 있어도 끈다(비밀 아님, 기본 켬).
+    kakao_rest_api_key: SecretStr | None = None
+    kakao_client_secret: SecretStr | None = None
+    kakao_refresh_token: SecretStr | None = None
+    mediagent_notify: bool = True
+
     # hide_input_in_errors: 검증 오류(ValidationError)에 .env 입력 값(input_value=…)을 담지 않는다(sec-guard)
     model_config = SettingsConfigDict(env_file=default_env_files(), case_sensitive=False, hide_input_in_errors=True)
 
