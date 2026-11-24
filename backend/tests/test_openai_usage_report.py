@@ -95,9 +95,9 @@ def msgs_for(raw, today, now=None):
 def test_monday_yesterday_is_single_week_line():
     msgs = rep.build_messages(rep.parse_buckets(sample(), NOW), NOW.date(), 7)  # 어제 = 11/23(월)
     assert len(msgs) == 1
-    assert msgs[0].split("\n") == [rep.PREFIX, "2026", "ISO 48/53(11/23~11/29) 합계 $0.75", "Mon(11.23) $0.75"]
+    assert msgs[0].split("\n") == [rep.PREFIX, "2026", "ISO 48/53(11/23~11/29) Total $0.75", "MON(11/23) $0.75"]
     assert all(len(m) <= rep.MAX_LEN for m in msgs)
-    for gone in ("11월 누적", "7일 합계", "gpt-6-luna", "추이"):  # 옛 보고 줄은 없다
+    for gone in ("11월 누적", "7일 합계", "합계", "gpt-6-luna", "추이"):  # 옛 보고 줄은 없다
         assert gone not in msgs[0]
 
 
@@ -106,30 +106,30 @@ def test_sunday_yesterday_has_seven_lines_and_zero_days():
     raw = [bucket(kst_day(11, 22), {"x": 50.0}),  # 지난주: 포함되면 안 된다
            bucket(kst_day(11, 23), {"x": 0.75}), bucket(kst_day(11, 25), {"x": 1.25}), bucket(kst_day(11, 29), {"x": 2.0})]
     lines = msgs_for(raw, today)[0].split("\n")
-    assert lines[:3] == [rep.PREFIX, "2026", "ISO 48/53(11/23~11/29) 합계 $4.00"]
-    assert lines[3:] == ["Mon(11.23) $0.75", "Tue(11.24) $0.00", "Wed(11.25) $1.25", "Thu(11.26) $0.00",
-                         "Fri(11.27) $0.00", "Sat(11.28) $0.00", "Sun(11.29) $2.00"]
+    assert lines[:3] == [rep.PREFIX, "2026", "ISO 48/53(11/23~11/29) Total $4.00"]
+    assert lines[3:] == ["MON(11/23) $0.75", "TUE(11/24) $0.00", "WED(11/25) $1.25", "THU(11/26) $0.00",
+                         "FRI(11/27) $0.00", "SAT(11/28) $0.00", "SUN(11/29) $2.00"]
 
 
 def test_week_does_not_leak_previous_week_or_include_today():
     raw = [bucket(kst_day(11, 22), {"x": 50.0}), bucket(kst_day(11, 23), {"x": 2.0}), bucket(kst_day(11, 24), {"x": 9.0})]
     msgs = rep.build_messages(rep.parse_buckets(raw, NOW), NOW.date(), 7)
-    assert "합계 $2.00" in msgs[0] and "11.22" not in msgs[0] and "11.24" not in msgs[0]  # 11/24는 진행 중이라 제외
+    assert "Total $2.00" in msgs[0] and "11/22)" not in msgs[0] and "11/24)" not in msgs[0]  # 11/24는 진행 중이라 제외
 
 
 def test_week_crossing_month_boundary():
     today = datetime(2026, 12, 4).date()  # 어제 = 12/03(목), 주 = 11/30~12/06
     raw = [bucket(kst_day(11, 30), {"x": 1.0}), bucket(kst_day(12, 3), {"x": 0.5})]
     lines = msgs_for(raw, today)[0].split("\n")
-    assert lines == [rep.PREFIX, "2026", "ISO 49/53(11/30~12/06) 합계 $1.50",
-                     "Mon(11.30) $1.00", "Tue(12.01) $0.00", "Wed(12.02) $0.00", "Thu(12.03) $0.50"]
+    assert lines == [rep.PREFIX, "2026", "ISO 49/53(11/30~12/06) Total $1.50",
+                     "MON(11/30) $1.00", "TUE(12/01) $0.00", "WED(12/02) $0.00", "THU(12/03) $0.50"]
 
 
 @pytest.mark.parametrize(("today", "year", "head", "last_day"), [
-    (datetime(2027, 1, 1).date(), "2026", "ISO 53/53(12/28~01/03) 합계 $0.00", "Thu(12.31) $0.00"),  # 어제 = 2026-12-31, 2026은 53주 해
-    (datetime(2027, 1, 2).date(), "2026", "ISO 53/53(12/28~01/03) 합계 $0.00", "Fri(01.01) $0.00"),  # 달력은 2027이어도 ISO 연도는 2026
-    (datetime(2027, 1, 5).date(), "2027", "ISO 1/52(01/04~01/10) 합계 $0.00", "Mon(01.04) $0.00"),  # 2027은 52주 해
-    (datetime(2025, 12, 31).date(), "2026", "ISO 1/53(12/29~01/04) 합계 $0.00", "Tue(12.30) $0.00"),  # 달력은 2025이어도 ISO 2026 1주
+    (datetime(2027, 1, 1).date(), "2026", "ISO 53/53(12/28~01/03) Total $0.00", "THU(12/31) $0.00"),  # 어제 = 2026-12-31, 2026은 53주 해
+    (datetime(2027, 1, 2).date(), "2026", "ISO 53/53(12/28~01/03) Total $0.00", "FRI(01/01) $0.00"),  # 달력은 2027이어도 ISO 연도는 2026
+    (datetime(2027, 1, 5).date(), "2027", "ISO 1/52(01/04~01/10) Total $0.00", "MON(01/04) $0.00"),  # 2027은 52주 해
+    (datetime(2025, 12, 31).date(), "2026", "ISO 1/53(12/29~01/04) Total $0.00", "TUE(12/30) $0.00"),  # 달력은 2025이어도 ISO 2026 1주
 ])
 def test_iso_year_and_week_count_at_year_end(today, year, head, last_day):
     lines = msgs_for([], today)[0].split("\n")
@@ -138,8 +138,8 @@ def test_iso_year_and_week_count_at_year_end(today, year, head, last_day):
 
 def test_no_cost_days_show_zero_not_missing():
     raw = [bucket(kst_day(11, 23), {})]  # 버킷은 있으나 항목 없음
-    assert msgs_for(raw, datetime(2026, 11, 24).date())[0].split("\n")[3] == "Mon(11.23) $0.00"
-    assert msgs_for([], datetime(2026, 11, 24).date())[0].split("\n")[3] == "Mon(11.23) $0.00"
+    assert msgs_for(raw, datetime(2026, 11, 24).date())[0].split("\n")[3] == "MON(11/23) $0.00"
+    assert msgs_for([], datetime(2026, 11, 24).date())[0].split("\n")[3] == "MON(11/23) $0.00"
 
 
 def test_seoul_boundary_attribution():
@@ -176,7 +176,7 @@ def test_days_option_is_ignored_for_default_report():
         code, out, _ = run(argv, FakeFetch([(200, {"data": sample(), "has_more": False})]))
         assert code == 0
         outs.append(out)
-    assert outs[0] == outs[1] == outs[2] and "Mon(11.23) $0.75" in outs[0]
+    assert outs[0] == outs[1] == outs[2] and "MON(11/23) $0.75" in outs[0]
 
 
 def test_pagination_followed():
@@ -184,10 +184,10 @@ def test_pagination_followed():
                    (200, {"data": [bucket(kst_day(11, 23), {"a": 2.0})], "has_more": False, "next_page": None})])
     code, out, _ = run([], f)
     assert code == 0 and len(f.calls) == 2 and "page=CURSOR1" in f.calls[1][0]
-    assert "Mon(11.23) $2.00" in out and "합계 $2.00" in out and "11.22" not in out  # 지난주 일요일 버킷은 제외
+    assert "MON(11/23) $2.00" in out and "Total $2.00" in out and "11/22)" not in out  # 지난주 일요일 버킷은 제외
 
 
-@pytest.mark.parametrize(("value", "text"), [(0.0, "$0.00"), (1234.5, "$1,234.50"), (0.0004, "$0.000"), (0.004, "$0.004"), (12.346, "$12.35")])
+@pytest.mark.parametrize(("value", "text"), [(0.0, "$0.00"), (1234.5, "$1,234.50"), (0.0004, "$0.00"), (0.004, "$0.00"), (0.006, "$0.01"), (12.346, "$12.35")])
 def test_fmt_usd(value, text):
     assert rep.fmt_usd(value) == text
 
@@ -353,9 +353,9 @@ def test_as_of_changes_reference_and_excludes_later_buckets():
     code, out, _ = run(["--as-of", "2026-11-19"], f, now=NOW)  # 어제 = 11/18(수), 주 = 11/16~11/22
     assert code == 0
     lines = out.split("\n")
-    assert lines[2] == "ISO 47/53(11/16~11/22) 합계 $3.00"
-    assert lines[3:6] == ["Mon(11.16) $0.00", "Tue(11.17) $0.00", "Wed(11.18) $3.00"]  # 11/23 이후 버킷은 기준일 이후라 제외
-    assert "11.23" not in out and "0.75" not in out
+    assert lines[2] == "ISO 47/53(11/16~11/22) Total $3.00"
+    assert lines[3:6] == ["MON(11/16) $0.00", "TUE(11/17) $0.00", "WED(11/18) $3.00"]  # 11/23 이후 버킷은 기준일 이후라 제외
+    assert "11/23)" not in out and "0.75" not in out
     assert f"start_time={int(kst_day(11, 16).timestamp())}" in f.calls[0][0]
     assert f"end_time={int(kst_day(11, 19).timestamp())}" in f.calls[0][0]
 
@@ -364,18 +364,38 @@ def test_date_option_lines_and_missing():
     f = FakeFetch([(200, {"data": sample(), "has_more": False})])
     code, out, _ = run(["--date", "2026-11-23", "--date", "2026-11-18", "--date", "2026-11-20"], f)
     assert code == 0
-    assert out.index("2026-11-18(수) $3.00") < out.index("2026-11-20(금) 집계 없음") < out.index("2026-11-23(월) $0.75")
+    assert out.index("WED(2026/11/18) $3.00") < out.index("FRI(2026/11/20) 집계 없음") < out.index("MON(2026/11/23) $0.75")
+    assert "(수)" not in out and "-11-" not in out  # 한글 요일·하이픈 날짜는 없다
+    assert out.startswith(rep.PREFIX + "\n")
     assert f"start_time={int(kst_day(11, 18).timestamp())}" in f.calls[0][0]
 
 
-def test_week_of_monday_to_sunday():
+def test_week_of_uses_same_format_as_daily_report():
     f = FakeFetch([(200, {"data": sample(), "has_more": False})])
-    code, out, _ = run(["--week-of", "2026-11-18"], f)  # 수요일 -> 11/16(월)~11/22(일)
-    assert code == 0 and "주간 11/16~11/22 합계 $3.00" in out and "수3.00" in out and "진행 중" not in out
+    code, out, _ = run(["--week-of", "2026-11-18"], f)  # 수요일 -> 11/16(월)~11/22(일), 끝난 주라 7줄 모두
+    assert code == 0 and "합계" not in out and "주간" not in out and "진행 중" not in out
+    assert out.split("\n")[:12] == [rep.PREFIX, "2026", "ISO 47/53(11/16~11/22) Total $3.00",
+                                    "MON(11/16) $0.00", "TUE(11/17) $0.00", "WED(11/18) $3.00", "THU(11/19) $0.00",
+                                    "FRI(11/20) $0.00", "SAT(11/21) $0.00", "SUN(11/22) $0.00", "---", ""]
     assert f"start_time={int(kst_day(11, 16).timestamp())}" in f.calls[0][0]
+
+
+def test_week_of_in_progress_week_stops_at_yesterday():
     f = FakeFetch([(200, {"data": sample(), "has_more": False})])
-    _, out, _ = run(["--week-of", "2026-11-24"], f)  # 11/23(월)~11/29(일): 오늘 포함 주
-    assert "주간 11/23~11/29 합계 $0.75 진행 중 주 포함" in out
+    _, out, _ = run(["--week-of", "2026-11-24"], f)  # 11/23(월)~11/29(일), 오늘(11/24) 포함 주 -> 어제(11/23)까지
+    lines = out.split("\n")
+    assert lines[:4] == [rep.PREFIX, "2026", "ISO 48/53(11/23~11/29) Total $0.75", "MON(11/23) $0.75"]
+    assert lines[4] == "---" and "TUE(" not in out and "11/24)" not in out and "$99" not in out  # 오늘 진행분은 제외
+
+
+def test_week_of_future_week_has_header_only():
+    week = [datetime(2026, 11, 30).date() + timedelta(days=i) for i in range(7)]  # 오늘(11/24)보다 뒤 주: 요일 줄 없음
+    lines = rep.build_custom_messages([], [], week, NOW.date())[0].split("\n")
+    assert lines == [rep.PREFIX, "2026", "ISO 49/53(11/30~12/06) Total $0.00"]
+
+
+def test_day_abbreviations_are_uppercase_three_letters():
+    assert rep.DAY_ABBR == ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 
 
 def test_custom_messages_split_over_limit():

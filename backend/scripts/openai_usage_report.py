@@ -147,14 +147,27 @@ def parse_buckets(raw: list[dict[str, Any]], now: datetime) -> list[Bucket]:
 
 
 def fmt_usd(v: float) -> str:
-    return f"${v:,.2f}" if v >= 0.005 or v == 0 else f"${v:.3f}"
+    return f"${v:,.2f}"  # 사용자 지정 양식: 항상 소수 둘째 자리(0.005 미만은 $0.00)
 
 
 def _short_item(name: str, limit: int = 26) -> str:
     return name if len(name) <= limit else name[: limit - 1] + "…"
 
 
-DAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+DAY_ABBR = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+
+def _week_block(by_day: dict[date, Bucket], monday: date, last: date) -> list[str]:
+    """한 ISO 주의 보고 줄들(접두 제외): `YYYY`, `ISO 현재/전체(월~일) Total $X`, 월요일부터 `last`까지 `DDD(MM/DD) $X`."""
+    iso_year, iso_week, _ = monday.isocalendar()
+    sunday = monday + timedelta(days=6)
+    total_weeks = date(iso_year, 12, 28).isocalendar().week  # 12/28은 항상 그 해의 마지막 ISO 주에 속한다
+    span = [monday + timedelta(days=i) for i in range((last - monday).days + 1)]
+    week_total = sum(by_day[d].total for d in span if d in by_day)
+    lines = [f"{iso_year}", f"ISO {iso_week}/{total_weeks}({monday:%m/%d}~{sunday:%m/%d}) Total {fmt_usd(week_total)}"]
+    for d in span:
+        lines.append(f"{DAY_ABBR[d.weekday()]}({d:%m/%d}) {fmt_usd(by_day[d].total) if d in by_day else '$0.00'}")
+    return lines
 
 
 def build_messages(buckets: list[Bucket], today: date, days: int = 7) -> list[str]:
@@ -163,26 +176,14 @@ def build_messages(buckets: list[Bucket], today: date, days: int = 7) -> list[st
     ```
     [접두]
     YYYY
-    ISO NN/TT(MM/DD~MM/DD) 합계 $0.00
-    Mon(MM.DD) $0.00
+    ISO current/total(MM/DD~MM/DD) Total $0.00
+    DDD(MM/DD) $0.00
     ```
-    `NN/TT`는 ISO 주 번호/그 해의 ISO 총 주 수(52 또는 53), 괄호는 그 주의 월~일이다. 어제가 월요일이면 그 주는 어제 하루만 담는다.
-    `days`는 옛 인자(호환용)라 쓰지 않는다."""
+    ISO 8601 주 기준(월요일 시작, 첫 목요일이 든 주가 1주)이다. `total`은 그 해의 ISO 총 주 수(52 또는 53), 괄호는 그 주의 월~일이다.
+    어제가 월요일이면 그 주는 어제 하루만 담는다. `days`는 옛 인자(호환용)라 쓰지 않는다."""
     yday = today - timedelta(days=1)
-    iso_year, iso_week, _ = yday.isocalendar()
     monday = yday - timedelta(days=yday.weekday())
-    sunday = monday + timedelta(days=6)
-    total_weeks = date(iso_year, 12, 28).isocalendar().week  # 12/28은 항상 그 해의 마지막 ISO 주에 속한다
-    by_day = {b.day: b for b in buckets}
-    span = [monday + timedelta(days=i) for i in range((yday - monday).days + 1)]
-    week_total = sum(by_day[d].total for d in span if d in by_day)
-    lines = [
-        PREFIX,
-        f"{iso_year}",
-        f"ISO {iso_week}/{total_weeks}({monday:%m/%d}~{sunday:%m/%d}) 합계 {fmt_usd(week_total)}",
-    ]
-    for d in span:
-        lines.append(f"{DAY_ABBR[d.weekday()]}({d:%m.%d}) {fmt_usd(by_day[d].total) if d in by_day else '$0.00'}")
+    lines = [PREFIX] + _week_block({b.day: b for b in buckets}, monday, yday)
     text = "\n".join(lines)
     return [text if len(text) <= MAX_LEN else text[: MAX_LEN - 1] + "…"]
 
@@ -198,20 +199,14 @@ WEEKDAYS = "월화수목금토일"
 
 
 def build_custom_messages(buckets: list[Bucket], dates: list[date], week_days: list[date], today: date) -> list[str]:
-    """`--date`(일자별 한 줄)·`--week-of`(월~일 합계)용 메시지. 200자를 넘으면 여러 건으로 나눈다."""
+    """`--date`(일자별 한 줄)·`--week-of`(그 주 보고)용 메시지. 일일 보고와 같은 양식이고 200자를 넘으면 여러 건으로 나눈다."""
     by_day = {b.day: b for b in buckets}
-
-    def cost(d: date) -> str:
-        return fmt_usd(by_day[d].total) if d in by_day else "집계 없음"
-
     lines: list[str] = []
     for d in sorted(set(dates)):
-        lines.append(f"{d:%Y-%m-%d}({WEEKDAYS[d.weekday()]}) {cost(d)}")
+        lines.append(f"{DAY_ABBR[d.weekday()]}({d:%Y/%m/%d}) {fmt_usd(by_day[d].total) if d in by_day else '집계 없음'}")
     if week_days:
-        total = sum(by_day[d].total for d in week_days if d in by_day)
-        tail = " 진행 중 주 포함" if week_days[-1] >= today else ""
-        lines.append(f"주간 {week_days[0]:%m/%d}~{week_days[-1]:%m/%d} 합계 {fmt_usd(total)}{tail}")
-        lines.append(" ".join(f"{WEEKDAYS[d.weekday()]}{by_day[d].total:.2f}" if d in by_day else f"{WEEKDAYS[d.weekday()]}-" for d in week_days))
+        last = min(week_days[-1], today - timedelta(days=1))  # 진행 중인 주는 어제까지만
+        lines.extend(_week_block(by_day, week_days[0], last))
     return _split(lines)
 
 
