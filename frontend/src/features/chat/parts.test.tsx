@@ -142,7 +142,9 @@ describe("ProgressSteps", () => {
     const rule = css.match(/\.progress-shimmer\s*\{([^}]*)\}/)?.[1] ?? "";
     // 바탕 → 띠 → 바탕 그라데이션, 글자 모양으로 자른다
     expect(rule).toMatch(/--shimmer-base:\s*var\(--color-ink\)/);
-    expect(rule).toMatch(/--shimmer-hi:\s*var\(--color-faint\)/); // 라이트: 검정 글자 위 옅은(밝은) 띠
+    // 라이트: 검정 글자 위 더 밝은 갈색(mute) 띠. 2026-11-24 U-24 수정-3으로 faint(띠 한가운데 약 3.3:1) → mute(약 6.3:1, 4.5:1 유지).
+    // 대비 수치는 tokens.test.ts "진행 표시 쉬머"가 계산해 단언한다
+    expect(rule).toMatch(/--shimmer-hi:\s*var\(--color-mute\)/);
     expect(rule).toMatch(/linear-gradient\(90deg,[^;]*var\(--shimmer-hi\) 50%/);
     expect(rule).toMatch(/background-clip:\s*text/);
     expect(rule).toMatch(/animation:\s*progress-shimmer\s+1\.5s\s+linear\s+infinite/);

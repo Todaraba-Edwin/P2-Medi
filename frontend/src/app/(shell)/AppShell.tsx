@@ -352,6 +352,8 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
 
   const first = turns[0];
   const sidebar = { firstQuestion: first?.question ?? null, onNewChat: newChat, account: accountMenu };
+  /** 내용 폭 열(FE-17 U-27): 스크롤 영역 안쪽 래퍼와 입력 영역이 같은 폭·좌우 여백을 쓴다. 스크롤 컨테이너 자체는 본문 전체 폭이다 */
+  const column = cn("mx-auto w-full", layout.desktop ? "max-w-[880px] px-6" : "max-w-[760px] px-3");
 
   return (
     <div data-testid="app-shell" data-ready="true" className="flex h-dvh flex-col overflow-hidden">
@@ -398,30 +400,36 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
               </div>
             </NoMascotZone>
           )}
-          <div className={cn("mx-auto flex min-h-0 w-full flex-1 flex-col gap-2", layout.desktop ? "max-w-[880px] px-6" : "max-w-[760px] px-3")}>
+          {/* 스크롤 영역과 내용 폭 분리(FE-17 U-27): 스크롤 컨테이너(`home`·`chat-thread`)는 본문(main) 전체 폭을 차지해 스크롤바가 본문 오른쪽 가장자리
+              (근거 상세가 열리면 패널 왼쪽)에 붙고, 휠·터치 스크롤도 본문 어디서나 된다. 내용 폭 제한(넓은 폭 880px·좁은 폭 760px, 좌우 여백 포함)은
+              그 안쪽 래퍼(`column`)와 입력 영역(`dock`)이 같은 값으로 나눠 갖는다 */}
+          <div data-testid="main-body" className="flex min-h-0 w-full flex-1 flex-col gap-2">
             {turns.length === 0 ? (
-              // 내용이 화면보다 길면(좁은 폭 + 기본 대상 안내, FE-17 U-08) 가운데 정렬이 위쪽을 스크롤 밖으로 잘라내지 않게 `safe` 가운데 정렬이다
-              <div data-testid="home" className="flex min-h-0 flex-1 flex-col justify-center-safe gap-4 overflow-y-auto py-2">
-                <HomeHero />
-                {/* 기본 대상 안내(FE-17 U-08): 로그인 + 프로필이 있을 때만, 병아리 이미지 아래에 지금 대상과 `게스트로 이용`(프로필 상태, U-23)·`변경`(게스트 상태, U-22: 칩과 같은 목록)을 둔다.
-                    고르면 대상이 바뀌고(서버 기본 대상도 저장) 초점은 질문 칸으로 간다. 대화가 시작되면 이 영역째 사라진다 */}
-                {targetChoice && (
-                  <StartTargetNotice
-                    profiles={targetChoice.profiles}
-                    value={targetChoice.value}
-                    onChange={changeTarget}
-                    onSettled={focusInput}
-                    container={layer}
-                  />
-                )}
-                {/* 진입 선택: 게스트로 시작(주) / 로그인·가입(보조). 누르지 않아도 아래 입력창으로 바로 질문할 수 있다.
-                    로그인 확정 전에는 같은 높이(44px 버튼 줄)의 빈 자리만 둔다(U-22 추가: 로그인 사용자에게 게스트용 버튼이 한 순간도 보이지 않게, 글자 없음) */}
-                {authPending ? (
-                  <div aria-hidden="true" data-testid="start-account-pending" className="mx-auto h-11 w-full max-w-[360px] flex-none" />
-                ) : (
-                  accountEnabled && !member && !entryDismissed && <EntryChoice onGuest={startGuest} onLogin={openAccount} />
-                )}
-                <ExampleChips onPick={(question) => send(question)} />
+              // 내용이 화면보다 길면(좁은 폭 + 기본 대상 안내, FE-17 U-08) 가운데 정렬이 위쪽을 스크롤 밖으로 잘라내지 않게 `safe` 가운데 정렬이다.
+              // 바깥(`home`)이 본문 전체 폭 스크롤이고, 안쪽 래퍼가 남은 높이를 채운 채 가운데 정렬한다(내용이 더 길면 내용 높이만큼 늘어 바깥이 스크롤한다)
+              <div data-testid="home" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                <div data-testid="home-column" className={cn(column, "flex shrink-0 grow flex-col justify-center-safe gap-4 py-2")}>
+                  <HomeHero />
+                  {/* 기본 대상 안내(FE-17 U-08): 로그인 + 프로필이 있을 때만, 병아리 이미지 아래에 지금 대상과 `게스트로 이용`(프로필 상태, U-23)·`변경`(게스트 상태, U-22: 칩과 같은 목록)을 둔다.
+                      고르면 대상이 바뀌고(서버 기본 대상도 저장) 초점은 질문 칸으로 간다. 대화가 시작되면 이 영역째 사라진다 */}
+                  {targetChoice && (
+                    <StartTargetNotice
+                      profiles={targetChoice.profiles}
+                      value={targetChoice.value}
+                      onChange={changeTarget}
+                      onSettled={focusInput}
+                      container={layer}
+                    />
+                  )}
+                  {/* 진입 선택: 게스트로 시작(주) / 로그인·가입(보조). 누르지 않아도 아래 입력창으로 바로 질문할 수 있다.
+                      로그인 확정 전에는 같은 높이(44px 버튼 줄)의 빈 자리만 둔다(U-22 추가: 로그인 사용자에게 게스트용 버튼이 한 순간도 보이지 않게, 글자 없음) */}
+                  {authPending ? (
+                    <div aria-hidden="true" data-testid="start-account-pending" className="mx-auto h-11 w-full max-w-[360px] flex-none" />
+                  ) : (
+                    accountEnabled && !member && !entryDismissed && <EntryChoice onGuest={startGuest} onLogin={openAccount} />
+                  )}
+                  <ExampleChips onPick={(question) => send(question)} />
+                </div>
               </div>
             ) : (
               <Conversation
@@ -435,10 +443,11 @@ export function AppShell({ store = chatStore, account = accountStore }: { store?
                 onPick={(turnId, candidate) => setPicked((prev) => ({ ...prev, [turnId]: { ...prev[turnId], [candidate.input_name]: candidate } }))}
                 onOther={focusInput}
                 onResend={resend}
+                columnClassName={column}
               />
             )}
             {/* 접히지 않는 고정 영역: 입력창 → 통합 고지(FE-17 U-02). 고정 안내는 U-26-1로 각 답 아래로 옮겼다 */}
-            <div data-testid="dock" className="flex flex-none flex-col gap-1.5 pb-[max(14px,env(safe-area-inset-bottom,0px))]">
+            <div data-testid="dock" className={cn(column, "flex flex-none flex-col gap-1.5 pb-[max(14px,env(safe-area-inset-bottom,0px))]")}>
               {/* 임신 여부 토글은 대상이 남성 프로필이면 그리지 않는다(FE-11-09 C). 안내·오류 줄도 토글과 함께 빠진다.
                   대상 프로필 칩은 로그인하고 프로필이 있을 때만 입력창 안에 둔다. 게스트·프로필 없음도 같은 두 줄 배치다(FE-17 U-09, 칩만 없다).
                   고지는 입력창 아래 통합 고지 한 단락(FE-17 U-02, `ChatInput`)이다. 시작 화면 119 안내 줄은 없다(FE-17 U-04: 119는 머리줄·응급 배너 두 곳) */}
