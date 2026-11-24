@@ -53,3 +53,36 @@ def is_non_drug_token(text: str) -> bool:
     if not tok:
         return False
     return bool(TIME_COUNT_RE.match(tok) or _TIME_WORD_WHEN_RE.match(tok) or TIME_RE.match(tok) or NUM_UNIT_RE.match(tok) or UNIT_ONLY_RE.match(tok) or _PURE_NUMBER_RE.match(tok))
+
+
+# ----------------------------------------------------------------------------- 증상·상태 단어(AG-24 시나리오 D, 2026-11-24)
+# "쓰러진", "정신을 잃고", "혼미", "졸음", "노딩(nodding)" 같은 몸 상태·증상 말은 약 이름이 아니다. 개발셋 낱말을 하나씩 넣지 않고 어간 + 짧은 어미·조사 꼴로 본다.
+# 전체 일치(`^…$`)라 제품명 조각은 걸리지 않는다. **사전 이름과 일치하면 버리지 않는** 보호는 호출하는 쪽(`router._is_noise`)이 건다.
+_SYMPTOM_STEMS = (
+    "쓰러지|쓰러진|쓰러졌|쓰러져|쓰러짐|쓰러질|기절|의식|혼미|혼수|졸음|졸려|졸린|졸리|어지럼|어지러|환각|환청|경련|발작|노딩|nodding"
+)
+SYMPTOM_STATE_RE = re.compile(rf"^(?:{_SYMPTOM_STEMS})[가-힣]{{0,4}}$|^(?:정신|정신을|잃고|잃은|잃어|잃었|잃어서)$", re.IGNORECASE)
+
+
+def is_symptom_state_token(tok: str) -> bool:
+    """몸 상태·증상 낱말만으로 된 토큰인가(쓰러진·혼미한·졸음이·노딩 …). 사전은 보지 않는다(보호 조건은 호출하는 쪽)."""
+    return bool(SYMPTOM_STATE_RE.match(re.sub(r"\s+", "", tok or "")))
+
+
+# ----------------------------------------------------------------------------- 흔한 약어 별칭(AG-24 시나리오 D)
+# 영문 약어 → (사전 조회에 쓸 이름 형태 목록, 후보 이름에 들어 있어야 하는 낱말). 사전 데이터 파일은 고치지 않고 코드 상수 표만 둔다.
+# 이름 형태는 앞의 것부터 시도하고, 사전에 이름으로 맞는(정확·정규화·접두·중간) 첫 형태를 쓴다. 이름 일치가 없으면 BM25 1위 후보 이름에
+# 낱말이 든 첫 형태를 쓴다(엉뚱한 후보를 보여 주지 않으려는 보호). 둘 다 아니면 별칭을 쓰지 않는다(원문 그대로, 보고만).
+# 사전 빌더가 이미 별칭으로 둔 약어(APAP→아세트아미노펜, ASA→아스피린 등)는 사전 조회가 처리하므로 이 표에 넣지 않는다.
+ABBREV_ALIASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "DXM": (("덱스트로메토르판", "dextromethorphan"), ("덱스트로메토르판", "dextromethorphan")),
+}
+_ASCII_ABBREV_RE = re.compile(r"^[A-Za-z]{2,6}$")
+
+
+def abbrev_key(tok: str) -> str | None:
+    """토큰이 별칭 표의 영문 약어(대소문자 무시)이면 표 키(대문자), 아니면 None."""
+    t = (tok or "").strip()
+    if _ASCII_ABBREV_RE.match(t) and t.upper() in ABBREV_ALIASES:
+        return t.upper()
+    return None

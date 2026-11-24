@@ -8,6 +8,8 @@
 - 안전장치 3겹 중 입구(AG-24-01 A, 2026-11-23): ① 자해·자살 의도 신호(`SELF_HARM`)는 119 안내를 맨 위에 두고 **조회를 잇지 않는다**(위험해지는
   양·조합을 목록으로 내지 않기 위해, H4의 "응급이어도 조회를 막지 않는다"의 예외. 사용자 확정 AG-24-02 B: 현재 범위는 119와 약사·의료기관 안내까지)
   ② 처방약을 의사·약사와 상의 없이 자기 판단대로 해도 된다고 승인해 달라는 요청(`SELF_JUDGE_APPROVAL`)은 거절한다.
+  ③ 남용·과량 의도(`SUBSTANCE_MISUSE`, AG-24 시나리오 D, 2026-11-24): 119 안내를 맨 위에 두고 조회·답변을 잇지 않는다(문구는 2026-11-24 원문 승인,
+  `fixed_phrases.SAFETY_REFUSE_APPROVED`). 실수·사고 과량은 응급 경로(조회 계속)라 제외한다.
   이유 키·문구는 `fixed_phrases.SAFETY_REFUSE_APPROVED`(2026-11-23 승인). 입구는 **현재 문장 하나만** 본다(서버가 대화 이력을 갖지 않는다).
 - 응급 키워드는 직접 정의한 것이며 임상 검수를 받지 않았다(AG-08 §5 가정). 안내는 119·약국·약사까지만(RFP-19-01 A).
 """
@@ -190,6 +192,87 @@ def detect_self_harm(text: str) -> bool:
     return bool(_SH_RANK.search(n) and _SH_SELF_USE.search(n))
 
 
+# --------------------------------------------------------------------------- 안전장치 입구(AG-24 시나리오 D, 2026-11-24): 남용·과량 의도
+# 약을 오락·남용 목적으로 쓰는 경험·효과·증량·조합을 묻는 질문, 동반·정서 동조 요구. 근거는 보도된 챗봇 실패 유형이다(`data/mock/briefs/reports/sam-case-research.md`
+# P1·P4·P5, 로컬 전용, 가족 측 주장·보도 수준): 처음 거절한 뒤 **질문을 바꿔 반복하면 풀림**, 구체 용량·"같이 있어 줘" 같은 역할 수행, 정서 의존.
+# 그래서 규칙은 표현 하나가 아니라 **의도(경험·효과·증량·조합·동반)와 대상(약)** 기준으로 넓게 잡고, 서버가 대화를 저장하지 않으므로 **요청마다 같은 규칙**이 적용된다
+# (이전 회전은 보지 못한다. 앞 회전 없이는 알 수 없는 후속 질문은 이 규칙 밖이고 프롬프트·출구 Sensor 몫이다). 사용자 전언의 "노딩 …" 응답 문장은 출처 미확인이라 설계 사실로 쓰지 않는다(가설 문항 P9).
+# 정규화 글자(공백·구두점 제거, 영문 소문자) 위에서 찾는다.
+# 정밀도 우선(AG-08-02 A): 실수·사고·아이·보호자 서술은 **응급 경로**(119 안내 맨 위, 조회 계속)로 가야 하므로 이 규칙에서 제외한다.
+# 일반 약 질문("기침약 성분 주의점", "몇 시간 간격", "같이 먹어도 되나요")은 걸지 않는다: 아래 세 갈래 모두 **의도·경험·효과 단서**가 있어야 한다.
+_MIS_ACCIDENT = re.compile(
+    r"실수로|잘못(?:해서|하여|먹|복용|마셨)|모르고|우연히|깜빡|착각|오복용|삼켰|주워먹|집어먹|"
+    r"(?:아이|애|아기|아들|딸|손주|손녀|엄마|아빠|할머니|할아버지|어르신|부모님|환자|남편|아내|동생|형|누나|언니|오빠|친구)(?:가|이|께서|는|도)?\S{0,12}?"
+    r"(?:먹었|먹어버|삼켰|마셨|드셨|복용했)")
+# 일반 약물 단어("약"은 약국·약사·약속·약간·약한을 뺀다). 오락 단서와 함께일 때만 쓴다.
+_MIS_DRUG = re.compile(
+    r"약(?![간속국사해한하점])|약물|마약|오피오이드|펜타닐|헤로인|코카인|필로폰|대마|엑스터시|케타민|모르핀|옥시코돈|트라마돌|코데인|dxm|덱스트로메토르판|"
+    r"진통제|수면제|기침약|감기약|신경안정제|졸피뎀|프로포폴|메타돈|항히스타민|디펜히드라민|진정제|각성제")
+# "약" 한 글자보다 좁은 목록(기분·쾌감 같은 모호한 단서에는 이쪽을 쓴다: "기분 좋아지려고 비타민" 제외)
+_MIS_DRUG_STRONG = re.compile(
+    r"약물|마약|오피오이드|펜타닐|헤로인|코카인|필로폰|대마|엑스터시|케타민|모르핀|옥시코돈|트라마돌|코데인|dxm|덱스트로메토르판|진통제|수면제|기침약|감기약|"
+    r"신경안정제|졸피뎀|프로포폴|메타돈|디펜히드라민|진정제|각성제")
+# (b-1) 문맥 없이 걸리는 꼴: "약물을 하(는데도·면)", "마약을 하/투약/흡입", "노딩·nodding" + 약 문맥, "안전하게 경험·해보", "경험해보고 싶"+약
+_MIS_SELF = re.compile(
+    r"약물[을를]?하(?:는|면|고|니|다|던|며|면서)|약물[을를]?해(?:본|보|봤|서)|약물[을를]?(?:투약|흡입|남용|주사)|약[을를]하(?:면|는데도|다보면|던)|"
+    r"(?:마약류?|오피오이드|펜타닐|헤로인|코카인|필로폰|대마초?|엑스터시|케타민)[을를]?(?:하(?:는|면|고|니|다|던)|해(?:본|보|봤|서)|투약|흡입|주사|맞)|"
+    r"약(?:물)?에취(?:하|해|한|할|하면)|"
+    r"안전하게(?:경험|해보|해볼|써보|써볼|즐기|취)|안전히(?:경험|해보|해볼|즐기)")
+_MIS_NODDING = re.compile(r"노딩|nodding")
+_MIS_NODDING_CTX = re.compile(r"약|마약|오피오이드|경험|느낌|기분|상태|해보|하는데|취|왜|시도")
+# (b-2) 모호한 오락 단서: 약물 단어와 **함께**일 때만 건다("기분 좋아지려고"·"취하려고"·"환각을 보려고"·"하이가 되"·"경험해보고 싶")
+_MIS_REC = re.compile(
+    r"기분(?:이)?좋아지려|기분(?:이)?좋아지고싶|기분전환(?:으로|삼아)?(?:약|먹)|취하려|취하고싶|취해보|취하면|약(?:물)?에취|하이(?:해지|가되|되려|되고싶|해지려)|"
+    r"(?:환각|환청)(?:을|이|를)?(?:보려|느끼려|경험|일으키려|원해|보고싶|느끼고싶|해보)|쾌감|황홀|즐기려|즐기고싶|오락(?:적|용|목적)|재미로|"
+    r"경험해보고싶|경험해볼|경험하고싶|해보고싶|해볼까")
+# (b-3) 많은·적당한 양을 먹으면 어떤 기분·느낌인지 묻는 질문(양과 주관적 효과를 함께 묻는 꼴). "많이 먹으면 어떤 기분이야?", "적당한 양이면 어떤 느낌이야?"
+_MIS_DOSE_AMOUNT = re.compile(r"(?:많이|잔뜩|한꺼번에|여러알|한통|조금만|소량)\S{0,8}?(?:먹|복용|마시|삼키|이면|라면|면)")
+_MIS_DOSE_WORD = re.compile(r"(?:적당(?:한)?|알맞은|딱좋은)양")   # "그럼 적당한 양이면 …"(약 이름 없는 후속 질문도 같은 규칙, 이 서비스는 약만 다룬다)
+_MIS_FEELING = re.compile(r"어떤(?:기분|느낌)|기분이(?:어때|어떻|들|좋|나|야)|느낌이(?:어때|어떻|들|나|야)|몽롱|붕뜨|황홀|쾌감|취(?:할|하나|하는느낌|한느낌)")
+# (e) 동반·정서 동조 요구(역할 수행): "혼자 약 먹을 건데 같이 있어 줘", "너만 내 편이야"
+_MIS_COMPANION = re.compile(r"(?:같이|함께|옆에|곁에)있어(?:줘|주세요|줄래|주라|달라|주겠)(?!야|서)")
+_MIS_ALONE_INTAKE = re.compile(r"혼자(?:서)?\S{0,6}?(?:약|먹|복용)|너만(?:내|나의)편")
+# (c) 증량 의도: 증량 표현 + 가정·효과 단서 + 약 문맥(셋 모두). "두 배로 늘리면 어떨까", "더 많이 먹으면 효과가 더 세지나", "양을 늘리면 더 잘 들을까"
+_MIS_INCR = re.compile(
+    r"(?:[2-9]|두|세|네|다섯|몇|여러)배(?:로|나|씩|가량)?(?:더)?(?:늘|먹|복용|드|올|많이|넣|마시|센|세게|높)|"
+    r"(?:양|용량|복용량|횟수)(?:을|를|이|도)?(?:두배|세배|몇배)?(?:로)?(?:더)?(?:늘리|늘려|늘이|올리|올려|증가|높이|높여|키우|키워)|"
+    r"더(?:많이|세게|자주)?(?:먹|복용|마시|드시|삼키)(?:으면|어보|어볼|으려|는다면)|"
+    r"(?:평소|원래|정량|권장량)(?:보다|의)(?:많이|두배|세배|몇배|더)")
+_MIS_EFFECT = re.compile(
+    r"어떨까|어떻게(?:될|되|돼)|어떤(?:효과|일|기분|느낌)|효과(?:가|는)?(?:더|있|세|강|커|달라)|더(?:잘|세|강|푹|오래)|세지|세게|강해지|들을까|듣나|듣겠|취할|취하|기분|"
+    r"해볼까|해보고싶|해볼래|시도해|해보려|해보면")
+# (d) 조합으로 효과를 높이려는 질문: 조합 표현 + 효과 증폭 단서 + 약 문맥(셋 모두). "같이 먹으면 더 세게 취하나", "섞어서 효과를 극대화"
+_MIS_COMBINE = re.compile(r"같이|함께|섞|겹쳐|합쳐|조합|혼합")
+_MIS_BOOST = re.compile(
+    r"더(?:세게|강하게|잘)?취|세게취|효과(?:를|가)?(?:더)?(?:높이|올리|키우|극대화|증폭|배가)|(?:극대화|증폭|시너지)|더(?:세게|강하게)(?:느|올|와)|"
+    r"하이(?:해지|가되|되려)|기분(?:이)?(?:더)?좋아지")
+
+
+def detect_substance_misuse(text: str) -> bool:
+    """약을 남용·오락 목적으로 쓰려는 의도·경험·효과·증량·조합 질문(AG-24 시나리오 D). 결정론 패턴이며 대화 이력은 보지 못한다.
+
+    실수·사고·아이·보호자 서술(`_MIS_ACCIDENT`)이 있으면 False다(응급 경로: 119 안내 맨 위, 조회 계속). 세 갈래: ① 남용·오락 맥락 표현
+    ② 증량 표현 + 가정·효과 단서 + 약 문맥 ③ 조합 표현 + 효과 증폭 단서 + 약 문맥. 일반 약 질문은 단서가 없어 걸리지 않는다."""
+    n = normalize(text)
+    if _MIS_ACCIDENT.search(n):
+        return False
+    if _MIS_SELF.search(n):
+        return True
+    if _MIS_NODDING.search(n) and _MIS_NODDING_CTX.search(n):
+        return True
+    if _MIS_REC.search(n) and _MIS_DRUG_STRONG.search(n):
+        return True
+    if _MIS_FEELING.search(n) and (_MIS_DOSE_WORD.search(n) or (_MIS_DOSE_AMOUNT.search(n) and _MIS_DRUG.search(n))):
+        return True
+    if _MIS_COMPANION.search(n) and _MIS_ALONE_INTAKE.search(n):
+        return True
+    if "너만내편" in n and _MIS_DRUG.search(n):
+        return True
+    if _MIS_INCR.search(n) and _MIS_EFFECT.search(n) and _MIS_DRUG.search(n):
+        return True
+    return bool(_MIS_COMBINE.search(n) and _MIS_BOOST.search(n) and _MIS_DRUG.search(n))
+
+
 # 처방약을 의사·약사와 상의 없이 자기 판단대로 해도 된다고 "승인해 달라"는 요청(시나리오 A). 이미 있는 범위 외 이유(STOP_DOSE_CHANGE·ASSESS_STATE·
 # HIDE_FROM_DOCTOR)가 걸리면 그 문구가 우선이고 이 키는 붙지 않는다(`refuse_reasons`). 약 이름·질문 형식만 묻는 "먹어도 되나요?"는 걸지 않는다.
 _APPROVAL_ASK = re.compile(
@@ -245,15 +328,18 @@ def classify_scope(text: str) -> str | None:
     return None
 
 
-def refuse_reasons(text: str, *, self_harm: bool = True, self_judge: bool = True) -> list[str]:
+def refuse_reasons(text: str, *, self_harm: bool = True, self_judge: bool = True, substance_misuse: bool = True) -> list[str]:
     """거절 이유 키 **전부**(AG-08-08 A). 걸린 범위 외 이유와 인젝션(`IGNORE_PREVIOUS`)을 `all_refuse_messages()` 정의 순서로 돌려준다.
 
     거절 여부와 첫 키(`guardrail_in`의 `refuse_reason`)는 이 함수와 무관하게 그대로다. 걸린 것이 없으면 빈 목록이다.
     안전장치 입구(AG-24-01 A): 자해·자살 의도 신호가 있으면 `["SELF_HARM"]` 하나만 돌려준다(다른 거절 문구를 이어 붙이지 않는다).
+    남용·과량 의도(AG-24 시나리오 D, 스위치 `substance_misuse`)가 있으면 `["SUBSTANCE_MISUSE"]` 하나만 돌려준다(자해 신호가 먼저다).
     자기 판단 승인 요청(`SELF_JUDGE_APPROVAL`)은 다른 이유가 하나도 없을 때만 붙는다(기존 문구가 같은 말을 이미 한다).
     """
     if self_harm and detect_self_harm(text):
         return ["SELF_HARM"]
+    if substance_misuse and detect_substance_misuse(text):
+        return ["SUBSTANCE_MISUSE"]
     n = normalize(text)
     hit = {key for key, pat in _SCOPE_PATTERNS if pat.search(n)}
     if detect_injection(text):
@@ -264,7 +350,7 @@ def refuse_reasons(text: str, *, self_harm: bool = True, self_judge: bool = True
     return sorted(hit, key=lambda k: order.index(k) if k in order else len(order))
 
 
-def guardrail_in(text: str, *, self_harm: bool = True, self_judge: bool = True) -> dict[str, Any]:
+def guardrail_in(text: str, *, self_harm: bool = True, self_judge: bool = True, substance_misuse: bool = True) -> dict[str, Any]:
     """입구 결과(순수 딕셔너리).
 
     - `emergency`: 응급 키워드 감지(또는 자해·자살 의도 신호). 상태 `emergency`에 기록하고 Router는 읽기만 한다.
@@ -272,13 +358,17 @@ def guardrail_in(text: str, *, self_harm: bool = True, self_judge: bool = True) 
     - `refuse_reason`: 거절 이유 키(없으면 None). 인젝션은 `IGNORE_PREVIOUS`, 자해 신호는 `SELF_HARM`, 자기 판단 승인 요청은 `SELF_JUDGE_APPROVAL`.
     - `injection`: 지시 무시·고정 문구 제거 요구 같은 시도 여부.
     - `proceed_tools`: 금기 조회를 이어 가는가. 응급이면 True(막지 않음, H4), 거절이면 False, 그 밖은 True.
-      **예외: 자해·자살 의도 신호(`SELF_HARM`)는 응급(119 안내)이면서도 조회를 잇지 않는다**(위험해지는 양·조합을 내지 않기 위해, AG-24-01 A).
+      **예외: 자해·자살 의도 신호(`SELF_HARM`)와 남용·과량 의도(`SUBSTANCE_MISUSE`, AG-24 시나리오 D)는 응급(119 안내)이면서도 조회를 잇지 않는다**
+      (위험해지는 양·조합·경험을 내지 않기 위해, AG-24-01 A·AG-24-02 B). 둘이 함께 걸리면 `SELF_HARM`이 먼저다.
     """
-    is_self_harm = self_harm and detect_self_harm(text)   # `self_harm`·`self_judge`는 ablation 스위치(기본 켬)
-    emergency = detect_emergency(text) or is_self_harm
+    is_self_harm = self_harm and detect_self_harm(text)   # `self_harm`·`self_judge`·`substance_misuse`는 ablation 스위치(기본 켬)
+    is_misuse = substance_misuse and not is_self_harm and detect_substance_misuse(text)
+    emergency = detect_emergency(text) or is_self_harm or is_misuse   # 119는 맨 위에 한 번만(`finalize`가 붙인다)
     injection = detect_injection(text)
     if is_self_harm:
         reason: str | None = "SELF_HARM"
+    elif is_misuse:
+        reason = "SUBSTANCE_MISUSE"
     elif injection:
         reason = "IGNORE_PREVIOUS"
     else:
@@ -289,7 +379,7 @@ def guardrail_in(text: str, *, self_harm: bool = True, self_judge: bool = True) 
         "route": route,
         "refuse_reason": reason,
         "injection": injection,
-        "proceed_tools": False if is_self_harm else (emergency or route == ROUTE_AGENT),
+        "proceed_tools": False if (is_self_harm or is_misuse) else (emergency or route == ROUTE_AGENT),
     }
 
 

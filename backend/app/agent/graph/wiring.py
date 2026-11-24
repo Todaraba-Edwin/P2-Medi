@@ -97,6 +97,11 @@ def build_deps(
     summary_router_pairs: bool = True,
     merge_unconfirmed_lines: bool = True,
     display_name_fix: bool = True,
+    safety_in_misuse: bool = True,
+    safety_out_engagement: bool = True,
+    router_abbrev_alias: bool = True,
+    router_symptom_noise: bool = True,
+    router_paren_split: bool = True,
 ) -> GraphDeps:
     """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음).
 
@@ -119,6 +124,9 @@ def build_deps(
     W3-2 서버 개선 후보 스위치(AG-13-41·42·44·45·46, 2026-11-24): `router_time_noise`(41)·`redose_on_clarify`(42)·`identify_arg_check`(44 C-2)·
     `confine_confirmed_args`(45 C-1)·`summary_router_pairs`(45 C-3)·`merge_unconfirmed_lines`(46 a)·`display_name_fix`(46 b). 모두 기본 켬이고 각각 독립이다.
     끄면 그 후보가 없던 때와 같은 동작이라 한 번에 하나씩 ablation할 수 있다(9.8절). 환경변수 스위치는 만들지 않았다.
+
+    AG-24 시나리오 D 스위치(남용·과량 의도, 2026-11-24): `safety_in_misuse`(입구 `SUBSTANCE_MISUSE`)·`safety_out_engagement`(출구 `ENGAGEMENT_PROBE`)·
+    `router_abbrev_alias`(영문 약어 별칭)·`router_symptom_noise`(증상 낱말 제외)·`router_paren_split`(괄호 토큰 분리). 모두 기본 켬, 독립, 끄면 이전 동작과 같다.
 
     `layer_check`(AG-07 계층·주장 유형 누락 검사, AG-13 C3 장치): 기본 끔. 비교 조건 C3에서만 켜며, 평가 실행기는 조건으로 그래프를 고를 때
     `pipeline.build.build_for_condition`이 정한다(C3만 켬). 서비스 경로(`service=True`)는 채택 결정 전까지 켤 수 없다(`ValueError`).
@@ -159,7 +167,10 @@ def build_deps(
                      safety_in_self_judge=bool(safety_in_self_judge), safety_out_sensor=bool(safety_out_sensor),
                      router_time_noise=bool(router_time_noise), redose_on_clarify=bool(redose_on_clarify), identify_arg_check=bool(identify_arg_check),
                      confine_confirmed_args=bool(confine_confirmed_args), summary_router_pairs=bool(summary_router_pairs),
-                     merge_unconfirmed_lines=bool(merge_unconfirmed_lines), display_name_fix=bool(display_name_fix), **kwargs)
+                     merge_unconfirmed_lines=bool(merge_unconfirmed_lines), display_name_fix=bool(display_name_fix),
+                     safety_in_misuse=bool(safety_in_misuse), safety_out_engagement=bool(safety_out_engagement),
+                     router_abbrev_alias=bool(router_abbrev_alias), router_symptom_noise=bool(router_symptom_noise),
+                     router_paren_split=bool(router_paren_split), **kwargs)
 
 
 def _resolve_model_name(settings: Any, *, service: bool, model_name: str | None) -> str:

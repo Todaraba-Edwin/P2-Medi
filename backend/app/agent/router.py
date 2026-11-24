@@ -34,7 +34,15 @@ from app.agent.fixed_phrases import (
     CLARIFY_PRIOR_PICK,
 )
 from app.agent.intake import is_intake, is_redose
-from app.agent.nondrug_tokens import NUM_UNIT_RE, TIME_RE, UNIT_ONLY_RE, is_time_or_count_token
+from app.agent.nondrug_tokens import (
+    ABBREV_ALIASES,
+    NUM_UNIT_RE,
+    TIME_RE,
+    UNIT_ONLY_RE,
+    abbrev_key,
+    is_symptom_state_token,
+    is_time_or_count_token,
+)
 from app.agent.open_question import open_lookup as _open_lookup
 from app.tools.drug_dict import (
     MATCH_BM25,
@@ -307,8 +315,12 @@ _VERB_END_RE = re.compile(r"(해서|돼서|되서|네요|어야|아야|여야|�
 _SYMPTOM_END_RE = re.compile(r"(염|통|증|감기|병|질환|장애)$")  # 증상·질환 명사(약 이름이 아님). 사전에 정확히 있으면 제외하지 않는다
 
 
-def _is_noise(tok: str, dd: DrugDict | None = None, *, time_noise: bool = True) -> bool:
+def _is_noise(tok: str, dd: DrugDict | None = None, *, time_noise: bool = True, symptom_noise: bool = True) -> bool:
     vs = _variants(tok)
+    # AG-24 시나리오 D(2026-11-24): 몸 상태·증상 낱말(쓰러진·정신을 잃고·혼미·졸음·노딩 …, `nondrug_tokens.SYMPTOM_STATE_RE`)은 약 이름이 아니다.
+    # 사전에 이름으로 맞으면(정확·정규화·접두·중간) 버리지 않는 보호는 그대로다. 스위치(`symptom_noise=False`)를 끄면 이 규칙이 없던 때와 같다
+    if symptom_noise and any(is_symptom_state_token(v) for v in vs) and (dd is None or not any(_name_match(dd, v) for v in vs)):
+        return True
     # AG-13-41 A(2026-11-24): 때 낱말(점심·정오·식후 …) + 숫자 + 시·시간·분(+반·뒤·후·간격)과 하루·1일 + 수 + 번·회 꼴(`nondrug_tokens.TIME_COUNT_RE`)은
     # 약 이름이 아니다. 사전에 이름으로 맞으면(정확·정규화·접두·중간) 버리지 않는 보호는 그대로다. 스위치(`time_noise=False`)를 끄면 이 규칙이 없던 때와 같다
     if time_noise and any(is_time_or_count_token(v) for v in vs) and (dd is None or not any(_name_match(dd, v) for v in vs)):
@@ -624,11 +636,67 @@ def _raw_tokens(text: str) -> list[tuple[str, str]]:
     return [(_clean_token(t), sp) for t, sp in out if _clean_token(t)]
 
 
-def extract_mention_details(text: str, dd: DrugDict, *, time_noise: bool = True) -> list[Mention]:
-    """`extract_mentions`와 같은 후보에, 공백·`/`로 바로 뒤따른 함량 조각을 원문 표기(`/` 유지)로 붙여 돌려준다(중복 제거, 등장 순서)."""
+_PAREN_CHARS_RE = re.compile(r"[()（）]")
+_PAREN_FREE_RE = re.compile(r"[^()（）]+")
+_ASCII_NOTE_RE = re.compile(r"^[A-Za-z][A-Za-z\- ]*$")
+
+
+def _split_paren_tokens(toks: list[tuple[str, str]], dd: DrugDict) -> list[tuple[str, str]]:
+    """괄호가 든 토큰("기침약(DXM", "적(nodding)이", "성분)을")을 괄호에서 나눈다(AG-24 시나리오 D, 스위치 `paren_split`).
+
+    - 토큰 전체가 사전 이름과 맞으면(정확·정규화·접두·중간) 나누지 않는다("타이레놀정500밀리그람(아세트아미노펜)" 같은 제품명 보호).
+    - 괄호 바로 안의 **영문 설명**("(nodding)")은 별칭 표의 약어(`DXM`)나 사전 이름이 아니면 버린다. 한글 조각과 약어·이름은 따로 후보가 된다.
+    - 나눈 조각의 앞 구분자는 첫 조각만 원래 것을 쓰고 나머지는 비운다(함량 조각이 이름 바로 뒤에 붙을 수 있게)."""
+    out: list[tuple[str, str]] = []
+    for tok, sep in toks:
+        if not _PAREN_CHARS_RE.search(tok) or _name_match(dd, tok):
+            out.append((tok, sep))
+            continue
+        first = True
+        for m in _PAREN_FREE_RE.finditer(tok):
+            piece = _clean_token(m.group())
+            if not piece:
+                continue
+            before = tok[m.start() - 1] if m.start() else ""
+            after = tok[m.end()] if m.end() < len(tok) else ""
+            if (_ASCII_NOTE_RE.match(piece) and ((before and before in "(（") or (after and after in ")）"))
+                    and abbrev_key(piece) is None and not _name_match(dd, piece)):
+                continue  # 영문 설명: 약 이름이 아니다
+            out.append((piece, sep if first else ""))
+            first = False
+    return out
+
+
+def _apply_alias(tok: str, dd: DrugDict) -> str:
+    """영문 약어 토큰(`DXM`, 조사가 붙은 "DXM의" 포함)을 별칭 표의 사전 이름으로 바꾼다(AG-24 시나리오 D, 스위치 `abbrev_alias`).
+
+    사전에 이름으로 맞는(정확·정규화·접두·중간) 형태가 있으면 그 형태를, 없으면 BM25 1위 후보 이름에 별칭의 낱말이 든 형태를 쓴다.
+    둘 다 아니면 원문 그대로 둔다(별칭이 사전으로 해소되지 않음)."""
+    key = next((k for v in _variants(tok) if (k := abbrev_key(v))), None)
+    if key is None:
+        return tok
+    forms, words = ABBREV_ALIASES[key]
+    results = [(f, dd.lookup_name(f, top_k=1)) for f in forms]
+    for f, r in results:
+        if not r.empty and r.match_type in _STRONG:
+            return f
+    for f, r in results:
+        if not r.empty and any(w.lower() in r.candidates[0].name.lower() for w in words):
+            return f
+    return tok
+
+
+def extract_mention_details(text: str, dd: DrugDict, *, time_noise: bool = True, abbrev_alias: bool = True, symptom_noise: bool = True,
+                            paren_split: bool = True) -> list[Mention]:
+    """`extract_mentions`와 같은 후보에, 공백·`/`로 바로 뒤따른 함량 조각을 원문 표기(`/` 유지)로 붙여 돌려준다(중복 제거, 등장 순서).
+
+    AG-24 시나리오 D(2026-11-24) 스위치 셋(모두 기본 켬, 끄면 이전 동작과 같다): `paren_split`(괄호 토큰 분리·영문 설명 제거),
+    `abbrev_alias`(`DXM` 같은 영문 약어를 사전 이름으로 연결), `symptom_noise`(쓰러진·졸음 같은 증상 낱말을 후보에서 제외)."""
     out: list[Mention] = []
     seen: dict[str, int] = {}
     toks = _raw_tokens(text)
+    if paren_split:
+        toks = _split_paren_tokens(toks, dd)
     i = 0
     last_name_at: int | None = None  # 바로 앞 토큰이 약 후보였는지(함량은 이름 바로 뒤에 올 때만 붙인다)
     while i < len(toks):
@@ -655,12 +723,14 @@ def extract_mention_details(text: str, dd: DrugDict, *, time_noise: bool = True)
             continue
         last_name_at = None
         tok = _strip_copula(tok, dd)
-        if _is_noise(tok, dd, time_noise=time_noise):
+        if abbrev_alias:
+            tok = _apply_alias(tok, dd)
+        if _is_noise(tok, dd, time_noise=time_noise, symptom_noise=symptom_noise):
             i += 1
             continue
         for piece in _split_joined(dd, tok):
             piece = _clean_token(piece)
-            if not piece or _is_noise(piece, dd, time_noise=time_noise):
+            if not piece or _is_noise(piece, dd, time_noise=time_noise, symptom_noise=symptom_noise):
                 last_name_at = None
                 continue
             key = re.sub(r"\s+", "", piece).lower()
@@ -672,10 +742,11 @@ def extract_mention_details(text: str, dd: DrugDict, *, time_noise: bool = True)
     return out
 
 
-def extract_mentions(text: str, dd: DrugDict, *, time_noise: bool = True) -> list[str]:
+def extract_mentions(text: str, dd: DrugDict, *, time_noise: bool = True, abbrev_alias: bool = True, symptom_noise: bool = True,
+                     paren_split: bool = True) -> list[str]:
     """질문에서 사전 조회에 쓸 후보 문자열을 등장 순서대로 뽑는다(중복 제거). 조회 결과는 보지 않고 문자열만 정리한다.
     떨어진 함량 조각("500 mg", "/0.5밀리리터", "10/5mg")은 후보가 아니다(`extract_mention_details`가 이름에 붙인다)."""
-    return [m.token for m in extract_mention_details(text, dd, time_noise=time_noise)]
+    return [m.token for m in extract_mention_details(text, dd, time_noise=time_noise, abbrev_alias=abbrev_alias, symptom_noise=symptom_noise, paren_split=paren_split)]
 
 
 # --------------------------------------------------------------------------- 엔티티
@@ -1028,7 +1099,8 @@ def note_entities(entities: list[Entity] | list[dict[str, Any]] | None) -> list[
 
 def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] | None = None, *,
                 emergency: bool = False, guardrail_route: str | None = None, confirmed_item_seqs: Any = None,
-                typo_correct: bool = False, prior_drugs: Any = None, time_noise: bool = True) -> RouterResult:
+                typo_correct: bool = False, prior_drugs: Any = None, time_noise: bool = True, abbrev_alias: bool = True,
+                symptom_noise: bool = True, paren_split: bool = True) -> RouterResult:
     """질문 하나를 정리한다. `emergency`·`guardrail_route`는 AG-08이 쓴 값을 읽어 그대로 돌려줄 뿐 결과에 영향이 없다.
 
     `typo_correct=True`이면 오탈자 의심 엔티티를 `correct_typo`로 보정해 본다(AG-10). 기본값 False는 지금까지와 같은 결과(되묻기)다.
@@ -1042,10 +1114,13 @@ def route_input(text: str, dd: DrugDict, profile: ProfileState | dict[str, Any] 
     같은 이름이 다시 나오면 확인 되묻기만 낸다(`apply_prior`). 비어 있으면 지금과 같다(평가 경로는 늘 비어 있다).
 
     `time_noise`(AG-13-41 A, 2026-11-24): 시각·횟수 잡음 규칙 일반화(`nondrug_tokens.TIME_COUNT_RE`) 스위치. 기본 켬이고 `False`면 이 규칙이 없던 때와 같은 결과다
-    (켜는 곳은 `GraphDeps.router_time_noise`)."""
+    (켜는 곳은 `GraphDeps.router_time_noise`).
+
+    AG-24 시나리오 D(2026-11-24) 스위치 셋: `abbrev_alias`(영문 약어 `DXM` → 덱스트로메토르판 별칭, `GraphDeps.router_abbrev_alias`)·`symptom_noise`
+    (쓰러진·졸음 같은 증상 낱말 제외, `router_symptom_noise`)·`paren_split`(괄호 토큰 분리, `router_paren_split`). 모두 기본 켬이고 끄면 이전 동작과 같다."""
     seqs = confirmed_picks(confirmed_item_seqs)
     priors = prior_picks(prior_drugs)
-    mentions = extract_mention_details(text, dd, time_noise=time_noise)
+    mentions = extract_mention_details(text, dd, time_noise=time_noise, abbrev_alias=abbrev_alias, symptom_noise=symptom_noise, paren_split=paren_split)
     truncated = len(mentions) > MAX_DRUGS
     mentions = mentions[:MAX_DRUGS]
 
