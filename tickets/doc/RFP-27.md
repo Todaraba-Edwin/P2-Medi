@@ -2,7 +2,7 @@
 id: RFP-27
 label: RFP
 title: FR-10 되묻기 요구사항 추적
-sch: SCH-02
+sch: SCH-04
 status: todo
 priority: 필수
 rfp: [FR-10]

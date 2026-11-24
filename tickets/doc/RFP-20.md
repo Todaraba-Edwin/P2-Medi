@@ -2,7 +2,7 @@
 id: RFP-20
 label: RFP
 title: FR-09 온보딩·계정 요구사항 추적
-sch: SCH-02
+sch: SCH-04
 status: todo
 priority: 권장
 rfp: [FR-09]

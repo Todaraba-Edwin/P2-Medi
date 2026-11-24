@@ -2,7 +2,7 @@
 id: RFP-05
 label: RFP
 title: FR-04 Citation 요구사항 추적
-sch: SCH-02
+sch: SCH-04
 status: todo
 priority: 필수
 rfp: [FR-04]

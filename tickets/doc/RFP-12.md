@@ -2,7 +2,7 @@
 id: RFP-12
 label: RFP
 title: 비기능 보안·개인정보 추적
-sch: SCH-02
+sch: SCH-04
 status: todo
 priority: 필수
 rfp: [NFR-보안, NFR-개인정보]

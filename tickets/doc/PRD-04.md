@@ -2,7 +2,7 @@
 id: PRD-04
 label: PRD
 title: README·실행 방법 작성
-sch: SCH-03
+sch: SCH-04
 status: todo
 priority: 필수
 rfp: [DELIV-11]

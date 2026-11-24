@@ -2,7 +2,7 @@
 id: PRD-17
 label: PRD
 title: 약관·개인정보·민감정보 문서 초안 검토와 적용
-sch: SCH-02
+sch: SCH-04
 status: todo
 priority: 권장
 rfp: [FR-09, NFR-개인정보]

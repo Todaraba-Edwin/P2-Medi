@@ -2,7 +2,7 @@
 id: RFP-13
 label: RFP
 title: 비기능 고지(진단·처방 아님 문구, 출처·기준일, 이용 조건) 추적
-sch: SCH-02
+sch: SCH-04
 status: todo
 priority: 필수
 rfp: [NFR-고지]
