@@ -34,6 +34,7 @@ from app.agent.graph.state import (
 from app.agent.intake import caution_kinds
 from app.agent.router import FLAG_PRIOR_PICK, FLAG_USER_CONFIRMED, corrections_of, note_entities, route_input
 from app.agent.sentence_filter import filter_sentences
+from app.agent.summary_dedupe import dedupe_sentences
 from app.agent.tools.context import ToolContext
 from app.agent.tools.registry import REGISTRY, ToolSpec, invoke
 from app.agent.tools.schemas import POST_WRITABLE_KEYS
@@ -121,6 +122,9 @@ class GraphDeps:
     router_abbrev_alias: bool = True     # Router 영문 약어 별칭(`DXM` → 덱스트로메토르판, 코드 상수 표)
     router_symptom_noise: bool = True    # Router 증상·상태 낱말(쓰러진·졸음·노딩 …)을 약 이름 후보에서 제외
     router_paren_split: bool = True      # Router 괄호 토큰 분리("기침약(DXM 성분)" → 기침약·DXM)와 괄호 영문 설명("(nodding)") 제거
+    # FE-17 U-30(ISSUE-035, 2026-11-24) 스위치. 모두 기본 켬이고 끄면 이 장치가 없던 때와 같은 동작이다(한 번에 하나씩 ablation, 9.8절). 환경변수 없음
+    summary_dedupe: bool = True          # U-30-1 모델 요약 문장 중 같은 뜻의 되풀이(금기 목록에 없음·안전 단정 금지)를 문장 단위로 지움(`summary_dedupe.py`)
+    grade_note_single: bool = True       # U-30-6 파일·실시간 등급이 다른 근거에는 등급 불일치 안내 하나만(같은 근거에 `API_SAME` 안내가 함께 붙는 것을 숨김)
 
 
 # --------------------------------------------------------------------------- 보조
@@ -399,6 +403,8 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
             extra["router_pair_keys"] = resolved_seqs(state.get("entities"))
         if deps.merge_unconfirmed_lines:  # AG-13-46 (a)
             extra["merge_unconfirmed"] = True
+        if deps.grade_note_single:  # FE-17 U-30-6
+            extra["grade_note_single"] = True
         if deps.grade_def_fn is not None:  # 함수가 주입되지 않았으면 아무것도 넘기지 않는다(기존 출력 불변)
             defs, missing = grade_def_inputs(items, deps.grade_def_fn)
             if defs:
@@ -414,6 +420,7 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
         # 오탈자 보정으로 확정한 약(AG-10): 조회 결과를 보이는 모든 경로(정상·상한·검증 폴백·응급+범위 외)에 고지를 함께 싣는다.
         # 입구 거절·되묻기는 조회 결과를 보이지 않으므로 싣지 않는다
         corrections = corrections_of(state.get("entities")) or None
+        dedupe_events: list[dict[str, Any]] = []  # U-30-1: 요약 문장을 지웠을 때만 한 건
         if state.get("route") == guardrail.ROUTE_REFUSE and not state.get("proceed_tools"):
             resp, why = finalize([], emergency=emergency, refuse_reason=state.get("refuse_reason") or "OUT_OF_SCOPE",
                                  refuse_reasons=state.get("refuse_reasons")), END_REFUSE
@@ -430,6 +437,12 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
                                  **finalize_extra(state, items)), END_LIMIT
         else:
             sents = [Sentence.model_validate(s) for s in state.get("final_sentences") or []]
+            if deps.summary_dedupe and len(sents) > 1:  # FE-17 U-30-1: 같은 뜻의 되풀이 문장을 지운다(지우기만, 근거 ID는 남는 문장으로)
+                dd_res = dedupe_sentences(sents, n_drugs=sum(1 for e in state.get("entities") or [] if isinstance(e, dict)) or None)
+                if dd_res.changed:
+                    sents = dd_res.sentences
+                    dedupe_events.append({"rule": "H1", "event": "SUMMARY_DEDUPE", "dropped": len(dd_res.dropped),
+                                          "classes": sorted({c for d in dd_res.dropped for c in d.classes})})
             summary = " ".join(s.text for s in sents) or None
             refuse = state.get("refuse_reason") if state.get("route") == guardrail.ROUTE_REFUSE else None  # 응급+범위 외: 거절 문구와 119를 함께
             fell_back = (state.get("validation") or {}).get("next") == "fallback"
@@ -438,7 +451,7 @@ def make_raw_nodes(deps: GraphDeps) -> dict[str, Callable[[AgentState], dict[str
                             refuse_reasons=state.get("refuse_reasons") if refuse else None,
                             validation_fallback=fell_back and not refuse, name_corrections=corrections, **extra)  # 거절 문구가 있으면 그대로 둔다
             why = END_FALLBACK if fell_back else END_NORMAL
-        return {"answer": resp, "end_reason": why, "events": [{"rule": "H3", "event": "FINALIZE", "end_reason": why}]}
+        return {"answer": resp, "end_reason": why, "events": [*dedupe_events, {"rule": "H3", "event": "FINALIZE", "end_reason": why}]}
 
     return {"guardrail_in": guardrail_in, "router": router, "model": model, "tools": tools, "validator": validator, "finalize": finalize_node}
 

@@ -624,6 +624,7 @@ def finalize(
     n_drugs: int = 0,
     router_pair_keys: list[str] | None = None,
     merge_unconfirmed: bool = False,
+    grade_note_single: bool = False,
 ) -> dict[str, Any]:
     """응답 딕셔너리를 만든다. 고정 문구는 인자·모델 출력과 무관하게 항상 들어간다.
 
@@ -648,6 +649,10 @@ def finalize(
     # (`TYPO_CORRECTED_LINE`)을 요약 앞에 싣는다. 보정해 놓고 고지 없이 결과만 보이지 않게 하는 자리다. 없으면 응답에 이 키가 없다(기존 출력 불변).
     # AG-13-45·46(2026-11-24, 모두 표시·요약 정리라 `entries`는 그대로): `router_pair_keys`(Router가 정리한 약의 품목기준코드, 있으면 `result_summary`를 그 약끼리의 짝으로
     # 한정, `_result_summary`)·`merge_unconfirmed`(같은 약의 확인 못 함 줄을 `line_groups`에 묶음으로 실음, `_unconfirmed_line_groups`). 기본은 이전 동작(None·False)이다.
+    # FE-17 U-30-6(2026-11-24): `grade_note_single`(기본 False = 이전 동작). 켜면 파일·실시간 등급이 달라 등급 불일치 안내(`GRADE_MISMATCH_NOTE`)가 붙는 근거의 줄에서
+    # `API_SAME` 안내("파일과 실시간 조회 결과가 같아요")를 **사용자에게 가는 응답 변환에서만** 숨긴다. 한 근거에 "같아요"와 "등급이 달라요"가 함께 붙는 것은
+    # `API_SAME`이 "양쪽 모두 목록에 있음(BOTH_FOUND)"의 꼬리표이고 등급 불일치는 그 안의 등급 비교라 코드상 서로 독립으로 붙기 때문이다(`dur.OUTCOME_TO_HARNESS_FLAG`).
+    # `entries`·`text`(평가 원본·로그)는 그대로 두고 숨길 글자만 `hidden_notes`(근거 ID → 글자 목록)에 담는다(`api.schemas._findings`가 읽는다).
     items = [it for it in items or [] if isinstance(it, dict)]
     buckets = [(it, _bucket(it)) for it in items]
     buckets.sort(key=lambda p: (p[1], _kind_rank(p[0].get("kind"))))  # 안정 정렬: FOUND 먼저, 같은 묶음은 입력·종류 순서
@@ -671,6 +676,10 @@ def finalize(
     for d in rendered.detail:  # 등급 불일치 안내(UI-020): 근거 상세의 그 근거에만 붙인다
         if d.get("evidence_id") in mismatch_ids:
             d["notes"] = [*(d.get("notes") or []), fp.GRADE_MISMATCH_NOTE]
+    hidden_notes: dict[str, list[str]] = {}
+    if grade_note_single:  # U-30-6: 불일치 근거에는 불일치 안내 하나만 보이게 한다(같은 근거의 `API_SAME` 안내 숨김)
+        same_note = fp.FLAG_LINES["API_SAME"]
+        hidden_notes = {e["evidence_id"]: [same_note] for e in entries if e.get("evidence_id") in mismatch_ids and same_note in (e.get("notes") or [])}
     not_checked_lines = [fp.NOT_CHECKED_LINES[k] for k in dict.fromkeys(not_checked or []) if k in fp.NOT_CHECKED_LINES]
 
     # 근거 원문 미확보(`missing_reason`)가 있는데 줄은 "확인하지 못함"이 아닌 경우: 약은 식별됐지만 허가사항 원문을 확보하지 못한
@@ -772,6 +781,8 @@ def finalize(
                    for c in name_corrections or [] if isinstance(c, dict) and c.get("input") and c.get("name")]
     if corrections:
         resp["name_corrections"] = corrections
+    if hidden_notes:
+        resp["hidden_notes"] = hidden_notes
     resp["text"] = render_text(resp)
     return resp
 

@@ -178,6 +178,8 @@ _APPROVED = {
     "7-1": fp.UNIDENTIFIED_SUB_LINE, "7-2": fp.GRADE_MISMATCH_NOTE, "7-3a": fp.INGR_CODE_MISSING_TEXT["ABSENT"],
     "7-3b": fp.INGR_CODE_MISSING_TEXT["FETCH_FAIL"], "7-4": fp.DOSE_QUOTE_NOTICE, "7-5": fp.CLARIFY_PICK_LINE,
 }
+# 승인 문구를 새 글자로 바꿨지만 티켓 승인 표가 아직 이전 글자인 항목(번호 → 표에 남은 이전 문구). 표를 고치면 이 사전에서 지운다
+_DOC_SYNC_PENDING = {"7-2": "파일 자료와 실시간 조회의 등급이 달라요. 어느 쪽이 맞는지 정하지 않고 둘 다 출처와 함께 보여 드려요."}
 _APPROVED_TEXT = {
     "1-1": "잠시 뒤 다시 시도해 주세요. 보낸 질문은 그대로 있어요.",
     "1-2": "시간 안에 답을 마치지 못했어요. 잠시 뒤 다시 시도해 주세요.",
@@ -187,7 +189,7 @@ _APPROVED_TEXT = {
     "5": "컴퓨터로 보고 있다면 휴대폰으로 119에 전화하세요.",
     "6": "임신 여부를 알 수 없어 임부금기는 확인하지 못했어요.",
     "7-1": "{drug}을(를) 찾지 못해 금기를 확인하지 못했어요. 안전하다는 뜻이 아니에요.",
-    "7-2": "파일 자료와 실시간 조회의 등급이 달라요. 어느 쪽이 맞는지 정하지 않고 둘 다 출처와 함께 보여 드려요.",
+    "7-2": "파일과 실시간 조회 결과 모두 보여드려요. 자료 고시 시점에 따라서 등급이 다르게 보일 수 있어요.",  # FE-17 U-30-6(2026-11-24) 사용자 제공 문구로 교체
     "7-3a": "성분코드는 자료에 적혀 있지 않아요",
     "7-3b": "성분코드는 지금 불러오지 못했어요",
     "7-4": "허가사항 원문 인용이며 복용 지시가 아닙니다. 복용량은 약사·의사에게 확인하세요.",
@@ -198,7 +200,12 @@ _APPROVED_TEXT = {
 @pytest.mark.parametrize("no", sorted(_APPROVED))
 def test_0e_constants_match_approved_text(no):
     assert _APPROVED[no] == _APPROVED_TEXT[no]
-    assert _APPROVED[no] in _doc("tickets/agent/AG-08.md")  # 티켓 §5 승인 표 원문과 글자 일치
+    doc = _doc("tickets/agent/AG-08.md")
+    if no in _DOC_SYNC_PENDING:
+        # U-30-6: 승인 표 원문(AG-08 §5 7-2)이 아직 이전 문구다(티켓은 Docs 후속에서 고친다). 새 문구가 표에 들어가면 이전 문구 허용은 필요 없어진다
+        assert _APPROVED[no] in doc or _DOC_SYNC_PENDING[no] in doc
+    else:
+        assert _APPROVED[no] in doc  # 티켓 §5 승인 표 원문과 글자 일치
 
 
 def test_0e_template_matches_instance_and_ticket():

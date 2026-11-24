@@ -934,6 +934,10 @@ def _findings(resp: dict[str, Any], detail_by_id: dict[str, DetailItem], badges_
     `product_rows`·`line_groups`가 없는 출력(이전 `finalize`)은 지금까지처럼 근거 줄마다 한 줄이다.
     """
     entries = [e for e in resp.get("entries") or [] if isinstance(e, dict)]
+    hidden = resp.get("hidden_notes") if isinstance(resp.get("hidden_notes"), dict) else {}
+    if hidden:  # U-30-6: 등급 불일치 안내가 붙는 근거의 `API_SAME` 안내를 사용자 응답에서만 뺀다(`entries`·`text` 평가 원본은 그대로)
+        entries = [{**e, "notes": [n for n in e.get("notes") or [] if n not in hidden[e["evidence_id"]]]} if e.get("evidence_id") in hidden else e
+                   for e in entries]
     all_rows = [r for r in resp.get("product_rows") or [] if isinstance(r, dict)]
     rows = [r for r in all_rows if r.get("bucket") in _ROW_BUCKETS]
     out: list[Finding] = []
