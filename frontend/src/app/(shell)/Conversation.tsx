@@ -33,6 +33,11 @@ export interface ConversationProps {
   onOther: () => void;
   /** 고른 후보 전부를 붙여 같은 질문을 한 번 다시 보낸다(모든 묶음을 골랐을 때만 부른다) */
   onResend: (turnId: string) => void;
+  /**
+   * 내용 폭 열의 클래스(FE-17 U-27: 가운데 정렬·최대 폭·좌우 여백). 스크롤 컨테이너(`chat-thread`)는 본문 전체 폭이고 이 열은 그 안쪽 래퍼다.
+   * 입력 영역과 같은 값을 받는다(앱 셸이 정한다)
+   */
+  columnClassName?: string;
 }
 
 const NO_PICKS: CandidatePicks = {};
@@ -43,7 +48,7 @@ const SYMBOL = BRAND_ASSETS.symbol;
 const SYMBOL_WIDTH = Math.round((SYMBOL_HEIGHT * SYMBOL.width) / SYMBOL.height);
 const RESEND_DISABLED = "aria-disabled:cursor-not-allowed aria-disabled:bg-line aria-disabled:text-faint aria-disabled:brightness-100!";
 
-interface TurnProps extends Omit<ConversationProps, "turns"> {
+interface TurnProps extends Omit<ConversationProps, "turns" | "columnClassName"> {
   turn: ChatTurn;
   /** 뒤 차례의 답이 이미 보이는 고정 안내 줄(같은 글자). 이 차례에서는 그 줄을 다시 그리지 않는다(FE-17 U-26-1) */
   noticeShownLater: ReadonlySet<string>;
@@ -196,7 +201,7 @@ const THREAD_PADDING_TOP = 8;
  *   결과 카드가 영역보다 커서 "삐! 병용금기" 판정 줄·요약이 첫 화면 밖으로 밀린다. 119 배너는 이 영역 밖(위 고정)이라 그대로다.
  * - 이 차례에서 사용자가 직접 스크롤했으면(프로그램이 맞춘 위치와 다르면) 억지로 옮기지 않는다. 다음 차례(또는 다시 시도)에서 푼다.
  */
-export function Conversation({ turns, ...rest }: ConversationProps) {
+export function Conversation({ turns, columnClassName, ...rest }: ConversationProps) {
   const thread = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   /** 프로그램이 마지막으로 맞춘 위치와 그때의 크기. 크기가 그대로인데 `scrollTop`만 다르면 사용자가 움직인 것이다(크기가 바뀌어 브라우저가 자른 것은 아니다) */
@@ -233,20 +238,26 @@ export function Conversation({ turns, ...rest }: ConversationProps) {
   };
 
   return (
-    <div ref={thread} data-testid="chat-thread" onScroll={onScroll} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-0.5 pt-2 pb-3">
-      {turns.map((turn, index) => {
-        const next = turns[index + 1];
-        const noticeShownLater = new Set(turns.slice(index + 1).flatMap((later) => later.stream.response?.fixed_notice ?? []));
-        return (
-          <div key={turn.id} data-turn={turn.id} data-status={turn.stream.status} className="flex flex-col gap-2.5">
-            {/* 고른 약으로 다시 물은 차례(`display`가 있음)는 말풍선을 그리지 않는다(FE-17 U-17: 지난 답의 고른 줄 요약 바로 다음에 진행 표시·새 답이 이어진다).
-                서버로 간 것은 예전처럼 원 질문 + 고른 약이고(요청 계약 불변), `display`는 차례 표시(지난 답 읽기 전용 판정 `resent`)에만 쓴다 */}
-            {turn.display == null && <MessageBubble side="me">{turn.question}</MessageBubble>}
-            <TurnAnswer turn={turn} isLast={turn === last} noticeShownLater={noticeShownLater} resent={next !== undefined && next.display !== undefined && next.display !== null && next.question === turn.question} {...rest} />
-          </div>
-        );
-      })}
-      <div ref={end} />
+    // 스크롤 컨테이너는 본문 전체 폭(스크롤바가 본문 오른쪽 가장자리, FE-17 U-27), 내용은 안쪽 열(`chat-column`)이 가운데 정렬·최대 폭으로 잡는다.
+    // 위아래 여백(`pt-2`·`pb-3`)은 스크롤 컨테이너에 둔다(`THREAD_PADDING_TOP` 맞춤의 기준이 이 상자의 위쪽이다)
+    <div ref={thread} data-testid="chat-thread" onScroll={onScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2 pb-3">
+      <div data-testid="chat-column" className={cn("flex flex-none flex-col", columnClassName)}>
+        <div className="flex flex-col gap-3.5 px-0.5">
+          {turns.map((turn, index) => {
+            const next = turns[index + 1];
+            const noticeShownLater = new Set(turns.slice(index + 1).flatMap((later) => later.stream.response?.fixed_notice ?? []));
+            return (
+              <div key={turn.id} data-turn={turn.id} data-status={turn.stream.status} className="flex flex-col gap-2.5">
+                {/* 고른 약으로 다시 물은 차례(`display`가 있음)는 말풍선을 그리지 않는다(FE-17 U-17: 지난 답의 고른 줄 요약 바로 다음에 진행 표시·새 답이 이어진다).
+                    서버로 간 것은 예전처럼 원 질문 + 고른 약이고(요청 계약 불변), `display`는 차례 표시(지난 답 읽기 전용 판정 `resent`)에만 쓴다 */}
+                {turn.display == null && <MessageBubble side="me">{turn.question}</MessageBubble>}
+                <TurnAnswer turn={turn} isLast={turn === last} noticeShownLater={noticeShownLater} resent={next !== undefined && next.display !== undefined && next.display !== null && next.question === turn.question} {...rest} />
+              </div>
+            );
+          })}
+          <div ref={end} />
+        </div>
+      </div>
     </div>
   );
 }

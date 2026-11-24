@@ -122,4 +122,49 @@ describe("디자인 토큰", () => {
     const failed = AVATAR_KEYS.filter((key) => contrast(chick, vars[`--color-avatar-${key}`]) < 3);
     expect(failed).toEqual([]);
   });
+
+  // 진행 표시 지금 단계 글자 쉬머(FE-17 U-24 수정-3, 2026-11-24 사용자 확인 대기 ④에 대한 제안 "4.5:1 유지" 채택):
+  // 띠가 지나가는 동안 글자색은 바탕 글자색(--shimmer-base)과 띠 색(--shimmer-hi) 사이의 모든 중간색이 된다.
+  // 두 끝과 그 사이(sRGB 선형 보간, 브라우저 그라데이션 기본)를 촘촘히 잘라 바탕(진행 표시가 놓이는 bg, 여유로 bg-soft·bg-softer)과 4.5:1 이상인지 계산한다.
+  // 띠가 보여야 쉬머이므로 띠와 바탕 글자의 차이도 1.5:1 이상인지 본다(움직임이 사라지는 회귀를 막는 하한, WCAG 기준이 아니다)
+  describe("진행 표시 쉬머 대비", () => {
+    /** `selector { ... }` 본문의 `--shimmer-*: var(--color-*)`를 토큰 이름으로 뽑는다 */
+    const shimmerVars = (opener: RegExp) => {
+      const start = css.search(opener);
+      const body = css.slice(css.indexOf("{", start) + 1, css.indexOf("}", start));
+      const pick = (name: string) => body.match(new RegExp(`--shimmer-${name}:\\s*var\\((--color-[a-z0-9-]+)\\)`))?.[1];
+      return { base: pick("base"), hi: pick("hi") };
+    };
+    const lightRule = shimmerVars(/@layer components\s*\{\s*\.progress-shimmer\s*\{/);
+    const darkAttrRule = shimmerVars(/:root\[data-theme="dark"\] \.progress-shimmer\s*\{/);
+    const darkMediaRule = shimmerVars(/:root:not\(\[data-theme="light"\]\) \.progress-shimmer\s*\{/);
+    const hex = (value: string) => full(value).slice(1).match(/../g)!.map((pair) => parseInt(pair, 16));
+    const mix = (a: string, b: string, t: number) => `#${hex(a).map((c, i) => Math.round(c + (hex(b)[i] - c) * t).toString(16).padStart(2, "0")).join("")}`;
+
+    it("그라데이션은 바탕 글자색과 띠 색 두 가지만 잇는다(중간색이 두 끝 사이에만 있다)", () => {
+      const rule = css.match(/@layer components\s*\{\s*\.progress-shimmer\s*\{([^}]*)\}/)?.[1] ?? "";
+      const gradient = rule.match(/linear-gradient\(([^;]*)\);/)?.[1] ?? "";
+      const colors = [...gradient.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((match) => match[1]);
+      expect(colors.length).toBeGreaterThan(0);
+      expect(new Set(colors)).toEqual(new Set(["--shimmer-base", "--shimmer-hi"]));
+      expect(darkAttrRule).toEqual(darkMediaRule); // 시스템 다크와 수동 다크가 같다
+    });
+
+    it.each([
+      ["라이트", light, lightRule, "--color-ink", "--color-mute"],
+      ["다크", darkAttr, darkAttrRule, "--color-mute", "--color-ink"],
+    ])("%s: 띠가 지나가는 전 구간에서 글자 대비가 4.5:1 이상이고 띠가 바탕 글자와 구분된다", (_, vars, rule, base, hi) => {
+      expect(rule).toEqual({ base, hi });
+      const baseColor = vars[rule.base!];
+      const hiColor = vars[rule.hi!];
+      const steps = Array.from({ length: 41 }, (__, i) => mix(baseColor, hiColor, i / 40));
+      for (const surface of ["--color-bg", "--color-bg-soft", "--color-bg-softer"]) {
+        const worst = Math.min(...steps.map((color) => contrast(color, vars[surface])));
+        expect(worst, `${surface} 위 최저 대비`).toBeGreaterThanOrEqual(4.5);
+      }
+      // 띠 한가운데(가장 낮은 곳)의 진행 표시 바탕(bg) 대비: 라이트 약 6.3:1, 다크 약 7.8:1(바탕 글자 mute)
+      expect(contrast(hiColor, vars["--color-bg"])).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(baseColor, hiColor)).toBeGreaterThanOrEqual(1.5);
+    });
+  });
 });

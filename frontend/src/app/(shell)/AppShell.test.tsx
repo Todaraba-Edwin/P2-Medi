@@ -830,3 +830,40 @@ describe("근거 상세가 열린 채 창이 줄면 사이드바를 레일로(FE
     expect(screen.getByTestId("main")).toHaveAttribute("inert"); // 오버레이 그대로
   });
 });
+
+// FE-17 U-27(2026-11-24): 스크롤 컨테이너는 본문(main) 전체 폭, 내용 폭 제한(880·760, 좌우 여백 포함)은 안쪽 열과 입력 영역이 같은 값으로 갖는다.
+// jsdom은 폭을 재지 않으므로 여기서는 구조(어느 요소가 스크롤하고 어느 요소가 폭을 제한하는가)를 보고, 실제 폭·스크롤바 위치는 e2e(ux-batch8)가 잰다
+describe("본문 스크롤 영역과 내용 폭 분리(FE-17 U-27)", () => {
+  const WIDTH_LIMIT = /\bmax-w-\[/;
+  it.each([
+    [1280, "max-w-[880px]", "px-6"],
+    [393, "max-w-[760px]", "px-3"],
+  ])("%ipx: 시작 화면·대화 모두 스크롤 컨테이너에는 폭 제한이 없고, 안쪽 열과 입력 영역이 %s %s를 갖는다", async (width, maxWidth, padding) => {
+    const { user } = setup({ width });
+    const home = await screen.findByTestId("home");
+    const body = screen.getByTestId("main-body");
+    expect(body.parentElement).toBe(main()); // 본문 바로 아래 열(폭 제한 없음)
+    expect(body.className).not.toMatch(WIDTH_LIMIT);
+    expect(home).toHaveClass("overflow-y-auto");
+    expect(home.className).not.toMatch(WIDTH_LIMIT);
+    expect(home.parentElement).toBe(body);
+    const homeColumn = within(home).getByTestId("home-column");
+    expect(homeColumn).toHaveClass(maxWidth, padding, "mx-auto", "w-full");
+    expect(homeColumn).toContainElement(within(home).getByRole("heading", { level: 1 }));
+    const dock = screen.getByTestId("dock");
+    expect(dock.parentElement).toBe(body);
+    expect(dock).toHaveClass(maxWidth, padding, "mx-auto", "w-full");
+
+    await ask(user, "가나다정 먹어도 돼요");
+    const thread = screen.getByTestId("chat-thread");
+    expect(thread.parentElement).toBe(body);
+    expect(thread).toHaveClass("overflow-y-auto", "flex-1", "min-h-0");
+    expect(thread.className).not.toMatch(WIDTH_LIMIT);
+    expect(thread.className).not.toMatch(/\bpx-/); // 좌우 여백은 안쪽 열에만 있다(스크롤바가 본문 가장자리에 붙는다)
+    const column = within(thread).getByTestId("chat-column");
+    expect(column).toHaveClass(maxWidth, padding, "mx-auto", "w-full");
+    // 차례는 모두 안쪽 열 안에 있다
+    for (const turn of thread.querySelectorAll<HTMLElement>("[data-turn]")) expect(column).toContainElement(turn);
+    expect(screen.getByTestId("dock")).toHaveClass(maxWidth, padding); // 대화 중에도 입력 영역 폭은 그대로
+  });
+});
