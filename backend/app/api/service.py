@@ -32,7 +32,7 @@ from app.agent.graph.metered import usage_of
 from app.agent.graph.nodes import GraphDeps
 from app.agent.tools.context import ToolContext
 from app.agent.tools.langchain_adapter import build_tools
-from app.api.kakao_notify import KakaoNotifier
+from app.api.kakao_notify import KakaoNotifier, compose_message
 from app.api.runner import ChatRunner, ConfirmedInput, GraphRunner, NodeUpdate, PriorInput
 from app.config import reveal
 
@@ -117,7 +117,7 @@ NOTIFIER: ContextVar[KakaoNotifier | None] = ContextVar("mediagent_notifier", de
 def _notify(text: str) -> None:
     notifier = NOTIFIER.get()
     if notifier is not None:
-        notifier.notify(text)  # best-effort: 별도 스레드로 보내고 예외는 안에서 삼킨다
+        notifier.notify(compose_message(text))  # 접두+브랜치를 붙인다. best-effort: 별도 스레드로 보내고 예외는 안에서 삼킨다
 
 
 class _Step:
@@ -139,7 +139,7 @@ def build_step(label: str, name: str) -> Iterator[_Step]:
     suffix = f" ({step.detail})" if step.detail else ""
     logger.info("%s: %s done in %.2fs%s", label, name, elapsed, suffix)
     if label == "warmup" and name.startswith("corpus"):
-        _notify(f"[MediAgent-Can-I-PPiyak] corpus 완료 {elapsed:.1f}s{suffix}")
+        _notify(f"corpus 완료 {elapsed:.1f}s{suffix}")
 
 
 class PrimedConnFactory:
@@ -273,12 +273,12 @@ class LazyGraphRunner:
             elapsed = time.monotonic() - started
             logger.warning("%s failed: %s after %.1fs", label, type(exc).__name__, elapsed)
             if label == "warmup":
-                _notify(f"[MediAgent-Can-I-PPiyak] warmup 실패 {type(exc).__name__} {elapsed:.1f}s")
+                _notify(f"warmup 실패 {type(exc).__name__} {elapsed:.1f}s")
             raise
         elapsed = time.monotonic() - started
         logger.info("%s done in %.1fs", label, elapsed)
         if label == "warmup":
-            _notify(f"[MediAgent-Can-I-PPiyak] warmup 완료 {elapsed:.1f}s")
+            _notify(f"warmup 완료 {elapsed:.1f}s")
         return base
 
     @property
@@ -348,7 +348,7 @@ def notify_startup(runner: ChatRunner | None, settings: Any) -> threading.Thread
     notifier = getattr(runner, "_notifier", None) or _safe_notifier(settings)
     if notifier is None:
         return None
-    return notifier.notify("[MediAgent-Can-I-PPiyak] 서버 시작 완료")
+    return notifier.notify(compose_message("서버 시작 완료"))
 
 
 def make_service_runner(settings: Any, *, resources_factory: ResourcesFactory | None = None) -> ChatRunner | None:

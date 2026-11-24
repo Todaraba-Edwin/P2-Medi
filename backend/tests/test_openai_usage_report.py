@@ -22,6 +22,13 @@ rep = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = rep  # dataclass가 모듈을 찾을 수 있게
 spec.loader.exec_module(rep)
 
+@pytest.fixture(autouse=True)
+def _isolate_env(monkeypatch):
+    """전체 시험 중 다른 시험이 환경변수로 실제 키를 남겨도 `Settings(_env_file=None)`에 섞이지 않게 한다(2026-11-24 순서 의존 실패 재현)."""
+    for name in ("OPENAI_ADMIN_KEY", "KAKAO_REST_API_KEY", "KAKAO_CLIENT_SECRET", "KAKAO_REFRESH_TOKEN", "MEDIAGENT_NOTIFY"):
+        monkeypatch.delenv(name, raising=False)
+
+
 KST = ZoneInfo("Asia/Seoul")
 ADMIN = "sk-admin-SECRETVALUE-123"
 NOW = datetime(2026, 11, 24, 12, 0, tzinfo=KST)

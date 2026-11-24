@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 import urllib.parse
 
 import pytest
@@ -50,6 +51,21 @@ def _isolate_kakao(monkeypatch, tmp_path):
     for name in ("KAKAO_REST_API_KEY", "KAKAO_CLIENT_SECRET", "KAKAO_REFRESH_TOKEN", "MEDIAGENT_NOTIFY"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(kakao_notify, "TOKEN_FILE", tmp_path / "kakao_refresh_token.local")
+    # 브랜치 캐시는 시험 간 초기화하고, 실제 git 대신 고정 브랜치를 쓴다(브랜치 시험은 `_fake_git`으로 따로 바꾼다)
+    monkeypatch.setattr(kakao_notify, "_branch_cache", None)
+    monkeypatch.setattr(kakao_notify, "_git", _fake_git({("rev-parse", "--abbrev-ref", "HEAD"): "develop"}))
+
+
+def _fake_git(answers: dict, calls: list | None = None):
+    def fake(*args):
+        if calls is not None:
+            calls.append(args)
+        value = answers[args]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    return fake
 
 
 def _fake_factory(_settings):
@@ -75,8 +91,8 @@ def test_two_messages_on_success():
     _join(n)
     memos = [json.loads(f["template_object"])["text"] for u, _h, f in http.calls if u == MEMO_URL]
     assert len(memos) == 2
-    assert memos[0].startswith("[MediAgent-Can-I-PPiyak] corpus 완료 ") and memos[0].endswith("s (123 chunks)")
-    assert memos[1].startswith("[MediAgent-Can-I-PPiyak] warmup 완료 ") and memos[1].endswith("s")
+    assert memos[0].startswith("[MediAgent-Can-I-PPiyak] [develop] corpus 완료 ") and memos[0].endswith("s (123 chunks)")
+    assert memos[1].startswith("[MediAgent-Can-I-PPiyak] [develop] warmup 완료 ") and memos[1].endswith("s")
     token_calls = [f for u, _h, f in http.calls if u == TOKEN_ENDPOINT]
     assert token_calls[0]["grant_type"] == "refresh_token" and token_calls[0]["client_id"] == KEY
     assert "client_secret" not in token_calls[0]
@@ -102,7 +118,7 @@ def test_failure_sends_failure_message_with_type_name_only():
     assert runner.warm() is False
     _join(n)
     texts = [json.loads(f["template_object"])["text"] for u, _h, f in http.calls if u == MEMO_URL]
-    assert len(texts) == 1 and texts[0].startswith("[MediAgent-Can-I-PPiyak] warmup 실패 ValueError ")
+    assert len(texts) == 1 and texts[0].startswith("[MediAgent-Can-I-PPiyak] [develop] warmup 실패 ValueError ")
     assert "민감" not in texts[0]
 
 
@@ -198,7 +214,7 @@ def test_startup_notification_uses_shared_notifier_and_prefix():
     assert thread is not None
     _join(n)
     memos = [json.loads(f["template_object"])["text"] for url, _h, f in http.calls if url == MEMO_URL]
-    assert memos == ["[MediAgent-Can-I-PPiyak] 서버 시작 완료"]
+    assert memos == ["[MediAgent-Can-I-PPiyak] [develop] 서버 시작 완료"]
 
 
 def test_startup_notification_is_noop_without_keys_or_when_switched_off():
@@ -219,3 +235,85 @@ def test_make_service_runner_shares_one_notifier(monkeypatch):
     monkeypatch.setattr(service, "missing_settings", lambda _s: [])
     runner = service.make_service_runner(_settings())
     assert runner is not None and getattr(runner, "_notifier", None) is not None
+
+
+# --------------------------------------------------------------------------- 브랜치 표시(2026-11-24)
+HEAD_ARGS = ("rev-parse", "--abbrev-ref", "HEAD")
+SHORT_ARGS = ("rev-parse", "--short=7", "HEAD")
+
+
+@pytest.mark.parametrize(
+    ("answers", "expected"),
+    [
+        ({HEAD_ARGS: "develop"}, "develop"),
+        ({HEAD_ARGS: "feature/x"}, "feature/x"),
+        ({HEAD_ARGS: "HEAD", SHORT_ARGS: "abc1234"}, "detached@abc1234"),
+        ({HEAD_ARGS: "HEAD", SHORT_ARGS: "abc1234def5678"}, "detached@abc1234"),
+        ({HEAD_ARGS: FileNotFoundError("git")}, "unknown"),
+        ({HEAD_ARGS: subprocess.CalledProcessError(128, "git")}, "unknown"),
+        ({HEAD_ARGS: subprocess.TimeoutExpired("git", 2)}, "unknown"),
+        ({HEAD_ARGS: "HEAD", SHORT_ARGS: subprocess.CalledProcessError(128, "git")}, "unknown"),
+        ({HEAD_ARGS: ""}, "unknown"),
+    ],
+)
+def test_branch_label_cases(monkeypatch, answers, expected):
+    monkeypatch.setattr(kakao_notify, "_git", _fake_git(answers))
+    assert kakao_notify.branch_label() == expected
+
+
+def test_branch_label_long_name_is_shortened_from_the_front(monkeypatch):
+    name = "feature/" + "x" * 60 + "-tail"
+    monkeypatch.setattr(kakao_notify, "_git", _fake_git({HEAD_ARGS: name}))
+    label = kakao_notify.branch_label()
+    assert len(label) == kakao_notify.MAX_BRANCH_CHARS == 40
+    assert label.startswith("…") and label.endswith("-tail") and name.endswith(label[1:])
+    assert len(kakao_notify.compose_message("서버 시작 완료")) <= 200
+
+
+def test_branch_label_is_cached_per_process(monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(kakao_notify, "_git", _fake_git({HEAD_ARGS: "develop"}, calls))
+    assert kakao_notify.branch_label() == "develop"
+    assert kakao_notify.branch_label() == "develop"
+    assert calls == [HEAD_ARGS]
+
+
+def test_git_runs_without_shell_in_repo_root_with_timeout(monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(cmd=cmd, **kw)
+        return subprocess.CompletedProcess(cmd, 0, stdout="develop\n", stderr="")
+
+    monkeypatch.undo()  # 위 autouse의 `_git` 가짜를 풀고 실제 `_git`를 쓴다
+    monkeypatch.setattr(kakao_notify.subprocess, "run", fake_run)
+    assert kakao_notify._git(*HEAD_ARGS) == "develop"
+    assert seen["cmd"] == ["git", *HEAD_ARGS] and seen["timeout"] == 2.0
+    assert seen["cwd"] == kakao_notify.REPO_ROOT and not seen.get("shell")
+
+
+def test_all_four_messages_carry_branch(monkeypatch):
+    monkeypatch.setattr(kakao_notify, "_git", _fake_git({HEAD_ARGS: "feature/x"}))
+    http = FakeHttp()
+    n = _notifier(http)
+    ok = service.LazyGraphRunner(_settings(), _fake_factory, notifier=n)
+    assert ok.warm() is True
+    service.notify_startup(ok, _settings())
+
+    def boom(_s):
+        raise ValueError("x")
+
+    assert service.LazyGraphRunner(_settings(), boom, notifier=n).warm() is False
+    _join(n)
+    memos = [json.loads(f["template_object"])["text"] for u, _h, f in http.calls if u == MEMO_URL]
+    assert len(memos) == 4
+    assert all(m.startswith("[MediAgent-Can-I-PPiyak] [feature/x] ") and len(m) <= 200 for m in memos)
+    kinds = sorted(m.split("] ", 2)[2].split(" ")[0] + " " + m.split("] ", 2)[2].split(" ")[1] for m in memos)
+    assert kinds == ["corpus 완료", "warmup 실패", "warmup 완료", "서버 시작"]
+
+
+def test_message_has_no_path_or_user_info(monkeypatch):
+    monkeypatch.setattr(kakao_notify, "_git", _fake_git({HEAD_ARGS: "develop"}))
+    text = kakao_notify.compose_message("서버 시작 완료")
+    assert text == "[MediAgent-Can-I-PPiyak] [develop] 서버 시작 완료"
+    assert str(kakao_notify.REPO_ROOT) not in text and "/Users" not in text and "@" not in text

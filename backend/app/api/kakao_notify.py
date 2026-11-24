@@ -5,7 +5,7 @@
 - 스위치: `KAKAO_REST_API_KEY`·`KAKAO_REFRESH_TOKEN`이 모두 있고 `MEDIAGENT_NOTIFY`가 꺼짐(0·false·off)이 아닐 때만 켠다. 아니면 `from_settings`가 None.
 - 흐름: refresh token → access token(`kauth.kakao.com/oauth/token`) → 메모 API(`kapi.kakao.com/v2/api/talk/memo/default/send`, 텍스트 템플릿).
   응답에 새 refresh token이 오면(남은 유효기간 1개월 미만일 때만 옴) 로컬 파일(`data/ops/kakao_refresh_token.local`, `data/`는 .gitignore)에 저장한다.
-- 메시지는 단계 이름·초·개수만 담는다(사용자·질문·약명·IP 없음).
+- 메시지는 접두·브랜치 이름·단계 이름·초·개수만 담는다(사용자·질문·약명·IP·경로 없음). 브랜치는 `branch_label()`(프로세스당 한 번 캐시).
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import threading
 import urllib.parse
 import urllib.request
@@ -31,6 +32,13 @@ TOKEN_FILE = REPO_ROOT / "data" / "ops" / "kakao_refresh_token.local"
 _DEFAULT_TOKEN_FILE: Any = object()  # 인자 생략 표지(호출 때 `TOKEN_FILE`을 읽어 시험이 경로를 바꿀 수 있게 한다)
 _LINK = "https://developers.kakao.com"  # 텍스트 템플릿의 link 칸용 자리값(알림 클릭 대상 없음)
 
+PREFIX = "[MediAgent-Can-I-PPiyak]"
+MAX_BRANCH_CHARS = 40
+MAX_MESSAGE_CHARS = 200
+GIT_TIMEOUT_SECONDS = 2.0
+_branch_cache: str | None = None
+_branch_lock = threading.Lock()
+
 # 전송 함수: (url, headers, form) -> (HTTP 상태, JSON 본문 dict). 시험은 가짜로 주입한다.
 SendFn = Callable[[str, dict[str, str], dict[str, str]], tuple[int, dict[str, Any]]]
 
@@ -41,6 +49,42 @@ def _post_form(url: str, headers: dict[str, str], form: dict[str, str]) -> tuple
                                  headers={"Content-Type": "application/x-www-form-urlencoded;charset=utf-8", **headers})
     with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:  # noqa: S310 - 고정 https URL
         return resp.status, json.loads(resp.read() or b"{}")
+
+
+def _git(*args: str) -> str:
+    """저장소 루트에서 git을 셸 없이 부른다. 실패·타임아웃·비정상 종료는 예외(호출부가 `unknown`으로 처리)."""
+    out = subprocess.run(  # noqa: S603 - 고정 인자, 셸 미사용
+        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS, check=True,  # noqa: S607
+    )
+    return out.stdout.strip()
+
+
+def _shorten(name: str) -> str:
+    return name if len(name) <= MAX_BRANCH_CHARS else "…" + name[-(MAX_BRANCH_CHARS - 1):]
+
+
+def _detect_branch() -> str:
+    try:
+        head = _git("rev-parse", "--abbrev-ref", "HEAD")
+        if head == "HEAD":  # 분리된 HEAD
+            head = f"detached@{_git('rev-parse', '--short=7', 'HEAD')[:7]}"
+    except Exception:  # noqa: BLE001 - git 없음·저장소 아님·타임아웃 등: 알림은 best-effort
+        return "unknown"
+    return _shorten(head) if head else "unknown"
+
+
+def branch_label() -> str:
+    """이 서버가 도는 저장소의 현재 브랜치 이름(프로세스당 한 번 캐시). 실패하면 `unknown`, 분리 HEAD는 `detached@<해시 7자>`."""
+    global _branch_cache  # noqa: PLW0603
+    with _branch_lock:
+        if _branch_cache is None:
+            _branch_cache = _detect_branch()
+        return _branch_cache
+
+
+def compose_message(body: str) -> str:
+    """`[MediAgent-Can-I-PPiyak] [브랜치] 본문`(200자 이하)."""
+    return f"{PREFIX} [{branch_label()}] {body}"[:MAX_MESSAGE_CHARS]
 
 
 def notify_enabled(settings: Any) -> bool:
@@ -129,4 +173,4 @@ def _save(path: Path | None, token: str) -> None:
         logger.warning("kakao refresh token save failed: %s", type(exc).__name__)
 
 
-__all__ = ["MEMO_URL", "TOKEN_ENDPOINT", "KakaoNotifier", "notify_enabled"]
+__all__ = ["MEMO_URL", "PREFIX", "TOKEN_ENDPOINT", "KakaoNotifier", "branch_label", "compose_message", "notify_enabled"]

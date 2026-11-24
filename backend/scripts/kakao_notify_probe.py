@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.api.kakao_notify import KakaoNotifier  # noqa: E402
+from app.api.kakao_notify import KakaoNotifier, compose_message  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.security.redact import install_excepthook  # noqa: E402
 
@@ -32,7 +32,7 @@ def main() -> int:
         print("설정 확인됨(키 이름 기준). 실제 전송하려면 --yes")
         return 0
     try:
-        notifier.send_now("[MediAgent-Can-I-PPiyak] 알림 시험 메시지")
+        notifier.send_now(compose_message("알림 시험 메시지"))
     except Exception as exc:  # noqa: BLE001
         print(f"전송 실패: {type(exc).__name__}")
         return 1
