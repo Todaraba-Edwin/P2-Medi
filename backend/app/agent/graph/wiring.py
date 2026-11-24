@@ -87,6 +87,9 @@ def build_deps(
     typo_correct: bool | None = None,
     layer_check: bool = False,
     model_name: str | None = None,
+    safety_in_self_harm: bool = True,
+    safety_in_self_judge: bool = True,
+    safety_out_sensor: bool = True,
 ) -> GraphDeps:
     """그래프 의존성을 조립한다. 모델을 주지 않으면 `gpt-6-luna`(Chat Completions, `reasoning_effort="none"`) 객체를 만든다(호출은 하지 않음).
 
@@ -141,7 +144,8 @@ def build_deps(
         kwargs["registry"] = registry
     return GraphDeps(drug_dict=drug_dict, tool_model=tool_model, summary_model=summary_model, tools=tools, tool_ctx=tool_ctx,
                      system_prompt=system_prompt if system_prompt is not None else load_system_prompt(prompt_name), tracer=tracer, grade_def_fn=grade_def_fn,
-                     summary_instruction=summary_instruction, typo_correct=_resolve_typo_correct(service, typo_correct), layer_check=bool(layer_check), **kwargs)
+                     summary_instruction=summary_instruction, typo_correct=_resolve_typo_correct(service, typo_correct), layer_check=bool(layer_check), safety_in_self_harm=bool(safety_in_self_harm),
+                     safety_in_self_judge=bool(safety_in_self_judge), safety_out_sensor=bool(safety_out_sensor), **kwargs)
 
 
 def _resolve_model_name(settings: Any, *, service: bool, model_name: str | None) -> str:

@@ -20,6 +20,7 @@ CODE_IN_TEXT = "CODE_IN_TEXT"          # 요약 문장에 성분코드 형식이
 DOSE_NUMBER = "DOSE_NUMBER"            # 요약 문장에 복용량·투여량 숫자나 복용 빈도·기간 지시가 있다(RFP-21-03)
 DIAGNOSIS_CLAIM = "DIAGNOSIS_CLAIM"    # 진단 단정(진단·처방·복용량 결정은 하지 않는다, CLAUDE.md 1장)
 PRESCRIPTION_OR_DOSE_DECISION = "PRESCRIPTION_OR_DOSE_DECISION"  # 처방·복용 지시·복용 변경 지시
+ADVISORY_OR_ENDORSEMENT = "ADVISORY_OR_ENDORSEMENT"  # 일반 권유·지도("~하는 게 좋아요", "추천합니다")와 사용자 판단에 대한 동조·승인("괜찮아요", "좋은 선택이에요")
 
 # 안전 이유 판별은 정규식·키워드만 쓴다(LLM 없음). 공백을 모두 지운 문장에 매칭하므로 띄어쓰기 변형에 강하다.
 # 한계: 영어·우회 표현·글자 사이에 기호를 끼운 변형은 잡지 못한다(근거 상세는 검사하지 않는다).
@@ -62,13 +63,58 @@ _DECISION_PATTERNS = [
 ]
 
 
-def unsafe_reason(text: str) -> str | None:
-    """요약 문장의 안전 이유(복용량 숫자·진단 단정·처방/복용 결정). 없으면 None."""
+# --------------------------------------------------------------------------- 출구 Sensor(AG-13-40 A, 2026-11-23): 권유·지도·동조·승인 표현
+# 이 에이전트는 안내가 목적이고 지도·제안·권유는 하지 않는다. 그 규칙(프롬프트 Guide `agent_system@v3`)의 짝으로, 최종 답변 문장에서 결정론적으로 거른다.
+# 제어 방식: **문장 단위 차단**(위 `unsafe_reason`이 이유를 돌려주면 `filter_sentences`가 그 문장을 지운다). 다 지워지면 기존 경로(되감기 1회 → 코드 폴백 문구)가 이어진다.
+# 근거: 재작성(LLM 재호출)은 비결정적이고 비용이 들며, 전체 문구 대체는 맞는 근거 문장까지 버린다. 고정 문구·근거 항목은 코드가 따로 붙이므로 문장을 지워도 안전 정보가 줄지 않는다.
+# 인용부호 안(허가사항·고시 원문 인용)은 에이전트의 말이 아니라 원문이므로 검사하지 않는다(인용이 원문과 같은지는 H28이 따로 본다).
+# 면제: 권유의 동사가 확인·상의·상담·문의·물어보기·찾아보기 같은 "근거·전문가를 보라"는 안내면 통과한다(약국·약사 확인 안내는 필수 문구다).
+_QUOTED = re.compile(r"[\"“「『][^\"“”「」『』\n]+[\"”」』]")
+_CONSULT_STEMS = ("확인", "상의", "상담", "문의", "물어", "여쭤", "알아", "찾아", "살펴", "읽어", "참고", "연락", "방문", "검색", "전화", "내원", "진료")
+# 권유·지도: 끝맺음만 매칭하고, 바로 앞 6글자(공백 제거 기준)에 면제 어간이 있으면 통과시킨다.
+_ADVISORY_ENDINGS = [
+    re.compile(r"보(?:세요|시길|시는게|시는것이|십시오|시면좋)"),                                    # 드셔 보세요, 해 보시길
+    re.compile(r"(?:는|은)(?:게|것이|것도|편이|쪽이)(?:더)?(?:좋|낫|바람직|안전)(?:아요|습니다|겠|을것|을거|지요|네요|죠|다)"),  # 하는 게 좋아요
+    re.compile(r"(?:추천|권장|권유|권고)(?:합니다|해요|드려요|드립니다|할게요|드릴게요|해드립|해드려)|권(?:합니다|해요|해드립|해드려|장합니다)"),
+    re.compile(r"시(?:기|길)(?:를)?바(?:랍니다|라요|랄게요|래요)"),                                    # 쉬시기 바랍니다, 드시길 바라요
+    re.compile(r"(?:하시면|해주시면|드시면|하면|해두시면|해보시면|가시면)(?:좋겠|좋아요|좋습니다|더좋)"),
+]
+# 동조·승인(사용자 판단에 대한 긍정): 면제가 없다("의사에게 안 물어봐도 괜찮아요"를 통과시키지 않기 위해). 매칭 뒤 12글자 안에 부정(아니·않·없·못·말)이 있으면 부정문이라 통과시킨다.
+_ENDORSE_PATTERNS = [
+    re.compile(r"(?:해도|하셔도|드셔도|먹어도|써도|사용해도|복용해도|그렇게해도|그대로해도)(?:좋아요|좋습니다|무방)"),
+    re.compile(r"(?:좋은|현명한|옳은|합리적인|적절한|훌륭한)(?:선택|판단|결정|생각)"),
+    re.compile(r"(?:판단|결정|생각|말씀|선택)(?:이|은|도)?(?:맞|옳|타당|적절|좋)"),
+    re.compile(r"(?:그렇게|말씀하신대로|판단하신대로|생각하신대로|결정하신대로|그대로)(?:하셔도|하세요|하시면|하시는게|해도|하는게|하셔요)"),
+    re.compile(r"잘(?:하셨|한결정|하신)"),
+    re.compile(r"(?:동의|공감)(?:합니다|해요|해)(?!하기|하지)"),
+]
+# "괜찮아요"·"문제없어요"·"안심하세요"·"걱정 마세요" 같은 안전 단정·안심 표현은 Validator의 `SAFE_ASSERTION_PATTERNS`가 이미 막는다(중복 검사를 두지 않는다).
+_NEGATION = re.compile(r"아니|않|없|못|말")
+
+
+def advisory_or_endorsement(text: str) -> bool:
+    """권유·지도·동조·승인 표현이 있으면 True(공백 제거 뒤 정규식, 인용부호 안은 제외)."""
+    t = _WS.sub("", _QUOTED.sub("", text))
+    for pat in _ADVISORY_ENDINGS:
+        for m in pat.finditer(t):
+            if not any(stem in t[max(0, m.start() - 6): m.end()] for stem in _CONSULT_STEMS):
+                return True
+    for pat in _ENDORSE_PATTERNS:
+        for m in pat.finditer(t):
+            if not _NEGATION.search(t[m.end(): m.end() + 12]):
+                return True
+    return False
+
+
+def unsafe_reason(text: str, *, advisory: bool = True) -> str | None:
+    """요약 문장의 안전 이유(복용량 숫자·진단 단정·처방/복용 결정·권유/동조). 없으면 None."""
     t = _WS.sub("", text)
     for reason, pats in ((DOSE_NUMBER, _DOSE_PATTERNS), (DIAGNOSIS_CLAIM, _DIAGNOSIS_PATTERNS),
                          (PRESCRIPTION_OR_DOSE_DECISION, _DECISION_PATTERNS)):
         if any(p.search(t) for p in pats):
             return reason
+    if advisory and advisory_or_endorsement(text):   # 출구 Sensor(AG-13-40 A): 앞의 세 검사에 걸리지 않은 권유·지도·동조 표현
+        return ADVISORY_OR_ENDORSEMENT
     return None
 
 
@@ -102,7 +148,7 @@ class FilterResult:
         return len(self.dropped)
 
 
-def filter_sentences(draft: AnswerDraft, items: list[dict[str, Any]]) -> FilterResult:
+def filter_sentences(draft: AnswerDraft, items: list[dict[str, Any]], *, advisory_sensor: bool = True) -> FilterResult:
     known = known_evidence_ids(items)
     index = build_text_index(items)
     res = FilterResult()
@@ -115,7 +161,7 @@ def filter_sentences(draft: AnswerDraft, items: list[dict[str, Any]]) -> FilterR
         elif has_code(s.text):
             reason = CODE_IN_TEXT
         else:
-            reason = unsafe_reason(s.text)   # 근거 ID가 있어도 적용한다(근거 검사 뒤)
+            reason = unsafe_reason(s.text, advisory=advisory_sensor)   # 근거 ID가 있어도 적용한다(근거 검사 뒤)
         if reason:
             res.dropped.append(Dropped(i, reason, s.text))
             continue

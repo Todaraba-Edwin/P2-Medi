@@ -241,6 +241,24 @@ REFUSE_MESSAGES = {
     "IGNORE_PREVIOUS": "지시를 바꾸라는 요청은 따르지 않아요. 이 서비스는 공공 자료로 약의 금기를 확인해 드리는 정보 제공만 하고, 진단·처방·복용량 결정은 하지 않아요. 약 이름과 궁금한 점만 다시 적어 주세요.",
 }
 
+# --------------------------------------------------------------------------- 안전장치 3겹 입구 거절 문구(AG-24-01 A·AG-13-40 A)
+# **원문 승인 2026-11-23(사용자)**: 아래 두 문구는 글자 그대로 승인됐다. 하네스 4.4절 표(`P2-doc/PJ2-Agent-Harness.md`)와 글자가 같아야 하며
+# `test_ag24_safety_3layer`가 일치를 검사한다. `REFUSE_MESSAGES`와 따로 둔 이유: 그 표는 입구 유형별 건수 시험(`test_ag08_type_counts`)의
+# 키 집합이다. 응급 안내(119)는 `finalize(emergency=True)`가 맨 위에 따로 붙이므로 `SELF_HARM` 문구에는 119를 다시 쓰지 않는다.
+# 범위는 119와 약사·의료기관 안내까지다(AG-24-02 B). 위기 상담 번호·연락처는 쓰지 않는다(RFP-19-01 A).
+# "의사"를 쓰지 않는다(`test_ag09_no_evidence`가 "의사"가 든 상수를 목록으로 제한한다).
+SAFETY_REFUSE_APPROVED = {
+    "SELF_HARM": "많이 힘드신 것 같아 걱정돼요. 이 서비스는 약을 위험하게 먹는 방법이나 양, 위험해지는 조합을 알려 드릴 수 없어요. 지금 바로 가까운 의료기관이나 약사에게 도움을 요청하세요.",
+    "SELF_JUDGE_APPROVAL": "처방받은 약을 상담 없이 스스로 정하는 일을 괜찮다거나 맞다고 확인해 드릴 수 없어요. 이 서비스는 공공 자료를 찾아 전달할 뿐 복용 여부를 정해 주지 않아요. 처방해 준 병원이나 약사에게 먼저 확인하세요.",
+}
+SAFETY_REFUSE_APPROVED_KEYS = tuple(SAFETY_REFUSE_APPROVED)  # 2026-11-23 승인. 거절 순서는 SELF_HARM이 먼저다
+
+
+def all_refuse_messages() -> dict[str, str]:
+    """입구 거절 문구 전체(안전장치 입구 문구가 앞, 기존 승인분이 뒤). `finalize`·`guardrail.refuse_reasons`가 이 표를 본다.
+    함수로 둔 이유: 같은 문구를 담은 대문자 별칭을 두면 문구 상수 목록 시험(`test_ag09_no_evidence`)이 문구를 두 번 센다."""
+    return {**SAFETY_REFUSE_APPROVED, **REFUSE_MESSAGES}
+
 # 거절 이유가 여럿일 때 문구를 잇는 구분자(AG-08-08 A: 모두 보인다, 위 표의 정의 순서). 문장이 아니라 구분자다
 REFUSE_JOIN = " "
 

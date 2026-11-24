@@ -673,7 +673,7 @@ def finalize(
 
     refuse_keys = list(refuse_reasons or []) or ([refuse_reason] if refuse_reason else [])
     if refuse_keys:
-        texts = dict.fromkeys(fp.REFUSE_MESSAGES.get(k, fp.REFUSE_MESSAGES["OUT_OF_SCOPE"]) for k in refuse_keys)
+        texts = dict.fromkeys(fp.all_refuse_messages().get(k, fp.REFUSE_MESSAGES["OUT_OF_SCOPE"]) for k in refuse_keys)
         summary: str | None = fp.REFUSE_JOIN.join(texts)
     elif limit_reached:
         summary = None  # LLM 요약 없이 코드로만
