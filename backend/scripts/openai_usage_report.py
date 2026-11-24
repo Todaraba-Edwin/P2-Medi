@@ -163,12 +163,13 @@ def _short_item(name: str, limit: int = 26) -> str:
 DAY_ABBR = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 
 
-def _week_block(by_day: dict[date, Bucket], monday: date, last: date) -> list[str]:
+def _week_block(by_day: dict[date, Bucket], monday: date, last: date, first: date | None = None) -> list[str]:
     """한 ISO 주의 보고 줄들(접두 제외): `YYYY`, `ISO 현재/전체(월~일) Total $X`, 월요일부터 `last`까지 `DDD(MM/DD) $X`."""
     iso_year, iso_week, _ = monday.isocalendar()
     sunday = monday + timedelta(days=6)
     total_weeks = date(iso_year, 12, 28).isocalendar().week  # 12/28은 항상 그 해의 마지막 ISO 주에 속한다
-    span = [monday + timedelta(days=i) for i in range((last - monday).days + 1)]
+    start = first or monday  # 일일 보고는 어제 하루만, `--week-of`는 월요일부터
+    span = [start + timedelta(days=i) for i in range((last - start).days + 1)]
     week_total = sum(by_day[d].total for d in span if d in by_day)
     lines = [f"{iso_year}", f"ISO {iso_week}/{total_weeks}({monday:%m/%d}~{sunday:%m/%d}) Total {fmt_usd(week_total)}"]
     for d in span:
@@ -177,7 +178,7 @@ def _week_block(by_day: dict[date, Bucket], monday: date, last: date) -> list[st
 
 
 def build_messages(buckets: list[Bucket], today: date, days: int = 7) -> list[str]:
-    """일일 보고(사용자 지정 형식, 2026-11-24). 어제가 속한 ISO 주의 월요일부터 어제까지 일별 비용과 그 합계를 한 건으로 보낸다.
+    """일일 보고(사용자 지정 형식, 2026-11-24). 어제 하루의 비용을 한 건으로 보낸다(헤더 ISO 주·범위는 어제가 속한 주, Total은 보이는 날의 합).
 
     ```
     [접두]
@@ -186,10 +187,10 @@ def build_messages(buckets: list[Bucket], today: date, days: int = 7) -> list[st
     DDD(MM/DD) $0.00
     ```
     ISO 8601 주 기준(월요일 시작, 첫 목요일이 든 주가 1주)이다. `total`은 그 해의 ISO 총 주 수(52 또는 53), 괄호는 그 주의 월~일이다.
-    어제가 월요일이면 그 주는 어제 하루만 담는다. `days`는 옛 인자(호환용)라 쓰지 않는다."""
+    `days`는 옛 인자(호환용)라 쓰지 않는다."""
     yday = today - timedelta(days=1)
     monday = yday - timedelta(days=yday.weekday())
-    lines = [PREFIX] + _week_block({b.day: b for b in buckets}, monday, yday)
+    lines = [PREFIX] + _week_block({b.day: b for b in buckets}, monday, yday, first=yday)  # 사용자 지시 2026-11-24: 당일(어제) 하루만
     text = "\n".join(lines)
     return [text if len(text) <= MAX_LEN else text[: MAX_LEN - 1] + "…"]
 

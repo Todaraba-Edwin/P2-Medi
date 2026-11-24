@@ -106,14 +106,25 @@ def test_monday_yesterday_is_single_week_line():
         assert gone not in msgs[0]
 
 
-def test_sunday_yesterday_has_seven_lines_and_zero_days():
-    today = datetime(2026, 11, 30).date()  # 어제 = 11/29(일)
-    raw = [bucket(kst_day(11, 22), {"x": 50.0}),  # 지난주: 포함되면 안 된다
+def test_sunday_yesterday_is_single_sun_line_under_last_week_header():
+    today = datetime(2026, 11, 30).date()  # 어제 = 11/29(일): 헤더는 지난주(11/23~11/29)
+    raw = [bucket(kst_day(11, 22), {"x": 50.0}),  # 그 전주: 포함되면 안 된다
            bucket(kst_day(11, 23), {"x": 0.75}), bucket(kst_day(11, 25), {"x": 1.25}), bucket(kst_day(11, 29), {"x": 2.0})]
     lines = msgs_for(raw, today)[0].split("\n")
-    assert lines[:3] == [rep.PREFIX, "2026", "ISO 48/53(11/23~11/29) Total $4.00"]
-    assert lines[3:] == ["MON(11/23) $0.75", "TUE(11/24) $0.00", "WED(11/25) $1.25", "THU(11/26) $0.00",
-                         "FRI(11/27) $0.00", "SAT(11/28) $0.00", "SUN(11/29) $2.00"]
+    assert lines == [rep.PREFIX, "2026", "ISO 48/53(11/23~11/29) Total $2.00", "SUN(11/29) $2.00"]  # 주중 누적 없음
+
+
+@pytest.mark.parametrize(("yday", "abbr"), [(25, "WED"), (26, "THU"), (27, "FRI"), (28, "SAT"), (29, "SUN"), (30, "MON"), (24, "TUE")])
+def test_daily_report_shows_only_yesterday_for_every_weekday(yday, abbr):
+    """어제가 무슨 요일이든 일별 줄은 어제 하나뿐이고 Total은 그 하루 값이다(같은 주의 다른 날 비용은 섞이지 않는다)."""
+    d = datetime(2026, 11, 24) + timedelta(days=yday - 24)  # 11/24(화)부터 11/30(월)
+    today = (d + timedelta(days=1)).date()
+    raw = [bucket(kst_day(11, n), {"x": float(n)}) for n in range(23, 31)]  # 날마다 다른 값(11/23=23 ... 11/30=30)
+    lines = msgs_for(raw, today)[0].split("\n")
+    assert len(lines) == 4 and lines[0] == rep.PREFIX and lines[1] == "2026"
+    assert lines[3] == f"{abbr}({d:%m/%d}) ${float(d.day):.2f}"
+    assert lines[2].endswith(f"Total ${float(d.day):.2f}")
+    assert sum(1 for ln in lines if ln.startswith(rep.DAY_ABBR)) == 1
 
 
 def test_week_does_not_leak_previous_week_or_include_today():
@@ -126,8 +137,7 @@ def test_week_crossing_month_boundary():
     today = datetime(2026, 12, 4).date()  # 어제 = 12/03(목), 주 = 11/30~12/06
     raw = [bucket(kst_day(11, 30), {"x": 1.0}), bucket(kst_day(12, 3), {"x": 0.5})]
     lines = msgs_for(raw, today)[0].split("\n")
-    assert lines == [rep.PREFIX, "2026", "ISO 49/53(11/30~12/06) Total $1.50",
-                     "MON(11/30) $1.00", "TUE(12/01) $0.00", "WED(12/02) $0.00", "THU(12/03) $0.50"]
+    assert lines == [rep.PREFIX, "2026", "ISO 49/53(11/30~12/06) Total $0.50", "THU(12/03) $0.50"]  # 월 경계 헤더 유지, 어제만
 
 
 @pytest.mark.parametrize(("today", "year", "head", "last_day"), [
@@ -402,7 +412,7 @@ def test_as_of_changes_reference_and_excludes_later_buckets():
     assert code == 0
     lines = out.split("\n")
     assert lines[2] == "ISO 47/53(11/16~11/22) Total $3.00"
-    assert lines[3:6] == ["MON(11/16) $0.00", "TUE(11/17) $0.00", "WED(11/18) $3.00"]  # 11/23 이후 버킷은 기준일 이후라 제외
+    assert lines[3] == "WED(11/18) $3.00" and lines[4] == "---"  # 어제 하루만. 11/23 이후 버킷은 기준일 이후라 제외
     assert "11/23)" not in out and "0.75" not in out
     assert f"start_time={int(utc_day(11, 16).timestamp())}" in f.calls[0][0]
     assert f"end_time={int(utc_day(11, 19).timestamp())}" in f.calls[0][0]
