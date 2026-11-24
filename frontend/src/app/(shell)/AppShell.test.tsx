@@ -662,4 +662,27 @@ describe("창 크기 자동 열고 닫기(FE-17 U-18)", () => {
     resize(1500);
     expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
   });
+
+  it("근거 상세(U-18 추가): 1280에서 열린 채 900으로 줄이면 닫히고(시트로 덮지 않음), 다시 1280으로 넓혀도 닫힌 채다. 좁은 폭에서 직접 연 시트는 넓어져도 유지한다", async () => {
+    const { user } = setup({ width: 1280 });
+    await ask(user, "가나다정 먹어도 돼요");
+    const panel = await screen.findByTestId("panel-column");
+    // 패널 안에 초점이 있으면 닫힌 뒤 그 결과의 진입 버튼으로 돌아간다
+    within(panel).getAllByRole("button")[0].focus();
+    resize(900);
+    await waitFor(() => expect(screen.queryByTestId("panel-column")).toBeNull());
+    expect(screen.queryByRole("dialog", { name: "근거 상세" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("evidence-entry")));
+    resize(1280);
+    expect(screen.queryByTestId("panel-column")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "근거 상세" })).toBeNull();
+    // 좁은 폭에서 사용자가 직접 연 시트는 폭이 더 줄어도, 넓어져도 닫지 않는다(넓어지면 우측 패널)
+    resize(900);
+    await user.click(screen.getByTestId("evidence-entry"));
+    expect(await screen.findByRole("dialog", { name: "근거 상세" })).toBeInTheDocument();
+    resize(700);
+    expect(screen.getByRole("dialog", { name: "근거 상세" })).toBeInTheDocument();
+    resize(1280);
+    expect(await screen.findByTestId("panel-column")).toBeInTheDocument();
+  });
 });

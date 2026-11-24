@@ -36,44 +36,51 @@ function WaitingMark() {
   );
 }
 
+/**
+ * 진행 표시(FE-17 U-24, 2026-11-24): 병아리 오른쪽에 세 단계를 세로로 둔다. 바깥 노란 상자는 없다(테두리·바탕 없음).
+ * - 완료(done): 기존 표시 그대로(노란 원 + 체크)
+ * - 진행 중(now): 굵은 글자 + 줄의 스피너 + 글자 위로 mute 색 띠가 지나가는 쉬머(`.progress-shimmer`, globals.css)
+ * - 예정(todo): 줄 전체를 낮은 불투명도(55%)로. 글자 색은 본문색이라 라이트·다크 모두 4.5:1 이상을 지킨다
+ * 움직임 줄이기에서는 쉬머·스피너가 멈추고 굵기·표지(원 모양)로 구분한다. 새 글자는 없다
+ */
 export function ProgressSteps({ stage, label, hideMascot = false }: ProgressStepsProps) {
   const current = stage ? ORDER.indexOf(stage) : -1;
   const waiting = stage === null;
   return (
-    <div role="status" aria-label={PROGRESS_LABEL} className="flex flex-col items-start gap-2.5">
-      {(!hideMascot || waiting) && (
-        <div className="flex items-end gap-2">
-          {!hideMascot && <Mascot variant="search" size={72} />}
-          {waiting && <WaitingMark />}
-        </div>
-      )}
-      <ol className="m-0 flex w-full max-w-xs list-none flex-col gap-2 rounded-[18px] bg-bg-soft px-4 py-3">
-        {ORDER.map((item, index) => {
-          const state = index < current ? "done" : index === current ? "now" : "todo";
-          return (
-            <li
-              key={item}
-              data-state={state}
-              aria-current={state === "now" ? "step" : undefined}
-              className={cn("flex items-center gap-2.5 text-[15px]", state === "now" && "font-bold", state === "todo" && "text-mute")}
-            >
-              {state === "done" && (
-                <span aria-hidden="true" className="grid size-5 flex-none place-items-center rounded-full bg-yellow text-on-yellow">
-                  <CheckIcon className="size-3" strokeWidth={3} />
+    <div role="status" aria-label={PROGRESS_LABEL} data-testid="progress-steps" className="flex items-center gap-3">
+      {!hideMascot && <Mascot variant="search" size={72} />}
+      <div className="flex min-w-0 flex-col items-start gap-2">
+        {waiting && <WaitingMark />}
+        <ol data-testid="progress-step-list" className="m-0 flex list-none flex-col gap-2 p-0">
+          {ORDER.map((item, index) => {
+            const state = index < current ? "done" : index === current ? "now" : "todo";
+            return (
+              <li
+                key={item}
+                data-state={state}
+                aria-current={state === "now" ? "step" : undefined}
+                className={cn("flex items-center gap-2.5 text-[15px] whitespace-nowrap", state === "now" && "font-bold", state === "todo" && "opacity-55")}
+              >
+                {state === "done" && (
+                  <span aria-hidden="true" className="grid size-5 flex-none place-items-center rounded-full bg-yellow text-on-yellow">
+                    <CheckIcon className="size-3" strokeWidth={3} />
+                  </span>
+                )}
+                {state === "now" && (
+                  <span
+                    aria-hidden="true"
+                    className="size-5 flex-none animate-spin rounded-full border-[2.5px] border-line-2 border-t-link motion-reduce:animate-none"
+                  />
+                )}
+                {state === "todo" && <span aria-hidden="true" className="size-5 flex-none rounded-full border-[1.5px] border-line-2" />}
+                <span data-testid="progress-step-text" className={cn(state === "now" && "progress-shimmer")}>
+                  {state === "now" && label ? label : STAGE_LABELS[item]}
                 </span>
-              )}
-              {state === "now" && (
-                <span
-                  aria-hidden="true"
-                  className="size-5 flex-none animate-spin rounded-full border-[2.5px] border-line-2 border-t-link"
-                />
-              )}
-              {state === "todo" && <span aria-hidden="true" className="size-5 flex-none rounded-full border-[1.5px] border-line-2" />}
-              <span>{state === "now" && label ? label : STAGE_LABELS[item]}</span>
-            </li>
-          );
-        })}
-      </ol>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
     </div>
   );
 }

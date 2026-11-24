@@ -36,7 +36,9 @@ export type ShellAction =
   | { type: "newChat" }
   /**
    * 창 크기가 사이드바 기준선(`DESKTOP_MIN_WIDTH`)을 가로질렀다(FE-17 U-18). 좁아지면(`desktop: false`) 사이드바·드로어를 닫고,
-   * 넓어지면(`desktop: true`) 사이드바를 펼치고 드로어 상태를 지운다. 같은 구간 안의 크기 변화에는 보내지 않는다(사용자 토글을 덮지 않는다)
+   * 넓어지면(`desktop: true`) 사이드바를 펼치고 드로어 상태를 지운다. 같은 구간 안의 크기 변화에는 보내지 않는다(사용자 토글을 덮지 않는다).
+   * 근거 상세(FE-17 U-18 추가 지시, 2026-11-24): 좁아질 때만 닫는다(우측 패널이 본문을 덮는 시트로 바뀌지 않게). 넓어질 때는 다시 열지 않고
+   * 지금 상태를 그대로 둔다(자동으로 닫힌 것은 닫힌 채, 좁은 폭에서 사용자가 직접 연 것은 열린 채)
    */
   | { type: "viewportCrossed"; desktop: boolean };
 
@@ -73,7 +75,7 @@ export function shellReducer(state: ShellState, action: ShellAction): ShellState
     case "newChat":
       return { ...state, drawerOpen: false, evidenceTurnId: null };
     case "viewportCrossed":
-      return { ...state, sidebarExpanded: action.desktop, drawerOpen: false };
+      return { ...state, sidebarExpanded: action.desktop, drawerOpen: false, evidenceTurnId: action.desktop ? state.evidenceTurnId : null };
   }
 }
 
