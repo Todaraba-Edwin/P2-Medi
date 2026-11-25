@@ -118,19 +118,21 @@ def test_sunday_yesterday_is_single_sun_line_under_last_week_header():
     raw = [bucket(kst_day(11, 22), {"x": 50.0}),  # 그 전주: 포함되면 안 된다
            bucket(kst_day(11, 23), {"x": 0.75}), bucket(kst_day(11, 25), {"x": 1.25}), bucket(kst_day(11, 29), {"x": 2.0})]
     lines = msgs_for(raw, today)[0].split("\n")
-    assert lines == [rep.PREFIX, "2026 (UTC)", "ISO 48/53(11/23~11/29) Total $2.00", "SUN(11/29) $2.00"]  # 주중 누적 없음
+    assert lines == [rep.PREFIX, "2026 (UTC)", "ISO 48/53(11/23~11/29) Total $4.00", "SUN(11/29) $2.00"]  # Total은 월~어제 누적(0.75+1.25+2.0), 줄은 어제만
 
 
 @pytest.mark.parametrize(("yday", "abbr"), [(25, "WED"), (26, "THU"), (27, "FRI"), (28, "SAT"), (29, "SUN"), (30, "MON"), (24, "TUE")])
 def test_daily_report_shows_only_yesterday_for_every_weekday(yday, abbr):
-    """어제가 무슨 요일이든 일별 줄은 어제 하나뿐이고 Total은 그 하루 값이다(같은 주의 다른 날 비용은 섞이지 않는다)."""
+    """어제가 무슨 요일이든 일별 줄은 어제 하나뿐이고 Total은 월요일~어제의 주간 누적이다(2026-11-25 수정)."""
     d = datetime(2026, 11, 24) + timedelta(days=yday - 24)  # 11/24(화)부터 11/30(월)
     today = (d + timedelta(days=1)).date()
     raw = [bucket(kst_day(11, n), {"x": float(n)}) for n in range(23, 31)]  # 날마다 다른 값(11/23=23 ... 11/30=30)
+    monday = d - timedelta(days=d.weekday())
+    week_total = sum(n for n in range(monday.day, d.day + 1))  # 같은 달 안에서만 쓰는 시험
     lines = msgs_for(raw, today)[0].split("\n")
     assert len(lines) == 4 and lines[0] == rep.PREFIX and lines[1] == "2026 (UTC)"
     assert lines[3] == f"{abbr}({d:%m/%d}) ${float(d.day):.2f}"
-    assert lines[2].endswith(f"Total ${float(d.day):.2f}")
+    assert lines[2].endswith(f"Total ${float(week_total):.2f}")
     assert sum(1 for ln in lines if ln.startswith(rep.DAY_ABBR)) == 1
 
 
@@ -144,7 +146,7 @@ def test_week_crossing_month_boundary():
     today = datetime(2026, 12, 4).date()  # 어제 = 12/03(목), 주 = 11/30~12/06
     raw = [bucket(kst_day(11, 30), {"x": 1.0}), bucket(kst_day(12, 3), {"x": 0.5})]
     lines = msgs_for(raw, today)[0].split("\n")
-    assert lines == [rep.PREFIX, "2026 (UTC)", "ISO 49/53(11/30~12/06) Total $0.50", "THU(12/03) $0.50"]  # 월 경계 헤더 유지, 어제만
+    assert lines == [rep.PREFIX, "2026 (UTC)", "ISO 49/53(11/30~12/06) Total $1.50", "THU(12/03) $0.50"]  # 월 경계 헤더 유지, Total은 11/30~어제 누적, 줄은 어제만
 
 
 @pytest.mark.parametrize(("today", "year", "head", "last_day"), [

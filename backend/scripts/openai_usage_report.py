@@ -170,7 +170,9 @@ def _week_block(by_day: dict[date, Bucket], monday: date, last: date, first: dat
     total_weeks = date(iso_year, 12, 28).isocalendar().week  # 12/28은 항상 그 해의 마지막 ISO 주에 속한다
     start = first or monday  # 일일 보고는 어제 하루만, `--week-of`는 월요일부터
     span = [start + timedelta(days=i) for i in range((last - start).days + 1)]
-    week_total = sum(by_day[d].total for d in span if d in by_day)
+    # Total은 항상 그 주 월요일~last의 합(주간 누적). 일일 보고에서 줄은 어제 하루만 보인다(2026-11-25 수정: 옛 값은 어제 하루만 합산).
+    week_span = [monday + timedelta(days=i) for i in range((last - monday).days + 1)]
+    week_total = sum(by_day[d].total for d in week_span if d in by_day)
     lines = [f"{iso_year} (UTC)", f"ISO {iso_week}/{total_weeks}({monday:%m/%d}~{sunday:%m/%d}) Total {fmt_usd(week_total)}"]
     for d in span:
         lines.append(f"{DAY_ABBR[d.weekday()]}({d:%m/%d}) {fmt_usd(by_day[d].total) if d in by_day else '$0.00'}")
@@ -178,7 +180,7 @@ def _week_block(by_day: dict[date, Bucket], monday: date, last: date, first: dat
 
 
 def build_messages(buckets: list[Bucket], today: date, days: int = 7) -> list[str]:
-    """일일 보고(사용자 지정 형식, 2026-11-24). 어제 하루의 비용을 한 건으로 보낸다(헤더 ISO 주·범위는 어제가 속한 주, Total은 보이는 날의 합).
+    """일일 보고(사용자 지정 형식, 2026-11-24). 어제 하루의 줄만 보내고, Total은 어제가 속한 주의 월요일부터 어제까지의 합(주간 누적)이다(2026-11-25 수정).
 
     ```
     [접두]
